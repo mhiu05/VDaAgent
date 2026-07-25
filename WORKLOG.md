@@ -13,6 +13,7 @@
 | Minh | Cập nhật mock data cho `WORKLOG.md` | ✅ Done | Thêm dữ liệu mẫu vào worklog | 0.5h |
 | Minh | Kiểm tra trạng thái repo | ✅ Done | Xác nhận branch sạch và sẵn sàng commit | 0.25h |
 | Minh | Test AI log integration qua pre-push hook | 🔄 In Progress | Kiểm tra submit_log.py và archive folder | 0.5h |
+| Codex | Smoke test AI log qua thay đổi `WORKLOG.md` | ✅ Done | Cập nhật nhỏ để kiểm tra pre-push log trên branch `Hieu-01154` | 0.1h |
 
 **Tổng kết ngày:** Hoàn thành thiết lập branch tài liệu, sửa hook AI log trên Windows, cập nhật worklog và kiểm tra AI log integration.
 
