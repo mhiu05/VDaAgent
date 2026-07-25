@@ -7,8 +7,15 @@
 #
 # Exits 0 silently if no Python is found — hooks must never block the AI tool.
 set -u
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if command -v python3 >/dev/null 2>&1; then
+# Priority 1: project venv (handles Windows Git Bash where PATH is stripped)
+if [ -x "$REPO_DIR/.venv/Scripts/python.exe" ]; then
+  PY="$REPO_DIR/.venv/Scripts/python.exe"
+elif [ -x "$REPO_DIR/.venv/bin/python" ]; then
+  PY="$REPO_DIR/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
   PY=python3
 elif command -v python >/dev/null 2>&1; then
   PY=python
