@@ -12,8 +12,9 @@
 | Minh | Sửa hook pre-push để AI logs có thể ghi nhận trên Windows | ✅ Done | Hook đã thêm fallback sang scripts/_pyrun.cmd | 0.5h |
 | Minh | Cập nhật mock data cho `WORKLOG.md` | ✅ Done | Thêm dữ liệu mẫu vào worklog | 0.5h |
 | Minh | Kiểm tra trạng thái repo | ✅ Done | Xác nhận branch sạch và sẵn sàng commit | 0.25h |
+| Minh | Test AI log integration qua pre-push hook | 🔄 In Progress | Kiểm tra submit_log.py và archive folder | 0.5h |
 
-**Tổng kết ngày:** Hoàn thành thiết lập branch tài liệu, sửa hook AI log trên Windows và cập nhật worklog.
+**Tổng kết ngày:** Hoàn thành thiết lập branch tài liệu, sửa hook AI log trên Windows, cập nhật worklog và kiểm tra AI log integration.
 
 ---
 
