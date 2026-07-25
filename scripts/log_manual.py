@@ -29,6 +29,13 @@ from pathlib import Path
 
 VN_TZ = timezone(timedelta(hours=7))
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def git(cmd):
     try:
@@ -87,7 +94,7 @@ def main():
     entry = {
         "ts": ts,
         "tool": tool,
-        "event": "ManualLog",
+        "event": "UserPrompt",
         "entry_id": f"manual-{datetime.now(VN_TZ).strftime('%Y%m%d-%H%M%S')}",
         "model": model,
         "repo": git("git remote get-url origin").split("/")[-1].replace(".git", ""),

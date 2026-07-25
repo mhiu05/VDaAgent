@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=claude",
-            "shell": "bash"
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/.claude/hooks/log_claude_prompt.sh\"'",
+            "timeout": 10
           }
         ]
       }
@@ -17,8 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=claude",
-            "shell": "bash"
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/.claude/hooks/log_claude_prompt.sh\"'",
+            "timeout": 10
           }
         ]
       }
@@ -28,8 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=claude",
-            "shell": "bash"
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/.claude/hooks/log_claude_prompt.sh\"'",
+            "timeout": 10
           }
         ]
       }
