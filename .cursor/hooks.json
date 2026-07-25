@@ -3,12 +3,12 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=cursor"
+        "command": "sh -c '\"$(git rev-parse --show-toplevel)/.cursor/hooks/log_cursor_prompt.sh\"'"
       }
     ],
     "stop": [
       {
-        "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=cursor"
+        "command": "sh -c '\"$(git rev-parse --show-toplevel)/.cursor/hooks/log_cursor_prompt.sh\"'"
       }
     ]
   }

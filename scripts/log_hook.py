@@ -50,6 +50,93 @@ def detect_tool(data: dict) -> str:
     return "unknown"
 
 
+def _content_text(parts) -> str:
+    """Extract text from Codex transcript content parts."""
+    if isinstance(parts, str):
+        return parts
+    if not isinstance(parts, list):
+        return ""
+
+    chunks = []
+    for part in parts:
+        if isinstance(part, str):
+            chunks.append(part)
+        elif isinstance(part, dict):
+            text = part.get("text") or part.get("content")
+            if isinstance(text, str):
+                chunks.append(text)
+    return "\n".join(chunk for chunk in chunks if chunk).strip()
+
+
+def _codex_prompt_from_transcript(transcript_path: str, turn_id: str) -> str:
+    """Best-effort fallback for Codex hooks.
+
+    UserPromptSubmit usually carries the prompt directly. If a client version
+    only gives us transcript_path/turn_id, read the matching user message from
+    Codex's JSONL transcript.
+    """
+    if not transcript_path:
+        return ""
+
+    path = Path(transcript_path)
+    if not path.exists():
+        return ""
+
+    last_user_prompt = ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                payload = item.get("payload") or {}
+                if item.get("type") != "response_item":
+                    continue
+                if payload.get("role") != "user":
+                    continue
+
+                prompt = _content_text(payload.get("content"))
+                if not prompt:
+                    continue
+
+                meta = payload.get("internal_chat_message_metadata_passthrough") or {}
+                if turn_id and meta.get("turn_id") == turn_id:
+                    return prompt
+                last_user_prompt = prompt
+    except OSError:
+        return ""
+
+    return last_user_prompt if not turn_id else ""
+
+
+def _codex_prompt(data: dict) -> str:
+    for key in ("prompt", "user_prompt", "input", "text"):
+        val = data.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+
+    prompt = _content_text(data.get("content"))
+    if prompt:
+        return prompt
+
+    payload = data.get("payload")
+    if isinstance(payload, dict):
+        for key in ("prompt", "user_prompt", "input", "text"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        prompt = _content_text(payload.get("content"))
+        if prompt:
+            return prompt
+
+    return _codex_prompt_from_transcript(
+        data.get("transcript_path", ""),
+        data.get("turn_id", ""),
+    )
+
+
 def normalize(data: dict, tool: str) -> dict | None:
     """Normalize tool-specific payload to common log entry."""
     event = data.get("hook_event_name") or data.get("event", "")
@@ -121,11 +208,16 @@ def normalize(data: dict, tool: str) -> dict | None:
             base.update({"prompt": prompt, "response_summary": answer})
 
     elif tool == "codex":
+        prompt = _codex_prompt(data)[:1000]
+        if event == "UserPromptSubmit":
+            base["event"] = "UserPrompt"
         base.update({
-            "prompt": data.get("prompt", "")[:1000],
+            "prompt": prompt,
             "turn_id": data.get("turn_id", ""),
             "transcript_path": data.get("transcript_path", ""),
         })
+        if data.get("session_id") and data.get("turn_id"):
+            base["entry_id"] = f"codex-{data['session_id']}-{data['turn_id']}"
 
     elif tool == "cursor":
         base.update({

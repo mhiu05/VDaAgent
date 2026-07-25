@@ -1,23 +1,16 @@
 {
+  "description": "Log each Codex user prompt into .ai-log/session.jsonl.",
   "version": "1.0",
   "hooks": {
     "UserPromptSubmit": [
       {
         "hooks": [
           {
+            "type": "command",
             "name": "log-prompt",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=codex",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "name": "log-stop",
-            "command": "bash scripts/_pyrun.sh scripts/log_hook.py --tool=codex",
+            "command": "sh -c '\"$(git rev-parse --show-toplevel)/.codex/hooks/log_codex_prompt.sh\"'",
+            "commandWindows": "cmd.exe /d /q /c \"for /f \"\"delims=\"\" %R in ('git rev-parse --show-toplevel 2^>nul') do @call \"\"%R\\.codex\\hooks\\log_codex_prompt.cmd\"\"\"",
+            "statusMessage": "Logging Codex prompt",
             "timeout": 10
           }
         ]
