@@ -120,7 +120,8 @@ def _unquote_arg(val):
 
 
 def _conv_cwds(transcript: Path) -> set[str]:
-    """All Cwd values that appear in tool calls inside this transcript."""
+    """All path values (Cwd, AbsolutePath, DirectoryPath, SearchPath, TargetFile,
+    or workspace roots from metadata) that appear inside this transcript."""
     cwds: set[str] = set()
     try:
         with open(transcript, encoding="utf-8") as f:
@@ -134,10 +135,16 @@ def _conv_cwds(transcript: Path) -> set[str]:
                     continue
                 for tc in (entry.get("tool_calls") or []):
                     args = tc.get("args") or {}
-                    cwd = args.get("Cwd") or args.get("cwd")
-                    cwd = _unquote_arg(cwd)
-                    if isinstance(cwd, str):
-                        n = _normalize(cwd)
+                    for val in args.values():
+                        val = _unquote_arg(val)
+                        if isinstance(val, str):
+                            n = _normalize(val)
+                            if n:
+                                cwds.add(n)
+                content = entry.get("content")
+                if isinstance(content, str):
+                    for m in re.finditer(r"([a-zA-Z]:[\\/][^\s<>\"'|?*,;:=\n\r]+|/(?:home|Users|c|d|e)/[^\s<>\"'|?*,;:=\n\r]+)", content):
+                        n = _normalize(m.group(1))
                         if n:
                             cwds.add(n)
     except OSError:
