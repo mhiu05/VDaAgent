@@ -2,6 +2,7 @@
 setlocal
 
 for /f "delims=" %%R in ('git rev-parse --show-toplevel 2^>nul') do set "REPO_ROOT=%%R"
+set "REPO_ROOT=%REPO_ROOT:/=\%"
 if not defined REPO_ROOT exit /b 0
 
 set "SCRIPT=%REPO_ROOT%\scripts\log_hook.py"

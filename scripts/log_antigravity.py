@@ -42,16 +42,19 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Fix Windows console encoding so VN diacritics in prompts print cleanly.
 if sys.platform == "win32":
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stdout, "reconfigure"):
+            getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            getattr(sys.stderr, "reconfigure")(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -263,6 +266,81 @@ def iter_user_inputs(brain_dirs: list[Path], cutoff: datetime | None,
                         "timestamp": ts,
                         "text": text,
                     }
+
+    # Support newer Antigravity IDE layout (~/.gemini/antigravity-ide/conversations/*.db)
+    db_dirs = [
+        GEMINI_HOME / "antigravity-ide" / "conversations",
+        GEMINI_HOME / "antigravity" / "conversations",
+    ]
+    for db_dir in db_dirs:
+        if not db_dir.exists():
+            continue
+        for db_path in sorted(db_dir.glob("*.db")):
+            if only_conv and db_path.stem != only_conv:
+                continue
+            try:
+                conn = sqlite3.connect(db_path)
+            except Exception:
+                continue
+            try:
+                if repo_root_n:
+                    repo_parts = [
+                        p.lower().encode("utf-8", errors="ignore")
+                        for p in repo_root_n.replace("\\", "/").split("/")
+                        if len(p) >= 3
+                    ]
+                    match = False
+                    for row in conn.execute("SELECT step_payload FROM steps"):
+                        if isinstance(row[0], bytes):
+                            low = row[0].lower()
+                            if any(part in low for part in repo_parts):
+                                match = True
+                                break
+                    if not match:
+                        conn.close()
+                        continue
+
+                for row in conn.execute(
+                    "SELECT idx, step_payload FROM steps WHERE step_type=14 ORDER BY idx"
+                ):
+                    idx, payload = row[0], row[1]
+                    if not isinstance(payload, bytes):
+                        continue
+                    matches = [
+                        m.group(0).decode("utf-8", errors="ignore").strip(']\"\'')
+                        for m in re.finditer(
+                            rb'(?:[\x20-\x7e]|[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3}){8,}',
+                            payload,
+                        )
+                        if b"$" not in m.group(0)
+                        and b"execute_" not in m.group(0)
+                        and b"write_" not in m.group(0)
+                        and b"read_" not in m.group(0)
+                        and b"RepoT170" not in m.group(0)
+                        and b"Tool AI" not in m.group(0)
+                        and b"localhost" not in m.group(0)
+                        and b"ADDITIONAL_METADATA" not in m.group(0)
+                        and b"USER_SETTINGS_CHANGE" not in m.group(0)
+                    ]
+                    if matches:
+                        text = extract_user_prompt(matches[0])
+                        if len(text) >= 2:
+                            mtime = datetime.fromtimestamp(
+                                db_path.stat().st_mtime, tz=VN_TZ
+                            )
+                            if cutoff and mtime < cutoff:
+                                continue
+                            yield {
+                                "conv_id": db_path.stem,
+                                "step_index": int(idx),
+                                "timestamp": mtime.isoformat(),
+                                "text": text,
+                            }
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
 
 
 # ---------------------------------------------------------------------------

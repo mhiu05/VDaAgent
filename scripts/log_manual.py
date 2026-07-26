@@ -19,20 +19,22 @@ Examples:
   # Quick interactive mode
   python scripts/log_manual.py
 """
+import argparse
 import json
 import os
-import sys
 import subprocess
-import argparse
-from datetime import datetime, timezone, timedelta
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 VN_TZ = timezone(timedelta(hours=7))
 
 if sys.platform == "win32":
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stdout, "reconfigure"):
+            getattr(sys.stdout, "reconfigure")(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            getattr(sys.stderr, "reconfigure")(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -89,7 +91,7 @@ def main():
     if not student:
         student = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
         print(f"[log] ⚠️  git email not set! Using fallback: {student}", file=sys.stderr)
-        print(f"[log] Run: git config user.email \"your@vinuni.edu.vn\"", file=sys.stderr)
+        print("[log] Run: git config user.email \"your@vinuni.edu.vn\"", file=sys.stderr)
 
     entry = {
         "ts": ts,
