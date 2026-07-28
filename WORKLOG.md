@@ -1,33 +1,66 @@
-# Worklog — Team Alpha
+# Worklog — Team T170
 
-> Ghi lại tất cả công việc đã làm theo ngày. Ai làm gì, kết quả gì.
+## 2026-07-28 (thứ 3)
 
----
+| Member | Task | Status | Output |
+|--------|------|--------|--------|
+| Hiếu | Viết context chung cho dự án | ✅ Done | file docs/project_context.md|
+| Đăng | survey 1 số pain point của đề tài, tìm 1 số dataset mẫu | ✅ Done | file docs/survey.md |
+| Linh | Góp ý về survey và project context | ✅ Done | |
+| Sơn | Góp ý về survey và project context | ✅ Done | |
 
-## 2026-07-26
-
-| Member | Task | Status | Output | Time |
-|--------|------|--------|--------|------|
-| Minh | Tạo branch `docs` cho cập nhật tài liệu | ✅ Done | Branch `docs` đã được tạo và checkout | 0.25h |
-| Minh | Sửa hook pre-push để AI logs có thể ghi nhận trên Windows | ✅ Done | Hook đã thêm fallback sang scripts/_pyrun.cmd | 0.5h |
-| Minh | Cập nhật mock data cho `WORKLOG.md` | ✅ Done | Thêm dữ liệu mẫu vào worklog | 0.5h |
-| Minh | Kiểm tra trạng thái repo | ✅ Done | Xác nhận branch sạch và sẵn sàng commit | 0.25h |
-| Minh | Test AI log integration qua pre-push hook | 🔄 In Progress | Kiểm tra submit_log.py và archive folder | 0.5h |
-| Codex | Smoke test AI log qua thay đổi `WORKLOG.md` | ✅ Done | Cập nhật nhỏ để kiểm tra pre-push log trên branch `Hieu-01154` | 0.1h |
-
-**Tổng kết ngày:** Hoàn thành thiết lập branch tài liệu, sửa hook AI log trên Windows, cập nhật worklog và kiểm tra AI log integration.
+**Tổng kết ngày:** Thảo luận xong về context và survey, clearly câu hỏi của hôm qua kết hợp với survey hôm nay để mai chuẩn bị cho buổi mentor duty.
 
 ---
 
-## 2026-07-25
+## 2026-07-27 (thứ 2)
+output chung của nhóm ghi tại tổng kết ngày
 
-| Member | Task | Status | Output | Time |
-|--------|------|--------|--------|------|
-| Minh | Hoàn thiện cấu trúc dự án và README | ✅ Done | README và cấu trúc thư mục cơ bản đã xác nhận | 1h |
-| Minh | Xây dựng skeleton API và mô hình | ✅ Done | Thêm routes và schemas khởi tạo | 1.5h |
+| Member | Task | Status | Output |
+|--------|------|--------|--------|
+| Hiếu | Gặp gỡ thảo luận đề tài | ✅ Done | |
+| Đăng | Gặp gỡ thảo luận đề tài | ✅ Done | |
+| Linh | Gặp gỡ thảo luận đề tài | ✅ Done | |
+| Sơn | Gặp gỡ thảo luận đề tài | ✅ Done | |
 
-**Tổng kết ngày:** Tiếp tục cải thiện cấu trúc dự án và chuẩn bị tài liệu cho thành viên mới.
+**Tổng kết ngày:** Các câu hỏi đặt ra là:
+1. Lý do chọn đề tài
+2. Survey tính khả thi, 1 số dataset, 1 số tool sử dụng. 
+3. Nhu cầu hiện nay.
+4. workflow tổng quan, requirements system + users.
+5. dataset sử dụng cho 1 domain hay nhiều.
 
 ---
 
-<!-- Format: copy block trên cho mỗi ngày làm việc -->
+## 2026-07-26 (chủ nhật)
+
+| Member | Task | Status | Output |
+|--------|------|--------|--------|
+| Hiếu | Meet thảo luận chọn đề tài | ✅ Done | Lựa chọn xong đề tài DATA-13 |
+| Đăng | Meet thảo luận chọn đề tài | ✅ Done | Lựa chọn xong đề tài DATA-13 |
+| Linh | Meet thảo luận chọn đề tài | ✅ Done | Lựa chọn xong đề tài DATA-13 |
+| Linh | setup AI log | ✅ Done | Phoenix hiện AI log |
+| Sơn | Meet thảo luận chọn đề tài | ✅ Done | Lựa chọn xong đề tài DATA-13 |
+| Sơn | setup AI log | ✅ Done | |
+
+**Tổng kết ngày:** Lựa chọn được đề tài (có thể thay đổi), dự kiến mai sẽ gặp trực tiếp lần đầu để thảo luận kỹ về đề tài.
+
+---
+
+## 2026-07-25 (thứ 7)
+
+| Member | Task | Status | Output |
+|--------|------|--------|--------|
+| Hiếu | Meet giới thiệu thành viên | ✅ Done |  |
+| Hiếu | clone dự án, setup AI log| ✅ Done | Phoenix hiện AI log |
+| Đăng | Meet giới thiệu thành viên | ✅ Done |  |
+| Đăng | clone dự án, setup AI log| ✅ Done | Phoenix hiện AI log |
+| Linh | Meet giới thiệu thành viên | ✅ Done |  |
+| Linh | clone dự án, setup AI log| 🔄 In Progress | clone xong dự án |
+| Sơn | Meet giới thiệu thành viên | ✅ Done |  |
+| Sơn | clone dự án, setup AI log| 🔄 In Progress | clone xong dự án |
+
+**Tổng kết ngày:** Tiếp tục tìm hiểu cấu trúc dự án và thảo luận về đề tài sẽ chọn.
+
+---
+
