@@ -3,15 +3,12 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai20k-agent"
+name = "P-170"
 version = "1.0.0"
-description = "AI Agent built with LangGraph and FastAPI"
+description = "Description in docs/project_context.md"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [
-    {name = "minhhiu05", email = "minhhiu05@example.com"}
-]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
