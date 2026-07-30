@@ -1,5 +1,15 @@
 # Worklog — Team T170
 
+## 2026-07-30 (thứ 5)
+
+
+
+## 2026-07-29 (thứ 4)
+
+Team đã tham gia mentor duty. Giải quyết được các vấn đề sau: 
+1. Giải quyết được câu hỏi nên hướng bài toán đến 1 đối tượng cụ thể hay nhiều đối tượng - hướng tới đa đối tượng.
+2. Cải thiện diagram chi tiết hơn (chia nhỏ ra thành nhiều diagram riêng) và thay đổi hướng cho analyst có thể tác động trực tiếp vào bước compute statistic của agent.
+
 ## 2026-07-28 (thứ 3)
 
 | Member | Task | Status | Output |
