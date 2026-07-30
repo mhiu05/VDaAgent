@@ -14,9 +14,9 @@
 
 ## 0. Khung phân tích & quy ước ánh xạ
 
-Theo `project_context.md` (mục 7), Agent DATA-13 có 6 node lõi: `sample → compute_stats → propose_metadata → HITL interrupt → summarize → QA`, cộng với 2 ràng buộc xuyên suốt là HITL (mục 2.1) và PII masking (mục 2.2). Khi rà từng epic (khối công việc tổng quát) của 5 pain point, tài liệu này quy ước 6 "năng lực phân tích" tổng quát mà một node có thể thực hiện, dùng làm đơn vị đối chiếu xuyên domain:
+6 node lõi: `sample → compute_stats → propose_metadata → HITL interrupt → summarize → QA`, cộng với 2 ràng buộc xuyên suốt là HITL và PII masking. Khi rà từng epic (khối công việc tổng quát) của 5 pain point, tài liệu này quy ước 6 "năng lực phân tích" (ngoài ra có 1 node ngoài phạm vi) tổng quát mà một node có thể thực hiện, dùng làm đơn vị đối chiếu xuyên domain:
 
-| Ký hiệu | Năng lực phân tích | Node tương ứng (project_context) | Đã có trong MVP (mục 6.1)? |
+| Ký hiệu | Năng lực phân tích | Node tương ứng | Có sẵn trong MVP |
 |---|---|---|---|
 | **NC** | Null-check / kiểm tra tính đầy đủ theo trường | `compute_stats` | Có |
 | **OL** | Outlier detection theo baseline (tĩnh hoặc động/rolling) | `compute_stats` | Có (baseline tĩnh: IQR/z-score); baseline động theo kỳ/mùa vụ là mở rộng |
