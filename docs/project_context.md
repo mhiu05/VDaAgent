@@ -1,7 +1,5 @@
 # Project Context: AI Agent Data Profiling & Tự sinh hồ sơ dữ liệu
 
-> **Mã đề:** DATA-13 · **Khối:** Dữ liệu – Khối dữ liệu tập trung
-> **Cập nhật lần cuối:** 28/07/2026 · **Trạng thái:** Draft — cần nhóm bổ sung mục "Câu hỏi mở"
 
 ## Tóm tắt
 Xây dựng một AI Agent tự động profiling dataset: tính thống kê mô tả từng cột, phát hiện outlier/tương quan/candidate key, sinh báo cáo hồ sơ dữ liệu kèm nhận xét & cảnh báo rủi ro bằng ngôn ngữ tự nhiên, và trả lời câu hỏi (natural language) về dữ liệu. Hệ thống bắt buộc có con người xác nhận (HITL) trước khi ghi các suy luận quan trọng vào metadata, ẩn PII (Personally Identifiable Information) trong báo cáo, và sampling thông minh để tiết kiệm chi phí quét dữ liệu trên warehouse lớn.
@@ -51,21 +49,39 @@ Xây dựng AI Agent tự động hoá toàn bộ quy trình trên:
 Đây là phần quyết định chất lượng thiết kế — bám sát khi build, không chỉ là "nice-to-have":
 
 ### 2.1 Human-in-the-loop (HITL)
-Agent chỉ **đề xuất**, không tự ý ghi các suy luận mang tính quyết định nghiệp vụ (candidate key, semantic type, quan hệ khóa ngoại) vào metadata store.
+Agent chỉ **đề xuất**, không tự ý ghi các suy luận mang tính quyết định nghiệp vụ (candidate key, semantic type, PII flag, quan hệ khóa ngoại) vào metadata store.
 
 - Mỗi đề xuất cần kèm **confidence score + evidence** (vd: `user_id`: unique 99.98%, non-null 100% → khả năng cao là PK) để Analyst ra quyết định nhanh
 - Chỉ sau khi Analyst **confirm/edit/reject** thì hệ thống mới ghi vào metadata
 - Về kỹ thuật: dùng cơ chế interrupt của LangGraph để dừng graph tại bước này, đợi input từ UI
 
+**HITL phân tầng (tiered review):** để tránh nghẽn khi warehouse có nhiều bảng × nhiều cột, áp dụng cơ chế phân tầng:
+
+| Tầng | Điều kiện | Hành vi |
+|---|---|---|
+| Auto-confirm (async review) | Confidence ≥ 95% **và** rủi ro thấp (vd: semantic type cho cột có tên rõ ràng như `email_address`, `created_at`) | Hệ thống tự confirm, ghi audit log; Analyst review sau (async) |
+| Synchronous confirm (bắt buộc) | Confidence < 95%, **hoặc** suy luận ảnh hưởng lớn: candidate key (đặc biệt composite key dùng để join), PII proposal | Graph interrupt, đợi Analyst xác nhận trước khi tiếp |
+
+Cơ chế này giữ nguyên tính an toàn HITL cho các quyết định quan trọng, đồng thời giảm friction khi scale lên warehouse lớn.
+
 ### 2.2 Governance — bảo vệ PII
 - Báo cáo **không hiển thị giá trị mẫu** của cột được nhận diện là PII (email, SĐT, CCCD, địa chỉ, tên riêng…)
 - Cần bước PII detection riêng: kết hợp heuristic theo tên cột + regex theo pattern giá trị (và có thể thêm NER/LLM classification cho trường hợp mơ hồ)
 - Cột bị gắn cờ PII vẫn hiển thị thống kê số lượng (null %, cardinality…) bình thường — chỉ **giá trị mẫu bị mask**
+- **PII là proposal có HITL:** `is_pii` không còn là boolean phẳng trên `ColumnStat`. Thay vào đó, PII detection tạo ra `PiiProposal` — đi qua đúng luồng HITL confirm/reject như `CandidateKeyProposal` và `SemanticTypeProposal`, kèm `confidence_score`, `evidence`, `status`, `confirmed_by` (xem mục 4.4 ER diagram)
+- **Phát hiện quasi-identifier:** tái dùng logic phát hiện composite candidate key để gắn cờ "rủi ro re-identification cao" cho các tổ hợp cột gần-unique (vd: ngày sinh + giới tính + mã vùng), không chỉ dùng cho mục đích chọn khóa chính. Cảnh báo này hiển thị trong báo cáo như một risk flag bổ sung
 
 ### 2.3 Độ chính xác thống kê & nhận định
-- Mọi con số phải được **tính toán xác định (deterministic)** bằng compute engine (DuckDB/Supabase/ydata-profiling) — LLM **không tự tính hay đoán số**
+- Mọi con số phải được **tính toán bằng compute engine** (DuckDB/Supabase/ydata-profiling) — LLM **không tự tính hay đoán số**
 - LLM chỉ đóng vai trò **diễn giải kết quả có sẵn** thành ngôn ngữ tự nhiên, hạn chế tối đa hallucination
 - Mọi nhận định định tính (vd: "cột X khả năng là khóa chính", "phân phối lệch phải") phải trace ngược được về số liệu cụ thể
+
+**Chú thích uncertainty cho số liệu sampling:** khi profiling chạy ở chế độ sampling (không phải full scan), các chỉ số nhạy với cỡ mẫu (cardinality, outlier count, phân vị) phải được trình bày kèm annotation rõ ràng:
+
+- Hiển thị ký hiệu "≈" trước giá trị ước lượng (vd: `cardinality ≈ 15.234`)
+- Nếu tính được, hiển thị khoảng tin cậy (confidence interval) — ít nhất cho `APPROX_COUNT_DISTINCT` (HyperLogLog có công thức SE đã biết)
+- Metadata schema lưu thêm field `is_approximate` (boolean) và `margin_of_error` (float, nullable) trong `ColumnStat` để phân biệt rõ số chính xác vs ước lượng (xem mục 4.4)
+- Báo cáo NL (bước `summarize`) phải phản ánh tính chất ước lượng khi diễn giải — không viết "cardinality là 15.234" mà viết "cardinality ước lượng khoảng 15.234 (±X)"
 
 ### 2.4 Hiệu năng & chi phí — sampling thông minh
 - Với bảng lớn trên BigQuery: **không quét toàn bộ** để tính thống kê (BigQuery tính phí theo bytes scanned)
@@ -83,7 +99,7 @@ Agent chỉ **đề xuất**, không tự ý ghi các suy luận mang tính quy�
 |---|---|---|
 | Chọn dataset & chạy profiling | ✅ | ❌ |
 | Xem báo cáo đã publish | ✅ | ✅ |
-| Xác nhận HITL (candidate key, semantic type) | ✅ | ❌ |
+| Xác nhận HITL (candidate key, semantic type, PII) | ✅ | ❌ |
 | Đặt câu hỏi NL (QA) | ✅ | ✅ (read-only) |
 | So sánh phiên bản / xem drift report *(nâng cao)* | ✅ | ✅ (xem, không tạo) |
 | Xem giá trị PII gốc (chưa mask) | ❌ | ❌ |
@@ -111,7 +127,8 @@ graph TB
         Agent --> HITLNode["HITL node<br/>Xác nhận & yêu cầu<br/>kiểm định bổ sung"]
         Agent --> DeepAnalysis["deep_analysis node<br/>Chạy kiểm định<br/>theo yêu cầu Analyst"]
         Agent --> SummarizeNode[summarize node]
-        Agent --> QANode[QA node]
+        Agent --> QAStructured["QA — Structured Lookup<br/>tool-calling / text-to-SQL"]
+        Agent --> QAVector["QA — Vector Search Hybrid<br/>FAISS+BM25 + rerank"]
     end
 
     API --> Agent
@@ -120,7 +137,8 @@ graph TB
     IngestNode -->|Full scan hoặc sampling| DataSource[(Data Source<br/>BigQuery / CSV)]
     StatsNode -->|Tính toán xác định| ComputeEngine[Compute Engine<br/>DuckDB / ydata-profiling]
     DeepAnalysis -->|Kiểm định thống kê| ComputeEngine
-    QANode --> VS[Vector Store<br/>ChromaDB]
+    QAStructured -->|SQL query| DB
+    QAVector --> VS[Vector Store<br/>FAISS + BM25]
     HITLNode -->|HITL interrupt| UI
 
     Agent --> DB[(Metadata DB<br/>SQLite → PostgreSQL)]
@@ -139,15 +157,15 @@ graph TD
     SizeCheck -->|Full scan<br/>dữ liệu nhỏ| FullScan[ingest — Full scan<br/>Lấy toàn bộ dữ liệu]
     SizeCheck -->|Sampling<br/>dữ liệu lớn| Sample[ingest — Sampling<br/>TABLESAMPLE / reservoir /<br/>approximate aggregates]
 
-    FullScan --> Compute[compute_stats<br/>Thống kê mô tả từng cột:<br/>null%, cardinality, distribution,<br/>outlier IQR/z-score, correlation]
+    FullScan --> Compute[compute_stats<br/>Thống kê mô tả từng cột:<br/>null%, cardinality, distribution,<br/>outlier IQR/z-score, correlation<br/>— kèm annotation ≈ nếu sampling]
     Sample --> Compute
 
     Compute --> PII{PII Detection<br/>Heuristic + regex<br/>+ NER nếu cần}
-    PII --> Propose[propose_metadata<br/>Đề xuất candidate key,<br/>semantic type<br/>kèm confidence + evidence]
+    PII --> Propose[propose_metadata<br/>Đề xuất candidate key,<br/>semantic type, PII proposal<br/>kèm confidence + evidence]
 
-    Propose --> HITL{HITL Interrupt<br/>Analyst xem xét}
+    Propose --> HITL{HITL Interrupt<br/>Analyst xem xét<br/>— phân tầng theo confidence}
 
-    HITL -->|Confirm metadata| Summarize[summarize<br/>LLM sinh báo cáo<br/>+ cảnh báo rủi ro]
+    HITL -->|Confirm metadata| Summarize[summarize<br/>LLM sinh báo cáo<br/>+ cảnh báo rủi ro<br/>+ annotation uncertainty]
     HITL -->|Edit & confirm| Summarize
     HITL -->|Reject → sửa đề xuất| Propose
 
@@ -157,8 +175,11 @@ graph TD
     ReturnResults --> HITL
 
     Summarize --> Save[Ghi metadata<br/>đã xác nhận vào DB]
-    Save --> QA[QA<br/>Trả lời câu hỏi NL<br/>có trích số liệu]
-    QA --> END((End))
+    Save --> QARouter{QA Router<br/>Phân loại câu hỏi}
+    QARouter -->|Câu hỏi định lượng<br/>null% cột X?| QAStructured[QA — Structured Lookup<br/>tool-calling / text-to-SQL<br/>số chèn trực tiếp từ DB]
+    QARouter -->|Câu hỏi định tính<br/>lịch sử / so sánh| QAVector[QA — Vector Search Hybrid<br/>FAISS+BM25 + cross-encoder rerank]
+    QAStructured --> END((End))
+    QAVector --> END
 ```
 
 > **Ghi chú — Các kiểm định Analyst có thể yêu cầu tại bước HITL:**
@@ -184,6 +205,7 @@ sequenceDiagram
     participant CE as Compute Engine
     participant LLM as LLM Service
     participant DB as Metadata DB
+    participant VS as Vector Store
 
     A->>UI: Chọn dataset & cấu hình quét
     Note over A,UI: Analyst chọn: Full scan (dữ liệu nhỏ)<br/>hoặc Sampling (dữ liệu lớn, chọn sample size / strategy)
@@ -201,15 +223,17 @@ sequenceDiagram
 
     Note over AG: Node: compute_stats
     AG->>CE: Tính stats (null%, cardinality, distribution, outlier, correlation)
-    CE-->>AG: Stats JSON + PII flags
+    CE-->>AG: Stats JSON + PII flags + is_approximate markers
 
     Note over AG: Node: propose_metadata
-    AG->>LLM: Đề xuất candidate key & semantic type
+    AG->>LLM: Đề xuất candidate key, semantic type & PII proposal
     LLM-->>AG: Proposals + confidence + evidence
 
-    Note over AG: HITL Interrupt — Analyst xem xét
+    Note over AG: HITL Interrupt — phân tầng
+    Note over AG: Auto-confirm: confidence ≥ 95% & rủi ro thấp (ghi audit log)
+    Note over AG: Sync confirm: candidate key, PII, hoặc confidence < 95%
     AG-->>API: Trả proposals + stats về UI
-    API-->>UI: Hiển thị proposals + thống kê
+    API-->>UI: Hiển thị proposals + thống kê (kèm ≈ nếu sampling)
     
     loop Analyst yêu cầu kiểm định bổ sung
         A->>UI: Yêu cầu kiểm định thống kê<br/>(vd: Shapiro-Wilk cho cột X,<br/>Chi-square giữa cột A & B)
@@ -222,15 +246,16 @@ sequenceDiagram
         UI-->>A: Analyst xem kết quả & quyết định tiếp
     end
 
-    A->>UI: Confirm / Edit / Reject metadata proposals
+    A->>UI: Confirm / Edit / Reject metadata proposals (bao gồm PII proposals)
     UI->>API: PATCH /profile/{id}/confirm
     API->>AG: Resume pipeline
 
     Note over AG: Node: summarize
     AG->>LLM: Sinh báo cáo từ stats + proposals đã confirm + kết quả kiểm định
+    Note over AG: Báo cáo chú thích ≈ cho số liệu sampling
     LLM-->>AG: Narrative report + cảnh báo rủi ro
 
-    AG->>DB: Ghi ProfileRun, ColumnStat, Proposals, TestResults
+    AG->>DB: Ghi ProfileRun, ColumnStat, Proposals (Key, Type, PII), TestResults
 
     AG-->>API: Response hoàn chỉnh
     API-->>UI: Báo cáo + biểu đồ + cảnh báo
@@ -239,8 +264,18 @@ sequenceDiagram
     Note over A,UI: Sau đó — Analyst hoặc Viewer có thể hỏi QA
     A->>UI: Đặt câu hỏi NL về dataset
     UI->>API: POST /qa {question, profile_id}
-    API->>AG: invoke QA node
-    AG->>LLM: Trả lời dựa trên stats + kết quả kiểm định
+    API->>AG: invoke QA router
+
+    alt Câu hỏi định lượng (null% cột X, cardinality cột Y)
+        AG->>DB: Structured lookup — tool-calling / text-to-SQL
+        DB-->>AG: Số liệu chính xác từ ColumnStat
+        AG->>LLM: Format câu trả lời (số đã có sẵn, LLM chỉ diễn đạt)
+    else Câu hỏi định tính / lịch sử (so sánh, xu hướng)
+        AG->>VS: Hybrid retrieval (FAISS+BM25 + cross-encoder rerank)
+        VS-->>AG: Relevant context chunks
+        AG->>LLM: Trả lời dựa trên context retrieved
+    end
+
     LLM-->>AG: Câu trả lời có trích số liệu
     AG-->>API: QA response
     API-->>UI: Hiển thị câu trả lời
@@ -254,6 +289,7 @@ erDiagram
     ProfileRun ||--o{ ColumnStat : "contains"
     ProfileRun ||--o{ CandidateKeyProposal : "generates"
     ProfileRun ||--o{ SemanticTypeProposal : "generates"
+    ProfileRun ||--o{ PiiProposal : "generates"
     ProfileRun ||--o{ StatisticalTestResult : "produces"
     ProfileRun ||--o{ DriftReport : "compared as A"
     ProfileRun ||--o{ DriftReport : "compared as B"
@@ -290,7 +326,8 @@ erDiagram
         float median
         float std
         json top_k_values
-        boolean is_pii
+        boolean is_approximate "true nếu sampling"
+        float margin_of_error "null nếu full scan"
     }
 
     CandidateKeyProposal {
@@ -311,6 +348,18 @@ erDiagram
         string proposed_type "ID / categorical / ordinal / continuous / datetime / free-text"
         float confidence_score
         string evidence
+        string status "pending / confirmed / rejected"
+        string confirmed_by
+        datetime confirmed_at
+    }
+
+    PiiProposal {
+        string id PK
+        string profile_run_id FK
+        string column_name
+        string detection_method "heuristic / regex / NER / LLM / manual"
+        float confidence_score
+        string evidence "vd: column name matches pattern email, 98% values match email regex"
         string status "pending / confirmed / rejected"
         string confirmed_by
         datetime confirmed_at
@@ -356,7 +405,7 @@ graph LR
         end
         subgraph DataLayer["Data Container"]
             Postgres[("PostgreSQL<br/>Port 5432")]
-            Chroma[("ChromaDB<br/>Port 8001")]
+            FAISS[("FAISS + BM25<br/>Vector/Keyword Search")]
         end
     end
 
@@ -371,7 +420,7 @@ graph LR
     LangGraph --> DuckDB
     LangGraph -->|API call| LLM_API
     LangGraph -->|Query| BQ
-    LangGraph --> Chroma
+    LangGraph --> FAISS
     FastAPI --> Postgres
 
     style External fill:#2d2d2d,stroke:#666,color:#ccc
@@ -381,13 +430,13 @@ graph LR
 
 | Component | Technology | Purpose |
 |---|---|---|
-| Frontend | React / Next.js | Giao diện cho Analyst: cấu hình profiling, xem báo cáo, HITL confirm, yêu cầu kiểm định, QA chat |
+| Frontend | React / Next.js | Giao diện cho Analyst: cấu hình profiling, xem báo cáo, HITL confirm (candidate key, semantic type, PII), yêu cầu kiểm định, QA chat |
 | Backend | FastAPI + Uvicorn | API server, xác thực request (Pydantic), điều phối agent |
-| AI Agent | LangGraph | Orchestrate pipeline profiling qua state machine (7 nodes, bao gồm deep_analysis) |
+| AI Agent | LangGraph | Orchestrate pipeline profiling qua state machine (8 nodes, bao gồm deep_analysis và QA router tách 2 nhánh) |
 | LLM | OpenAI GPT-4o / Gemini | Diễn giải stats → báo cáo NL, đề xuất metadata, trả lời QA |
 | Compute Engine | DuckDB / ydata-profiling | Tính toán thống kê deterministic + chạy kiểm định theo yêu cầu Analyst |
-| Metadata DB | SQLite (dev) → PostgreSQL (prod) | Lưu trữ Dataset, ProfileRun, ColumnStat, Proposals, StatisticalTestResult, DriftReport |
-| Vector Store | ChromaDB | Lưu embedding lịch sử profiling cho QA retrieval (RAG) |
+| Metadata DB | SQLite (dev) → PostgreSQL (prod) | Lưu trữ Dataset, ProfileRun, ColumnStat, Proposals (Key, Type, PII), StatisticalTestResult, DriftReport |
+| Vector Store | FAISS + BM25 (hybrid) | Hybrid retrieval cho QA định tính/lịch sử — FAISS cho dense embedding, BM25 cho keyword, cross-encoder rerank |
 | Data Source | BigQuery / CSV upload | Nguồn dữ liệu đầu vào — hỗ trợ cả full scan và sampling |
 
 ---
@@ -399,9 +448,10 @@ graph LR
 - [ ] Kết nối & chọn dataset (tối thiểu: upload CSV, kết nối BigQuery table)
 - [ ] Pipeline agent profiling: sample → compute stats → summarize
 - [ ] Báo cáo: thống kê từng cột + biểu đồ (distribution, missing value, correlation matrix)
+- [ ] Chú thích uncertainty (≈, khoảng tin cậy) cho số liệu tính từ sampling
 - [ ] Nhận xét & cảnh báo rủi ro chất lượng dữ liệu bằng ngôn ngữ tự nhiên
-- [ ] NL Q&A tự do về đặc điểm dataset
-- [ ] Màn hình HITL xác nhận candidate key + semantic type trước khi ghi metadata
+- [ ] NL Q&A tự do về đặc điểm dataset — tách 2 luồng: structured lookup (định lượng) và vector search hybrid (định tính)
+- [ ] Màn hình HITL xác nhận candidate key + semantic type + PII proposal trước khi ghi metadata
 - [ ] Mask giá trị PII trong báo cáo
 
 ### 5.2 Nâng cao (Tạm thời bỏ qua, sau khi build xong MVP thì tính tiếp)
@@ -417,13 +467,16 @@ graph LR
 | Node | Nhiệm vụ | Input → Output |
 |---|---|---|
 | `sample` | Kết nối nguồn, xác định kích thước bảng, chọn chiến lược sampling phù hợp | dataset reference → sample dataframe (DuckDB/pandas) |
-| `compute_stats` | Chạy ydata-profiling / logic custom | sample dataframe → JSON: per-column stats, correlation, missing matrix, outlier (IQR/z-score), uniqueness ratio, PII flags |
-| `propose_metadata` | Sinh đề xuất candidate key + semantic type kèm confidence/evidence | stats JSON → danh sách proposal |
-| **HITL interrupt** | Dừng graph, chờ Analyst xác nhận qua UI | proposal → proposal đã confirm/edit |
-| `summarize` | LLM sinh narrative report từ số liệu đã tính (không tự tính số) | stats JSON + proposal đã confirm → báo cáo NL + cảnh báo rủi ro |
-| `QA` | Trả lời câu hỏi tự do, retrieve context liên quan (từ stats + Vector DB nếu có lịch sử) | câu hỏi NL → câu trả lời có trích số liệu cụ thể |
+| `compute_stats` | Chạy ydata-profiling / logic custom. Gắn `is_approximate` + `margin_of_error` nếu chạy ở chế độ sampling | sample dataframe → JSON: per-column stats, correlation, missing matrix, outlier (IQR/z-score), uniqueness ratio, PII flags, uncertainty markers |
+| `propose_metadata` | Sinh đề xuất candidate key + semantic type + PII proposal kèm confidence/evidence | stats JSON → danh sách proposal (3 loại: CandidateKeyProposal, SemanticTypeProposal, PiiProposal) |
+| **HITL interrupt** | Dừng graph (phân tầng: auto-confirm cho confidence ≥ 95% rủi ro thấp, sync confirm cho phần còn lại), chờ Analyst xác nhận qua UI | proposal → proposal đã confirm/edit |
+| `deep_analysis` | Chạy kiểm định thống kê bổ sung theo yêu cầu Analyst tại bước HITL | test request → kết quả kiểm định (statistic, p-value, kết luận) |
+| `summarize` | LLM sinh narrative report từ số liệu đã tính (không tự tính số). Phản ánh tính chất ước lượng khi diễn giải số liệu sampling | stats JSON + proposal đã confirm → báo cáo NL + cảnh báo rủi ro + annotation uncertainty |
+| `QA router` | Phân loại câu hỏi thành định lượng hoặc định tính, điều hướng sang nhánh phù hợp | câu hỏi NL → loại câu hỏi |
+| `QA — structured lookup` | Câu hỏi định lượng: tool-calling gọi `get_stat(column, metric)` hoặc text-to-SQL truy vấn trực tiếp `ColumnStat`. Số được chèn từ DB, không qua LLM generate token số | câu hỏi định lượng → câu trả lời có số liệu chính xác từ DB |
+| `QA — vector search hybrid` | Câu hỏi định tính/lịch sử: hybrid retrieval (FAISS dense + BM25 keyword + cross-encoder rerank) trên embedding lịch sử profiling | câu hỏi định tính → câu trả lời có context từ lịch sử profile |
 
-*(Lưu ý: pipeline 4 bước `sample → compute stats → summarize → QA`; ở đây bổ sung 2 bước `propose_metadata` và HITL interrupt ở giữa để đáp ứng ràng buộc HITL ở mục 2.1 — nhóm có thể gộp lại nếu muốn đơn giản hoá.)*
+*(Lưu ý: pipeline cốt lõi `sample → compute stats → propose_metadata → HITL → summarize → QA`; QA tách 2 nhánh xử lý. Bước `deep_analysis` chạy theo yêu cầu từ HITL loop.)*
 
 **Agent nâng cao — Drift Detection**: nhận 2 profile report (2 phiên bản), so khớp từng cột tương ứng bằng KS-test/PSI (numeric) hoặc Chi-square/so sánh tần suất (categorical), trả về danh sách cột "drift" vượt ngưỡng + diễn giải bằng LLM.
 
@@ -435,9 +488,11 @@ Thiết kế sơ bộ, phục vụ cả việc ghi nhận sau HITL confirm lẫn
 
 - **Dataset**: id, tên, nguồn (BigQuery table / file), thời điểm profiling gần nhất
 - **ProfileRun**: id, dataset_id, version/timestamp, sampling_strategy, sample_size, trạng thái (draft/confirmed)
-- **ColumnStat**: profile_run_id, tên cột, dtype, null_pct, cardinality, min/max/mean/median/std, top_k_values, is_pii
-- **CandidateKeyProposal**: profile_run_id, cột (hoặc tổ hợp cột), confidence_score, trạng thái (pending/confirmed/rejected), người xác nhận, thời điểm
+- **ColumnStat**: profile_run_id, tên cột, dtype, null_pct, cardinality, min/max/mean/median/std, top_k_values, is_approximate (boolean — true nếu chạy sampling), margin_of_error (float, nullable — biên sai số ước lượng)
+- **CandidateKeyProposal**: profile_run_id, cột (hoặc tổ hợp cột), confidence_score, evidence, trạng thái (pending/confirmed/rejected), người xác nhận, thời điểm
 - **SemanticTypeProposal**: tương tự CandidateKeyProposal, cho kiểu ngữ nghĩa (ID, categorical, ordinal, continuous, datetime, free-text…)
+- **PiiProposal**: profile_run_id, column_name, detection_method (heuristic/regex/NER/LLM/manual), confidence_score, evidence, trạng thái (pending/confirmed/rejected), người xác nhận, thời điểm — đi qua đúng luồng HITL confirm/reject như CandidateKeyProposal
+- **StatisticalTestResult**: profile_run_id, test_type, target_columns, test_statistic, p_value, conclusion, requested_by, created_at
 - **DriftReport**: profile_run_id_a, profile_run_id_b, danh sách cột drift + metric + threshold
 
 ---
@@ -449,16 +504,30 @@ Thiết kế sơ bộ, phục vụ cả việc ghi nhận sau HITL confirm lẫn
 - **Hiệu năng & chi phí**: thời gian chạy + bytes/chi phí quét trên BigQuery so với baseline "quét toàn bộ bảng"
 - **Governance**: không để lọt giá trị PII nào ra báo cáo (test case cụ thể với dataset có PII biết trước)
 - **UX của HITL**: luồng xác nhận nhanh, rõ ràng, không gây khó chịu cho Analyst
+- **QA grounding**: đo tỉ lệ câu trả lời QA có số liệu khớp chính xác với DB (đặc biệt cho nhánh structured lookup — kỳ vọng 100% accuracy vì số lấy trực tiếp từ DB)
 
 ---
 
 ## 9. Rủi ro & thách thức
 
-- **LLM hallucination** ở bước summarize/QA nếu không ràng buộc chặt input là số liệu đã tính sẵn → cần prompt engineering (Cần tham khảo thêm skill prompt engineering khác trên github) + validate lại số liệu trong câu trả lời so với ground truth
+- **LLM hallucination** ở bước summarize/QA nếu không ràng buộc chặt input là số liệu đã tính sẵn → cần prompt engineering (Cần tham khảo thêm skill prompt engineering khác trên github) + validate lại số liệu trong câu trả lời so với ground truth. Với QA, kiến trúc tách 2 nhánh (structured lookup cho định lượng, vector search cho định tính) giảm thiểu rủi ro này ở mức kiến trúc thay vì chỉ dựa vào hậu kiểm
 - **Sampling bias**: mẫu nhỏ có thể bỏ sót outlier hiếm hoặc đánh giá sai cardinality (đặc biệt cột high-cardinality) → nên kết hợp approximate functions của BigQuery thay vì chỉ random sample
-- **PII detection không hoàn hảo**: heuristic + regex có thể miss PII "ẩn" trong free-text hoặc ID nội bộ nhạy cảm → nên cho user tự đánh dấu thêm cột PII như lớp bảo vệ bổ sung
+- **PII detection không hoàn hảo**: heuristic + regex có thể miss PII "ẩn" trong free-text hoặc ID nội bộ nhạy cảm → PII proposal (có HITL) cho phép user tự đánh dấu/sửa như lớp bảo vệ bổ sung
+- **Quasi-identifier risk**: tổ hợp các cột trông vô hại (ngày sinh + giới tính + mã vùng) có thể đủ để re-identify cá nhân dù không cột nào riêng lẻ là PII → hệ thống gắn cờ cảnh báo nhưng phát hiện chính xác vẫn là thách thức mở
 - **Chi phí BigQuery**: cần theo dõi/giới hạn bytes scanned mỗi lần chạy, tránh quét nhầm bảng lớn
 - **"Candidate key" mơ hồ về nghiệp vụ**: unique về thống kê không đồng nghĩa là khóa hợp lý về nghiệp vụ — đây chính là lý do bắt buộc có HITL, không nên cố tự động hoá hoàn toàn bước này
+
+### 9.1 Known limitations (ghi nhận, chưa triển khai trong MVP)
+
+Các vấn đề sau đã được nhận diện từ review nhưng nằm ngoài phạm vi MVP. Ghi nhận ở đây để triển khai ở các phiên bản tiếp theo:
+
+| # | Limitation | Nguồn (comment) | Ghi chú |
+|---|---|---|---|
+| L1 | **Multiple-testing correction**: ma trận tương quan nhiều cột (20 cột → 190 cặp) tăng false positive. Cần trả cả p-value gốc lẫn p-value đã hiệu chỉnh (Benjamini-Hochberg/FDR). Shapiro-Wilk với sample lớn dễ reject normality dù lệch không đáng kể — cần cảnh báo ở bước diễn giải | Comment §3b | Áp dụng khi build deep_analysis node |
+| L2 | **LangGraph checkpointer persistence**: HITL interrupt cần checkpointer để giữ state qua restart — nếu checkpoint chỉ ở in-memory thì mất session khi server restart giữa lúc chờ Analyst (có thể vài ngày). Nên gắn checkpointer vào Postgres instance đang dùng cho metadata | Comment §6 | Cần trước khi lên production |
+| L3 | **Giới hạn vòng lặp deep_analysis ↔ HITL**: sequence diagram chưa cap số lần lặp — cần giới hạn số test/session để tránh cost tăng vô hạn | Comment §6 | Thêm max_iterations config |
+| L4 | **Cost tracking cho LLM call**: hiện chỉ track bytes scanned BigQuery, chưa track chi phí LLM — đặc biệt nếu propose semantic type từng cột riêng lẻ. Nên gộp thành 1 call/bảng vừa rẻ hơn vừa giúp LLM thấy ngữ cảnh liên-cột (vd `user_id` + `order_id` gợi ý fact table) | Comment §5 | Thêm LLM cost counter |
+| L5 | **Reproducibility — random seed/query log**: `ProfileRun` nên lưu thêm random seed và câu query sample thực thi, không chỉ `sampling_strategy` + `sample_size` — để tái tạo kết quả cũ khi audit/debug | Comment §5 | Thêm fields vào ProfileRun schema |
 
 ---
 
@@ -484,5 +553,8 @@ Thiết kế sơ bộ, phục vụ cả việc ghi nhận sau HITL confirm lẫn
 | HITL | Human-in-the-loop — yêu cầu con người xác nhận trước khi hệ thống thực hiện hành động có tính quyết định |
 | PII | Personally Identifiable Information — thông tin định danh cá nhân (email, SĐT, CCCD…) |
 | PSI | Population Stability Index — chỉ số đo mức thay đổi phân phối giữa 2 tập dữ liệu, dùng trong drift detection |
+| Quasi-identifier | Tổ hợp các cột không phải PII riêng lẻ nhưng kết hợp lại có thể re-identify cá nhân (vd: ngày sinh + giới tính + mã vùng) |
+| Structured lookup | Truy vấn trực tiếp DB/API để lấy số liệu chính xác, không qua LLM generate — dùng cho câu hỏi QA định lượng |
+| Hybrid retrieval | Kết hợp dense embedding search (FAISS) + keyword search (BM25) + cross-encoder rerank để tăng chất lượng retrieval |
 
 ---
