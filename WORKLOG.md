@@ -1,5 +1,14 @@
 # Worklog — Team T170
 
+## Team
+
+| Member | Role | Student ID |
+|--------|------|-----------|
+| Vũ Nguyễn Bảo Sơn | Product Manager - Lead Team | 2A202601116 |
+| Phạm Thế Đăng | Web Developer | 2A202601766 |
+| Nguyễn Minh Hiếu | AI Engineer | 2A202601154 |
+| Phạm Thị Thùy Linh | Data Engineer, DevOps | 2A202601181 |
+
 ## 2026-07-30 (thứ 5)
 
 
