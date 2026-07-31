@@ -407,3 +407,59 @@ Chọn **Lựa chọn 1: SQLite (dev) → PostgreSQL (prod)**.
 - LangGraph checkpointer nên gắn vào cùng PostgreSQL instance (implementation ở phase sau MVP).
 
 ---
+
+# ADR-010: SSE (Server-Sent Events) cho QA Streaming Response
+
+**Ngày:** 2026-07-30
+**Trạng thái:** Accepted
+
+## Bối cảnh (Context)
+
+Tính năng QA cho phép Analyst/Viewer đặt câu hỏi bằng ngôn ngữ tự nhiên về dataset. LLM sinh câu trả lời có thể mất **2–10 giây** tuỳ độ phức tạp và lượng context. Thiết kế ban đầu dùng REST API đồng bộ (`POST /qa` → đợi toàn bộ response → trả về) — khiến UI bị "đơ" trong thời gian chờ, trải nghiệm kém giống chat AI hiện đại (ChatGPT, Gemini).
+
+Cần cơ chế truyền từng token/chunk từ LLM về frontend **ngay khi được sinh ra**, hiển thị real-time (typing effect).
+
+## Các lựa chọn (Alternatives)
+
+### Lựa chọn 1: Server-Sent Events (SSE)
+- Ưu điểm: Giao thức đơn giản (HTTP-based, unidirectional server → client), FastAPI hỗ trợ native qua `StreamingResponse`, tương thích với `EventSource` API trên mọi browser hiện đại, auto-reconnect built-in, dễ debug (curl -N). Phù hợp pattern LLM streaming vì chỉ cần server push tokens, client không cần gửi data ngược lại trong lúc stream.
+- Nhược điểm: Unidirectional — client không thể gửi message trong khi đang nhận stream (phải mở request mới). Giới hạn HTTP/1.1: tối đa 6 concurrent connections/domain trên một số browser (không ảnh hưởng vì mỗi user chỉ có 1 QA stream tại một thời điểm).
+
+### Lựa chọn 2: WebSocket
+- Ưu điểm: Bidirectional — client có thể gửi/nhận đồng thời, phù hợp cho chat realtime đa chiều, persistent connection giảm overhead handshake.
+- Nhược điểm: Phức tạp hơn SSE đáng kể: cần quản lý connection lifecycle (open/close/error/reconnect), không tương thích native với HTTP middleware (authentication, rate limiting, CORS cần xử lý riêng), FastAPI cần thêm WebSocket route riêng biệt. Overkill cho use case này vì QA là request-response (user hỏi → agent trả lời), không phải chat realtime 2 chiều liên tục.
+
+### Lựa chọn 3: Long Polling
+- Ưu điểm: Tương thích với mọi HTTP stack, không cần giao thức đặc biệt, dễ implement.
+- Nhược điểm: Latency cao (phải đợi poll interval), tốn tài nguyên server (nhiều request liên tục), không cho phép true real-time streaming — chỉ nhận được batch tokens mỗi lần poll, UX kém hơn SSE/WebSocket rõ rệt.
+
+### Lựa chọn 4: Blocking REST response (giữ nguyên)
+- Ưu điểm: Không cần thay đổi gì, đơn giản nhất.
+- Nhược điểm: UI đợi 2–10 giây không có feedback → trải nghiệm kém, user không biết hệ thống đang xử lý hay bị treo. Không tận dụng được khả năng streaming token của LLM API (GPT-4o, Gemini đều hỗ trợ streaming native).
+
+## Quyết định (Decision)
+
+Chọn **Lựa chọn 1: Server-Sent Events (SSE)**.
+
+## Lý do (Rationale)
+
+1. **Phù hợp chính xác với use case**: QA là request-response — user gửi câu hỏi, server stream câu trả lời. Không cần bidirectional → SSE đủ, WebSocket quá mức cần thiết.
+2. **FastAPI hỗ trợ native**: dùng `StreamingResponse` với `media_type="text/event-stream"` — không cần thư viện bổ sung. LangGraph `astream_events()` trả về async generator, pipe trực tiếp vào SSE.
+3. **Frontend đơn giản**: `EventSource` API hoặc `fetch()` + `ReadableStream` trên browser — không cần library WebSocket client.
+4. **Auto-reconnect**: SSE có built-in reconnection — nếu connection drop, browser tự retry với `Last-Event-ID`.
+5. **Debug dễ dàng**: `curl -N -H "Accept: text/event-stream" /qa/stream` — xem token stream trực tiếp trong terminal.
+6. **Tận dụng LLM streaming**: GPT-4o và Gemini đều hỗ trợ streaming response — SSE cho phép forward token ngay khi nhận được từ LLM, giảm perceived latency về gần 0.
+
+## Hệ quả (Consequences)
+
+- QA endpoint đổi từ `POST /qa` (JSON response) sang `POST /qa/stream` (SSE response `text/event-stream`).
+- SSE event format chuẩn hoá:
+  - `{type: "token", content: "..."}` — từng token/chunk text.
+  - `{type: "source", data: {...}}` — metadata nguồn trích dẫn (column, metric, profile_run).
+  - `{type: "done", sources: [...]}` — kết thúc stream, kèm danh sách nguồn trích dẫn.
+  - `{type: "error", message: "..."}` — nếu có lỗi giữa stream.
+- Frontend cần implement SSE client (EventSource hoặc fetch stream) + UI typing effect (append text vào DOM khi nhận token).
+- Nếu user cần cancel câu hỏi giữa chừng: client close EventSource connection → backend detect và stop LLM generation (tiết kiệm token cost).
+- Không ảnh hưởng đến các endpoint khác (profiling pipeline, HITL confirm vẫn dùng REST JSON bình thường).
+
+---
