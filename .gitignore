@@ -58,6 +58,7 @@ out/
 # AI logs — tracked structure, ignored content
 .ai-log/*.jsonl
 .ai-log/archive/
+!.ai-log/archive/.gitkeep
 
 # Codex CLI cache
 .tmp-openai-docs-cache/
