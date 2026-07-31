@@ -18,6 +18,8 @@ Set-Content -Path $HookFile -Value $HookBody -Encoding UTF8 -NoNewline
 Write-Host "[ai-log] Git pre-push hook installed."
 
 if (-not (Test-Path .ai-log)) { New-Item -ItemType Directory -Path .ai-log | Out-Null }
+if (-not (Test-Path .ai-log/archive)) { New-Item -ItemType Directory -Path .ai-log/archive | Out-Null }
 if (-not (Test-Path .ai-log/.gitkeep)) { New-Item -ItemType File -Path .ai-log/.gitkeep | Out-Null }
+if (-not (Test-Path .ai-log/archive/.gitkeep)) { New-Item -ItemType File -Path .ai-log/archive/.gitkeep | Out-Null }
 
 Write-Host "[ai-log] Setup complete. Configure AI_LOG_SERVER in your .env file."

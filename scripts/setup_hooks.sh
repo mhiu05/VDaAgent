@@ -19,7 +19,10 @@ chmod +x "$HOOK_FILE"
 chmod +x scripts/_pyrun.sh 2>/dev/null || true
 echo "[ai-log] Git pre-push hook installed."
 
-mkdir -p .ai-log
+mkdir -p .ai-log/archive
 touch .ai-log/.gitkeep
+if [ ! -f .ai-log/archive/.gitkeep ]; then
+  touch .ai-log/archive/.gitkeep
+fi
 
 echo "[ai-log] Setup complete. Configure AI_LOG_SERVER in your .env file."

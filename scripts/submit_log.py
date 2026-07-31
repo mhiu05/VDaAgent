@@ -19,11 +19,26 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+def _load_dotenv_fallback(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    print(f"[ai-log] python-dotenv not installed; loading {env_path} manually.", file=sys.stderr)
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] == '"':
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass
+    _load_dotenv_fallback(Path(".env"))
 
 SERVER_URL = os.environ.get("AI_LOG_SERVER", "")
 API_KEY = os.environ.get("AI_LOG_API_KEY", "")
