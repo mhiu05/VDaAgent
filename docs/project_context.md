@@ -263,7 +263,8 @@ sequenceDiagram
 
     Note over A,UI: Sau đó — Analyst hoặc Viewer có thể hỏi QA
     A->>UI: Đặt câu hỏi NL về dataset
-    UI->>API: POST /qa {question, profile_id}
+    UI->>API: POST /qa/stream {question, profile_id}
+    Note over UI,API: Response: SSE stream (text/event-stream)
     API->>AG: invoke QA router
 
     alt Câu hỏi định lượng (null% cột X, cardinality cột Y)
@@ -276,9 +277,15 @@ sequenceDiagram
         AG->>LLM: Trả lời dựa trên context retrieved
     end
 
-    LLM-->>AG: Câu trả lời có trích số liệu
-    AG-->>API: QA response
-    API-->>UI: Hiển thị câu trả lời
+    loop SSE streaming — từng token/chunk
+        LLM-->>AG: Token chunk
+        AG-->>API: SSE event: {type: "token", content: "..."}
+        API-->>UI: data: {"token": "..."}
+        UI-->>A: Hiển thị real-time (typing effect)
+    end
+    AG-->>API: SSE event: {type: "done", sources: [...]}
+    API-->>UI: data: {"done": true, "sources": [...]}
+    Note over UI: Hiển thị nguồn trích dẫn sau khi stream kết thúc
 ```
 
 ### 4.4 Metadata Schema — ER Diagram
@@ -431,7 +438,7 @@ graph LR
 | Component | Technology | Purpose |
 |---|---|---|
 | Frontend | React / Next.js | Giao diện cho Analyst: cấu hình profiling, xem báo cáo, HITL confirm (candidate key, semantic type, PII), yêu cầu kiểm định, QA chat |
-| Backend | FastAPI + Uvicorn | API server, xác thực request (Pydantic), điều phối agent |
+| Backend | FastAPI + Uvicorn | API server, xác thực request (Pydantic), điều phối agent. QA endpoint dùng SSE (Server-Sent Events) streaming response cho real-time token output |
 | AI Agent | LangGraph | Orchestrate pipeline profiling qua state machine (8 nodes, bao gồm deep_analysis và QA router tách 2 nhánh) |
 | LLM | OpenAI GPT-4o / Gemini | Diễn giải stats → báo cáo NL, đề xuất metadata, trả lời QA |
 | Compute Engine | DuckDB / ydata-profiling | Tính toán thống kê deterministic + chạy kiểm định theo yêu cầu Analyst |
@@ -451,6 +458,7 @@ graph LR
 - [ ] Chú thích uncertainty (≈, khoảng tin cậy) cho số liệu tính từ sampling
 - [ ] Nhận xét & cảnh báo rủi ro chất lượng dữ liệu bằng ngôn ngữ tự nhiên
 - [ ] NL Q&A tự do về đặc điểm dataset — tách 2 luồng: structured lookup (định lượng) và vector search hybrid (định tính)
+- [ ] SSE streaming response cho QA chat — hiển thị câu trả lời real-time (typing effect), kèm nguồn trích dẫn khi stream kết thúc
 - [ ] Màn hình HITL xác nhận candidate key + semantic type + PII proposal trước khi ghi metadata
 - [ ] Mask giá trị PII trong báo cáo
 
@@ -473,8 +481,8 @@ graph LR
 | `deep_analysis` | Chạy kiểm định thống kê bổ sung theo yêu cầu Analyst tại bước HITL | test request → kết quả kiểm định (statistic, p-value, kết luận) |
 | `summarize` | LLM sinh narrative report từ số liệu đã tính (không tự tính số). Phản ánh tính chất ước lượng khi diễn giải số liệu sampling | stats JSON + proposal đã confirm → báo cáo NL + cảnh báo rủi ro + annotation uncertainty |
 | `QA router` | Phân loại câu hỏi thành định lượng hoặc định tính, điều hướng sang nhánh phù hợp | câu hỏi NL → loại câu hỏi |
-| `QA — structured lookup` | Câu hỏi định lượng: tool-calling gọi `get_stat(column, metric)` hoặc text-to-SQL truy vấn trực tiếp `ColumnStat`. Số được chèn từ DB, không qua LLM generate token số | câu hỏi định lượng → câu trả lời có số liệu chính xác từ DB |
-| `QA — vector search hybrid` | Câu hỏi định tính/lịch sử: hybrid retrieval (FAISS dense + BM25 keyword + cross-encoder rerank) trên embedding lịch sử profiling | câu hỏi định tính → câu trả lời có context từ lịch sử profile |
+| `QA — structured lookup` | Câu hỏi định lượng: tool-calling gọi `get_stat(column, metric)` hoặc text-to-SQL truy vấn trực tiếp `ColumnStat`. Số được chèn từ DB, không qua LLM generate token số. Output stream qua SSE | câu hỏi định lượng → SSE stream câu trả lời có số liệu chính xác từ DB |
+| `QA — vector search hybrid` | Câu hỏi định tính/lịch sử: hybrid retrieval (FAISS dense + BM25 keyword + cross-encoder rerank) trên embedding lịch sử profiling. Output stream qua SSE | câu hỏi định tính → SSE stream câu trả lời có context từ lịch sử profile |
 
 *(Lưu ý: pipeline cốt lõi `sample → compute stats → propose_metadata → HITL → summarize → QA`; QA tách 2 nhánh xử lý. Bước `deep_analysis` chạy theo yêu cầu từ HITL loop.)*
 
