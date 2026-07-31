@@ -54,6 +54,7 @@ cp .env.example .env
 # Linux / macOS / Git Bash
 bash scripts/setup_hooks.sh
 
+
 # Windows PowerShell
 # powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
 ```
