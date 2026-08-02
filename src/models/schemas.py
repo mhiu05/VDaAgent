@@ -1,10 +1,337 @@
-from pydantic import BaseModel, Field
+"""Pydantic schema cho API.
+
+Quy ước:
+- Request có validate chặt (độ dài, enum, khoảng giá trị) để chặn input xấu
+  ngay ở biên, trước khi vào graph.
+- Response luôn mang cờ `is_approximate` khi số liệu đến từ mẫu (ADR-006) để
+  client không hiển thị số ước lượng như số chính xác.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+ScanMode = Literal["full", "sample"]
+ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
+ProposalStatus = Literal["pending", "confirmed", "rejected", "edited", "auto_confirmed"]
 
 
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=5000, description="Tin nhắn từ user")
+# --------------------------------------------------------------------------- #
+# Profiling
+# --------------------------------------------------------------------------- #
+class SamplingConfig(BaseModel):
+    """Cấu hình lấy mẫu. Ghi lại seed để tái lập được kết quả (L5)."""
+
+    # reservoir: phân phối đều hơn. tablesample: nhanh hơn trên bảng lớn.
+    strategy: Literal["reservoir", "tablesample"] = "reservoir"
+    sample_size: int = Field(default=10_000, ge=100, le=10_000_000)
+    random_seed: int | None = Field(default=42, ge=0)
 
 
-class ChatResponse(BaseModel):
-    response: str = Field(..., description="Phản hồi từ agent")
-    analysis: str = Field(default="", description="Phân tích nội bộ")
+class ProfileRequest(BaseModel):
+    dataset_ref: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Đường dẫn file CSV/Parquet, hoặc tên bảng BigQuery.",
+    )
+    dataset_name: str | None = Field(default=None, max_length=255)
+    scan_mode: ScanMode | None = Field(
+        default=None, description="Bỏ trống để dùng mặc định trong config.yaml."
+    )
+    sampling: SamplingConfig | None = None
+    question: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Câu hỏi kèm theo; có thì chạy luôn nhánh Q&A sau khi profiling.",
+    )
+
+    @field_validator("dataset_ref")
+    @classmethod
+    def _no_control_chars(cls, v: str) -> str:
+        if any(ord(c) < 32 for c in v):
+            raise ValueError("dataset_ref chứa ký tự điều khiển không hợp lệ.")
+        return v.strip()
+
+
+class ColumnStatOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    column_name: str
+    dtype: str | None = None
+    row_count: int | None = None
+    null_count: int | None = None
+    null_pct: float | None = None
+    cardinality: int | None = None
+    uniqueness_ratio: float | None = None
+    # Chỉ có giá trị với cột số; cột chuỗi dùng min_length/max_length.
+    min_value: float | None = None
+    max_value: float | None = None
+    mean: float | None = None
+    median: float | None = None
+    std: float | None = None
+    q1: float | None = None
+    q3: float | None = None
+    outlier_count: int | None = None
+    outlier_method: str | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+    top_k_values: Any = None
+    is_approximate: bool = False
+    margin_of_error: float | None = None
+    pii_masked: bool = False
+
+
+class ProposalOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    kind: ProposalKind | None = None
+    column_name: str | None = None
+    columns: list[str] | None = None
+    proposed_type: str | None = None
+    final_type: str | None = None
+    pii_type: str | None = None
+    detection_method: str | None = None
+    confidence_score: float
+    evidence: str
+    status: ProposalStatus
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+
+
+class ProfileResponse(BaseModel):
+    profile_run_id: str
+    dataset_id: str
+    dataset_name: str | None = None
+    status: str
+    version: int | None = None
+    row_count: int | None = None
+    column_count: int = 0
+    scan_mode: str | None = None
+    random_seed: int | None = None
+    executed_query: str | None = None
+    is_approximate: bool = False
+    narrative_report: str | None = None
+    risk_warnings: list[str] = Field(default_factory=list)
+    quasi_identifiers: list[str] = Field(default_factory=list)
+    pending_proposals: int = 0
+    auto_confirmed: list[dict[str, Any]] = Field(default_factory=list)
+    column_stats: dict[str, ColumnStatOut] = Field(default_factory=dict)
+    correlation_matrix: dict[str, dict[str, float]] = Field(default_factory=dict)
+    proposals: dict[str, list[ProposalOut]] = Field(default_factory=dict)
+    error: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# HITL
+# --------------------------------------------------------------------------- #
+class ProposalDecision(BaseModel):
+    kind: ProposalKind
+    proposal_id: str = Field(..., min_length=1)
+    decision: Literal["confirm", "reject", "edit"]
+    final_type: str | None = Field(
+        default=None, max_length=100, description="Bắt buộc khi decision='edit'."
+    )
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class ConfirmRequest(BaseModel):
+    """Analyst xác nhận/từ chối đề xuất. `confirmed_by` là bắt buộc để truy vết."""
+
+    confirmed_by: str = Field(..., min_length=1, max_length=255)
+    decisions: list[ProposalDecision] = Field(..., min_length=1, max_length=500)
+    resume: bool = Field(
+        default=True, description="Chạy tiếp pipeline (summarize) sau khi xác nhận."
+    )
+
+
+class ConfirmResponse(BaseModel):
+    profile_run_id: str
+    applied: int
+    pending_proposals: int
+    status: str
+    narrative_report: str | None = None
+    risk_warnings: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Kiểm định thống kê
+# --------------------------------------------------------------------------- #
+class TestSpec(BaseModel):
+    test_type: str = Field(..., min_length=1, max_length=64)
+    columns: list[str] = Field(..., min_length=1, max_length=10)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class TestRequest(BaseModel):
+    requested_by: str = Field(..., min_length=1, max_length=255)
+    tests: list[TestSpec] = Field(..., min_length=1, max_length=20)
+    alpha: float | None = Field(default=None, gt=0.0, lt=1.0)
+    fdr_method: Literal["benjamini_hochberg", "bonferroni", "none"] | None = None
+
+
+class TestResultOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    test_type: str
+    target_columns: list[str]
+    test_statistic: float | None = None
+    p_value: float | None = None
+    p_value_adjusted: float | None = None
+    significant_after_correction: bool | None = None
+    conclusion: str
+    interpretation: str
+    alpha: float | None = None
+    error: str | None = None
+
+
+class TestResponse(BaseModel):
+    profile_run_id: str
+    results: list[TestResultOut] = Field(default_factory=list)
+    correction_note: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Q&A
+# --------------------------------------------------------------------------- #
+class QARequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+    profile_run_id: str | None = Field(
+        default=None, description="Bỏ trống để tìm trên toàn bộ index."
+    )
+    stream: bool = True
+
+
+class QAResponse(BaseModel):
+    question: str
+    question_type: str | None = None
+    answer: str
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    is_approximate: bool = False
+
+
+# --------------------------------------------------------------------------- #
+# Drift
+# --------------------------------------------------------------------------- #
+class DriftRequest(BaseModel):
+    baseline_run_id: str = Field(..., min_length=1)
+    current_run_id: str | None = Field(
+        default=None, description="Bỏ trống để so với run trong URL."
+    )
+
+
+class DriftFinding(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    column_name: str | None = None
+    drift_type: str
+    severity: Literal["major", "minor"]
+    metric: str | None = None
+    baseline_value: Any = None
+    current_value: Any = None
+    psi: float | None = None
+    detail: str
+
+
+class DriftResponse(BaseModel):
+    baseline_run_id: str
+    current_run_id: str
+    summary: str
+    findings: list[DriftFinding] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Dataset / hệ thống
+# --------------------------------------------------------------------------- #
+class DatasetOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    source_type: str | None = None
+    source_ref: str | None = None
+    last_profiled_at: datetime | None = None
+
+
+class UploadResponse(BaseModel):
+    """Kết quả upload file — `dataset_ref` truyền thẳng vào `POST /profile`."""
+
+    dataset_ref: str
+    filename: str
+    size_bytes: int
+    suggested_name: str | None = None
+
+
+class ProfileRunSummary(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    dataset_id: str
+    version: int | None = None
+    status: str
+    scan_mode: str | None = None
+    row_count: int | None = None
+    is_approximate: bool = False
+    created_at: datetime | None = None
+
+
+class StatusResponse(BaseModel):
+    app: str
+    env: str
+    llm_provider: str
+    llm_model: str
+    llm_configured: bool
+    embedding_provider: str
+    database: str
+    checkpointer: str
+    auto_confirm: bool
+    confidence_threshold: float
+    mask_pii_in_answers: bool
+    allow_raw_export: bool
+    require_api_token: bool
+    indexed_documents: int = 0
+    missing_config: list[str] = Field(
+        default_factory=list, description="Các biến môi trường bạn cần điền."
+    )
+
+
+class HealthResponse(BaseModel):
+    status: str
+    app: str
+    env: str
+    llm_configured: bool
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+__all__ = [
+    "ColumnStatOut",
+    "ConfirmRequest",
+    "ConfirmResponse",
+    "DatasetOut",
+    "DriftFinding",
+    "DriftRequest",
+    "DriftResponse",
+    "ErrorResponse",
+    "HealthResponse",
+    "ProfileRequest",
+    "ProfileResponse",
+    "ProfileRunSummary",
+    "ProposalDecision",
+    "ProposalOut",
+    "QARequest",
+    "QAResponse",
+    "SamplingConfig",
+    "StatusResponse",
+    "TestRequest",
+    "TestResponse",
+    "TestResultOut",
+    "TestSpec",
+    "UploadResponse",
+]

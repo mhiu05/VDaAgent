@@ -1,201 +1,305 @@
-# 🤖 AI20K Agent Template
+# P-170 - AI Data Profiling Agent
 
-Template chính thức cho học viên **VinUni AI20K Build Phase** — cung cấp sẵn cấu trúc dự án, code mẫu, và hướng dẫn kỹ thuật chi tiết để xây dựng AI Agent đạt điểm cao (35+/50).
+AI Data Profiling Agent tự động lập hồ sơ dữ liệu: upload dataset, tính thống kê, phát hiện PII, đề xuất candidate key và semantic type, yêu cầu analyst xác nhận HITL, chạy kiểm định thống kê, so sánh drift và trả lời câu hỏi về dataset.
 
-> 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+Trong dự án này, mọi con số được tính bởi compute engine như DuckDB, pandas, NumPy và SciPy. LLM chỉ dùng để diễn giải, tóm tắt và hỗ trợ hỏi đáp bằng ngôn ngữ tự nhiên, không tự suy diễn số liệu.
 
-## 🎯 Template này dùng để làm gì?
+## Core Features
 
-Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent hoàn chỉnh — từ kiến trúc, code, test, đến deploy. Thay vì bắt đầu từ con số không, template này cung cấp:
+- Profiling CSV, TSV, Parquet và JSON thông qua API upload hoặc đường dẫn `dataset_ref`.
+- Tính thống kê theo cột: null rate, cardinality, độ dài, min/max, mean, median, std, quartile, outlier, top-k value và correlation matrix.
+- Phát hiện PII và mặc định mask giá trị mẫu của cột nhạy cảm trong API/export.
+- Đề xuất metadata có evidence và confidence: candidate key, semantic type, PII.
+- HITL review: analyst confirm, reject hoặc edit proposal trước khi metadata được áp dụng.
+- Kiểm định thống kê theo yêu cầu, có hiệu chỉnh multiple testing.
+- Drift detection giữa hai lần profiling.
+- Q&A về dataset với 2 nhánh: structured lookup cho câu hỏi định lượng và retrieval cho câu hỏi định tính.
+- Web UI tĩnh tại `/ui/` để upload, profile, review HITL và chat QA.
+- Audit log cho các hành động nhạy cảm.
 
-- **Cấu trúc thư mục chuẩn** — đã được thiết kế theo best practices (separation of concerns)
-- **Code mẫu** cho các phần cốt lõi: LangGraph agent, FastAPI API, config, schemas
-- **Docker + CI/CD sẵn** — Dockerfile multi-stage, GitHub Actions workflow
-- **Hướng dẫn kỹ thuật 10 chương** — từ clone template đến nộp bài Demo Day
-- **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
-- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
+## Tech Stack
 
-## ⚡ Quick Start
+| Layer | Công nghệ |
+| --- | --- |
+| Backend API | FastAPI, Uvicorn, Pydantic v2 |
+| Agent orchestration | LangGraph, LangChain Core |
+| LLM providers | OpenAI-compatible providers: OpenAI, OpenRouter, Gemini, Groq, Together, Ollama, Custom |
+| Compute | DuckDB, pandas, NumPy, SciPy |
+| Metadata DB | SQLite mặc định; PostgreSQL cho production |
+| Retrieval | BM25 mặc định; embedding/rerank tùy chọn qua extras |
+| Test/lint | pytest, httpx, ruff |
 
-### Bước 1: Fork hoặc Clone
+## Yêu cầu
 
-```bash
-# Clone template
-git clone https://github.com/AI20K-Build-Cohort-2/starter-code-template.git team-YOUR_TEAM_NAME
-cd team-YOUR_TEAM_NAME
+- Python 3.11 trở lên
+- Pip/venv.
+- LLM API key là tùy chọn. Không có key thì profiling, thống kê, drift và một phần Q&A offline vẫn chạy; chỉ thiếu phần diễn giải tự nhiên bằng LLM.
 
-# Xóa git history cũ và khởi tạo lại
-rm -rf .git
-git init
-git add .
-git commit -m "feat: khởi tạo dự án từ template"
-```
-
-### Bước 2: Setup môi trường
-
-```bash
-# Tạo virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-# Cài dependencies
-pip install -e ".[dev]"
-
-# Cấu hình API keys
-cp .env.example .env
-# Mở .env và thêm OPENAI_API_KEY của bạn
-# Đồng thời cập nhật AI_LOG_API_KEY bằng key riêng từ link mời của BTC
-# (giá trị trong .env.example chỉ là placeholder)
-```
-
-### Bước 3: Cài AI Logging Hooks
+## Quick Setup
 
 ```bash
-# Linux / macOS / Git Bash
-bash scripts/setup_hooks.sh
+python -m venv .venv
 
 # Windows PowerShell
-# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
+.venv\Scripts\Activate.ps1
+
+# macOS/Linux
+# source .venv/bin/activate
+
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
+Mở `.env` và điền key của provider đang dùng nếu cần báo cáo/diễn giải bằng LLM:
 
-### Bước 4: Chạy server
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=...
+```
+
+Nếu chỉ muốn chạy offline để kiểm tra pipeline deterministic, có thể để trống các API key.
+
+## Chạy ứng dụng
 
 ```bash
-# Chạy FastAPI backend
-uvicorn src.main:app --reload --port 8000
-
-# Mở Swagger UI
-# http://localhost:8000/docs
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Bước 5: Đọc hướng dẫn
+Hoặc:
 
-📖 Mở **[Technical Guidebook](https://phoenix.note.transformerlabs.ai/technical-book)** và làm theo từng chương.
-
-## 📁 Cấu trúc dự án
-
-```
-├── src/
-│   ├── agents/           # 🧠 LangGraph Agent
-│   │   ├── graph.py      #    State graph (nodes + edges)
-│   │   ├── state.py      #    State schema (TypedDict)
-│   │   ├── nodes/        #    Node functions
-│   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
-├── tests/                # 🧪 pytest suite
-│   ├── test_agents/      #    Agent/graph tests
-│   └── test_api/         #    API endpoint tests
-├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
-│   ├── log_antigravity.py#    Antigravity IDE prompt scanner
-│   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
-│   ├── submit_log.py     #    Submit logs on git push
-│   └── setup_hooks.sh    #    One-time hook installer
-├── .claude/ .codex/ .cursor/ .gemini/  # Per-tool hook configs
-├── .agents/              # Antigravity rules + workflows
-├── .ai-log/              # 📊 AI usage logs (auto-generated)
-├── docs/
-│   ├── guide/            # 📖 Technical Guidebook (10 chapters)
-│   └── architecture_diagram.md
-├── eval/                 # 📊 Evaluation results
-├── presentation/         # 🎤 Demo Day slides
-├── .github/workflows/    # ⚡ CI/CD (GitHub Actions)
-├── .github/hooks/        # 🪝 Copilot hook config
-├── Dockerfile            # 🐳 Multi-stage build
-├── docker-compose.yml    # 🐙 Full stack orchestration
-└── README_boilerplate.md # 📝 README template cho đội của bạn
-```
-
-## 📚 Technical Guidebook — 10 Chương
-
-| Chương | Nội dung | Thời gian |
-|---------|----------|-----------|
-| 1 | Lời mở đầu — Mục tiêu, cách sử dụng | 15 phút |
-| 2 | Khởi tạo dự án — Clone, setup, git workflow | 4 giờ |
-| 3 | Thiết kế kiến trúc — 3-tier, diagrams, ADR | 6 giờ |
-| 4 | **LangGraph Agent** — State, nodes, edges, tools, RAG | 8 giờ |
-| 5 | FastAPI — Routes, validation, error handling, streaming | 6 giờ |
-| 6 | Giao diện — Next.js + Streamlit quickstart | 6 giờ |
-| 7 | DevOps — Docker, CI/CD, deploy, logging | 6 giờ |
-| 8 | Kiểm thử — Unit test, integration test, RAGAS | 4 giờ |
-| 9 | Demo Day — 10 deliverables, checklist, tips | 2 giờ |
-| 10 | Tài nguyên — Khóa học, docs, BMAD method | tham khảo |
-
-📖 **Đọc online:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-
-## 📋 10 Deliverables cho Demo Day
-
-| # | Deliverable | File vị trí | Template có sẵn |
-|---|-------------|-------------|:---:|
-| 1 | Source Code | `src/` | ✅ |
-| 2 | README.md | `README_boilerplate.md` → copy thành `README.md` | ✅ |
-| 3 | Architecture Diagram | `docs/architecture_diagram.md` | ✅ |
-| 4 | AI Logs | LangSmith (3 env vars) + Auto AI Usage Logging | ✅ |
-| 5 | Live URL | Deploy lên Render/Vercel | ⚡ CI/CD sẵn |
-| 6 | Video Demo | `presentation/` | 📝 |
-| 7 | Pitch Deck | `presentation/` | 📝 |
-| 8 | Development Journal | `JOURNAL.md` | ✅ |
-| 9 | Worklog | `WORKLOG.md` | ✅ |
-| 10 | Evaluation Evidence | `eval/` | 📝 |
-
-## 🛠 Tech Stack
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| AI Agent | LangGraph + LangChain | Latest |
-| Backend | FastAPI + Uvicorn | 0.100+ |
-| LLM | OpenAI GPT-4o-mini | API |
-| Frontend | Next.js / Streamlit | 14+ / 1.30+ |
-| Database | SQLite (dev) / PostgreSQL (prod) | — |
-| DevOps | Docker + GitHub Actions | — |
-| Testing | pytest + pytest-asyncio | 8+ |
-
-## 📊 AI Usage Logging
-
-Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
-
-| Tool | Cơ chế | Config |
-|------|--------|--------|
-| Claude Code | `.claude/settings.json` hooks | Tự động |
-| Cursor | `.cursor/hooks.json` | Tự động |
-| OpenAI Codex CLI | `.codex/hooks.json` | Tự động |
-| Gemini CLI | `.gemini/settings.json` | Tự động |
-| GitHub Copilot | `.github/hooks/hooks.json` | Tự động |
-| Antigravity IDE | Pre-push scan transcript | Tự động trên `git push` |
-
-Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`.
-
-**ChatGPT / web tools khác** — log thủ công:
 ```bash
-bash scripts/_pyrun.sh scripts/log_manual.py --tool chatgpt --prompt "What you asked"
+make run
 ```
 
-> ⚠️ Chạy `bash scripts/setup_hooks.sh` một lần sau khi clone để cài pre-push hook.
+Sau khi server chạy:
 
-## 📖 Đọc Technical Guidebook
+- Web UI: <http://localhost:8000/ui/>
+- Health check: <http://localhost:8000/health>
+- API docs: <http://localhost:8000/docs>
+- Status cấu hình: <http://localhost:8000/api/v1/status>
 
-**Online (khuyến nghị):** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+Mặc định ứng dụng dùng SQLite trong `data/app.db`, checkpointer trong `data/checkpoints.sqlite`, upload trong `data/uploads/` và audit log trong `data/audit.jsonl`.
 
-Đăng nhập bằng GitHub (cùng account đã được BTC mời vào org `AI20K-Build-Cohort-2`)
-→ chọn tab **Technical Book** ở sidebar trái → đọc 10 chương + topic sections,
-có table of contents bên phải, hỗ trợ light/dark/cyberpunk theme.
+## Cấu hình
 
-**Offline:** mọi chương đều ở thư mục `docs/guide/` trong template này — mở bằng
-bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
+Dự án đọc cấu hình theo thứ tự ưu tiên:
 
-## 🔗 Liên kết
+1. Biến môi trường trong `.env`.
+2. Giá trị trong `config.yaml`.
+3. Default trong code.
 
-- 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Đặng Hải Lộc
+Một số cấu hình quan trọng:
 
-## 📄 License
+| Nhóm | Khóa | Ý nghĩa |
+| --- | --- | --- |
+| LLM | `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY` hoặc key provider tương ứng | Chọn model để diễn giải và sinh báo cáo |
+| Database | `DATABASE_URL` | Để trống để dùng SQLite; đặt PostgreSQL DSN khi deploy |
+| Security | `security.require_api_token`, `API_TOKEN` | Bật token Bearer cho production |
+| Profiling | `profiling.default_scan_mode`, `sample_size`, `random_seed` | Chọn full scan/sample và tái lập kết quả |
+| Retrieval | `retrieval.embedding_provider`, `retrieval.enable_rerank` | Cấu hình QA retrieval |
 
-MIT — Sử dụng tự do cho mục đích giáo dục.
+Khi `security.require_api_token=true`, client gọi API với header:
+
+```http
+Authorization: Bearer <API_TOKEN>
+```
+
+## Workflow sử dụng API
+
+### 1. Upload dataset
+
+```bash
+curl -X POST http://localhost:8000/api/v1/datasets/upload \
+  -F "file=@data/sample_users.csv"
+```
+
+Response trả về `dataset_ref`. Dùng giá trị này cho bước profiling.
+
+### 2. Chạy profiling
+
+```bash
+curl -X POST http://localhost:8000/api/v1/profile \
+  -H "Content-Type: application/json" \
+  -d '{"dataset_ref":"data/sample_users.csv","dataset_name":"users","scan_mode":"full"}'
+```
+
+Pipeline sẽ chạy đến điểm chờ HITL và trả về:
+
+- `profile_run_id`
+- thống kê theo cột
+- proposal cho candidate key, semantic type và PII
+- `pending_proposals`
+- cảnh báo rủi ro nếu có
+
+### 3. Review HITL
+
+Lấy profile:
+
+```bash
+curl http://localhost:8000/api/v1/profile/<profile_run_id>
+```
+
+Xác nhận proposal và cho pipeline tạo báo cáo:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/profile/<profile_run_id>/confirm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "confirmed_by": "analyst@example.com",
+    "resume": true,
+    "decisions": [
+      {"kind": "candidate_key", "proposal_id": "<proposal_id>", "decision": "confirm"}
+    ]
+  }'
+```
+
+`decision` hỗ trợ `confirm`, `reject`, `edit`. Khi `edit`, cần thêm `final_type`.
+
+### 4. Hỏi đáp về dataset
+
+```bash
+curl -X POST http://localhost:8000/api/v1/qa \
+  -H "Content-Type: application/json" \
+  -d '{"profile_run_id":"<profile_run_id>","question":"Tỷ lệ null của cột email là bao nhiêu?"}'
+```
+
+Streaming SSE:
+
+```bash
+curl -N -X POST http://localhost:8000/api/v1/qa/stream \
+  -H "Content-Type: application/json" \
+  -d '{"profile_run_id":"<profile_run_id>","question":"Dataset này có rủi ro gì?"}'
+```
+
+### 5. Kiểm định thống kê
+
+```bash
+curl -X POST http://localhost:8000/api/v1/profile/<profile_run_id>/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "requested_by": "analyst@example.com",
+    "tests": [
+      {"test_type": "shapiro_wilk", "columns": ["salary"]},
+      {"test_type": "pearson", "columns": ["age", "salary"]}
+    ]
+  }'
+```
+
+### 6. So sánh drift
+
+```bash
+curl -X POST http://localhost:8000/api/v1/profile/<current_run_id>/drift \
+  -H "Content-Type: application/json" \
+  -d '{"baseline_run_id":"<baseline_run_id>"}'
+```
+
+### 7. Export profile
+
+```bash
+curl http://localhost:8000/api/v1/profile/<profile_run_id>/export
+```
+
+Export chỉ trả metadata và thống kê. Mặc định không xuất raw data và không trả giá trị mẫu của cột PII.
+
+## API endpoints
+
+| Method | Path | Mô tả |
+| --- | --- | --- |
+| `GET` | `/health` | Health check |
+| `GET` | `/api/v1/status` | Cấu hình runtime và biến còn thiếu |
+| `POST` | `/api/v1/datasets/upload` | Upload CSV/TSV/Parquet/JSON |
+| `GET` | `/api/v1/datasets` | Danh sách dataset đã profile |
+| `GET` | `/api/v1/datasets/{dataset_id}/runs` | Danh sách run của một dataset |
+| `POST` | `/api/v1/profile` | Chạy profiling đến điểm HITL |
+| `GET` | `/api/v1/profile/{run_id}` | Xem profile run |
+| `GET` | `/api/v1/profile/{run_id}/export` | Export metadata/thống kê |
+| `PATCH` | `/api/v1/profile/{run_id}/confirm` | Confirm/reject/edit proposal |
+| `POST` | `/api/v1/profile/{run_id}/test` | Chạy kiểm định thống kê |
+| `POST` | `/api/v1/profile/{run_id}/drift` | So sánh drift |
+| `POST` | `/api/v1/qa` | Q&A không streaming |
+| `POST` | `/api/v1/qa/stream` | Q&A streaming SSE |
+| `GET` | `/api/v1/audit` | Xem audit log gần nhất |
+
+## Kiểm thử và chất lượng
+
+Chạy test:
+
+```bash
+pytest tests/ -v
+```
+
+Chạy smoke test end-to-end offline:
+
+```bash
+python scripts/smoke_test.py
+```
+
+Lint/format:
+
+```bash
+ruff check src/ tests/
+ruff format src/ tests/
+```
+
+Hoặc dùng Makefile:
+
+```bash
+make test
+make lint
+make format
+make check
+```
+
+## Cấu trúc dự án
+
+```text
+.
+|-- src/
+|   |-- main.py                 # FastAPI app, CORS, static UI, health
+|   |-- config.py               # Đọc config.yaml + .env
+|   |-- api/
+|   |   `-- routes.py           # REST/SSE endpoints
+|   |-- agents/
+|   |   |-- graph.py            # LangGraph profiling và QA graph
+|   |   |-- state.py            # Agent state
+|   |   |-- nodes/              # Node ingest, stats, HITL, summarize, QA
+|   |   `-- tools/              # Tool cho profiling/lookup
+|   |-- models/
+|   |   `-- schemas.py          # Pydantic request/response schema
+|   |-- services/
+|   |   |-- compute.py          # Tính thống kê
+|   |   |-- stats_tests.py      # Kiểm định thống kê
+|   |   |-- drift.py            # Drift detection
+|   |   |-- repository.py       # Metadata DB
+|   |   |-- retrieval.py        # QA retrieval
+|   |   |-- security.py         # Auth, rate limit, audit, upload safety
+|   |   `-- llm.py              # LLM adapter
+|   `-- webui/
+|       `-- index.html          # Dashboard tĩnh tại /ui/
+|-- tests/                      # Unit/API/agent tests
+|-- scripts/                    # Smoke test và AI log helpers
+|-- docs/                       # ADR, gate docs, architecture notes
+|-- figures/                    # Hình ảnh minh họa
+|-- config.yaml                 # Cấu hình public, không secret
+|-- .env.example                # Mẫu biến môi trường
+|-- pyproject.toml              # Metadata package và dependencies
+`-- requirements.txt            # Dependency list dùng nhanh cho pip install -r
+```
+
+## Ghi chú bảo mật và governance
+
+- Không commit `.env` hoặc API key.
+- Production nên bật `security.require_api_token=true` và đặt `API_TOKEN`.
+- `allow_raw_export=false` theo mặc định để tránh xuất dữ liệu gốc.
+- `mask_pii_in_answers=true` theo mặc định để tránh lộ giá trị mẫu của cột PII.
+- Candidate key và PII proposal cần analyst xác nhận; agent không tự confirm thay người dùng.
+- Audit log ghi lại upload, profiling, HITL decision, export, test và drift.
+
+## Tài liệu liên quan
+
+
+
+## License
+
+MIT

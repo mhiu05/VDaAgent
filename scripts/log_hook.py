@@ -20,6 +20,10 @@ def git(cmd):
         return ""
 
 
+def event_name(data: dict) -> str:
+    return data.get("hook_event_name") or data.get("hookEventName") or data.get("event", "")
+
+
 def detect_tool(data: dict) -> str:
     """Detect which AI tool sent this hook event.
 
@@ -37,15 +41,16 @@ def detect_tool(data: dict) -> str:
     # Heuristics
     if "transcript_path" in data:
         return "codex"
-    if data.get("hook_event_name", "").startswith(("Before", "After", "Session", "Pre", "Notification")):
+    event = event_name(data)
+    if event.startswith(("Before", "After", "Session", "Pre", "Notification")):
         return "gemini"
-    if data.get("hook_event_name", "")[0:1].islower():
+    if event[0:1].islower():
         # camelCase event names → Cursor or Copilot
         if "workspace_roots" in data:
             return "cursor"
         if "toolName" in data:
             return "copilot"
-    if "hook_event_name" in data:
+    if "hook_event_name" in data or "hookEventName" in data:
         return "claude"
     return "unknown"
 
@@ -139,7 +144,7 @@ def _codex_prompt(data: dict) -> str:
 
 def normalize(data: dict, tool: str) -> dict | None:
     """Normalize tool-specific payload to common log entry."""
-    event = data.get("hook_event_name") or data.get("event", "")
+    event = event_name(data)
     ts = datetime.now(VN_TZ).isoformat()
 
     # Resolve repo from git origin. When cwd is not a git working tree (or
@@ -265,7 +270,9 @@ def main():
     if not entry:
         sys.exit(0)
 
-    log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
+    repo_root = git("git rev-parse --show-toplevel")
+    default_log_dir = Path(repo_root) / ".ai-log" if repo_root else Path(".ai-log")
+    log_dir = Path(os.environ.get("AI_LOG_DIR", str(default_log_dir)))
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "session.jsonl"
 

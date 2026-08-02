@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "P-170"
+name = "p170-profiling-agent"
 version = "1.0.0"
-description = "Description in docs/project_context.md"
+description = "AI Data Profiling Agent — tự lập hồ sơ dữ liệu, HITL xác nhận metadata, Q&A có căn cứ số liệu"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -18,14 +18,28 @@ classifiers = [
     "Framework :: FastAPI",
 ]
 dependencies = [
+    # Web / API
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "python-dotenv>=1.0.0",
-    "langchain>=0.3.0",
+    "PyYAML>=6.0",
+    "python-multipart>=0.0.9",
+    # Agent
+    "langchain-core>=0.3.0",
     "langchain-openai>=0.3.0",
     "langgraph>=0.2.0",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    # Compute engine — mọi con số do đây tính, LLM không tự tính
+    "duckdb>=1.1.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "scipy>=1.14.0",
+    # Metadata DB
+    "sqlalchemy>=2.0.0",
+    # Retrieval — nhánh QA định tính
+    "rank-bm25>=0.2.2",
 ]
 
 [project.optional-dependencies]
@@ -35,31 +49,33 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
 ]
+# Production: PostgreSQL cho metadata + LangGraph checkpointer (ADR-009)
 db = [
-    "sqlalchemy>=2.0.0",
     "alembic>=1.14.0",
     "psycopg2-binary>=2.9.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
 ]
-vector = [
-    "chromadb>=0.5.0",
+# Embedding local cho nhánh QA định tính (bỏ trống thì dùng BM25 sparse)
+embed = [
+    "sentence-transformers>=3.0.0",
+]
+# Cross-encoder rerank — bật retrieval.enable_rerank sau khi cài
+rerank = [
+    "sentence-transformers>=3.0.0",
 ]
 all = [
-    "ruff>=0.8.0",
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
-    "httpx>=0.28.0",
-    "sqlalchemy>=2.0.0",
-    "alembic>=1.14.0",
-    "psycopg2-binary>=2.9.0",
-    "chromadb>=0.5.0",
+    "p170-profiling-agent[dev,db,embed]",
 ]
 
 [project.scripts]
-ai20k = "src.main:app"
+p170 = "src.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 include = ["src*"]
+
+[tool.setuptools.package-data]
+"src.webui" = ["*.html"]
 
 [tool.ruff]
 line-length = 100
