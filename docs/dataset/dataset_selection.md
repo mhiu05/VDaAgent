@@ -24,6 +24,10 @@
    - [3.3 Bảng so sánh tổng hợp](#33-bảng-so-sánh-tổng-hợp)
    - [3.4 Hai dataset bổ sung cho nhau như thế nào](#34-hai-dataset-bổ-sung-cho-nhau-như-thế-nào)
    - [3.5 Hạn chế chung & cách khắc phục](#35-hạn-chế-chung--cách-khắc-phục)
+4. [Phần 4 — Survey bổ sung theo Định dạng Dữ liệu & Bộ Data Lỗi (Dirty Data)](#phần-4--survey-bổ-sung-theo-định-dạng-dữ-liệu--bộ-data-lỗi-dirty-data)
+   - [4.1 Tiêu chí chọn định dạng dữ liệu & data lỗi](#41-tiêu-chí-chọn-định-dạng-dữ-liệu--data-lỗi)
+   - [4.2 Danh sách Dataset mở rộng theo Định dạng & Data Lỗi](#42-danh-sách-dataset-mở-rộng-theo-định-dạng--data-lỗi)
+   - [4.3 Bảng Ma trận Tổng hợp mở rộng](#43-bảng-ma-trận-tổng-hợp-mở-rộng)
 
 ---
 
@@ -272,7 +276,7 @@ Là cách duy nhất để có dataset chứa PII realistic, và kiểm soát ho
 | `seller_id` | string | ID người bán | **Candidate key** |
 | `seller_zip_code_prefix` | int | Zip code | Quasi-identifier |
 | `seller_city` | string | Thành phố | Categorical |
-| `seller_state` | string | Bang | Categorical (27 giá trị) |
+| `seller_state` | string | Bang (2 ký tự) | Categorical (27 giá trị) |
 
 **Bảng 8: `olist_geolocation_dataset.csv`** — Toạ độ
 
@@ -429,4 +433,109 @@ olist_geolocation ← (zip_code_prefix) ← olist_customers / olist_sellers
 
 ---
 
-*Tài liệu này được tạo ngày 2026-08-02. Cập nhật lại khi có thay đổi yêu cầu hoặc tìm được dataset phù hợp hơn.*
+## Phần 4 — Survey bổ sung theo Định dạng Dữ liệu & Bộ Data Lỗi (Dirty Data)
+
+### 4.1 Tiêu chí chọn định dạng dữ liệu & data lỗi
+
+#### a) Định dạng dữ liệu (Data Formats)
+Agent Profiling cần hỗ trợ đa dạng định dạng nguồn để đáp ứng môi trường thực tế (SQL Warehouse, Data Lake, File Export):
+
+| Định dạng | Đặc điểm kỹ thuật | Thử thách cho Agent Profiling |
+|---|---|---|
+| **CSV / TSV** | Plaintext, delimited (dấu phẩy, tab, dấu chấm phẩy) | Phải tự parse header, tự suy luận type (string -> numeric/date), xử lý mảng delimiter |
+| **Parquet / Feather** | Columnar, compressed, schema-enforced | Zero-copy load với DuckDB, read metadata footer để lấy exact row count/min/max trước khi scan |
+| **JSON / JSONL** | Semi-structured, nested objects/arrays, line-delimited | Phải flatten nested structure, xử lý missing key (key không tồn tại khác value `null`), schema drift giữa các record |
+| **Excel (.xlsx)** | Multi-sheet, formatted cells, formulas | Phải chọn sheet, bỏ qua row header/footnote dư thừa, ép kiểu từ formatting cell |
+| **SQLite (.db / .sqlite)** | Relational database (embedded SQL) | Quét nhiều table, trích xuất DDL / FK constraint sẵn có, text-to-SQL |
+| **BigQuery Table** | Distributed Cloud Data Warehouse | Execute remote query (`TABLESAMPLE`, `APPROX_COUNT_DISTINCT`), giới hạn bytes scanned |
+
+#### b) Phân loại Data Lỗi (Dirty Data Categories) để test độ bền Agent
+
+| Mã lỗi | Loại lỗi dữ liệu | Chi tiết hiện tượng | Thử thách & Kỳ vọng với Agent |
+|---|---|---|---|
+| **ERR1** | **Lỗi kiểu dữ liệu (Invalid & Mixed Types)** | Số bị dính chữ (vd: `$1,200`, `100kg`), ngày tháng sai format (vd: `31/02/2024`, `9999-99-99`, `2024-13-40`), null đại diện bởi string (`"N/A"`, `"null"`, `"?"`, `"-"`) | Agent `compute_stats` không bị crash, nhận diện được dirty type, gắn cờ cảnh báo "cột X có 15% giá trị sai định dạng" |
+| **ERR2** | **Lỗi logic & tính toán (Semantic & Logic Errors)** | `Quantity * Price != Total`, giá tiền âm (`Price = -50`), tuổi âm/vượt chuẩn (`Age = -5` hoặc `Age = 250`), duplicate Primary Key | Agent phát hiện được bất thường logic, cảnh báo rủi ro chất lượng ở bước `summarize` |
+| **ERR3** | **Lỗi cấu trúc & Encoding (Format & Encoding Errors)** | Lỗi bảng mã (UTF-8 dính BOM, ISO-8859-1), dòng chứa số lượng cột không đều (missing delimiter), dính quote chưa unescape | Ingest node bắt exception mềm dẻo, tự động fallback encoding hoặc cảnh báo corrupt rows |
+| **ERR4** | **Lỗi Schema Drift & Missing Keys (JSON/JSONL)** | Record 1 có 5 key, Record 2 có 3 key, Record 3 key `age` là int nhưng Record 4 key `age` lại là string | Profiler tổng hợp được union schema, tính % missing key chính xác |
+
+---
+
+### 4.2 Danh sách Dataset mở rộng theo Định dạng & Data Lỗi
+
+#### 1. Dataset Lỗi tổng hợp (Format CSV): **Cafe Sales — Dirty Data**
+* **Nguồn / Link**: Kaggle — [kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training](https://www.kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training)
+* **Định dạng**: File CSV (`dirty_cafe_sales.csv`), 10,000 rows, 8 cột.
+* **Đặc điểm & Loại lỗi**:
+  - `Transaction ID`: Có duplicate IDs (vi phạm Primary Key - ERR2).
+  - `Item`, `Location`, `Payment Method`: Dính lỗi gõ sai (typos), giá trị trống `""` lẫn string `"UNKNOWN"` / `"ERROR"` (ERR1).
+  - `Quantity`, `Price Per Unit`, `Total Spent`: Dính lỗi sai phép tính toán `Quantity * Price != Total Spent` (ERR2).
+  - `Transaction Date`: Định dạng ngày tháng không nhất quán (dính lẫn `YYYY-MM-DD`, `DD/MM/YYYY`, `MM-DD-YYYY`) (ERR1).
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **D2, D4, ERR1, ERR2**: Test khả năng phát hiện lỗi tính toán toán học & ngày tháng hỗn hợp ở `compute_stats`.
+
+#### 2. Dataset Lỗi cấu trúc E-Commerce (Format CSV): **Messy E-Commerce Sales Dataset**
+* **Nguồn / Link**: Kaggle — [kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset](https://www.kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset)
+* **Định dạng**: File CSV, dataset bẩn thực tế cho e-commerce.
+* **Đặc điểm & Loại lỗi**:
+  - Tên cột không chuẩn hóa (chứa khoảng trắng, chữ hoa chữ thường lộn xộn, ký tự đặc biệt).
+  - Cột `Price` bị dính ký tự tiền tệ (`$`, `EUR`) làm pandas parse nhầm thành object/string (ERR1).
+  - Nhiều dòng trống hoàn toàn (empty rows) và dòng bị lệch số lượng cột (ERR3).
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **ERR1, ERR3**: Test bước `ingest` & `propose_metadata` khi gặp schema bẩn và dính ký tự tiền tệ.
+
+#### 3. Dataset Định dạng SQLite (.db): **Chinook Database**
+* **Nguồn / Link**: GitHub — [github.com/lerocha/chinook-database](https://github.com/lerocha/chinook-database)
+* **Định dạng**: Relational Database SQLite (`Chinook_Sqlite.sqlite`), 11 bảng relational.
+* **Đặc điểm**:
+  - Đại diện cho cửa hàng đĩa nhạc kỹ thuật số (Artists, Albums, Tracks, Invoices, Customers, Employees...).
+  - Đã có sẵn ràng buộc DDL Primary Key, Foreign Key chuẩn mực.
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **E1, E2, E4, FMT (SQLite)**: Dùng làm ground truth hoàn hảo cho bài đánh giá Eval (Precision/Recall) của `propose_metadata` khi nhận diện khóa chính / khóa ngoại trên môi trường SQL thật.
+
+#### 4. Dataset Định dạng Excel (.xlsx): **Sample - Superstore Sales**
+* **Nguồn / Link**: Kaggle / Tableau Public — [kaggle.com/datasets/viteesh/superstore-dataset](https://www.kaggle.com/datasets/viteesh/superstore-dataset)
+* **Định dạng**: File Excel `.xlsx` gồm 3 Sheets (`Orders`, `People`, `Returns`).
+* **Đặc điểm**:
+  - `Orders`: ~10,000 dòng thông tin đơn hàng bán lẻ.
+  - `Returns`: Danh sách mã đơn bị trả lại (`Returned = Yes`).
+  - `People`: Danh sách quản lý khu vực (`Region`, `Person`).
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **FMT (Excel)**, **D1, D3, D8**: Test khả năng đọc file multi-sheet Excel của Ingest node, tự chọn sheet để profiling và join sheet `Orders` ↔ `Returns` để tính tỷ lệ trả hàng.
+
+#### 5. Dataset Định dạng Parquet: **NYC Yellow Taxi Trip Data**
+* **Nguồn / Link**: NYC TLC Official Open Data — [nyc.gov/site/tlc/about/tlc-trip-record-data.page](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)
+* **Định dạng**: Apache Parquet (`.parquet`), 3M–9M dòng / file tháng.
+* **Đặc điểm**:
+  - Chuẩn định dạng Columnar nén cao cấp của Data Lake.
+  - Chứa cột `passenger_count`, `trip_distance`, `fare_amount`, `VendorID`, `tpep_pickup_datetime`.
+  - Có outlier cự ly/tiền taxi âm hoặc cực lớn (`fare_amount = -100` hoặc `$50,000`).
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **S1, S2, S4, FMT (Parquet)**: Đánh giá tốc độ DuckDB query trực tiếp file `.parquet` lớn >3M dòng, test sampling thích ứng & ước lượng HyperLogLog.
+
+#### 6. Dataset Định dạng Semi-Structured JSONL: **RealNest / DeepJSONEval Sample**
+* **Nguồn / Link**: GitHub — [github.com/google-research/realnest](https://github.com/google-research/realnest) hoặc JSONL samples từ HuggingFace.
+* **Định dạng**: Line-delimited JSON (`.jsonl`), chứa nested dictionaries & arrays.
+* **Đặc điểm & Loại lỗi**:
+  - Dữ liệu lồng ghép phức tạp (vd: `user.address.city`, `user.orders[].item_id`).
+  - Dính lỗi Schema Drift (ERR4): một số record thiếu hẳn trường `address`, hoặc trường `age` lúc là `int`, lúc lại là string `"twenty"`.
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **FMT (JSONL), ERR4**: Test module JSON Profiling (flattening, tree summary, schema inference).
+
+---
+
+### 4.3 Bảng Ma trận Tổng hợp mở rộng (Format × Data Quality × Target)
+
+| Dataset | Định dạng File | Quy mô / Rows | Domain | Lỗi dữ liệu tiêu biểu | Mục đích Test chính |
+|---|---|---|---|---|---|
+| **Brazilian E-Commerce (Olist)** | CSV (8 files) | ~100K | Retail | Missing reviews (>50%), delivery null | **Demo MVP Pipeline (Multi-table FK)** |
+| **Online Retail II (UCI)** | CSV | ~1.07M | Retail | CustomerID null 22%, Quantity âm | **Demo Sampling + Uncertainty (≈)** |
+| **Cafe Sales Dirty Data** | CSV | 10K | FnB / Retail | Typo, Total != Qty*Price, date format hỗn hợp | **Test Robustness & Error Handling (ERR1, ERR2)** |
+| **Messy E-Commerce Sales** | CSV | ~5K | E-Commerce | Unformatted header, dính ký tự `$`, empty rows | **Test Data Ingestion & Sanitization (ERR1, ERR3)** |
+| **Chinook Database** | SQLite (.db) | 11 tables | Digital Media | Ground truth sạch chuẩn DDL SQL | **Eval Suite (PK/FK Precision-Recall)** |
+| **Superstore Sales** | Excel (.xlsx) | 3 sheets | Retail | Multi-sheet relation, formatted headers | **Test Ingest Multi-sheet Excel** |
+| **NYC Taxi Trips** | Parquet | ~3M+ / file | Transportation | Outlier tiền fare âm, cự ly 0 | **Test Large Scale Parquet Query (DuckDB)** |
+| **RealNest / JSONL Sample** | JSONL | ~50K | Tech / Log | Nested objects, missing keys, schema drift | **Test Semi-structured JSON Profiling (ERR4)** |
+
+---
+
+*Tài liệu này được cập nhật bổ sung Phần 4 ngày 2026-08-05 cho dự án AI Agent Data Profiling.*
