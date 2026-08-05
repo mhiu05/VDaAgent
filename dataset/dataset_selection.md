@@ -150,7 +150,7 @@ Dataset được thiết kế sẵn với null, outlier, format lỗi — tốt 
 | Repo | Link | Đặc điểm |
 |---|---|---|
 | eyowhite/Messy-dataset | [github.com/eyowhite/Messy-dataset](https://github.com/eyowhite/Messy-dataset) | Dataset bẩn có chủ đích: null, format lỗi, duplicate |
-| NamanGupta001/Messy-Dataset-Cleaning | [github.com/NamanGupta001/Messy-Dataset-Cleaning](https://github.com/NamanGupta001/Messy-Dataset-Cleaning) | Missing values, empty rows, ngày tháng sai format, số lẫn chữ |
+| Jcharis/Data-Cleaning-Practical-Examples | [github.com/Jcharis/Data-Cleaning-Practical-Examples](https://github.com/Jcharis/Data-Cleaning-Practical-Examples) | Chứa `unclean_data.csv` với header lệch, thiếu comma, duplicate `title_year` |
 | OxfordIHTM/messy-data | [github.com/OxfordIHTM/messy-data](https://github.com/OxfordIHTM/messy-data) | Vi phạm tidy data principles, dữ liệu rải nhiều sheet/file |
 | jbrownlee/Datasets | [github.com/jbrownlee/Datasets](https://github.com/jbrownlee/Datasets) | Collection ML datasets, nhiều file dùng `?` thay null |
 | dbt-labs/jaffle-shop-data | [github.com/dbt-labs/jaffle-shop-data](https://github.com/dbt-labs/jaffle-shop-data) | CSV sẵn (customers, orders, payments), schema rõ, FK quan hệ — nhỏ gọn, tốt cho test nhanh pipeline |
@@ -525,15 +525,15 @@ Agent Profiling cần hỗ trợ đa dạng định dạng nguồn để đáp �
 * **Lý do chọn & Tiêu chí khớp**:
   - Khớp tiêu chí **ERR1, ERR3**: Test bước `ingest` & `propose_metadata` khi gặp schema bẩn và dính ký tự tiền tệ.
 
-#### 7. Bộ Data Lỗi 3 (Format CSV): **NamanGupta Messy Dataset Cleaning**
-* **Nguồn & Link download trực tiếp**: GitHub — [github.com/NamanGupta001/Messy-Dataset-Cleaning](https://github.com/NamanGupta001/Messy-Dataset-Cleaning)
-* **Định dạng**: File CSV chứa lỗi chất lượng phức tạp.
+#### 7. Bộ Data Lỗi 3 (Format CSV): **Jcharis Messy Dataset**
+* **Nguồn & Link download trực tiếp**: GitHub — [github.com/Jcharis/Data-Cleaning-Practical-Examples](https://github.com/Jcharis/Data-Cleaning-Practical-Examples) (File direct: `unclean_data.csv`).
+* **Định dạng**: File CSV thực tế chứa nhiều lỗi hỗn hợp.
 * **Các lỗi đặc trưng**:
-  - *Lỗi Missingness cực đoan*: Hầu hết các cột (`Email`, `Age`, `Salary`, `City`) đều bị khuyết dữ liệu ở tỷ lệ cao (15% đến >40%).
-  - *Lỗi Mixed Type*: Cột `Age` chứa cả số nguyên, số thực decimal (`25.0`), và chuỗi chữ (`"twenty-five"`) (ERR1).
-  - *Outlier phi thực tế*: `Salary` bị âm hoặc nhảy vọt lên hàng tỷ (ERR2).
+  - *Lỗi Format Header*: Tên cột lộn xộn hoa thường (`DIRECTOR_facebook_likes` vs `actor_3_facebook_likes`), dính duplicate header (`title_year`).
+  - *Lỗi Null & Khuyết*: Dòng dính phẩy kép `,,`, thông tin thiếu bị bỏ trống hoặc đại diện bằng `?` (ERR1).
+  - *Lỗi Dirty Strings*: Tên phim dính dấu chấm hỏi bất thường (`Avatar?`).
 * **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **ERR1, ERR2, D2**: Test khả năng phát hiện hỗn hợp kiểu dữ liệu trong 1 cột và cảnh báo rủi ro chất lượng khi tỷ lệ null quá cao.
+  - Khớp tiêu chí **ERR1, ERR3, D2**: Test khả năng tự dọn dẹp header trùng lặp, xử lý null dạng comma kép và chuỗi ký tự lỗi.
 
 ---
 
@@ -549,7 +549,7 @@ Agent Profiling cần hỗ trợ đa dạng định dạng nguồn để đáp �
 | **NYC Taxi Trips** | Parquet (`.parquet`) | ~3M+ / file | Transport | Outlier tiền fare âm, cự ly 0 | [NYC TLC](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) | **Test Large Scale Parquet Query (DuckDB)** |
 | **Cafe Sales Dirty Data** | CSV | 10K | FnB | Typo, Total != Qty*Price, date format hỗn hợp | [Kaggle](https://www.kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training) | **Test Robustness & Error Handling (ERR1, ERR2)** |
 | **Eyowhite Messy Dataset** | CSV | ~5K | E-Commerce | Unformatted header, dính ký tự `$`, empty rows | [GitHub](https://github.com/eyowhite/Messy-dataset) | **Test Data Ingestion & Sanitization (ERR1, ERR3)** |
-| **NamanGupta Messy Dataset** | CSV | ~10K | Retail | Mixed Age format (`25` vs `"twenty-five"`), 40% null | [GitHub](https://github.com/NamanGupta001/Messy-Dataset-Cleaning) | **Test Dirty Type & Extreme Missingness (ERR1, D2)** |
+| **Jcharis Messy Dataset** | CSV | ~5K | Entertainment | Duplicate header `title_year`, dirty strings `Avatar?`, empty commas | [GitHub](https://github.com/Jcharis/Data-Cleaning-Practical-Examples) | **Test Unclean Strings & Header Duplicates (ERR1, ERR3)** |
 
 ---
 
