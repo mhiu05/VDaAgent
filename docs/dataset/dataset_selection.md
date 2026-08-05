@@ -460,81 +460,96 @@ Agent Profiling cần hỗ trợ đa dạng định dạng nguồn để đáp �
 
 ---
 
-### 4.2 Danh sách Dataset mở rộng theo Định dạng & Data Lỗi
+### 4.2 Danh sách Dataset mở rộng theo Định dạng & Data Lỗi (Kèm Link & Phân tích)
 
-#### 1. Dataset Lỗi tổng hợp (Format CSV): **Cafe Sales — Dirty Data**
-* **Nguồn / Link**: Kaggle — [kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training](https://www.kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training)
-* **Định dạng**: File CSV (`dirty_cafe_sales.csv`), 10,000 rows, 8 cột.
-* **Đặc điểm & Loại lỗi**:
-  - `Transaction ID`: Có duplicate IDs (vi phạm Primary Key - ERR2).
-  - `Item`, `Location`, `Payment Method`: Dính lỗi gõ sai (typos), giá trị trống `""` lẫn string `"UNKNOWN"` / `"ERROR"` (ERR1).
-  - `Quantity`, `Price Per Unit`, `Total Spent`: Dính lỗi sai phép tính toán `Quantity * Price != Total Spent` (ERR2).
-  - `Transaction Date`: Định dạng ngày tháng không nhất quán (dính lẫn `YYYY-MM-DD`, `DD/MM/YYYY`, `MM-DD-YYYY`) (ERR1).
+#### 1. Định dạng SQLite Relational Database (`.sqlite` / `.db`): **Chinook Database**
+* **Nguồn & Link download**: GitHub Releases — [github.com/lerocha/chinook-database/releases](https://github.com/lerocha/chinook-database/releases) (File direct: `Chinook_Sqlite.sqlite`).
+* **Định dạng & Cấu trúc**: Database SQLite gồm 11 bảng relational liên kết chặt chẽ (`artists`, `albums`, `tracks`, `invoice_items`, `invoices`, `customers`, `employees`, `genres`, `media_types`, `playlists`, `playlist_track`).
+* **Đặc điểm nổi bật**:
+  - DDL với Primary Key, Foreign Key và Auto-Increment constraints đầy đủ.
+  - Đại diện cho SQL Warehouse thực tế với mối quan hệ 1-N và N-N.
 * **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **D2, D4, ERR1, ERR2**: Test khả năng phát hiện lỗi tính toán toán học & ngày tháng hỗn hợp ở `compute_stats`.
+  - Khớp tiêu chí **FMT (SQLite), E1, E2, E4**: Làm ground truth hoàn hảo cho bài đánh giá Eval (Precision/Recall) của `propose_metadata` khi nhận diện khóa chính/khóa ngoại trên môi trường SQL thật.
 
-#### 2. Dataset Lỗi cấu trúc E-Commerce (Format CSV): **Messy E-Commerce Sales Dataset**
-* **Nguồn / Link**: Kaggle — [kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset](https://www.kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset)
-* **Định dạng**: File CSV, dataset bẩn thực tế cho e-commerce.
-* **Đặc điểm & Loại lỗi**:
-  - Tên cột không chuẩn hóa (chứa khoảng trắng, chữ hoa chữ thường lộn xộn, ký tự đặc biệt).
-  - Cột `Price` bị dính ký tự tiền tệ (`$`, `EUR`) làm pandas parse nhầm thành object/string (ERR1).
-  - Nhiều dòng trống hoàn toàn (empty rows) và dòng bị lệch số lượng cột (ERR3).
+#### 2. Định dạng Semi-Structured JSONL (`.json` / `.jsonl`): **Yelp Academic Dataset**
+* **Nguồn & Link download**: Kaggle — [kaggle.com/datasets/yelp-dataset/yelp-dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset)
+* **Định dạng & Cấu trúc**: Bộ 5 file JSONL liên kết qua ID (`business.json`, `review.json`, `user.json`, `checkin.json`, `tip.json`).
+* **Đặc điểm nổi bật**:
+  - Dữ liệu semi-structured dạng lồng nhau (nested attributes, hours, categories array).
+  - Liên kết đa bảng qua `business_id` và `user_id`.
 * **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **ERR1, ERR3**: Test bước `ingest` & `propose_metadata` khi gặp schema bẩn và dính ký tự tiền tệ.
+  - Khớp tiêu chí **FMT (JSONL), D1, D3, ERR4**: Test module JSON profiling (flattening, tree structure analysis, schema drift và handling missing keys).
 
-#### 3. Dataset Định dạng SQLite (.db): **Chinook Database**
-* **Nguồn / Link**: GitHub — [github.com/lerocha/chinook-database](https://github.com/lerocha/chinook-database)
-* **Định dạng**: Relational Database SQLite (`Chinook_Sqlite.sqlite`), 11 bảng relational.
-* **Đặc điểm**:
-  - Đại diện cho cửa hàng đĩa nhạc kỹ thuật số (Artists, Albums, Tracks, Invoices, Customers, Employees...).
-  - Đã có sẵn ràng buộc DDL Primary Key, Foreign Key chuẩn mực.
+#### 3. Định dạng Excel Multi-sheet (`.xlsx`): **Sample - Superstore Sales**
+* **Nguồn & Link download**: Kaggle — [kaggle.com/datasets/viteesh/superstore-dataset](https://www.kaggle.com/datasets/viteesh/superstore-dataset)
+* **Định dạng & Cấu trúc**: File Excel `.xlsx` gồm 3 Sheets (`Orders`, `People`, `Returns`).
+* **Đặc điểm nổi bật**:
+  - `Orders`: ~10,000 dòng thông tin bán lẻ chi tiết.
+  - `Returns`: Mã đơn bị trả lại (`Returned = Yes`).
+  - `People`: Quản lý phụ trách vùng (`Region`, `Person`).
 * **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **E1, E2, E4, FMT (SQLite)**: Dùng làm ground truth hoàn hảo cho bài đánh giá Eval (Precision/Recall) của `propose_metadata` khi nhận diện khóa chính / khóa ngoại trên môi trường SQL thật.
+  - Khớp tiêu chí **FMT (Excel), D1, D3, D8**: Test khả năng đọc file multi-sheet Excel của Ingest node, tự động chọn sheet để profiling và join sheet `Orders` ↔ `Returns`.
 
-#### 4. Dataset Định dạng Excel (.xlsx): **Sample - Superstore Sales**
-* **Nguồn / Link**: Kaggle / Tableau Public — [kaggle.com/datasets/viteesh/superstore-dataset](https://www.kaggle.com/datasets/viteesh/superstore-dataset)
-* **Định dạng**: File Excel `.xlsx` gồm 3 Sheets (`Orders`, `People`, `Returns`).
-* **Đặc điểm**:
-  - `Orders`: ~10,000 dòng thông tin đơn hàng bán lẻ.
-  - `Returns`: Danh sách mã đơn bị trả lại (`Returned = Yes`).
-  - `People`: Danh sách quản lý khu vực (`Region`, `Person`).
-* **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **FMT (Excel)**, **D1, D3, D8**: Test khả năng đọc file multi-sheet Excel của Ingest node, tự chọn sheet để profiling và join sheet `Orders` ↔ `Returns` để tính tỷ lệ trả hàng.
-
-#### 5. Dataset Định dạng Parquet: **NYC Yellow Taxi Trip Data**
-* **Nguồn / Link**: NYC TLC Official Open Data — [nyc.gov/site/tlc/about/tlc-trip-record-data.page](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)
-* **Định dạng**: Apache Parquet (`.parquet`), 3M–9M dòng / file tháng.
-* **Đặc điểm**:
+#### 4. Định dạng Parquet Columnar (`.parquet`): **NYC Yellow Taxi Trip Data**
+* **Nguồn & Link download**: NYC TLC Official — [nyc.gov/site/tlc/about/tlc-trip-record-data.page](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)
+* **Định dạng & Cấu trúc**: Apache Parquet (`.parquet`), 3M–9M dòng / file tháng.
+* **Đặc điểm nổi bật**:
   - Chuẩn định dạng Columnar nén cao cấp của Data Lake.
   - Chứa cột `passenger_count`, `trip_distance`, `fare_amount`, `VendorID`, `tpep_pickup_datetime`.
   - Có outlier cự ly/tiền taxi âm hoặc cực lớn (`fare_amount = -100` hoặc `$50,000`).
 * **Lý do chọn & Tiêu chí khớp**:
   - Khớp tiêu chí **S1, S2, S4, FMT (Parquet)**: Đánh giá tốc độ DuckDB query trực tiếp file `.parquet` lớn >3M dòng, test sampling thích ứng & ước lượng HyperLogLog.
 
-#### 6. Dataset Định dạng Semi-Structured JSONL: **RealNest / DeepJSONEval Sample**
-* **Nguồn / Link**: GitHub — [github.com/google-research/realnest](https://github.com/google-research/realnest) hoặc JSONL samples từ HuggingFace.
-* **Định dạng**: Line-delimited JSON (`.jsonl`), chứa nested dictionaries & arrays.
-* **Đặc điểm & Loại lỗi**:
-  - Dữ liệu lồng ghép phức tạp (vd: `user.address.city`, `user.orders[].item_id`).
-  - Dính lỗi Schema Drift (ERR4): một số record thiếu hẳn trường `address`, hoặc trường `age` lúc là `int`, lúc lại là string `"twenty"`.
+---
+
+#### ⚠️ 3 Bộ Data Lỗi (Dirty / Error Datasets) để Test Độ Bền Agent
+
+#### 5. Bộ Data Lỗi 1 (Format CSV): **Cafe Sales — Dirty Data for Cleaning Training**
+* **Nguồn & Link download**: Kaggle — [kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training](https://www.kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training)
+* **Định dạng**: File CSV (`dirty_cafe_sales.csv`), 10,000 rows, 8 cột.
+* **Các lỗi đặc trưng**:
+  - *Lỗi Logic/Toán học*: `Total Spent != Quantity * Price Per Unit` ở nhiều dòng (ERR2).
+  - *Lỗi Ngày tháng*: Cột `Transaction Date` bị lẫn lộn giữa `YYYY-MM-DD`, `DD/MM/YYYY`, `MM-DD-YYYY` và chuỗi không hợp lệ (ERR1).
+  - *Lỗi Primary Key*: Cột `Transaction ID` bị trùng lặp (duplicate IDs) (ERR2).
+  - *Lỗi Chuỗi/Null*: Cột `Item` dính typo và chứa chuỗi `"UNKNOWN"`, `"ERROR"`, `""` lộn xộn (ERR1).
 * **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **FMT (JSONL), ERR4**: Test module JSON Profiling (flattening, tree summary, schema inference).
+  - Khớp tiêu chí **ERR1, ERR2, D2, D4**: Test khả năng phát hiện lỗi tính toán toán học & ngày tháng hỗn hợp ở `compute_stats`.
+
+#### 6. Bộ Data Lỗi 2 (Format CSV): **Messy E-Commerce Sales Dataset**
+* **Nguồn & Link download**: Kaggle — [kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset](https://www.kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset)
+* **Định dạng**: File CSV, dataset bẩn thực tế cho e-commerce.
+* **Các lỗi đặc trưng**:
+  - *Lỗi Format Header*: Tên cột chứa khoảng trắng, xuống dòng, ký tự đặc biệt không chuẩn hóa.
+  - *Lỗi Dirty Numeric*: Cột giá tiền `Price` bị dính ký tự tiền tệ (`$1,200.50`, `EUR 45`), khiến pandas/DuckDB nhận diện nhầm thành kiểu `string/object` (ERR1).
+  - *Lỗi Cấu trúc*: Dòng trống hoàn toàn (empty rows) và các dòng dính thiếu/thừa dấu phẩy phân cách (ERR3).
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **ERR1, ERR3**: Test bước `ingest` & `propose_metadata` khi gặp schema bẩn và dính ký tự tiền tệ.
+
+#### 7. Bộ Data Lỗi 3 (Format CSV): **Customer Purchase Behaviour Dataset**
+* **Nguồn & Link download**: Kaggle — [kaggle.com/datasets/shriyashjagtap/customer-purchase-behaviour-dataset](https://www.kaggle.com/datasets/shriyashjagtap/customer-purchase-behaviour-dataset)
+* **Định dạng**: File CSV.
+* **Các lỗi đặc trưng**:
+  - *Lỗi Missingness cực đoan*: Hầu hết các cột (`Email`, `Age`, `Salary`, `City`) đều bị khuyết dữ liệu ở tỷ lệ cao (15% đến >40%).
+  - *Lỗi Mixed Type*: Cột `Age` chứa cả số nguyên, số thực decimal (`25.0`), và chuỗi chữ (`"twenty-five"`) (ERR1).
+  - *Outlier phi thực tế*: `Salary` bị âm hoặc nhảy vọt lên hàng tỷ (ERR2).
+* **Lý do chọn & Tiêu chí khớp**:
+  - Khớp tiêu chí **ERR1, ERR2, D2**: Test khả năng phát hiện hỗn hợp kiểu dữ liệu trong 1 cột và cảnh báo rủi ro chất lượng khi tỷ lệ null quá cao.
 
 ---
 
 ### 4.3 Bảng Ma trận Tổng hợp mở rộng (Format × Data Quality × Target)
 
-| Dataset | Định dạng File | Quy mô / Rows | Domain | Lỗi dữ liệu tiêu biểu | Mục đích Test chính |
-|---|---|---|---|---|---|
-| **Brazilian E-Commerce (Olist)** | CSV (8 files) | ~100K | Retail | Missing reviews (>50%), delivery null | **Demo MVP Pipeline (Multi-table FK)** |
-| **Online Retail II (UCI)** | CSV | ~1.07M | Retail | CustomerID null 22%, Quantity âm | **Demo Sampling + Uncertainty (≈)** |
-| **Cafe Sales Dirty Data** | CSV | 10K | FnB / Retail | Typo, Total != Qty*Price, date format hỗn hợp | **Test Robustness & Error Handling (ERR1, ERR2)** |
-| **Messy E-Commerce Sales** | CSV | ~5K | E-Commerce | Unformatted header, dính ký tự `$`, empty rows | **Test Data Ingestion & Sanitization (ERR1, ERR3)** |
-| **Chinook Database** | SQLite (.db) | 11 tables | Digital Media | Ground truth sạch chuẩn DDL SQL | **Eval Suite (PK/FK Precision-Recall)** |
-| **Superstore Sales** | Excel (.xlsx) | 3 sheets | Retail | Multi-sheet relation, formatted headers | **Test Ingest Multi-sheet Excel** |
-| **NYC Taxi Trips** | Parquet | ~3M+ / file | Transportation | Outlier tiền fare âm, cự ly 0 | **Test Large Scale Parquet Query (DuckDB)** |
-| **RealNest / JSONL Sample** | JSONL | ~50K | Tech / Log | Nested objects, missing keys, schema drift | **Test Semi-structured JSON Profiling (ERR4)** |
+| Dataset | Định dạng File | Quy mô / Rows | Domain | Lỗi dữ liệu tiêu biểu | Link Download / Nguồn | Mục đích Test chính |
+|---|---|---|---|---|---|---|
+| **Brazilian E-Commerce (Olist)** | CSV (8 files) | ~100K | Retail | Missing reviews (>50%), delivery null | [Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) | **Demo MVP Pipeline (Multi-table FK)** |
+| **Online Retail II (UCI)** | CSV | ~1.07M | Retail | CustomerID null 22%, Quantity âm | [Kaggle](https://www.kaggle.com/datasets/mashlyn/online-retail-ii-uci) | **Demo Sampling + Uncertainty (≈)** |
+| **Chinook Database** | SQLite (`.db`) | 11 tables | Media | Ground truth sạch chuẩn DDL SQL | [GitHub](https://github.com/lerocha/chinook-database) | **Eval Suite (PK/FK Precision-Recall)** |
+| **Yelp Academic Dataset** | JSONL (5 files) | ~150K+ | Services | Nested attributes, missing keys | [Kaggle](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset) | **Test Multi-file Semi-structured JSONL** |
+| **Superstore Sales** | Excel (`.xlsx`) | 3 sheets | Retail | Multi-sheet relation, formatted headers | [Kaggle](https://www.kaggle.com/datasets/viteesh/superstore-dataset) | **Test Ingest Multi-sheet Excel** |
+| **NYC Taxi Trips** | Parquet (`.parquet`) | ~3M+ / file | Transport | Outlier tiền fare âm, cự ly 0 | [NYC TLC](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) | **Test Large Scale Parquet Query (DuckDB)** |
+| **Cafe Sales Dirty Data** | CSV | 10K | FnB | Typo, Total != Qty*Price, date format hỗn hợp | [Kaggle](https://www.kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training) | **Test Robustness & Error Handling (ERR1, ERR2)** |
+| **Messy E-Commerce Sales** | CSV | ~5K | E-Commerce | Unformatted header, dính ký tự `$`, empty rows | [Kaggle](https://www.kaggle.com/datasets/ahmedkandeel/messy-ecommerce-sales-dataset) | **Test Data Ingestion & Sanitization (ERR1, ERR3)** |
+| **Customer Purchase Behaviour** | CSV | ~10K | Retail | Mixed Age format (`25` vs `"twenty-five"`), 40% null | [Kaggle](https://www.kaggle.com/datasets/shriyashjagtap/customer-purchase-behaviour-dataset) | **Test Dirty Type & Extreme Missingness (ERR1, D2)** |
 
 ---
 
