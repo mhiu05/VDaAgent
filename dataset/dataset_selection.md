@@ -91,7 +91,7 @@ Mục đích: test cả 2 nhánh QA — structured lookup (câu hỏi định l�
 | # | Tiêu chí | Tại sao cần (trích nguồn) |
 |---|---|---|
 | Q1 | **Có stats đa dạng** (null%, cardinality, outlier count) trong DB sau profiling | Để đặt được câu hỏi định lượng: "null% cột X?", "cardinality cột Y?" → test structured lookup pipeline trả số chính xác từ DB (project_context mục 6: "QA — Structured Lookup: số chèn trực tiếp từ DB") |
-| Q2 | **Có lịch sử profiling** (chạy profiling ≥ 2 lần, hoặc 2 dataset cùng domain) | Để đặt câu hỏi định tính/so sánh: "dataset này đổi gì so với lần trước?" → test vector search hybrid pipeline (project_context mục 6: "QA — Vector Search Hybrid: FAISS+BM25 + rerank") |
+| Q2 | **Có lịch sử profiling** (chạy profiling ≥ 2 lần, hoặc 2 dataset cùng domain) | Để đặt câu hỏi định tính/so sánh: "dataset này đổi gì so meo với lần trước?" → test vector search hybrid pipeline (project_context mục 6: "QA — Vector Search Hybrid: FAISS+BM25 + rerank") |
 | Q3 | **Có cột/đặc điểm dễ hỏi bằng ngôn ngữ tự nhiên** | Demo QA phải tự nhiên, không gượng — dataset retail/ecommerce dễ hỏi hơn dataset kỹ thuật thuần (vd: "cột nào có outlier?", "bảng nào thiếu dữ liệu nhiều nhất?") |
 
 ### 1.6 Bảng tổng hợp tiêu chí
@@ -471,14 +471,14 @@ Agent Profiling cần hỗ trợ đa dạng định dạng nguồn để đáp �
 * **Lý do chọn & Tiêu chí khớp**:
   - Khớp tiêu chí **FMT (SQLite), E1, E2, E4**: Làm ground truth hoàn hảo cho bài đánh giá Eval (Precision/Recall) của `propose_metadata` khi nhận diện khóa chính/khóa ngoại trên môi trường SQL thật.
 
-#### 2. Định dạng Semi-Structured JSONL (`.json` / `.jsonl`): **Yelp Academic Dataset**
-* **Nguồn & Link download trực tiếp**: Kaggle — [kaggle.com/datasets/yelp-dataset/yelp-dataset](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset)
-* **Định dạng & Cấu trúc**: Bộ 5 file JSONL liên kết qua ID (`business.json`, `review.json`, `user.json`, `checkin.json`, `tip.json`).
+#### 2. Định dạng Semi-Structured JSON & JSONL Siêu nhẹ: **DummyJSON Products Dataset**
+* **Nguồn & Link download trực tiếp**: DummyJSON API — [dummyjson.com/products](https://dummyjson.com/products?limit=100) (Size siêu nhẹ: **~148 KB**, 100 sản phẩm E-Commerce).
+* **Định dạng & Cấu trúc**: File `.json` chuẩn hoặc `.jsonl` (line-delimited JSON).
 * **Đặc điểm nổi bật**:
-  - Dữ liệu semi-structured dạng lồng nhau (nested attributes, hours, categories array).
-  - Liên kết đa bảng qua `business_id` và `user_id`.
+  - Khớp trực tiếp domain Retail / E-Commerce của MVP.
+  - Dữ liệu lồng ghép đa cấp thực tế: `dimensions` (object: `width`, `height`, `depth`), `meta` (object: timestamps, barcode, qrCode), `tags` (array strings), `reviews` (array objects: `rating`, `comment`, `date`, `reviewerName`, `reviewerEmail`).
 * **Lý do chọn & Tiêu chí khớp**:
-  - Khớp tiêu chí **FMT (JSONL), D1, D3, ERR4**: Test module JSON profiling (flattening, tree structure analysis, schema drift và handling missing keys).
+  - Khớp tiêu chí **FMT (JSON/JSONL), D1, D8, ERR4**: Thay thế cho bộ Yelp nặng hàng Gigabytes. Kích thước siêu nhẹ ~148 KB giúp profiling chạy tức thì, test khả năng flatten nested JSON đa cấp và trích xuất PII trong nested arrays (`reviewerEmail`).
 
 #### 3. Định dạng Excel Multi-sheet (`.xlsx`): **Sample - Superstore Sales**
 * **Nguồn & Link download trực tiếp**: Kaggle — [kaggle.com/datasets/jr2ngb/superstore-data](https://www.kaggle.com/datasets/jr2ngb/superstore-data) (hoặc nguồn GitHub chính thức của Tableau Samples: [github.com/tableau/tableau-public-samples](https://github.com/tableau/tableau-public-samples))
@@ -544,7 +544,7 @@ Agent Profiling cần hỗ trợ đa dạng định dạng nguồn để đáp �
 | **Brazilian E-Commerce (Olist)** | CSV (8 files) | ~100K | Retail | Missing reviews (>50%), delivery null | [Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) | **Demo MVP Pipeline (Multi-table FK)** |
 | **Online Retail II (UCI)** | CSV | ~1.07M | Retail | CustomerID null 22%, Quantity âm | [Kaggle](https://www.kaggle.com/datasets/mashlyn/online-retail-ii-uci) | **Demo Sampling + Uncertainty (≈)** |
 | **Chinook Database** | SQLite (`.db`) | 11 tables | Media | Ground truth sạch chuẩn DDL SQL | [GitHub](https://github.com/lerocha/chinook-database/releases) | **Eval Suite (PK/FK Precision-Recall)** |
-| **Yelp Academic Dataset** | JSONL (5 files) | ~150K+ | Services | Nested attributes, missing keys | [Kaggle](https://www.kaggle.com/datasets/yelp-dataset/yelp-dataset) | **Test Multi-file Semi-structured JSONL** |
+| **DummyJSON Products** | JSON / JSONL | 100 rows (~148 KB) | Retail | Nested objects (dimensions), nested arrays (reviews) | [DummyJSON](https://dummyjson.com/products) | **Test Lightweight Nested JSON / JSONL Profiling** |
 | **Superstore Sales** | Excel (`.xlsx`) | 3 sheets | Retail | Multi-sheet relation, formatted headers | [Kaggle](https://www.kaggle.com/datasets/jr2ngb/superstore-data) | **Test Ingest Multi-sheet Excel** |
 | **NYC Taxi Trips** | Parquet (`.parquet`) | ~3M+ / file | Transport | Outlier tiền fare âm, cự ly 0 | [NYC TLC](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) | **Test Large Scale Parquet Query (DuckDB)** |
 | **Cafe Sales Dirty Data** | CSV | 10K | FnB | Typo, Total != Qty*Price, date format hỗn hợp | [Kaggle](https://www.kaggle.com/datasets/ahmedmohamed2003/cafe-sales-dirty-data-for-cleaning-training) | **Test Robustness & Error Handling (ERR1, ERR2)** |
