@@ -1,110 +1,143 @@
-# Architecture Document
+# MVP Data Profiling Architecture
 
-## System Overview
+## Overview
 
-[Tóm tắt 2-3 câu về kiến trúc hệ thống]
+Thiết kế MVP tập trung vào một role duy nhất là **Data Analyst**. Người dùng thao tác thủ công qua giao diện để:
+
+- Kết nối database.
+- Upload file.
+- Chọn bảng, sheet hoặc cột.
+- Chạy profiling.
+- Xem kết quả.
+
+Database nguồn được profiling bằng **query pushdown**, trong khi file upload được xử lý bằng **DuckDB**.
 
 ## Architecture Diagram
 
 ```mermaid
-graph TB
-    subgraph Frontend
-        UI[React/Next.js UI]
+flowchart LR
+    DA["Data Analyst"]
+
+    subgraph UI["Manual UI"]
+        DBUI["Connect Database"]
+        FILEUI["Upload File"]
+        SELECTUI["Select Table / Sheet / Columns"]
+        PROFILEUI["Run Profiling"]
+        REPORTUI["View Result"]
     end
 
-    subgraph Backend[FastAPI Backend]
-        API[API Routes]
-        Agent[LangGraph Agent]
-        LLM[LLM Service]
-        Tools[Agent Tools]
+    subgraph API["FastAPI Services"]
+        CONN["Create / Test Connection"]
+        DISCOVER["List Tables / Get Schema / Preview"]
+        UPLOAD["Upload and Inspect File"]
+        PROFILE["Start Profile"]
+        RESULT["Get Profile Result"]
     end
 
-    subgraph Data[Data Layer]
-        DB[(Database)]
-        Vector[Vector Store]
+    subgraph EXECUTION["Execution Layer"]
+        CONNECTOR["SQL Server / PostgreSQL Connector"]
+        PUSH["Query Pushdown"]
+        DUCK["DuckDB Engine"]
     end
 
-    UI -->|HTTP/REST| API
-    API --> Agent
-    Agent --> LLM
-    Agent --> Tools
-    Agent --> Vector
-    Tools --> DB
-    API --> DB
+    DB[("Source Database")]
+    FILE[("Uploaded File")]
+    STORE[("Metadata and Profile Results")]
+
+    DA --> DBUI
+    DA --> FILEUI
+    DA --> SELECTUI
+    DA --> PROFILEUI
+    DA --> REPORTUI
+
+    DBUI --> CONN
+    SELECTUI --> DISCOVER
+    FILEUI --> UPLOAD
+    PROFILEUI --> PROFILE
+    REPORTUI --> RESULT
+
+    CONN --> CONNECTOR
+    DISCOVER --> CONNECTOR
+    CONNECTOR --> DB
+
+    PROFILE --> PUSH
+    PUSH --> CONNECTOR
+
+    UPLOAD --> FILE
+    PROFILE --> DUCK
+    FILE --> DUCK
+
+    CONN --> STORE
+    UPLOAD --> STORE
+    PUSH --> STORE
+    DUCK --> STORE
+    STORE --> RESULT
 ```
 
-## Components
+## Main Flows
 
-### 1. Frontend (React/Next.js)
-- **Purpose:** [mô tả]
-- **Key Features:** [danh sách]
-- **State Management:** [approach]
+### Database Flow
 
-### 2. Backend (FastAPI)
-- **Purpose:** [mô tả]
-- **API Design:** RESTful
-- **Authentication:** [JWT/None]
-
-### 3. AI Agent (LangGraph)
-- **Agent Type:** [ReAct / Plan-and-Execute / Custom]
-- **State:** [mô tả state schema]
-- **Nodes:** [danh sách nodes]
-- **Tools:** [danh sách tools]
-- **Flow:**
-
-```mermaid
-graph LR
-    START --> A[Node A]
-    A --> B{Decision}
-    B -->|Yes| C[Node C]
-    B -->|No| D[Node D]
-    C --> E[END]
-    D --> E
+```text
+Data Analyst
+→ Connect Database
+→ FastAPI Connection Service
+→ SQL Server / PostgreSQL Connector
+→ Source Database
 ```
 
-### 4. Database
-- **Type:** [PostgreSQL / SQLite]
-- **Tables:** [danh sách]
-- **Migrations:** Alembic
+Khi chạy profiling:
 
-### 5. Vector Store
-- **Type:** [ChromaDB / FAISS / Pinecone]
-- **Embeddings:** [model]
-- **Purpose:** [RAG / similarity search]
-
-## Data Flow
-
-1. User gửi request từ Frontend
-2. API route nhận và validate input
-3. Agent xử lý qua LangGraph pipeline
-4. LLM generate response
-5. Tools thực thi actions (nếu cần)
-6. Response trả về Frontend
-
-## Deployment Architecture
-
-```mermaid
-graph LR
-    subgraph Docker
-        FE[Frontend Container]
-        BE[Backend Container]
-        DB_C[Database Container]
-    end
-    FE --> BE --> DB_C
+```text
+Data Analyst
+→ Start Profile
+→ Query Pushdown
+→ Database nguồn tính toán thống kê
+→ Lưu kết quả profiling
+→ Hiển thị báo cáo
 ```
 
-## Security
+### File Upload Flow
 
-- API keys stored in `.env` (never commit)
-- Input validation via Pydantic
-- Rate limiting on API endpoints
-- CORS configured for frontend domain
+```text
+Data Analyst
+→ Upload File
+→ FastAPI Upload Service
+→ Lưu file
+→ DuckDB đọc và profiling
+→ Lưu kết quả
+→ Hiển thị báo cáo
+```
 
-## Design Decisions
+## Component Responsibilities
 
-| Decision | Choice | Reason |
-|----------|--------|--------|
-| Framework | FastAPI | Async, auto-docs, type-safe |
-| Agent | LangGraph | Flexible state management |
-| Database | [choice] | [reason] |
-| Frontend | Next.js | [reason] |
+### Manual UI
+
+- Kết nối database.
+- Upload file.
+- Chọn table, sheet hoặc column.
+- Khởi chạy profiling.
+- Hiển thị kết quả.
+
+### FastAPI Services
+
+- Tạo và kiểm tra connection.
+- Đọc table, schema và preview.
+- Upload và kiểm tra file.
+- Khởi chạy profiling.
+- Trả kết quả profiling.
+
+### Execution Layer
+
+- **Database Connector:** giao tiếp với SQL Server hoặc PostgreSQL.
+- **Query Pushdown:** gửi các truy vấn thống kê xuống database nguồn.
+- **DuckDB:** xử lý CSV, Excel sau khi chuẩn hóa và Parquet.
+
+### Storage
+
+Lưu:
+
+- Thông tin metadata của nguồn dữ liệu.
+- Thông tin connection.
+- File đã upload.
+- Kết quả profiling.
