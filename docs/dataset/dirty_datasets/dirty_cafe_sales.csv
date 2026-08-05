@@ -1,0 +1,7 @@
+transaction_id,item,quantity,price_per_unit,total_spent,payment_method,location,transaction_date
+TX1001,Coffee,2,$3.50,$7.00,Credit Card,In-store,2024-01-15
+TX1002,Cake,1,5.00,5.00,Cash,Takeaway,15/01/2024
+TX1001,Coffee,2,3.50,10.00,ERROR,In-store,01-15-2024
+TX1004,Cookie,UNKNOWN,-2.00,-4.00,Credit Card,Takeaway,2024-02-31
+TX1005,Espresso,3,4.00,15.00,Cash,,9999-99-99
+TX1006,Tea,?,2.50,?,Cash,In-store,2024/03/10

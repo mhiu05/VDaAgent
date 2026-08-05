@@ -1,0 +1,3 @@
+{"business_id": "b101", "name": "Pho 79", "city": "Hanoi", "attributes": {"GoodForKids": true, "PriceRange": 2}, "stars": 4.5}
+{"business_id": "b102", "name": "Highlands Coffee", "city": "HCM", "attributes": {"PriceRange": "medium"}, "stars": "four"}
+{"business_id": "b103", "name": "Banh Mi Huynh Hoa", "stars": 5.0}
