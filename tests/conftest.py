@@ -22,8 +22,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+BACKEND_ROOT = ROOT / "backend"
+# Ứng dụng đã tách sang backend/src. Giữ import `src.*` trong test để test
+# vẫn phản chiếu đúng command phát triển: `cd backend; uvicorn src.main:app`.
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 # --- Cô lập môi trường: phải chạy TRƯỚC khi import src.* -------------------- #
 _TMP = Path(tempfile.mkdtemp(prefix="p170_tests_"))
@@ -40,6 +43,9 @@ os.environ.update(
         "RETRIEVAL_INDEX_DIR": str(_TMP / "index"),
         "SECURITY_AUDIT_LOG": str(_TMP / "audit.jsonl"),
         "SECURITY_REQUIRE_API_TOKEN": "false",
+        # Test suite có nhiều request nối tiếp trong một session; không để quota
+        # production che khuất assertion nghiệp vụ của các endpoint cuối suite.
+        "SECURITY_USER_RATE_PER_MINUTE": "1000",
         "APP_DATA_DIR": str(_TMP / "data"),
     }
 )
@@ -47,7 +53,6 @@ os.environ.update(
 import pandas as pd  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
 from src.main import app  # noqa: E402
 
 
@@ -124,6 +129,37 @@ def profile_run(client: TestClient, sample_csv: Path) -> dict:
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@pytest.fixture(scope="session")
+def reviewed_profile_run(client: TestClient, sample_csv: Path) -> dict:
+    """Run riêng đã qua HITL, dùng cho QA đúng với contract HTTP 409 hiện tại."""
+    created_response = client.post(
+        "/api/v1/profile",
+        json={
+            "dataset_ref": str(sample_csv),
+            "dataset_name": "users_reviewed",
+            "scan_mode": "full",
+        },
+    )
+    assert created_response.status_code == 201, created_response.text
+    created = created_response.json()
+
+    decisions = [
+        {"kind": kind, "proposal_id": proposal["id"], "decision": "confirm"}
+        for kind in ("candidate_key", "semantic_type", "pii")
+        for proposal in created["proposals"][kind]
+        if proposal["status"] == "pending"
+    ]
+    confirmed = client.patch(
+        f"/api/v1/profile/{created['profile_run_id']}/confirm",
+        json={"confirmed_by": "qa-test", "decisions": decisions, "resume": True},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    profile = client.get(f"/api/v1/profile/{created['profile_run_id']}")
+    assert profile.status_code == 200, profile.text
+    return profile.json()
 
 
 @pytest.fixture

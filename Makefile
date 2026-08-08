@@ -1,23 +1,54 @@
-.PHONY: run test lint format typecheck check clean
+.DEFAULT_GOAL := help
 
-run:
-	uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+# P-170 development shortcuts.
+# These commands are written for the repository's Windows/PowerShell setup.
 
-test:
-	pytest tests/ -v
+SHELL := cmd.exe
+SHELLFLAGS := /C
 
-lint:
-	ruff check src/ tests/
+BACKEND_PORT ?= 8000
+FRONTEND_PORT ?= 3000
+BACKEND_HOST ?= 0.0.0.0
+ROOT_PYTHON ?= .\.venv\Scripts\python.exe
+BACKEND_PYTHON ?= ..\.venv\Scripts\python.exe
 
-format:
-	ruff format src/ tests/
+.PHONY: help backend frontend dev install install-backend install-frontend health frontend-build frontend-check
 
-typecheck:
-	mypy src/
+help:
+	@echo "P-170 commands:"
+	@echo "  make backend          Start FastAPI backend on port $(BACKEND_PORT)"
+	@echo "  make frontend         Start Next.js frontend on port $(FRONTEND_PORT)"
+	@echo "  make dev              Open backend and frontend in separate terminals"
+	@echo "  make install          Install backend and frontend dependencies"
+	@echo "  make health           Check backend health"
+	@echo "  make frontend-build   Create a production frontend build"
+	@echo "  make frontend-check   Run frontend typecheck and lint"
 
-check: lint format test
+backend:
+	cd backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
-clean:
-	find . -type d -name __pycache__ -exec rm -rf {} +
-	find . -type d -name .pytest_cache -exec rm -rf {} +
-	find . -type d -name .ruff_cache -exec rm -rf {} +
+frontend:
+	cd frontend && pnpm.cmd dev --port $(FRONTEND_PORT)
+
+# Windows helper: starts each long-running process in its own terminal window.
+# Run this target only when no P-170 backend/frontend process is already running.
+dev:
+	cmd.exe /d /c start "P-170 backend" cmd.exe /k "cd /d $(CURDIR)\backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
+	cmd.exe /d /c start "P-170 frontend" cmd.exe /k "cd /d $(CURDIR)\frontend && pnpm.cmd dev --port $(FRONTEND_PORT)"
+
+install: install-backend install-frontend
+
+install-backend:
+	$(ROOT_PYTHON) -m pip install -r requirements.txt
+
+install-frontend:
+	cd frontend && pnpm.cmd install
+
+health:
+	powershell -NoProfile -Command "Invoke-RestMethod http://localhost:$(BACKEND_PORT)/health"
+
+frontend-build:
+	cd frontend && pnpm.cmd build
+
+frontend-check:
+	cd frontend && pnpm.cmd typecheck && pnpm.cmd lint

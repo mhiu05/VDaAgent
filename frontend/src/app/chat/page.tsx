@@ -1,0 +1,332 @@
+"use client";
+
+import Link from "next/link";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
+import { ApiError, createProfile, getProfile, streamQuestion, uploadDataset } from "@/lib/api";
+import type { AnswerSource, Profile } from "@/lib/types";
+import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
+
+type AgentState = "ready" | "uploading" | "profiling" | "thinking" | "error";
+type ScanMode = "sample" | "full";
+
+const starters = [
+  "Tóm tắt chất lượng dữ liệu của tôi",
+  "Cột nào có rủi ro PII cao nhất?",
+  "Có cột nào phù hợp làm candidate key không?",
+];
+
+function makeMessage(role: ChatMessage["role"], text: string, label?: string): ChatMessage {
+  return { id: `${Date.now()}-${Math.random()}`, role, text, label };
+}
+
+function ChatStatsPreview({ profile }: { profile: Profile }) {
+  const columns = Object.entries(profile.column_stats);
+  return <section className="chat-stats-preview" aria-label="Thống kê từng cột">
+    <div className="chat-stats-caption"><span>Compute engine preview</span><b>{columns.length} cột đã phân tích</b></div>
+    <div className="chat-table-wrap"><table className="chat-table"><thead><tr><th>Cột</th><th>Kiểu</th><th>Thiếu</th><th>Cardinality</th><th>Unique</th></tr></thead><tbody>{columns.map(([name, stat]) => <tr key={name}><td><b>{name}</b>{stat.pii_masked ? <small className="chat-pii">PII guarded</small> : null}</td><td>{stat.dtype || "—"}</td><td className={Number(stat.null_pct || 0) > 0 ? "chat-metric-warning" : ""}>{Number(stat.null_pct || 0).toFixed(2)}%</td><td>{Number(stat.cardinality || 0).toLocaleString()}</td><td>{(Number(stat.uniqueness_ratio || 0) * 100).toFixed(2)}%</td></tr>)}</tbody></table></div>
+  </section>;
+}
+
+function renderInlineMarkdown(text: string): ReactNode {
+  const cleaned = text.replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
+  const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__)/g);
+  return tokens.map((token, tokenIndex) => {
+    const code = token.match(/^`(.+)`$/);
+    if (code) return <code key={`code-${tokenIndex}`}>{code[1]}</code>;
+    const bold = token.match(/^\*\*(.+)\*\*$|^__(.+)__$/);
+    if (bold) return <strong key={`strong-${tokenIndex}`}>{bold[1] || bold[2]}</strong>;
+    return token.replace(/^_(.+)_$/, "$1");
+  });
+}
+
+function MarkdownMessage({ text, profile }: { text: string; profile: Profile | null }) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const rawLine = lines[index];
+    const indentation = rawLine.length - rawLine.trimStart().length;
+    const line = rawLine.trim();
+    if (!line) { index += 1; continue; }
+    if (line.startsWith("### ") || line.startsWith("## ")) {
+      const heading = line.replace(/^#{2,3}\s*/, "");
+      if (profile && heading.toLocaleLowerCase("vi").includes("thống kê từng cột")) {
+        blocks.push(<ChatStatsPreview key={`stats-${index}`} profile={profile} />);
+        index += 1;
+        while (index < lines.length && !lines[index].trim().startsWith("##")) index += 1;
+        continue;
+      }
+      blocks.push(<h4 key={`heading-${index}`}>{renderInlineMarkdown(heading)}</h4>);
+      index += 1;
+      continue;
+    }
+    if (/^\d+\.\s+.+:$/.test(line)) {
+      blocks.push(<h4 key={`numbered-heading-${index}`}>{renderInlineMarkdown(line)}</h4>);
+      index += 1;
+      continue;
+    }
+    if (line.endsWith(":")) {
+      if (/^(?:-\s+)?(Cột .*|Outlier):$/.test(line)) {
+        const sectionLabel = line.startsWith("- ") ? line.slice(2) : line;
+        blocks.push(<div className="markdown-section-heading" key={`section-${index}`}><span aria-hidden="true">−</span>{renderInlineMarkdown(sectionLabel)}</div>);
+        index += 1;
+        continue;
+      }
+      blocks.push(<h5 key={`subheading-${index}`}>{renderInlineMarkdown(line)}</h5>);
+      index += 1;
+      continue;
+    }
+    if (line.startsWith("|") && lines[index + 1]?.trim().startsWith("| ---")) {
+      const headers = line.split("|").slice(1, -1).map((cell) => cell.trim());
+      index += 2;
+      const rows: string[][] = [];
+      while (lines[index]?.trim().startsWith("|")) {
+        rows.push(lines[index].split("|").slice(1, -1).map((cell) => cell.trim()));
+        index += 1;
+      }
+      blocks.push(<div className="chat-table-wrap" key={`table-${index}`}><table className="chat-table"><thead><tr>{headers.map((header) => <th key={header}>{renderInlineMarkdown(header)}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>)}</tr>)}</tbody></table></div>);
+      continue;
+    }
+    if (indentation > 0 && line.startsWith("- ")) {
+      blocks.push(<div className="markdown-detail-item nested" key={`nested-detail-${index}`}>{renderInlineMarkdown(line.slice(2))}</div>);
+      index += 1;
+      continue;
+    }
+    if (line.startsWith("- ") && /:$/.test(line)) {
+      blocks.push(<div className="markdown-section-heading" key={`section-${index}`}><span aria-hidden="true">−</span>{renderInlineMarkdown(line.slice(2))}</div>);
+      index += 1;
+      continue;
+    }
+    if (line.startsWith("- ")) {
+      const items: string[] = [];
+      while (lines[index]?.trim().startsWith("- ")) { items.push(lines[index].trim().slice(2)); index += 1; }
+      blocks.push(<ul key={`list-${index}`}>{items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineMarkdown(item)}</li>)}</ul>);
+      continue;
+    }
+    if (line.startsWith("`") || line.startsWith("**") || line.startsWith("__") || line.startsWith("Outlier") || /(?:null%|cardinality|uniqueness ratio|outlier count)\s*=/.test(line)) {
+      blocks.push(<div className={`markdown-detail-item${indentation > 0 ? " nested" : ""}`} key={`detail-${index}`}>{renderInlineMarkdown(line)}</div>);
+      index += 1;
+      continue;
+    }
+    blocks.push(<p key={`paragraph-${index}`}>{renderInlineMarkdown(line)}</p>);
+    index += 1;
+  }
+  return <div className="markdown-message">{blocks}</div>;
+}
+
+const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
+
+export default function ChatPage() {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    makeMessage("agent", "Xin chào, tôi là Data Profiling Agent. Hãy upload một dataset và tôi sẽ dùng compute engine để lập hồ sơ dữ liệu, phát hiện rủi ro, sau đó bạn có thể hỏi tôi bất cứ điều gì dựa trên evidence đã tính.", "P-170 Agent"),
+  ]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [scanMode, setScanMode] = useState<ScanMode>("sample");
+  const [question, setQuestion] = useState("");
+  const [state, setState] = useState<AgentState>("ready");
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sources, setSources] = useState<AnswerSource[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const controller = useRef<AbortController | null>(null);
+  const draftRef = useRef("");
+  const hydrated = useRef(false);
+  const activeConversationRef = useRef<string | null>(null);
+
+  function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null) {
+    if (!savedProfile) {
+      setProfileLoading(false);
+      return;
+    }
+
+    setProfileLoading(true);
+    void getProfile(savedProfile.profile_run_id).then((freshProfile) => {
+      if (activeConversationRef.current !== targetConversationId) return;
+      setProfile(freshProfile);
+    }).catch((reason) => {
+      if (activeConversationRef.current !== targetConversationId) return;
+      // A browser snapshot can outlive a deleted profile or an old DB. Do not
+      // keep sending that ID to QA; the conversation itself remains usable.
+      if (reason instanceof ApiError && reason.status === 404) {
+        setProfile(null);
+        setSources([]);
+        setError(null);
+      }
+    }).finally(() => {
+      if (activeConversationRef.current === targetConversationId) setProfileLoading(false);
+    });
+  }
+
+  useEffect(() => {
+    const queryConversation = new URLSearchParams(window.location.search).get("conversation");
+    const conversation = queryConversation ? getConversation(queryConversation) : null;
+    const current = conversation || listConversations()[0] || createConversation();
+    if (!queryConversation) window.history.replaceState({}, "", `/chat?conversation=${current.id}`);
+    activeConversationRef.current = current.id;
+    setConversationId(current.id);
+    const saved = getConversationSnapshot(current.id);
+    if (saved?.messages.length) setMessages(saved.messages);
+    if (saved?.profile) setProfile(saved.profile);
+    if (saved?.sources) setSources(saved.sources);
+    refreshConversationProfile(current.id, saved?.profile || null);
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current || !conversationId) return;
+    updateConversationSnapshot(conversationId, { messages, profile, sources });
+  }, [conversationId, messages, profile, sources]);
+
+  useEffect(() => {
+    const handleNavigation = (event: Event) => {
+      const eventConversationId = event instanceof CustomEvent && typeof event.detail?.conversationId === "string"
+        ? event.detail.conversationId
+        : null;
+      const nextId = eventConversationId || new URLSearchParams(window.location.search).get("conversation");
+      if (!nextId || nextId === conversationId || !getConversation(nextId)) return;
+      const saved = getConversationSnapshot(nextId);
+      activeConversationRef.current = nextId;
+      setConversationId(nextId);
+      setMessages(saved?.messages.length ? saved.messages : [makeMessage("agent", "Xin chào, tôi là Data Profiling Agent. Hãy upload một dataset và tôi sẽ giúp bạn phân tích dựa trên evidence.", "P-170 Agent")]);
+      setProfile(saved?.profile || null);
+      setSources(saved?.sources || []);
+      setError(null);
+      setQuestion("");
+      refreshConversationProfile(nextId, saved?.profile || null);
+    };
+    window.addEventListener("popstate", handleNavigation);
+    window.addEventListener("p170-chat-navigation", handleNavigation);
+    return () => {
+      window.removeEventListener("popstate", handleNavigation);
+      window.removeEventListener("p170-chat-navigation", handleNavigation);
+    };
+  }, [conversationId]);
+
+  function addMessage(role: ChatMessage["role"], text: string, label?: string) {
+    setMessages((current) => [...current, makeMessage(role, text, label)]);
+  }
+
+  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const isLarge = file.size > LARGE_FILE_THRESHOLD;
+    setError(null); setProfile(null); setSources([]); setProfileLoading(false); setSelectedFile(file); setScanMode("sample"); setState("ready");
+    addMessage("user", `Đã chọn dataset: ${file.name}`, "You");
+    addMessage("agent", isLarge
+      ? `Dataset này lớn hơn 50 MB (${(file.size / 1024 / 1024).toFixed(1)} MB). Tôi đề xuất Sampling để giảm thời gian và RAM, nhưng quyết định vẫn thuộc về bạn. Hãy chọn chế độ bên dưới.`
+      : "Tôi đã nhận diện dataset. Hãy chọn Sampling để có kết quả nhanh hoặc Full scan để tính trên toàn bộ dữ liệu.", "P-170 Agent");
+  }
+
+  async function startProfile() {
+    if (!selectedFile) return;
+    setError(null); setState("uploading");
+    try {
+      const upload = await uploadDataset(selectedFile, undefined);
+      addMessage("agent", `Đã nhận ${upload.filename}. Tôi đang chạy ingest và compute engine — các số liệu sẽ được tính từ dữ liệu thật, không do LLM bịa ra.`, "P-170 Agent");
+      setState("profiling");
+      const result = await createProfile({
+        dataset_ref: upload.dataset_ref,
+        dataset_name: upload.suggested_name || upload.filename,
+        scan_mode: scanMode,
+        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir", sample_size: 10_000, random_seed: 42 } } : {}),
+      });
+      setProfile(result); setProfileLoading(false); setSelectedFile(null);
+      addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} rows và ${result.column_count} columns. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metrics và có thể trả lời câu hỏi của bạn dựa trên evidence.", "P-170 Agent");
+      setState("ready");
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Upload hoặc profiling thất bại.";
+      setError(message); setState("error");
+      addMessage("agent", `Tôi chưa thể hoàn thành profiling: ${message}`, "P-170 Agent");
+    }
+  }
+
+  async function submitPrompt(value: string) {
+    const prompt = value.trim();
+    if (!prompt || state === "thinking" || state === "uploading" || state === "profiling") return;
+    if (profileLoading) return;
+    if (profile?.pending_proposals) {
+      setQuestion("");
+      addMessage("agent", `Trước khi tiếp tục, bạn cần review ${profile.pending_proposals} đề xuất metadata của profile. Hãy hoàn tất Review proposals để tôi có thể trả lời dựa trên báo cáo đã được xác nhận.`, "P-170 Agent");
+      return;
+    }
+    controller.current?.abort();
+    controller.current = new AbortController();
+    setQuestion(""); setError(null); setSources([]); setState("thinking"); draftRef.current = "";
+    addMessage("user", prompt, "You");
+    try {
+      await streamQuestion({ question: prompt, ...(profile ? { profile_run_id: profile.profile_run_id } : {}) }, (event) => {
+        if (event.event === "token" && typeof event.data === "object" && event.data) {
+          draftRef.current += String((event.data as { text?: unknown }).text || "");
+        }
+        if (event.event === "source" && typeof event.data === "object" && event.data) setSources((event.data as { sources?: AnswerSource[] }).sources || []);
+        if (event.event === "done") {
+          setMessages((current) => [...current, makeMessage("agent", draftRef.current, "P-170 Agent")]);
+          setState("ready");
+        }
+        if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent response failed."));
+      }, controller.current.signal);
+      setState("ready");
+    } catch (reason) {
+      if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+        if (reason instanceof ApiError && reason.status === 409 && profile?.pending_proposals) {
+          addMessage("agent", `Bạn cần review ${profile.pending_proposals} đề xuất metadata trước khi tiếp tục hỏi về dataset.`, "P-170 Agent");
+          setState("ready");
+        } else if (reason instanceof ApiError && reason.status === 404 && profile) {
+          setProfile(null);
+          setSources([]);
+          setError(null);
+          addMessage("agent", "Profile này không còn tồn tại trong backend hiện tại. Hãy upload lại dataset để tiếp tục.", "P-170 Agent");
+          setState("ready");
+        } else {
+          setError(reason instanceof Error ? reason.message : "Agent không thể trả lời.");
+          setState("error");
+        }
+      }
+    } finally { controller.current = null; }
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void submitPrompt(question);
+  }
+
+  const busy = profileLoading || state === "uploading" || state === "profiling" || state === "thinking";
+  const statusText = profileLoading ? "Đang kiểm tra profile…" : state === "uploading" ? "Đang upload dataset…" : state === "profiling" ? "Agent đang tính profile…" : state === "thinking" ? "Agent đang tìm evidence…" : selectedFile ? "Chờ chọn chế độ" : "Sẵn sàng";
+  const hasChatStarted = messages.some((message) => message.role === "user");
+
+  return <div className="agent-workspace">
+    {!hasChatStarted && <header className="agent-hero">
+      <div><p className="eyebrow">Autonomous data intelligence</p><h1>Chat với Data Profiling Agent</h1><p>Quy trình analyst: upload dataset → chọn chế độ profiling → review và xác nhận proposals → đặt câu hỏi dựa trên evidence đã tính.</p></div>
+      <div className="agent-status"><span className="pulse" /> {statusText}</div>
+    </header>}
+    <div className="agent-layout">
+      <section className="agent-chat-panel">
+        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>P-170 Agent</b><small>{profile ? `Active profile · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.dataset_name || "Dataset"}</span>}</div>
+        <div className="agent-message-list" aria-live="polite">
+          {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "You"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <MarkdownMessage text={message.text} profile={profile} /> : <p>{message.text}</p>}</div></article>)}
+          {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">P-170 Agent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}
+        </div>
+        {selectedFile && <section className="agent-intake-card" aria-label="Profiling options">
+          <div className="intake-file"><span className="file-icon">▤</span><div><b>{selectedFile.name}</b><small>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để profiling</small></div></div>
+          <div className="intake-choice-heading"><div><b>Chọn cách agent xử lý dữ liệu</b><small>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Sampling được khuyến nghị cho file lớn hơn 50 MB." : "Bạn có thể ưu tiên tốc độ hoặc độ đầy đủ của kết quả."}</small></div></div>
+          <div className="scan-choice-list"><button type="button" className={scanMode === "sample" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("sample")}><span className="choice-radio" /><span><b>Sampling</b><small>Chạy nhanh, tiết kiệm RAM, có đánh dấu approximate.</small></span><em>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Recommended" : "Fast"}</em></button><button type="button" className={scanMode === "full" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("full")}><span className="choice-radio" /><span><b>Full scan</b><small>Tính trên toàn bộ file, có thể lâu hơn và cần nhiều RAM.</small></span><em>Complete</em></button></div>
+          <button className="button primary intake-start" onClick={startProfile} disabled={busy}>Upload và bắt đầu profiling</button>
+        </section>}
+        {profile?.pending_proposals ? <div className="notice warning agent-review-required"><b>Cần review trước khi tiếp tục</b><p>Profile còn {profile.pending_proposals} đề xuất. Hãy xác nhận, từ chối hoặc chỉnh sửa các đề xuất trước khi hỏi Agent.</p><Link className="button primary" href={`/profiles/${profile.profile_run_id}/review?returnTo=${encodeURIComponent(`/chat?conversation=${conversationId || ""}`)}`}>Review proposals</Link></div> : null}
+        {error && <div className="notice error" role="alert"><b>Agent gặp lỗi</b><p>{error}</p></div>}
+        <form className="agent-composer" onSubmit={submit}>
+          <input ref={fileRef} type="file" accept=".csv,.tsv,.parquet,.json,application/json,text/csv" hidden onChange={handleFile} />
+          <button type="button" className="upload-trigger" onClick={() => fileRef.current?.click()} disabled={busy} title="Upload dataset">＋</button>
+          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={profile?.pending_proposals ? "Review proposals trước khi hỏi Agent…" : profile ? "Hỏi agent về dataset của bạn…" : "Upload dataset trước, sau đó đặt câu hỏi…"} rows={1} disabled={Boolean(profile?.pending_proposals) || (busy && state !== "thinking")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+          <button className="send-trigger" disabled={!question.trim() || busy} aria-label="Gửi câu hỏi">➤</button>
+        </form>
+        {profile && <div className="composer-suggestions"><span className="composer-suggestions-label">Suggested prompts</span><div className="starter-list">{starters.map((starter) => <button key={starter} onClick={() => void submitPrompt(starter)} disabled={busy || Boolean(profile.pending_proposals)}>{starter}<span>→</span></button>)}</div></div>}
+        <div className="composer-hint"><span>Enter để gửi · Shift + Enter để xuống dòng</span><span>Evidence-grounded · PII protected</span></div>
+      </section>
+    </div>
+  </div>;
+}

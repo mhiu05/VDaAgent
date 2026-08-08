@@ -1,305 +1,251 @@
-# P-170 - AI Data Profiling Agent
+# P-170 — AI Data Profiling Agent
 
-AI Data Profiling Agent tự động lập hồ sơ dữ liệu: upload dataset, tính thống kê, phát hiện PII, đề xuất candidate key và semantic type, yêu cầu analyst xác nhận HITL, chạy kiểm định thống kê, so sánh drift và trả lời câu hỏi về dataset.
+P-170 là ứng dụng giúp Analyst upload, profiling và hiểu dataset với sự hỗ trợ
+của AI. Compute engine tạo ra số liệu và evidence; Agent hỗ trợ đề xuất metadata,
+viết report và trả lời câu hỏi trên dữ liệu đã được lưu.
 
-Trong dự án này, mọi con số được tính bởi compute engine như DuckDB, pandas, NumPy và SciPy. LLM chỉ dùng để diễn giải, tóm tắt và hỗ trợ hỏi đáp bằng ngôn ngữ tự nhiên, không tự suy diễn số liệu.
+## 1. Mục tiêu và workflow người dùng
 
-## Core Features
-
-- Profiling CSV, TSV, Parquet và JSON thông qua API upload hoặc đường dẫn `dataset_ref`.
-- Tính thống kê theo cột: null rate, cardinality, độ dài, min/max, mean, median, std, quartile, outlier, top-k value và correlation matrix.
-- Phát hiện PII và mặc định mask giá trị mẫu của cột nhạy cảm trong API/export.
-- Đề xuất metadata có evidence và confidence: candidate key, semantic type, PII.
-- HITL review: analyst confirm, reject hoặc edit proposal trước khi metadata được áp dụng.
-- Kiểm định thống kê theo yêu cầu, có hiệu chỉnh multiple testing.
-- Drift detection giữa hai lần profiling.
-- Q&A về dataset với 2 nhánh: structured lookup cho câu hỏi định lượng và retrieval cho câu hỏi định tính.
-- Web UI tĩnh tại `/ui/` để upload, profile, review HITL và chat QA.
-- Audit log cho các hành động nhạy cảm.
-
-## Tech Stack
-
-| Layer | Công nghệ |
-| --- | --- |
-| Backend API | FastAPI, Uvicorn, Pydantic v2 |
-| Agent orchestration | LangGraph, LangChain Core |
-| LLM providers | OpenAI-compatible providers: OpenAI, OpenRouter, Gemini, Groq, Together, Ollama, Custom |
-| Compute | DuckDB, pandas, NumPy, SciPy |
-| Metadata DB | SQLite mặc định; PostgreSQL cho production |
-| Retrieval | BM25 mặc định; embedding/rerank tùy chọn qua extras |
-| Test/lint | pytest, httpx, ruff |
-
-## Yêu cầu
-
-- Python 3.11 trở lên
-- Pip/venv.
-- LLM API key là tùy chọn. Không có key thì profiling, thống kê, drift và một phần Q&A offline vẫn chạy; chỉ thiếu phần diễn giải tự nhiên bằng LLM.
-
-## Quick Setup
-
-```bash
-python -m venv .venv
-
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-
-# macOS/Linux
-# source .venv/bin/activate
-
-pip install -r requirements.txt
-cp .env.example .env
-```
-
-Mở `.env` và điền key của provider đang dùng nếu cần báo cáo/diễn giải bằng LLM:
-
-```env
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o-mini
-OPENAI_API_KEY=...
-```
-
-Nếu chỉ muốn chạy offline để kiểm tra pipeline deterministic, có thể để trống các API key.
-
-## Chạy ứng dụng
-
-```bash
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Hoặc:
-
-```bash
-make run
-```
-
-Sau khi server chạy:
-
-- Web UI: <http://localhost:8000/ui/>
-- Health check: <http://localhost:8000/health>
-- API docs: <http://localhost:8000/docs>
-- Status cấu hình: <http://localhost:8000/api/v1/status>
-
-Mặc định ứng dụng dùng SQLite trong `data/app.db`, checkpointer trong `data/checkpoints.sqlite`, upload trong `data/uploads/` và audit log trong `data/audit.jsonl`.
-
-## Cấu hình
-
-Dự án đọc cấu hình theo thứ tự ưu tiên:
-
-1. Biến môi trường trong `.env`.
-2. Giá trị trong `config.yaml`.
-3. Default trong code.
-
-Một số cấu hình quan trọng:
-
-| Nhóm | Khóa | Ý nghĩa |
-| --- | --- | --- |
-| LLM | `LLM_PROVIDER`, `LLM_MODEL`, `OPENAI_API_KEY` hoặc key provider tương ứng | Chọn model để diễn giải và sinh báo cáo |
-| Database | `DATABASE_URL` | Để trống để dùng SQLite; đặt PostgreSQL DSN khi deploy |
-| Security | `security.require_api_token`, `API_TOKEN` | Bật token Bearer cho production |
-| Profiling | `profiling.default_scan_mode`, `sample_size`, `random_seed` | Chọn full scan/sample và tái lập kết quả |
-| Retrieval | `retrieval.embedding_provider`, `retrieval.enable_rerank` | Cấu hình QA retrieval |
-
-Khi `security.require_api_token=true`, client gọi API với header:
-
-```http
-Authorization: Bearer <API_TOKEN>
-```
-
-## Workflow sử dụng API
-
-### 1. Upload dataset
-
-```bash
-curl -X POST http://localhost:8000/api/v1/datasets/upload \
-  -F "file=@data/sample_users.csv"
-```
-
-Response trả về `dataset_ref`. Dùng giá trị này cho bước profiling.
-
-### 2. Chạy profiling
-
-```bash
-curl -X POST http://localhost:8000/api/v1/profile \
-  -H "Content-Type: application/json" \
-  -d '{"dataset_ref":"data/sample_users.csv","dataset_name":"users","scan_mode":"full"}'
-```
-
-Pipeline sẽ chạy đến điểm chờ HITL và trả về:
-
-- `profile_run_id`
-- thống kê theo cột
-- proposal cho candidate key, semantic type và PII
-- `pending_proposals`
-- cảnh báo rủi ro nếu có
-
-### 3. Review HITL
-
-Lấy profile:
-
-```bash
-curl http://localhost:8000/api/v1/profile/<profile_run_id>
-```
-
-Xác nhận proposal và cho pipeline tạo báo cáo:
-
-```bash
-curl -X PATCH http://localhost:8000/api/v1/profile/<profile_run_id>/confirm \
-  -H "Content-Type: application/json" \
-  -d '{
-    "confirmed_by": "analyst@example.com",
-    "resume": true,
-    "decisions": [
-      {"kind": "candidate_key", "proposal_id": "<proposal_id>", "decision": "confirm"}
-    ]
-  }'
-```
-
-`decision` hỗ trợ `confirm`, `reject`, `edit`. Khi `edit`, cần thêm `final_type`.
-
-### 4. Hỏi đáp về dataset
-
-```bash
-curl -X POST http://localhost:8000/api/v1/qa \
-  -H "Content-Type: application/json" \
-  -d '{"profile_run_id":"<profile_run_id>","question":"Tỷ lệ null của cột email là bao nhiêu?"}'
-```
-
-Streaming SSE:
-
-```bash
-curl -N -X POST http://localhost:8000/api/v1/qa/stream \
-  -H "Content-Type: application/json" \
-  -d '{"profile_run_id":"<profile_run_id>","question":"Dataset này có rủi ro gì?"}'
-```
-
-### 5. Kiểm định thống kê
-
-```bash
-curl -X POST http://localhost:8000/api/v1/profile/<profile_run_id>/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "requested_by": "analyst@example.com",
-    "tests": [
-      {"test_type": "shapiro_wilk", "columns": ["salary"]},
-      {"test_type": "pearson", "columns": ["age", "salary"]}
-    ]
-  }'
-```
-
-### 6. So sánh drift
-
-```bash
-curl -X POST http://localhost:8000/api/v1/profile/<current_run_id>/drift \
-  -H "Content-Type: application/json" \
-  -d '{"baseline_run_id":"<baseline_run_id>"}'
-```
-
-### 7. Export profile
-
-```bash
-curl http://localhost:8000/api/v1/profile/<profile_run_id>/export
-```
-
-Export chỉ trả metadata và thống kê. Mặc định không xuất raw data và không trả giá trị mẫu của cột PII.
-
-## API endpoints
-
-| Method | Path | Mô tả |
-| --- | --- | --- |
-| `GET` | `/health` | Health check |
-| `GET` | `/api/v1/status` | Cấu hình runtime và biến còn thiếu |
-| `POST` | `/api/v1/datasets/upload` | Upload CSV/TSV/Parquet/JSON |
-| `GET` | `/api/v1/datasets` | Danh sách dataset đã profile |
-| `GET` | `/api/v1/datasets/{dataset_id}/runs` | Danh sách run của một dataset |
-| `POST` | `/api/v1/profile` | Chạy profiling đến điểm HITL |
-| `GET` | `/api/v1/profile/{run_id}` | Xem profile run |
-| `GET` | `/api/v1/profile/{run_id}/export` | Export metadata/thống kê |
-| `PATCH` | `/api/v1/profile/{run_id}/confirm` | Confirm/reject/edit proposal |
-| `POST` | `/api/v1/profile/{run_id}/test` | Chạy kiểm định thống kê |
-| `POST` | `/api/v1/profile/{run_id}/drift` | So sánh drift |
-| `POST` | `/api/v1/qa` | Q&A không streaming |
-| `POST` | `/api/v1/qa/stream` | Q&A streaming SSE |
-| `GET` | `/api/v1/audit` | Xem audit log gần nhất |
-
-## Kiểm thử và chất lượng
-
-Chạy test:
-
-```bash
-pytest tests/ -v
-```
-
-Chạy smoke test end-to-end offline:
-
-```bash
-python scripts/smoke_test.py
-```
-
-Lint/format:
-
-```bash
-ruff check src/ tests/
-ruff format src/ tests/
-```
-
-Hoặc dùng Makefile:
-
-```bash
-make test
-make lint
-make format
-make check
-```
-
-## Cấu trúc dự án
+Mục tiêu của dự án là biến một dataset thô thành profile có thể review, giải
+thích và kiểm tra lại. Quy trình sử dụng chính:
 
 ```text
-.
-|-- src/
-|   |-- main.py                 # FastAPI app, CORS, static UI, health
-|   |-- config.py               # Đọc config.yaml + .env
-|   |-- api/
-|   |   `-- routes.py           # REST/SSE endpoints
-|   |-- agents/
-|   |   |-- graph.py            # LangGraph profiling và QA graph
-|   |   |-- state.py            # Agent state
-|   |   |-- nodes/              # Node ingest, stats, HITL, summarize, QA
-|   |   `-- tools/              # Tool cho profiling/lookup
-|   |-- models/
-|   |   `-- schemas.py          # Pydantic request/response schema
-|   |-- services/
-|   |   |-- compute.py          # Tính thống kê
-|   |   |-- stats_tests.py      # Kiểm định thống kê
-|   |   |-- drift.py            # Drift detection
-|   |   |-- repository.py       # Metadata DB
-|   |   |-- retrieval.py        # QA retrieval
-|   |   |-- security.py         # Auth, rate limit, audit, upload safety
-|   |   `-- llm.py              # LLM adapter
-|   `-- webui/
-|       `-- index.html          # Dashboard tĩnh tại /ui/
-|-- tests/                      # Unit/API/agent tests
-|-- scripts/                    # Smoke test và AI log helpers
-|-- docs/                       # ADR, gate docs, architecture notes
-|-- figures/                    # Hình ảnh minh họa
-|-- config.yaml                 # Cấu hình public, không secret
-|-- .env.example                # Mẫu biến môi trường
-|-- pyproject.toml              # Metadata package và dependencies
-`-- requirements.txt            # Dependency list dùng nhanh cho pip install -r
+Upload dataset → Profiling → Review proposal → Xem report
+                                      │
+                         Test / Drift / Q&A
 ```
 
-## Ghi chú bảo mật và governance
+1. Vào **Dataset mới** và upload CSV, TSV, Parquet hoặc JSON.
+2. Chọn `sample` để chạy nhanh hoặc `full` để quét toàn bộ dữ liệu.
+3. Mở profile report sau khi profiling hoàn tất.
+4. Nếu còn proposal chờ xử lý, vào **Review** để confirm, edit, reject hoặc
+   yêu cầu chạy test.
+5. Xem report, mở **Phân tích** để chạy statistical test/drift và dùng **Agent**
+   để hỏi đáp.
+6. Vào danh sách dataset để xem các profile run trước đó hoặc vào **So sánh
+   drift** để so sánh hai run.
 
-- Không commit `.env` hoặc API key.
-- Production nên bật `security.require_api_token=true` và đặt `API_TOKEN`.
-- `allow_raw_export=false` theo mặc định để tránh xuất dữ liệu gốc.
-- `mask_pii_in_answers=true` theo mặc định để tránh lộ giá trị mẫu của cột PII.
-- Candidate key và PII proposal cần analyst xác nhận; agent không tự confirm thay người dùng.
-- Audit log ghi lại upload, profiling, HITL decision, export, test và drift.
+Chi tiết workflow LangGraph, HITL, API contract và persistence nằm trong
+[`docs/summary.md`](docs/summary.md).
 
-## Tài liệu liên quan
+## 2. Các chức năng
+
+- Profiling reproducible: schema, null, duplicate, uniqueness, outlier,
+  distribution, correlation và thống kê theo cột.
+- Phát hiện PII, quasi-identifier, candidate key và semantic type.
+- Human-in-the-loop cho confirm, edit, reject proposal và request test.
+- Report agent hỗ trợ Markdown, Top-k non-PII distribution và Pearson
+  correlation.
+- Statistical test, drift analysis và Q&A streaming qua SSE.
+- Mask PII, giới hạn dữ liệu trả về, audit log và các guardrail cho Agent.
+- Lưu lịch sử dataset/profile run để có thể xem lại và so sánh.
+
+## 3. Cấu trúc mã nguồn
+
+```text
+backend/src/
+├── main.py                         # FastAPI app, lifespan, CORS, health
+├── api/routes.py                   # REST API, SSE và workflow resume
+├── models/schemas.py               # Pydantic API contracts
+├── agents/
+│   ├── graph.py                    # profiling graph và standalone QA graph
+│   ├── state.py                    # state của profiling/question/resume
+│   ├── nodes/profiling_nodes.py    # ingest, compute, proposal, HITL, test, finalize
+│   ├── nodes/qa_nodes.py           # router, structured QA, retrieval QA, guardrail
+│   └── tools/                      # domain-separated read-only agent tools
+└── services/
+    ├── compute.py                  # deterministic profiling metrics
+    ├── stats_tests.py              # statistical tests và FDR correction
+    ├── drift.py                    # drift computation
+    ├── repository.py               # SQLAlchemy Core và migrations
+    ├── retrieval.py                # BM25 và dense retrieval tùy chọn
+    ├── llm.py                      # OpenAI-compatible providers
+    ├── guardrails.py               # input/output policy
+    └── security.py                 # token, rate limit, audit, masking
+
+frontend/src/
+├── app/chat/                       # Agent workspace, upload, Q&A
+├── app/datasets/                   # dataset list, upload, run history
+├── app/profiles/[runId]/           # report, review, analysis
+├── app/compare/                    # so sánh drift
+├── components/                     # app shell, UI và Markdown renderer
+└── lib/                            # API client, SSE, types, chat history
+```
+
+## 4. Yêu cầu và cấu hình
+
+Yêu cầu tối thiểu:
+
+- Python 3.11 trở lên.
+- Node.js 20 trở lên.
+- pnpm 9 trở lên.
+- Git và một LLM API key nếu muốn dùng narrative/Q&A bằng LLM.
+
+Tạo cấu hình local:
+
+```text
+.env.example → .env
+config.yaml  → cấu hình không chứa secret
+```
+
+Trong `.env`, chọn một provider và model tương ứng:
+
+```env
+OPENAI_API_KEY=your_api_key
+```
+
+Các provider được hỗ trợ gồm `openai`, `openrouter`, `gemini`, `groq`,
+`together`, `ollama` và `custom`. Tên key cụ thể được ghi trong
+[`.env.example`](.env.example). Có thể cấu hình database qua `DATABASE_URL`,
+LangGraph checkpointer qua `DATABASE_CHECKPOINTER_URL`, API token qua
+`API_TOKEN`, và địa chỉ backend của frontend qua `NEXT_PUBLIC_API_URL`.
+
+Nếu không có LLM key, backend vẫn có thể chạy
+phần compute deterministic; các chức năng cần LLM sẽ báo thiếu cấu hình.
+
+## 5. Cài đặt và chạy local
+
+### Windows PowerShell
+
+Từ thư mục gốc repository:
+
+```powershell
+python3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env (nhập API key)
+```
+
+Nếu chưa có pnpm, bật Corepack:
+
+```powershell
+corepack enable
+```
+
+Terminal 1 — backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+```
+
+Terminal 2 — frontend:
+
+```powershell
+cd frontend
+pnpm install
+pnpm dev --port 3000
+```
+
+#### Shortcut bằng Makefile trên Windows
+
+`Makefile` hiện được viết cho môi trường Windows/PowerShell. Nếu đã cài GNU
+Make, có thể dùng `gmake` thay cho các lệnh chạy thủ công:
+
+```powershell
+gmake help             # Xem toàn bộ shortcut
+gmake install          # Cài dependency backend/frontend
+gmake dev              # Mở backend và frontend ở hai cửa sổ riêng
+gmake backend          # Chỉ chạy backend
+gmake frontend         # Chỉ chạy frontend
+gmake health           # Kiểm tra backend health
+gmake frontend-check   # Typecheck và lint frontend
+gmake frontend-build   # Build frontend production
+```
+
+Trước `gmake install`, vẫn cần tạo `.venv` và sao chép `.env` như các bước ở
+trên. `gmake dev` không dùng cho macOS/Linux vì target hiện tại gọi `cmd.exe`,
+đường dẫn virtualenv kiểu Windows và lệnh `start`.
+
+### macOS
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+cp .env.example .env
+corepack enable
+python -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+```
+
+Mở terminal khác để chạy frontend:
+
+```bash
+cd frontend
+pnpm install
+pnpm dev --port 3000
+```
+
+### Linux
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+cp .env.example .env
+corepack enable
+python -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+```
+
+Mở terminal khác để chạy frontend:
+
+```bash
+cd frontend
+pnpm install
+pnpm dev --port 3000
+```
+
+Sau khi khởi động:
+
+- Frontend: <http://localhost:3000>
+- Swagger UI: <http://localhost:8000/docs>
+- Health check: <http://localhost:8000/health>
+
+## 6. Hướng dẫn sử dụng
+
+### Giao diện Chat với Agent
+
+Mở <http://localhost:3000/chat> hoặc bấm **Agent** trong thanh điều hướng.
+Màn hình này là workspace hội thoại với Data Profiling Agent:
+
+1. Nếu chưa có profile, bấm nút **＋** cạnh ô nhập để upload dataset trực tiếp
+   trong chat.
+2. Chọn **Sampling** để có kết quả nhanh hoặc **Full scan** để tính trên toàn
+   bộ file, sau đó bấm **Upload và bắt đầu profiling**.
+3. Chờ Agent hoàn tất profiling. Chat sẽ hiển thị preview số cột, kiểu dữ liệu,
+   null, cardinality và uniqueness.
+4. Nếu profile còn proposal pending, bấm **Review proposals**. Agent sẽ không
+   trả lời câu hỏi về dataset cho đến khi các proposal được Analyst xử lý.
+5. Sau khi review, nhập câu hỏi vào ô chat hoặc chọn một prompt gợi ý, ví dụ:
+   - `Tóm tắt chất lượng dữ liệu của tôi`
+   - `Cột nào có rủi ro PII cao nhất?`
+   - `Có cột nào phù hợp làm candidate key không?`
+6. Bấm nút gửi hoặc nhấn **Enter**. Dùng **Shift + Enter** để xuống dòng.
+   Câu trả lời được stream dần trong chat và có thể gồm heading, danh sách,
+   bảng Markdown cùng các số liệu từ profile.
+7. Có thể bấm **+ New chat** để tạo cuộc trò chuyện mới. Lịch sử hội thoại và
+   profile context được lưu ở trình duyệt hiện tại; xóa localStorage sẽ xóa
+   lịch sử local này.
+
+Agent chỉ trả lời dựa trên evidence đã profiling, bảo vệ giá trị PII và không
+đọc raw row tùy ý. Nếu cần xem đầy đủ proposal, report, test hoặc drift, mở
+profile tương ứng từ dataset/run history.
+
+### Qua giao diện web
+
+1. Mở <http://localhost:3000/datasets/new>.
+2. Chọn file CSV, TSV, Parquet hoặc JSON rồi bấm **Upload file**.
+3. Chọn chế độ scan, sample size và random seed nếu cần.
+4. Bấm **Bắt đầu profiling**.
+5. Xem report tại `/profiles/{runId}`.
+6. Nếu có proposal pending, bấm **Review** và xử lý từng đề xuất.
+7. Dùng **Phân tích** để chạy test hoặc xem kết quả drift.
 
 
 
-## License
+## Tài liệu chi tiết
 
-MIT
+- [`docs/summary.md`](docs/summary.md): kiến trúc, workflow nội bộ, API,
+  persistence, Q&A, security, giới hạn và kiểm tra chất lượng.
