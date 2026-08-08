@@ -1,8 +1,8 @@
 # P-170 — AI Data Profiling Agent
 #
-# Danh sách này khớp với các package thực sự được import trong src/.
-# Bản đầy đủ (kèm extras) khai báo trong pyproject.toml — file này để CI và
-# `pip install -r` dùng cho nhanh.
+# Danh sách dependency đầy đủ cho backend local/CI.
+# Backend hiện dùng SQLite cho metadata và LangGraph checkpointer.
+# Frontend cài riêng bằng `pnpm install` trong thư mục frontend/.
 
 # --- Web / API ---
 fastapi>=0.115.0
@@ -10,7 +10,7 @@ uvicorn[standard]>=0.34.0
 pydantic>=2.10.0
 pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
-PyYAML>=6.0                  # src/config.py đọc config.yaml
+PyYAML>=6.0                  # backend/src/config.py đọc config.yaml
 python-multipart>=0.0.9      # upload CSV qua POST /datasets/upload
 
 # --- Agent ---
@@ -29,7 +29,8 @@ scipy>=1.14.0                # 6 kiểm định thống kê trong services/stats
 sqlalchemy>=2.0.0
 
 # --- Retrieval (nhánh QA định tính) ---
-rank-bm25>=0.2.2             # BM25 keyword; embedding local/openai là optional
+rank-bm25>=0.2.2             # BM25 keyword
+sentence-transformers>=3.0.0 # local embedding mặc định trong config.yaml
 
 # --- Dev ---
 ruff>=0.8.0

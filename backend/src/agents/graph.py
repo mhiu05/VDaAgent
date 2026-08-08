@@ -98,7 +98,7 @@ def build_checkpointer() -> Any:
     except ImportError as exc:
         logger.warning(
             "Thiếu package cho checkpointer (%s). Dùng MemorySaver — state mất khi restart. "
-            "Cài: pip install 'p170-profiling-agent[db]'",
+            "Cài lại dependency bằng: pip install -r requirements.txt",
             exc,
         )
     except Exception as exc:  # noqa: BLE001 - không được để checkpointer chặn khởi động
