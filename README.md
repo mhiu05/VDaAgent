@@ -58,7 +58,7 @@ backend/src/
     ├── stats_tests.py              # statistical tests và FDR correction
     ├── drift.py                    # drift computation
     ├── repository.py               # SQLAlchemy Core và migrations
-    ├── retrieval.py                # BM25 và dense retrieval tùy chọn
+    ├── retrieval.py                # BM25 và local dense retrieval
     ├── llm.py                      # OpenAI-compatible providers
     ├── guardrails.py               # input/output policy
     └── security.py                 # token, rate limit, audit, masking
@@ -96,9 +96,15 @@ OPENAI_API_KEY=your_api_key
 
 Các provider được hỗ trợ gồm `openai`, `openrouter`, `gemini`, `groq`,
 `together`, `ollama` và `custom`. Tên key cụ thể được ghi trong
-[`.env.example`](.env.example). Có thể cấu hình database qua `DATABASE_URL`,
-LangGraph checkpointer qua `DATABASE_CHECKPOINTER_URL`, API token qua
-`API_TOKEN`, và địa chỉ backend của frontend qua `NEXT_PUBLIC_API_URL`.
+[`.env.example`](.env.example). Phiên bản hiện tại dùng SQLite cho metadata và
+LangGraph checkpointer, vì vậy có thể để trống `DATABASE_URL` và
+`DATABASE_CHECKPOINTER_URL`. API token cấu hình qua `API_TOKEN`, còn địa chỉ
+backend của frontend qua `NEXT_PUBLIC_API_URL`.
+
+Retrieval mặc định dùng BM25 kết hợp local embedding của
+`sentence-transformers`. Model `sentence-transformers/all-MiniLM-L6-v2` có thể
+được tải ở lần chạy đầu tiên; nếu không tải được, hệ thống vẫn fallback sang
+BM25-only.
 
 Nếu không có LLM key, backend vẫn có thể chạy
 phần compute deterministic; các chức năng cần LLM sẽ báo thiếu cấu hình.
@@ -110,11 +116,12 @@ phần compute deterministic; các chức năng cần LLM sẽ báo thiếu cấ
 Từ thư mục gốc repository:
 
 ```powershell
-python3.11 -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-Copy-Item .env.example .env (nhập API key)
+Copy-Item .env.example .env
+# Mở .env và điền API key nếu dùng LLM
 ```
 
 Nếu chưa có pnpm, bật Corepack:

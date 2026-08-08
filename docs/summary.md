@@ -112,7 +112,8 @@ Nằm trong `backend/src/`:
   - `profiling_tools.py`: compatibility exports cho integration cũ.
 - `services/compute.py`: tính toán deterministic.
 - `services/repository.py`: persistence bằng SQLAlchemy Core.
-- `services/retrieval.py`: BM25 và dense retrieval tùy chọn.
+- `services/retrieval.py`: BM25 và local dense retrieval bằng
+  `sentence-transformers`; nếu model không khả dụng thì fallback BM25-only.
 - `services/llm.py`: provider OpenAI-compatible.
 - `services/guardrails.py`, `security.py`: policy, masking, rate limit và audit.
 
@@ -257,7 +258,9 @@ Metadata database gồm các nhóm bảng:
 - resume metadata/idempotency;
 - narrative report và terminal result.
 
-Checkpointer mặc định dùng SQLite tại `data/checkpoints.sqlite`. Nếu persistent
+Phạm vi hiện tại dùng SQLite cho metadata (`data/app.db`) và checkpointer
+(`data/checkpoints.sqlite`). Dependency PostgreSQL chưa nằm trong
+`requirements.txt` và chưa được xem là target local được hỗ trợ. Nếu SQLite
 checkpointer không khởi tạo được, runtime fallback sang `MemorySaver`; state sẽ
 mất khi process restart và hệ thống ghi cảnh báo.
 
@@ -285,8 +288,8 @@ columns và duplicate-row artifacts. Dataset deletion xóa metadata con; không 
 - Chưa có MCP connector cho Calendar, Gmail hoặc Telegram.
 - Chưa có background worker/queue phân tán.
 - Chat history hiện lưu ở browser localStorage, không lưu backend.
-- SQLite phù hợp local development; production nên dùng PostgreSQL và checkpoint
-  storage bền vững.
+- SQLite là storage được hỗ trợ và kiểm thử trong phiên bản hiện tại; production
+  cần có chiến lược volume/backup bền vững cho `data/`.
 
 ## 10. Kiểm tra chất lượng
 
