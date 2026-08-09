@@ -30,6 +30,7 @@ Thumbs.db
 
 # Data (never commit large data)
 data/
+dataset/accounts.csv
 *.db
 *.sqlite3
 

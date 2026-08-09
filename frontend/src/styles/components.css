@@ -1,0 +1,154 @@
+﻿.primary-button,
+.secondary-button {
+  min-height: 34px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.primary-button {
+  background: var(--fabric-accent);
+  color: #ffffff;
+}
+
+.secondary-button {
+  background: var(--fabric-surface);
+  color: var(--fabric-text);
+  border-color: var(--fabric-border-strong);
+}
+
+.primary-button:hover {
+  background: var(--fabric-accent-hover);
+}
+
+.secondary-button:hover {
+  background: #f3f2f1;
+}
+
+.section-header {
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 20px 24px 0;
+}
+
+.section-header + .source-grid,
+.section-header + .metric-grid,
+.section-header + .test-source-mode-grid,
+.section-header + .profile-source-selector,
+.section-header + .quality-overview,
+.section-header + .panel,
+.section-header + .two-column,
+.section-header + .single-column {
+  margin-left: 24px;
+  margin-right: 24px;
+}
+
+main > section > .two-column,
+main > section > .single-column,
+main > section > .metric-grid,
+main > section > .profile-source-selector,
+main > section > .quality-overview,
+main > section > .panel,
+main > section > .test-grid,
+main > section > .test-source-mode-grid,
+main > section > .source-grid {
+  margin-left: 24px;
+  margin-right: 24px;
+}
+
+.section-header h2 {
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.source-grid,
+.metric-grid,
+.test-grid {
+  display: grid;
+}
+
+.source-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.source-card,
+.test-card,
+.panel,
+.metric-card {
+  background: var(--fabric-surface);
+  border: 1px solid var(--fabric-border);
+  border-radius: 4px;
+  box-shadow: var(--fabric-shadow);
+}
+
+.source-card,
+.test-card {
+  min-height: 164px;
+  padding: 14px;
+  color: inherit;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source-card.selected,
+.test-card.selected {
+  border-color: #0078d4;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.15);
+}
+
+.source-icon,
+.card-status,
+.status-pill {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 6px 8px;
+}
+
+.source-icon {
+  background: #eef6fc;
+  color: #0078d4;
+}
+
+.card-status,
+.status-pill {
+  margin-top: auto;
+  background: #eaf7ef;
+  color: #16805b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.muted-status {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  gap: 16px;
+}
+
+.single-column {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.wide-left {
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+}
+
+.panel {
+  padding: 14px;
+  min-width: 0;
+}
+

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profiling Agent Platform</title>
+  </head>
+  <body>
+    <div id="root">Loading Profiling Agent Platform...</div>
+    <script>
+      window.addEventListener("error", function (event) {
+        var root = document.getElementById("root");
+        if (root && root.textContent.indexOf("Profiling Agent") !== -1) {
+          root.innerHTML = "<div style='margin:24px;padding:16px;border:1px solid #fecdca;border-radius:8px;background:#fff1f0;color:#b42318'><strong>Browser script error</strong><pre style='white-space:pre-wrap'>" + event.message + "</pre></div>";
+        }
+      });
+      window.addEventListener("unhandledrejection", function (event) {
+        var root = document.getElementById("root");
+        if (root && root.textContent.indexOf("Profiling Agent") !== -1) {
+          root.innerHTML = "<div style='margin:24px;padding:16px;border:1px solid #fecdca;border-radius:8px;background:#fff1f0;color:#b42318'><strong>Browser promise error</strong><pre style='white-space:pre-wrap'>" + String(event.reason) + "</pre></div>";
+        }
+      });
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -16,10 +16,33 @@ class DatabaseConnectionConfig(BaseModel):
     type: str = Field(..., pattern="^(sql_server|postgresql)$", description="Database type")
     host: str = Field(..., description="Database host or server")
     database: str = Field(..., description="Database name")
-    username: str = Field(..., description="Database username")
-    password: str = Field(..., description="Database password")
+    username: str | None = Field(default=None, description="Database username")
+    password: str | None = Field(default=None, description="Database password")
     port: int = Field(default=1433, ge=1, le=65535, description="Database port")
     driver: str | None = Field(default=None, description="Optional SQL Server ODBC driver")
+    auth_type: str = Field(
+        default="username_password",
+        pattern=(
+            "^(username_password|azure_ad_token|aws_iam|gcp_service_account|"
+            "client_certificate)$"
+        ),
+        description="Database authentication strategy",
+    )
+    access_token: str | None = Field(default=None, description="Pre-generated cloud access token")
+    aws_region: str | None = Field(default=None, description="AWS region for IAM database auth")
+    gcp_service_account_file: str | None = Field(
+        default=None,
+        description="Path to GCP service account JSON for Cloud SQL IAM auth",
+    )
+    ssl_mode: str | None = Field(default=None, description="PostgreSQL SSL mode")
+    ssl_cert_path: str | None = Field(default=None, description="Client certificate path")
+    ssl_key_path: str | None = Field(default=None, description="Client private key path")
+    ssl_root_cert_path: str | None = Field(default=None, description="Root CA certificate path")
+    encrypt: bool = Field(default=True, description="SQL Server encryption flag")
+    trust_server_certificate: bool = Field(
+        default=False,
+        description="SQL Server TrustServerCertificate flag",
+    )
 
 
 class DatabaseTableRequest(BaseModel):
@@ -30,6 +53,25 @@ class DatabaseTableRequest(BaseModel):
 
 class DatabasePreviewRequest(DatabaseTableRequest):
     limit: int = Field(default=20, ge=1, le=100, description="Preview row limit")
+
+
+class DatabaseQueryRequest(BaseModel):
+    connection: DatabaseConnectionConfig = Field(..., description="Database connection config")
+    query: str = Field(..., min_length=1, description="Read-only SELECT query to preview or profile")
+    limit: int = Field(default=50, ge=1, le=100, description="Preview row limit")
+
+
+class DatabaseProfileSectionsRequest(DatabaseTableRequest):
+    sections: list[str] = Field(..., description="Profile sections to return")
+
+
+class DatabaseStatisticalTestRequest(DatabaseTableRequest):
+    test_type: str = Field(..., description="Statistical test type")
+    x_column: str | None = Field(default=None, description="X column for pairwise tests")
+    y_column: str | None = Field(default=None, description="Y column for pairwise tests")
+    value_column: str | None = Field(default=None, description="Numeric value column for grouped tests")
+    group_column: str | None = Field(default=None, description="Group column for grouped tests")
+    alpha: float = Field(default=0.05, description="Significance threshold")
 
 
 class DatabaseConnectionStatus(BaseModel):
@@ -55,6 +97,21 @@ class DatabasePreviewResult(BaseModel):
     source_type: str = Field(..., description="Database type")
     schema_name: str | None = Field(default=None, description="Schema name")
     table_name: str = Field(..., description="Table name")
+    rows: list[dict[str, object | None]] = Field(default_factory=list, description="Preview rows")
+
+
+class DatabaseQueryPreviewResult(BaseModel):
+    source_type: str = Field(..., description="Database type")
+    query: str = Field(..., description="Previewed SELECT query")
+    row_count: int = Field(default=0, ge=0, description="Number of preview rows")
+    column_count: int = Field(default=0, ge=0, description="Number of preview columns")
+    columns: list["ProfileSchemaColumn"] = Field(default_factory=list, description="Query result columns")
+    rows: list[dict[str, object | None]] = Field(default_factory=list, description="Preview rows")
+
+
+class FilePreviewResult(BaseModel):
+    source_name: str = Field(..., description="Uploaded file name")
+    source_type: str = Field(default="file", description="Source type")
     rows: list[dict[str, object | None]] = Field(default_factory=list, description="Preview rows")
 
 
@@ -116,6 +173,17 @@ class CorrelationProfile(BaseModel):
     right_column: str = Field(..., description="Second numeric column")
     coefficient: float = Field(..., ge=-1, le=1, description="Pearson correlation coefficient")
     strength: str = Field(..., description="Correlation strength bucket")
+
+
+class InferredRelationship(BaseModel):
+    left_source: str = Field(..., description="Left file, sheet, or table")
+    left_column: str = Field(..., description="Left column")
+    right_source: str = Field(..., description="Right file, sheet, or table")
+    right_column: str = Field(..., description="Right column")
+    relationship_type: str = Field(..., description="Inferred relationship type")
+    confidence: float = Field(..., ge=0, le=1, description="Rule-based confidence")
+    evidence: str = Field(..., description="Why this relationship was inferred")
+    hitl_required: bool = Field(default=True, description="Human confirmation required")
 
 
 class ProfileSchemaColumn(BaseModel):
@@ -181,6 +249,10 @@ class ProfileRelationships(BaseModel):
         default_factory=list,
         description="Pairwise correlations between non-ID continuous numeric columns",
     )
+    inferred_relationships: list[InferredRelationship] = Field(
+        default_factory=list,
+        description="Candidate relationships between files/sheets/tables",
+    )
 
 
 class QualitySummary(BaseModel):
@@ -197,3 +269,55 @@ class ProfileResult(BaseModel):
     relationships: ProfileRelationships = Field(..., description="Cross-column relationships")
     findings: list[ProfileFinding] = Field(default_factory=list, description="Automatic findings")
     quality_summary: QualitySummary = Field(..., description="Finding counts by severity")
+
+
+class ProfileCollectionSummary(BaseModel):
+    source_count: int = Field(..., ge=0, description="Number of profiled files or sheets")
+    total_row_count: int = Field(..., ge=0, description="Total rows across sources")
+    total_column_count: int = Field(..., ge=0, description="Total columns across sources")
+
+
+class ProfileCollectionResult(BaseModel):
+    profile_metadata: ProfileMetadata = Field(..., description="How collection profiling was computed")
+    collection_type: str = Field(..., description="multi_csv or excel_workbook")
+    collection_name: str = Field(..., description="Collection name")
+    collection_summary: ProfileCollectionSummary = Field(..., description="Collection-level counts")
+    sources: list[ProfileResult] = Field(default_factory=list, description="Per-source profile results")
+    relationships: ProfileRelationships = Field(..., description="Cross-source relationships")
+
+
+class ProfileSectionsResult(BaseModel):
+    source_name: str = Field(..., description="Uploaded file name, sheet name, or table name")
+    source_type: str = Field(..., description="Source type")
+    requested_sections: list[str] = Field(default_factory=list, description="Requested sections")
+    sections: dict[str, object] = Field(default_factory=dict, description="Selected profiling outputs")
+    errors: list[dict[str, str]] = Field(default_factory=list, description="Invalid section messages")
+
+
+class StatisticalTestResult(BaseModel):
+    source_name: str = Field(..., description="Uploaded file name or source name")
+    test_type: str = Field(..., description="Statistical test type")
+    columns: list[str] = Field(default_factory=list, description="Columns used by the test")
+    statistic: float | None = Field(default=None, description="Test statistic")
+    p_value: float | None = Field(default=None, description="P-value")
+    alpha: float = Field(default=0.05, description="Significance threshold")
+    significant: bool | None = Field(default=None, description="Whether p_value < alpha")
+    sample_size: int = Field(default=0, ge=0, description="Rows used after dropping nulls")
+    groups: dict[str, int] = Field(default_factory=dict, description="Group sizes when applicable")
+    effect_size: float | None = Field(default=None, description="Optional effect size")
+    interpretation: str = Field(..., description="Analyst-friendly interpretation")
+
+
+class StatisticalTestSpec(BaseModel):
+    test_type: str = Field(..., description="Statistical test type")
+    x_column: str | None = Field(default=None, description="X column for pairwise tests")
+    y_column: str | None = Field(default=None, description="Y column for pairwise tests")
+    value_column: str | None = Field(default=None, description="Numeric value column for grouped tests")
+    group_column: str | None = Field(default=None, description="Group column for grouped tests")
+    alpha: float = Field(default=0.05, description="Significance threshold")
+
+
+class StatisticalTestBatchResult(BaseModel):
+    source_name: str = Field(..., description="Uploaded file name or source name")
+    results: list[StatisticalTestResult] = Field(default_factory=list, description="Successful tests")
+    errors: list[dict[str, str]] = Field(default_factory=list, description="Failed test messages")

@@ -1,0 +1,242 @@
+﻿.app-shell {
+  display: grid;
+  grid-template-columns: 244px minmax(0, 1fr) 340px;
+  min-height: 100vh;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr) 352px;
+}
+
+.app-shell.agent-collapsed {
+  grid-template-columns: 248px minmax(0, 1fr);
+}
+
+.app-shell.sidebar-collapsed.agent-collapsed {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.sidebar,
+.assistant-panel {
+  background: var(--fabric-surface);
+  border-color: var(--fabric-border);
+  border-style: solid;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 12px;
+  border-width: 0 1px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brand,
+.assistant-header,
+.file-row,
+.panel-title,
+.sidebar-status,
+.finding,
+.severity-badge,
+.chat-form,
+.toolbar,
+.button-row {
+  display: flex;
+  align-items: center;
+}
+
+.brand {
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px;
+  border-bottom: 1px solid var(--fabric-border);
+}
+
+.sidebar-collapsed .brand {
+  justify-content: center;
+}
+
+.sidebar-collapsed .brand-copy,
+.sidebar-collapsed .nav-item span,
+.sidebar-collapsed .sidebar-status span {
+  display: none;
+}
+
+.sidebar-collapsed .nav-item {
+  justify-content: center;
+  padding: 11px;
+}
+
+.sidebar-collapsed .sidebar-status {
+  justify-content: center;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--fabric-blue), var(--fabric-accent));
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.sidebar-collapse-button,
+.panel-icon-button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: #605e5c;
+}
+
+.sidebar-collapse-button {
+  margin-left: auto;
+}
+
+.sidebar-collapsed .sidebar-collapse-button {
+  margin-left: 0;
+}
+
+.sidebar-collapse-button:hover,
+.panel-icon-button:hover {
+  background: var(--fabric-surface-muted);
+  color: var(--fabric-blue);
+}
+
+.brand span,
+.assistant-header span,
+.muted,
+.source-card small,
+.section-header p,
+.topbar p,
+.empty-state,
+.inline-status {
+  color: #605e5c;
+}
+
+.brand span,
+.assistant-header span {
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.nav-list {
+  display: grid;
+  gap: 4px;
+}
+
+.nav-item {
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  color: var(--fabric-text);
+  text-align: left;
+}
+
+.nav-item.active,
+.nav-item:hover {
+  background: #e8f3f1;
+  color: var(--fabric-accent);
+}
+
+.nav-item.active {
+  box-shadow: inset 3px 0 0 var(--fabric-accent);
+}
+
+.sidebar-status {
+  margin-top: auto;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--fabric-border);
+  border-radius: 4px;
+  color: var(--fabric-muted);
+  font-size: 13px;
+  background: var(--fabric-surface-muted);
+}
+
+.main-panel {
+  min-width: 0;
+  padding: 0;
+  background: var(--fabric-bg);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  margin: 0;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--fabric-border);
+  background: var(--fabric-surface);
+  position: sticky;
+  top: 0;
+  z-index: 8;
+}
+
+.topbar h1,
+.section-header h2,
+.panel h3 {
+  margin: 0;
+}
+
+.topbar h1 {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.fabric-breadcrumb {
+  margin: 0 0 3px;
+  color: var(--fabric-muted);
+  font-size: 12px;
+}
+
+.topbar-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid #b7dfd7;
+  border-radius: 999px;
+  background: #e8f3f1;
+  color: var(--fabric-accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #0078d4;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.topbar-actions,
+.section-header,
+.source-grid,
+.metric-grid,
+.test-grid {
+  display: flex;
+  gap: 12px;
+}
+
+.topbar-actions {
+  flex-wrap: wrap;
+}
+

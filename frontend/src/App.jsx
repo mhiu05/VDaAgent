@@ -1,0 +1,967 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { DashboardView } from "./dashboard/DashboardView.jsx";
+import { AgentPanel } from "./layout/AgentPanel.jsx";
+import { Sidebar } from "./layout/Sidebar.jsx";
+import { Topbar } from "./layout/Topbar.jsx";
+import { StatisticalTestsView } from "./profiling/StatisticalTestsView.jsx";
+import { ResultsView } from "./results/ResultsView.jsx";
+import { SettingsView } from "./settings/SettingsView.jsx";
+import { Toast } from "./shared/components.jsx";
+import { DataWorkspaceView } from "./workspace/DataWorkspaceView.jsx";
+import { useAsyncTask } from "./hooks/useAsyncTask.js";
+import { useToast } from "./hooks/useToast.js";
+import { createHistoryEntry } from "./store/appStore.js";
+import { DEFAULT_API_BASE, databaseConnectionFromForm, fileForm, requestJson } from "./services/api.js";
+import { sectionsToResult } from "./utils/formatters.js";
+import { sourceCards, statisticalTests } from "./utils/options.js";
+
+const VALID_VIEWS = new Set(["dashboard", "workspace", "reports", "tests", "settings"]);
+const VALID_WORKSPACE_STEPS = new Set(["source", "dataset", "config"]);
+const DB_VALUES_STORAGE_KEY = "profiling-agent.dbValues";
+const APP_STATE_SESSION_KEY = "profiling-agent.sessionState";
+const DEFAULT_DB_VALUES = {
+  type: "sql_server",
+  host: "",
+  port: "1433",
+  database: "",
+  username: "",
+  password: "",
+  authType: "username_password",
+  driver: "ODBC Driver 18 for SQL Server",
+  connectorId: "azure_sql",
+};
+
+export default function App() {
+  const initialRoute = getRouteFromLocation();
+  const initialDbValues = getStoredDbValues();
+  const initialSessionState = getStoredSessionState();
+  const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
+  const [activeView, setActiveViewState] = useState(initialRoute.view !== "dashboard" ? initialRoute.view : initialSessionState.activeView || initialRoute.view);
+  const [workspaceStep, setWorkspaceStep] = useState(initialRoute.step !== "source" ? initialRoute.step : initialSessionState.workspaceStep || initialRoute.step);
+  const [selectedSource, setSelectedSource] = useState(initialSessionState.selectedSource || initialDbValues.connectorId || "csv");
+  const [files, setFiles] = useState([]);
+  const [result, setResult] = useState(initialSessionState.result || null);
+  const [resultSources, setResultSources] = useState(initialSessionState.resultSources || []);
+  const [selectedProfileIndex, setSelectedProfileIndex] = useState(initialSessionState.selectedProfileIndex || 0);
+  const [sectionsResult, setSectionsResult] = useState(initialSessionState.sectionsResult || null);
+  const [schemaPreviews, setSchemaPreviews] = useState(initialSessionState.schemaPreviews || []);
+  const [selectedSchemaIndex, setSelectedSchemaIndex] = useState(initialSessionState.selectedSchemaIndex || 0);
+  const [previewLimit, setPreviewLimit] = useState(initialSessionState.previewLimit || 50);
+  const [selectedColumnsBySource, setSelectedColumnsBySource] = useState(initialSessionState.selectedColumnsBySource || {});
+  const [selectedSections, setSelectedSections] = useState(initialSessionState.selectedSections || ["schema", "columns", "correlations", "findings"]);
+  const [history, setHistory] = useState(initialSessionState.history || []);
+  const [dbValues, setDbValues] = useState(initialDbValues);
+  const [dbStatus, setDbStatus] = useState("Connection not tested.");
+  const [tables, setTables] = useState(initialSessionState.tables || []);
+  const [selectedTable, setSelectedTable] = useState(initialSessionState.selectedTable || { schema_name: "", table_name: "" });
+  const [selectedTables, setSelectedTables] = useState(initialSessionState.selectedTables || []);
+  const [dbInputMode, setDbInputMode] = useState(initialSessionState.dbInputMode || "table");
+  const [dbQuery, setDbQuery] = useState(initialSessionState.dbQuery || "");
+  const [dbProfileProgress, setDbProfileProgress] = useState(null);
+  const [testSourceMode, setTestSourceMode] = useState("file");
+  const [testFile, setTestFile] = useState(null);
+  const [selectedTest, setSelectedTest] = useState("pearson-correlation");
+  const [testForm, setTestForm] = useState({
+    x_column: "unit_price",
+    y_column: "revenue",
+    value_column: "final_exam_score",
+    group_column: "gender",
+    alpha: "0.05",
+  });
+  const [testResult, setTestResult] = useState(null);
+  const [chatMessages, setChatMessages] = useState([
+    {
+      role: "agent",
+      text: "I can explain findings, suggest statistical tests, and help confirm ID, PII, or relationship candidates.",
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const autoTestRequestId = useRef(0);
+  const routeReadyRef = useRef(false);
+  const restoringRouteRef = useRef(false);
+
+  const { toast, showToast } = useToast();
+  const { loading, runTask } = useAsyncTask(showToast);
+  const displayResult = resultSources[selectedProfileIndex] || (result?.source ? result : sectionsToResult(sectionsResult));
+  const columns = displayResult?.columns || [];
+  const findings = displayResult?.findings || [];
+  const correlations = displayResult?.relationships?.correlations || [];
+  const quality = displayResult?.quality_summary || {};
+  const profileExplorerPreviews = useMemo(
+    () => buildExplorerPreviews(resultSources.length ? resultSources : (displayResult?.source ? [displayResult] : []), schemaPreviews),
+    [displayResult, resultSources, schemaPreviews],
+  );
+  const explorerPreviews = profileExplorerPreviews.length ? profileExplorerPreviews : schemaPreviews;
+  const safeSelectedSchemaIndex = explorerPreviews[selectedSchemaIndex] ? selectedSchemaIndex : 0;
+  const schema = explorerPreviews[safeSelectedSchemaIndex]?.columns || sectionsResult?.sections?.schema || [];
+  const topCategoricalColumn = useMemo(() => columns.find((column) => column.top_values?.length), [columns]);
+  const selectedConnector = useMemo(
+    () => sourceCards.find((source) => source.id === selectedSource),
+    [selectedSource],
+  );
+
+  useEffect(() => {
+    saveStoredDbValues(dbValues);
+  }, [dbValues]);
+
+  useEffect(() => {
+    saveStoredSessionState({
+      activeView,
+      workspaceStep,
+      selectedSource,
+      result,
+      resultSources,
+      selectedProfileIndex,
+      sectionsResult,
+      schemaPreviews,
+      selectedSchemaIndex,
+      previewLimit,
+      selectedColumnsBySource,
+      selectedSections,
+      history,
+      tables,
+      selectedTable,
+      selectedTables,
+      dbInputMode,
+      dbQuery,
+    });
+  }, [
+    activeView,
+    workspaceStep,
+    selectedSource,
+    result,
+    resultSources,
+    selectedProfileIndex,
+    sectionsResult,
+    schemaPreviews,
+    selectedSchemaIndex,
+    previewLimit,
+    selectedColumnsBySource,
+    selectedSections,
+    history,
+    tables,
+    selectedTable,
+    selectedTables,
+    dbInputMode,
+    dbQuery,
+  ]);
+
+  function setActiveView(nextView) {
+    setActiveViewState((current) => {
+      const value = typeof nextView === "function" ? nextView(current) : nextView;
+      return VALID_VIEWS.has(value) ? value : current;
+    });
+  }
+
+  useEffect(() => {
+    const onPopState = () => {
+      const route = getRouteFromLocation();
+      restoringRouteRef.current = true;
+      setActiveViewState(route.view);
+      setWorkspaceStep(route.step);
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    const route = {
+      view: activeView,
+      step: activeView === "workspace" ? workspaceStep : "source",
+    };
+
+    const nextUrl = routeToUrl(route);
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+    if (!routeReadyRef.current) {
+      window.history.replaceState(route, "", nextUrl);
+      routeReadyRef.current = true;
+      return;
+    }
+
+    if (restoringRouteRef.current) {
+      restoringRouteRef.current = false;
+      return;
+    }
+
+    if (nextUrl !== currentUrl) {
+      window.history.pushState(route, "", nextUrl);
+    }
+  }, [activeView, workspaceStep]);
+
+  useEffect(() => {
+    if (activeView !== "workspace") return undefined;
+    if (selectedConnector?.category === "Databases" && !selectedConnector.backendType) {
+      setDbStatus("Connector adapter is not implemented yet.");
+      return undefined;
+    }
+    if (!isDatabaseConfigReady(dbValues)) {
+      setDbStatus("Fill required connection fields to test automatically.");
+      return undefined;
+    }
+
+    const requestId = autoTestRequestId.current + 1;
+    autoTestRequestId.current = requestId;
+    setDbStatus("Testing connection...");
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const connection = databaseConnectionFromForm(dbValues);
+        const data = await requestJson(`${apiBase}/profile/database/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(connection),
+        });
+        if (autoTestRequestId.current === requestId) {
+          setDbStatus(`Connection OK: ${data.database_type} / ${data.database}`);
+        }
+      } catch (error) {
+        if (autoTestRequestId.current === requestId) {
+          setDbStatus(`Connection failed: ${error.message}`);
+        }
+      }
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [activeView, apiBase, dbValues, selectedConnector]);
+
+  function setProfileResult(data) {
+    setResult(data);
+    setResultSources(data ? [data] : []);
+    setSelectedProfileIndex(0);
+      setSectionsResult(null);
+      setHistory((current) => [createHistoryEntry(data), ...current]);
+  }
+
+  function setProfileResults(sources) {
+    const normalizedSources = sources || [];
+    const first = normalizedSources[0] || null;
+    setResult(first);
+    setResultSources(normalizedSources);
+    setSelectedProfileIndex(0);
+    setSectionsResult(null);
+    setHistory((current) => normalizedSources.map(createHistoryEntry).concat(current));
+  }
+
+  async function checkApi() {
+    await runTask("Checking backend", async () => {
+      const healthUrl = apiBase.replace("/api/v1", "/health");
+      const health = await requestJson(healthUrl);
+      showToast(`Backend ${health.status} (${health.env})`, "success");
+    });
+  }
+
+  async function runFullProfile() {
+    if (!files.length) {
+      showToast("Select at least one CSV or Excel file first.", "warning");
+      return;
+    }
+    await runTask("Running profiling", async () => {
+      const selectedFiles = Array.from(files);
+      if (selectedFiles.length > 1) {
+        const form = fileForm(selectedFiles, "files");
+        const data = await requestJson(`${apiBase}/profile/files`, { method: "POST", body: form });
+        setProfileResults((data.sources || []).map((source) => applySelectedColumnsToProfile(source, selectedColumnsBySource)));
+        showToast(`Profiled ${data.collection_summary.source_count} sources`, "success");
+      } else if (selectedFiles[0].name.toLowerCase().endsWith(".xlsx")) {
+        const form = fileForm(selectedFiles[0], "file");
+        const data = await requestJson(`${apiBase}/profile/excel`, { method: "POST", body: form });
+        setProfileResults((data.sources || []).map((source) => applySelectedColumnsToProfile(source, selectedColumnsBySource)));
+        showToast(`Profiled ${data.collection_summary.source_count} sheets`, "success");
+      } else {
+        const form = fileForm(selectedFiles[0], "file");
+        const data = await requestJson(`${apiBase}/profile/file`, { method: "POST", body: form });
+        setProfileResult(applySelectedColumnsToProfile(data, selectedColumnsBySource));
+        showToast("Full profile completed", "success");
+      }
+      setActiveView("reports");
+    });
+  }
+
+  async function runSectionsProfile() {
+    if (!files.length) {
+      showToast("Select one CSV file before running sections.", "warning");
+      return;
+    }
+    await runTask("Running selected sections", async () => {
+      const form = fileForm(Array.from(files)[0], "file");
+      form.append("sections", JSON.stringify(selectedSections));
+      const data = await requestJson(`${apiBase}/profile/file/sections`, { method: "POST", body: form });
+      setSectionsResult(data);
+      setResult(null);
+      setResultSources([]);
+      setActiveView("reports");
+      showToast(`Loaded sections: ${Object.keys(data.sections).join(", ")}`, "success");
+    });
+  }
+
+  async function previewSchema(fileOverride = null, limitOverride = null, preserveProfile = false) {
+    const selectedFiles = Array.from(fileOverride || files || []);
+    const effectivePreviewLimit = Number(limitOverride || previewLimit || 50);
+    if (!selectedFiles.length) {
+      showToast("Select one CSV file first.", "warning");
+      return;
+    }
+    await runTask("Previewing schema", async () => {
+      const previews = [];
+      for (const file of selectedFiles) {
+        if (file.name.toLowerCase().endsWith(".xlsx")) {
+          const form = fileForm(file, "file");
+          const data = await requestJson(`${apiBase}/profile/excel`, { method: "POST", body: form });
+          (data.sources || []).forEach((source) => {
+            previews.push({
+              name: source.source?.name || source.source_name || file.name,
+              type: source.source?.type || "excel_sheet",
+              columns: source.columns || [],
+            });
+          });
+        } else {
+          const form = fileForm(file, "file");
+          const data = await requestJson(`${apiBase}/profile/file/schema`, { method: "POST", body: form });
+          const previewForm = fileForm(file, "file");
+          previewForm.append("limit", String(effectivePreviewLimit));
+          const previewData = await requestJson(`${apiBase}/profile/file/preview`, { method: "POST", body: previewForm });
+          previews.push({
+            name: data.source_name || file.name,
+            type: data.source_type || "file",
+            rowCount: data.row_count,
+            columnCount: data.column_count,
+            columns: data.columns || [],
+            rows: previewData.rows || [],
+          });
+        }
+      }
+      setSchemaPreviews(previews);
+      setSelectedSchemaIndex(0);
+      setSectionsResult(previews[0] ? {
+        source_name: previews[0].name,
+        source_type: previews[0].type,
+        requested_sections: ["schema"],
+        sections: { schema: previews[0].columns },
+        errors: [],
+      } : null);
+      if (!preserveProfile) {
+        setResult(null);
+        setResultSources([]);
+      }
+      setActiveView("workspace");
+      setWorkspaceStep("dataset");
+      if (!preserveProfile) showToast(`Loaded schema preview for ${previews.length} source(s)`, "success");
+    });
+  }
+
+  async function refreshSelectedPreviewRows(limit) {
+    const selectedPreview = explorerPreviews[safeSelectedSchemaIndex];
+    if (!selectedPreview) return;
+    const matchedFile = Array.from(files || []).find((file) => file.name === selectedPreview.name);
+    if (!matchedFile || !matchedFile.name.toLowerCase().endsWith(".csv")) return;
+
+    await runTask("Refreshing preview rows", async () => {
+      const previewForm = fileForm(matchedFile, "file");
+      previewForm.append("limit", String(limit));
+      const previewData = await requestJson(`${apiBase}/profile/file/preview`, { method: "POST", body: previewForm });
+      setSchemaPreviews((current) => current.map((preview) => (
+        preview.name === selectedPreview.name
+          ? { ...preview, rows: previewData.rows || [] }
+          : preview
+      )));
+    }, false);
+  }
+
+  async function testConnection() {
+    await runTask("Testing connection", async () => {
+      const connection = databaseConnectionFromForm(dbValues);
+      const data = await requestJson(`${apiBase}/profile/database/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connection),
+      });
+      setDbStatus(`${data.status}: ${data.database_type} / ${data.database}`);
+      showToast("Connection OK", "success");
+    });
+  }
+
+  async function listDbTables() {
+    if (selectedConnector?.category === "Databases" && !selectedConnector.backendType) {
+      showToast("This connector needs a backend adapter before listing tables.", "warning");
+      return;
+    }
+    await runTask("Listing tables", async () => {
+      const connection = databaseConnectionFromForm(dbValues);
+      const data = await requestJson(`${apiBase}/profile/database/tables`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(connection),
+      });
+      setTables(data.tables || []);
+      setSelectedTables([]);
+      setSelectedTable({ schema_name: "", table_name: "" });
+      showToast(`Found ${data.tables.length} tables`, "success");
+    });
+  }
+
+  async function previewSelectedDbTables() {
+    if (selectedConnector?.category === "Databases" && !selectedConnector.backendType) {
+      showToast("This connector needs a backend adapter before previewing tables.", "warning");
+      return;
+    }
+    const tableSelections = selectedTables.length ? selectedTables : (selectedTable.table_name ? [selectedTable] : []);
+    if (!tableSelections.length) {
+      showToast("Select at least one database table first.", "warning");
+      return;
+    }
+    await runTask("Previewing database table", async () => {
+      const connection = databaseConnectionFromForm(dbValues);
+      const previews = [];
+      for (const table of tableSelections) {
+        const schemaData = await requestJson(`${apiBase}/profile/database/schema`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connection, ...table }),
+        });
+        const previewData = await requestJson(`${apiBase}/profile/database/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ connection, ...table, limit: previewLimit }),
+        });
+        previews.push({
+          name: `${table.schema_name}.${table.table_name}`,
+          type: schemaData.source_type || dbValues.type,
+          rowCount: schemaData.row_count,
+          columnCount: schemaData.column_count,
+          columns: schemaData.columns || [],
+          rows: previewData.rows || [],
+        });
+      }
+      setSchemaPreviews(previews);
+      setSelectedSchemaIndex(0);
+      setResult(null);
+      setResultSources([]);
+      setSectionsResult(previews[0] ? {
+        source_name: previews[0].name,
+        source_type: previews[0].type,
+        requested_sections: ["schema"],
+        sections: { schema: previews[0].columns },
+        errors: [],
+      } : null);
+      setActiveView("workspace");
+      setWorkspaceStep("dataset");
+      showToast(`Loaded preview for ${previews.length} table(s)`, "success");
+    });
+  }
+
+  async function profileSelectedDbTable() {
+    if (selectedConnector?.category === "Databases" && !selectedConnector.backendType) {
+      showToast("This connector needs a backend adapter before profiling.", "warning");
+      return;
+    }
+    const tableSelections = selectedTables.length ? selectedTables : (selectedTable.table_name ? [selectedTable] : []);
+    if (!tableSelections.length) {
+      showToast("Select at least one database table first.", "warning");
+      return;
+    }
+    await runTask("Profiling database table", async () => {
+      const connection = databaseConnectionFromForm(dbValues);
+      const profiledSources = [];
+      const completedTables = [];
+      try {
+        setDbProfileProgress({ current: 0, total: tableSelections.length, tableName: tableKey(tableSelections[0]), completed: completedTables });
+        for (const [index, table] of tableSelections.entries()) {
+          setDbProfileProgress({ current: index, total: tableSelections.length, tableName: tableKey(table), completed: [...completedTables] });
+          const data = await requestJson(`${apiBase}/profile/database/table`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ connection, ...table }),
+          });
+          completedTables.push({
+            name: tableKey(table),
+            rows: data.dataset_summary?.row_count ?? data.row_count,
+            columns: data.dataset_summary?.column_count ?? data.column_count ?? data.columns?.length,
+          });
+          profiledSources.push(applySelectedSectionsToProfile(data, selectedSections));
+          setDbProfileProgress({ current: index + 1, total: tableSelections.length, tableName: tableKey(table), completed: [...completedTables] });
+        }
+      } finally {
+        setDbProfileProgress(null);
+      }
+      setProfileResults(profiledSources);
+      setActiveView("reports");
+      showToast(`Profiled ${profiledSources.length} database table(s)`, "success");
+    });
+  }
+
+  async function previewDbQuery() {
+    if (!dbQuery.trim()) {
+      showToast("Write a SELECT query before previewing.", "warning");
+      return;
+    }
+    await runTask("Previewing query", async () => {
+      const data = await requestJson(`${apiBase}/profile/database/query/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection: databaseConnectionFromForm(dbValues),
+          query: dbQuery,
+          limit: 50,
+        }),
+      });
+      setSchemaPreviews([{
+        name: "SQL query",
+        type: data.source_type || "database_query",
+        rowCount: data.row_count,
+        columnCount: data.column_count,
+        columns: data.columns || [],
+        rows: data.rows || [],
+      }]);
+      setSelectedSchemaIndex(0);
+      setSectionsResult({
+        source_name: "SQL query",
+        source_type: data.source_type || "database_query",
+        requested_sections: ["schema"],
+        sections: { schema: data.columns || [] },
+        errors: [],
+      });
+      setResult(null);
+      setResultSources([]);
+      setActiveView("workspace");
+      setWorkspaceStep("dataset");
+      showToast(`Loaded query preview with ${data.row_count} rows`, "success");
+    });
+  }
+
+  async function profileDbQuery() {
+    if (!dbQuery.trim()) {
+      showToast("Write a SELECT query before profiling.", "warning");
+      return;
+    }
+    await runTask("Profiling query", async () => {
+      const data = await requestJson(`${apiBase}/profile/database/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          connection: databaseConnectionFromForm(dbValues),
+          query: dbQuery,
+          limit: 50,
+        }),
+      });
+      setProfileResult(data);
+      setActiveView("reports");
+      showToast("Query profiling completed", "success");
+    });
+  }
+
+  async function runStatisticalTest() {
+    const selected = statisticalTests.find((item) => item.id === selectedTest);
+    if (testSourceMode === "database") {
+      if (!selectedTable.table_name) {
+        showToast("Select a database table before running the statistical test.", "warning");
+        return;
+      }
+      await runTask("Running database statistical test", async () => {
+        const data = await requestJson(`${apiBase}/analysis/statistical-test/database`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            connection: databaseConnectionFromForm(dbValues),
+            ...selectedTable,
+            test_type: selectedTest.replaceAll("-", "_"),
+            x_column: testForm.x_column,
+            y_column: testForm.y_column,
+            value_column: testForm.value_column,
+            group_column: testForm.group_column,
+            alpha: Number(testForm.alpha || 0.05),
+          }),
+        });
+        setTestResult(data);
+        showToast(`${selected.title} completed`, "success");
+      });
+      return;
+    }
+
+    if (!testFile) {
+      showToast("Select a CSV file for the statistical test.", "warning");
+      return;
+    }
+    await runTask("Running statistical test", async () => {
+      const form = fileForm(testFile, "file");
+      selected.fields.forEach((field) => form.append(field, testForm[field]));
+      form.append("alpha", testForm.alpha || "0.05");
+      const data = await requestJson(`${apiBase}/analysis/${selectedTest}/file`, { method: "POST", body: form });
+      setTestResult(data);
+      showToast(`${selected.title} completed`, "success");
+    });
+  }
+
+  async function loadStatisticalTestColumns() {
+    if (testSourceMode === "database") {
+      if (!selectedTable.table_name) {
+        showToast("Select a database table before loading columns.", "warning");
+        return;
+      }
+      await runTask("Loading table columns", async () => {
+        const data = await requestJson(`${apiBase}/profile/database/schema`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            connection: databaseConnectionFromForm(dbValues),
+            ...selectedTable,
+          }),
+        });
+        setSchemaPreviews([{
+          name: `${selectedTable.schema_name}.${selectedTable.table_name}`,
+          type: "database_table",
+          rowCount: data.row_count,
+          columnCount: data.column_count,
+          columns: data.columns || [],
+          rows: [],
+        }]);
+        setSelectedSchemaIndex(0);
+        showToast(`Loaded ${data.column_count} columns`, "success");
+      }, false);
+      return;
+    }
+
+    if (!testFile) {
+      showToast("Select a CSV file before loading columns.", "warning");
+      return;
+    }
+    await runTask("Loading file columns", async () => {
+      const form = fileForm(testFile, "file");
+      const data = await requestJson(`${apiBase}/profile/file/schema`, { method: "POST", body: form });
+      setSchemaPreviews([{
+        name: data.source_name || testFile.name,
+        type: data.source_type || "file",
+        rowCount: data.row_count,
+        columnCount: data.column_count,
+        columns: data.columns || [],
+        rows: [],
+      }]);
+      setSelectedSchemaIndex(0);
+      showToast(`Loaded ${data.column_count} columns`, "success");
+    }, false);
+  }
+
+  async function sendChat(event) {
+    event.preventDefault();
+    const message = chatInput.trim();
+    if (!message) return;
+    setChatInput("");
+    setChatMessages((current) => [...current, { role: "user", text: message }]);
+    await runTask("Asking agent", async () => {
+      const data = await requestJson(`${apiBase}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      setChatMessages((current) => [...current, { role: "agent", text: data.response || "No response." }]);
+    }, false);
+  }
+
+  return (
+    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${agentCollapsed ? "agent-collapsed" : ""}`}>
+      <Sidebar
+        activeView={activeView}
+        setActiveView={setActiveView}
+        loading={loading}
+        collapsed={sidebarCollapsed}
+        setCollapsed={setSidebarCollapsed}
+      />
+      <main className="main-panel">
+        <Topbar />
+        {activeView === "dashboard" && <DashboardView result={displayResult} history={history} />}
+        {activeView === "workspace" && (
+          <DataWorkspaceView
+            workspaceStep={workspaceStep}
+            setWorkspaceStep={setWorkspaceStep}
+            selectedSource={selectedSource}
+            setSelectedSource={setSelectedSource}
+            files={files}
+            setFiles={setFiles}
+            dbValues={dbValues}
+            setDbValues={setDbValues}
+            dbStatus={dbStatus}
+            tables={tables}
+            selectedTable={selectedTable}
+            setSelectedTable={setSelectedTable}
+            selectedTables={selectedTables}
+            setSelectedTables={setSelectedTables}
+            dbInputMode={dbInputMode}
+            setDbInputMode={setDbInputMode}
+            dbQuery={dbQuery}
+            setDbQuery={setDbQuery}
+            dbProfileProgress={dbProfileProgress}
+            previewSchema={previewSchema}
+            runFullProfile={runFullProfile}
+            testConnection={testConnection}
+            listDbTables={listDbTables}
+            previewSelectedDbTables={previewSelectedDbTables}
+            profileSelectedDbTable={profileSelectedDbTable}
+            previewDbQuery={previewDbQuery}
+            profileDbQuery={profileDbQuery}
+            schema={schema}
+            schemaPreviews={explorerPreviews}
+            selectedSchemaIndex={safeSelectedSchemaIndex}
+            setSelectedSchemaIndex={setSelectedSchemaIndex}
+            previewLimit={previewLimit}
+            setPreviewLimit={setPreviewLimit}
+            refreshSelectedPreviewRows={refreshSelectedPreviewRows}
+            selectedColumnsBySource={selectedColumnsBySource}
+            setSelectedColumnsBySource={setSelectedColumnsBySource}
+            selectedSections={selectedSections}
+            setSelectedSections={setSelectedSections}
+            columns={columns}
+            runSectionsProfile={runSectionsProfile}
+          />
+        )}
+        {activeView === "reports" && (
+          <ResultsView
+            result={displayResult}
+            resultSources={resultSources}
+            selectedProfileIndex={selectedProfileIndex}
+            setSelectedProfileIndex={setSelectedProfileIndex}
+            columns={columns}
+            findings={findings}
+            correlations={correlations}
+            quality={quality}
+            topCategoricalColumn={topCategoricalColumn}
+          />
+        )}
+        {activeView === "tests" && (
+          <StatisticalTestsView
+            testSourceMode={testSourceMode}
+            setTestSourceMode={setTestSourceMode}
+            selectedTest={selectedTest}
+            setSelectedTest={setSelectedTest}
+            testForm={testForm}
+            setTestForm={setTestForm}
+            testFile={testFile}
+            setTestFile={setTestFile}
+            selectedSource={selectedSource}
+            setSelectedSource={setSelectedSource}
+            dbValues={dbValues}
+            setDbValues={setDbValues}
+            tables={tables}
+            selectedTable={selectedTable}
+            setSelectedTable={setSelectedTable}
+            selectedTables={selectedTables}
+            setSelectedTables={setSelectedTables}
+            dbStatus={dbStatus}
+            listDbTables={listDbTables}
+            schema={schema}
+            schemaPreviews={explorerPreviews}
+            selectedSchemaIndex={safeSelectedSchemaIndex}
+            loadColumns={loadStatisticalTestColumns}
+            testResult={testResult}
+            runStatisticalTest={runStatisticalTest}
+          />
+        )}
+        {activeView === "settings" && <SettingsView apiBase={apiBase} setApiBase={setApiBase} />}
+      </main>
+      <AgentPanel
+        collapsed={agentCollapsed}
+        setCollapsed={setAgentCollapsed}
+        chatMessages={chatMessages}
+        chatInput={chatInput}
+        setChatInput={setChatInput}
+        sendChat={sendChat}
+        findings={findings}
+      />
+      {toast && <Toast toast={toast} />}
+    </div>
+  );
+}
+
+function isDatabaseConfigReady(values) {
+  const required = [values.host, values.port, values.database];
+  if (values.authType === "username_password") {
+    required.push(values.username, values.password);
+  }
+  if (values.type === "sql_server") {
+    required.push(values.driver);
+  }
+  return required.every((value) => String(value || "").trim());
+}
+
+function buildExplorerPreviews(profileSources, existingPreviews) {
+  const profiles = (profileSources || []).filter((source) => source?.source || source?.columns);
+  if (!profiles.length) return [];
+
+  const profileByName = new Map(profiles.map((source) => [
+    source.source?.name || source.source_name || "Profiled dataset",
+    source,
+  ]));
+  const merged = (existingPreviews || []).map((preview) => {
+    const profile = profileByName.get(preview.name)
+      || profiles.find((source) => {
+        const sourceName = source.source?.name || source.source_name || "";
+        return sourceName.startsWith(`${preview.name}:`) || preview.name.startsWith(`${sourceName}:`);
+      });
+    if (!profile) return preview;
+    const columns = (profile.columns || preview.columns || []).map((column) => ({
+      name: column.name,
+      data_type: column.data_type,
+    }));
+    return {
+      ...preview,
+      type: profile.source?.type || profile.source_type || preview.type,
+      rowCount: profile.dataset_summary?.row_count ?? profile.row_count ?? preview.rowCount,
+      columnCount: profile.dataset_summary?.column_count ?? profile.column_count ?? columns.length,
+      columns,
+      profiled: true,
+    };
+  });
+
+  profiles.forEach((source) => {
+    const name = source.source?.name || source.source_name || "Profiled dataset";
+    const alreadyIncluded = merged.some((preview) => preview.name === name);
+    if (alreadyIncluded) return;
+    const columns = (source.columns || []).map((column) => ({
+      name: column.name,
+      data_type: column.data_type,
+    }));
+    merged.push({
+      name,
+      type: source.source?.type || source.source_type || "profile_result",
+      rowCount: source.dataset_summary?.row_count ?? source.row_count,
+      columnCount: source.dataset_summary?.column_count ?? source.column_count ?? columns.length,
+      columns,
+      rows: [],
+      profiled: true,
+    });
+  });
+
+  return merged;
+}
+
+function applySelectedColumnsToProfile(profile, selectedColumnsBySource) {
+  const sourceName = profile?.source?.name || profile?.source_name;
+  const selectedColumns = selectedColumnsBySource[sourceName];
+  if (!sourceName || !selectedColumns) return profile;
+
+  const allowed = new Set(selectedColumns);
+  const columns = (profile.columns || []).filter((column) => allowed.has(column.name));
+  const findings = (profile.findings || []).filter((finding) => (
+    !finding.column || allowed.has(finding.column)
+  ));
+  const relationships = profile.relationships || {};
+  const correlations = (relationships.correlations || []).filter((correlation) => (
+    allowed.has(correlation.left_column) && allowed.has(correlation.right_column)
+  ));
+
+  return {
+    ...profile,
+    dataset_summary: {
+      ...profile.dataset_summary,
+      column_count: columns.length,
+    },
+    columns,
+    relationships: {
+      ...relationships,
+      correlations,
+    },
+    findings,
+    quality_summary: summarizeFindings(findings),
+  };
+}
+
+function summarizeFindings(findings) {
+  return findings.reduce((summary, finding) => {
+    const key = `${finding.severity || "info"}_count`;
+    return { ...summary, [key]: (summary[key] || 0) + 1 };
+  }, { critical_count: 0, warning_count: 0, info_count: 0 });
+}
+
+function applySelectedSectionsToProfile(profile, selectedSections) {
+  const selected = new Set(selectedSections || []);
+  const keepColumns = selected.has("columns") || selected.has("schema");
+  const keepFindings = selected.has("findings");
+  const keepCorrelations = selected.has("correlations");
+  const keepQuality = selected.has("quality_summary");
+
+  return {
+    ...profile,
+    columns: keepColumns ? profile.columns : [],
+    findings: keepFindings ? profile.findings : [],
+    relationships: {
+      ...(profile.relationships || {}),
+      correlations: keepCorrelations ? (profile.relationships?.correlations || []) : [],
+    },
+    quality_summary: keepQuality ? profile.quality_summary : summarizeFindings(keepFindings ? (profile.findings || []) : []),
+  };
+}
+
+function getRouteFromLocation() {
+  if (typeof window === "undefined") {
+    return { view: "dashboard", step: "source" };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view") || "dashboard";
+  const step = params.get("step") || "source";
+
+  return {
+    view: VALID_VIEWS.has(view) ? view : "dashboard",
+    step: VALID_WORKSPACE_STEPS.has(step) ? step : "source",
+  };
+}
+
+function routeToUrl(route) {
+  const params = new URLSearchParams();
+  if (route.view !== "dashboard") {
+    params.set("view", route.view);
+  }
+
+  const query = params.toString();
+  return `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+}
+
+function getStoredDbValues() {
+  if (typeof window === "undefined") return DEFAULT_DB_VALUES;
+  try {
+    const raw = window.localStorage.getItem(DB_VALUES_STORAGE_KEY);
+    if (!raw) return DEFAULT_DB_VALUES;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_DB_VALUES,
+      ...parsed,
+      port: String(parsed.port || DEFAULT_DB_VALUES.port),
+    };
+  } catch {
+    return DEFAULT_DB_VALUES;
+  }
+}
+
+function getStoredSessionState() {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(APP_STATE_SESSION_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStoredSessionState(state) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(APP_STATE_SESSION_KEY, JSON.stringify(state));
+  } catch {
+    // Session storage is best-effort; large profiling results can exceed browser quota.
+  }
+}
+
+function saveStoredDbValues(values) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DB_VALUES_STORAGE_KEY, JSON.stringify(values));
+  } catch {
+    // Ignore storage failures so profiling still works in private/restricted browsers.
+  }
+}
+
+function tableKey(table) {
+  return `${table.schema_name || table.schema || ""}.${table.table_name || table.table || ""}`;
+}

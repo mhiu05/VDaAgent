@@ -1,0 +1,46 @@
+﻿:root {
+  font-family: "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --fabric-bg: #f3f2f1;
+  --fabric-surface: #ffffff;
+  --fabric-surface-muted: #faf9f8;
+  --fabric-border: #e1dfdd;
+  --fabric-border-strong: #c8c6c4;
+  --fabric-text: #242424;
+  --fabric-muted: #605e5c;
+  --fabric-accent: #117865;
+  --fabric-accent-hover: #0e6a5a;
+  --fabric-blue: #0078d4;
+  --fabric-blue-hover: #106ebe;
+  --fabric-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --fabric-shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.12);
+  color: var(--fabric-text);
+  background: var(--fabric-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--fabric-bg);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+

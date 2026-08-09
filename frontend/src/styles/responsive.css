@@ -1,0 +1,96 @@
+﻿@media (max-width: 1280px) {
+  .app-shell {
+    grid-template-columns: 230px minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-collapsed,
+  .app-shell.agent-collapsed,
+  .app-shell.sidebar-collapsed.agent-collapsed {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .assistant-panel {
+    grid-column: 1 / -1;
+    position: static;
+    height: auto;
+    border-width: 1px 0 0;
+  }
+
+  .chat-messages {
+    max-height: 240px;
+  }
+
+  .source-grid,
+  .test-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .connector-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-db-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    display: block;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+    border-width: 0 0 1px;
+  }
+
+  .nav-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .main-panel {
+    padding: 16px;
+  }
+
+  .topbar,
+  .two-column,
+  .wide-left {
+    display: block;
+  }
+
+  .topbar-actions,
+  .panel {
+    margin-top: 12px;
+  }
+
+  .source-grid,
+  .metric-grid,
+  .test-grid,
+  .workspace-tabs,
+  .connector-grid,
+  .connector-toolbar,
+  .profiling-config-grid,
+  .compact-config-grid,
+  .profile-source-selector,
+  .dataset-schema-selector,
+  .dataset-explorer-grid,
+  .explorer-overview,
+  .report-hero,
+  .report-kpi-grid,
+  .quality-overview,
+  .source-mode-grid,
+  .upload-format-grid,
+  .wizard,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-db-config .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fabric-hero {
+    display: block;
+  }
+}
