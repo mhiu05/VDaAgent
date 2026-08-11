@@ -1,223 +1,369 @@
-# P-170 — Data Profiling & Analysis Workspace: Technical Summary
+# P-170 — Technical Summary
 
-P-170 là ứng dụng local-first giúp Analyst biến file dữ liệu thành profile có
-thể review, rồi thực hiện một số phép phân tích aggregate có evidence. Profile
-run là snapshot kỹ thuật; Analysis Session là đơn vị công việc nghiệp vụ được
-pin vào snapshot đó. Sơ đồ thành phần và trust boundary nằm ở
-[`ARCHITECTURE.md`](../ARCHITECTURE.md).
+Tài liệu này mô tả implementation hiện tại của P-170 — một ứng dụng
+local-first gồm frontend Next.js và backend FastAPI cho data profiling, review
+metadata, hỏi đáp có evidence và một Analysis Workspace bounded.
 
-## 1. Chức năng đang có
+## 1. Nguyên tắc thiết kế
 
-- Upload CSV, TSV, Parquet hoặc JSON.
-- Profiling deterministic bằng DuckDB/pandas/numpy/scipy: schema, null,
-  cardinality, uniqueness, duplicate, outlier, distribution và Pearson
-  correlation.
-- Phát hiện candidate key, semantic type, PII và quasi-identifier; proposal
-  phải qua Human-in-the-loop trước khi profile hoàn tất.
-- Statistical test, drift comparison, report Markdown và Q&A có SSE.
-- Analysis Workspace MVP: tạo session từ profile đã `completed`, khai báo và
-  approve semantic context, chạy quality gate, sau đó thực hiện aggregate
-  bounded với evidence được lưu.
+P-170 tách rõ hai loại công việc:
 
-LLM chỉ dùng để diễn giải/narrative và Q&A khi provider được cấu hình. Mọi số
-liệu profile và analysis đều do compute engine sinh ra; LLM không có quyền ghi
-dữ liệu, chạy SQL/Python tùy ý hoặc quyết định PII/candidate key.
+- **Compute deterministic**: DuckDB, pandas, NumPy và SciPy tạo profile,
+  test, drift và aggregate. Các kết quả số phải truy nguyên được.
+- **LLM/Agent**: định tuyến câu hỏi, retrieval, diễn giải và tạo narrative. LLM
+  không tự tính số, không ghi raw data, không quyết định PII và không nhận raw
+  SQL tùy ý.
 
-## 2. Hai workflow độc lập nhưng liên kết
+Các nguyên tắc bảo vệ chính:
 
-### Profiling workflow
+1. Proposal metadata phải được review trước khi profile được dùng như context
+   đã xác nhận.
+2. Profile sample luôn mang cờ `is_approximate`.
+3. Analysis phải đi qua semantic context và quality gate.
+4. Cột PII không được dùng làm measure, dimension hoặc filter.
+5. Execution chỉ dùng query spec allowlist, filter parameterized và output có
+   giới hạn.
+6. Mỗi analysis execution lưu canonical query, result hash, giới hạn và
+   duration làm evidence.
 
-```text
-Upload → dataset + profile_run → ingest → compute → proposals
-                                              ↓
-                               HITL review / request test
-                                              ↓
-                                      summarize → completed
-```
-
-Mỗi run dùng LangGraph thread `profile:<profile_run_id>` và có lifecycle:
+## 2. Runtime architecture
 
 ```text
-created → running → pending_review ⇄ resuming → completed
-    └────────────────────────────────────────→ failed
+Browser / Next.js :3000
+        │ HTTP/JSON + Server-Sent Events
+        ▼
+FastAPI :8000
+  └── /api/v1
+      ├── profiling, proposals, reports
+      ├── statistical tests, drift
+      ├── Q&A và SSE streaming
+      └── analysis-sessions
+              │
+              ├── SQLite metadata: data/app.db
+              ├── LangGraph checkpoint: data/checkpoints.sqlite
+              ├── Immutable upload source: data/uploads/
+              ├── Retrieval index: data/index/
+              └── Audit log: data/audit.jsonl
 ```
 
-Profile chỉ nhận review khi đang `pending_review`. PII pending cũng được mask
-fail-closed; Q&A trên một profile bị chặn cho tới khi không còn proposal pending.
+Mặc định backend chạy ở `0.0.0.0:8000`, frontend ở `localhost:3000`. Frontend
+được triển khai độc lập; FastAPI chỉ cung cấp API và Swagger UI, không serve
+asset Next.js.
 
-### Analysis Workspace MVP
+### Backend modules
+
+| Module | Vai trò |
+| --- | --- |
+| `src/main.py` | Khởi tạo FastAPI, CORS, database directories, `/health`. |
+| `src/api/routes.py` | Dataset upload/list, profiling, proposal review, report, Q&A, test, drift, audit. |
+| `src/api/analysis_routes.py` | Analysis session, context version, quality gate và execution. |
+| `src/agents/graph.py` | LangGraph profiling và Q&A graph. |
+| `src/agents/nodes/` | Ingest, compute, proposal/HITL, summarize, router và QA guardrail. |
+| `src/agents/tools/` | Các tool read-only tách theo domain. |
+| `src/services/compute.py` | Thống kê profile deterministic. |
+| `src/services/stats_tests.py` | Statistical tests và multiple-testing correction. |
+| `src/services/drift.py` | So sánh profile run. |
+| `src/services/repository.py` | Dataset, profile run, proposal và report persistence. |
+| `src/services/analysis_engine.py` | DuckDB aggregate bounded, không có raw-SQL entry point. |
+| `src/services/analysis_repository.py` | Analysis session/context/gate/execution persistence. |
+| `src/services/quality_gate.py` | Kiểm tra profile, proposal, source, grain, timezone và missingness. |
+| `src/services/retrieval.py` | BM25 và local embedding retrieval. |
+| `src/services/llm.py` | Gọi provider OpenAI-compatible. |
+| `src/services/security.py` | Token, rate limit, masking và audit. |
+
+## 3. Profiling workflow
 
 ```text
-Completed profile → analysis session → context draft → context approved
-       → quality gate → bounded execution → insight_review
+POST /datasets/upload (tùy chọn)
+          ↓
+POST /profile
+          ↓
+created → running → pending_review
+                         ↓
+              confirm/edit/reject/request_test
+                         ↓
+                      completed
 ```
 
-Session có thread identity `analysis:<session_id>` để dành cho graph bền vững
-sau này, nhưng hiện chưa có Analysis LangGraph/checkpointer. Các status đang
-được dùng là `needs_context`, `quality_review`, `quality_blocked`, `plan_review`
-(Deep mode sau quality gate), `running` và `insight_review`.
+`POST /profile` tạo một dataset/profile run và chạy LangGraph với thread
+`profile:<profile_run_id>`. Scan mode là:
 
-Quick mode hiện hỗ trợ execution trực tiếp sau gate. Deep mode mới dừng tại
-`plan_review`; chưa có API planner, plan approval, retry/cancel, insight review
-hay report finalization.
+- `sample`: mặc định, reservoir sample mặc định 10.000 dòng, seed mặc định
+  `42`; kết quả được đánh dấu approximate.
+- `full`: quét toàn bộ source.
 
-## 3. Runtime architecture
+Profile response có schema, null count/rate, cardinality, uniqueness, numeric
+summary, outlier, top-k phù hợp, correlation, risk warning, proposal và trạng
+thái run. Proposal có các loại `candidate_key`, `semantic_type` và `pii`;
+trạng thái gồm `pending`, `confirmed`, `rejected`, `edited` và
+`auto_confirmed`.
+
+Khi proposal đang pending, Analyst có thể gọi:
 
 ```text
-Browser :3000 (Next.js)
-      │ HTTP/JSON + SSE
-      ▼
-FastAPI :8000/api/v1
- ├─ Profiling + QA LangGraph
- ├─ Analysis API + deterministic DuckDB aggregate engine
- ├─ SQLite metadata                 data/app.db
- ├─ LangGraph SQLite checkpoints    data/checkpoints.sqlite
- ├─ Uploaded immutable sources      data/uploads/
- ├─ Retrieval index                 data/index/documents.json
- └─ Append-only audit log           data/audit.jsonl
+PATCH /api/v1/profile/{run_id}/confirm
 ```
 
-SQLite là persistence được hỗ trợ và kiểm thử cho local MVP. Metadata khởi tạo
-bằng SQLAlchemy Core `metadata.create_all()` và vài migration additive cho cột
-cũ; chưa có Alembic hay quy trình migration versioned.
+để confirm, edit, reject hoặc request test. Việc resume graph tiếp tục bước
+summarize/finalize khi đủ điều kiện. Q&A gắn với profile bị chặn nếu profile
+còn proposal pending.
 
-## 4. Backend
+## 4. Q&A và report
 
-### API và contracts
+Q&A nhận `question`, tùy chọn `profile_run_id` và tối đa 20 history messages.
+Hai endpoint là:
 
-- `api/routes.py`: profile, review/resume, test, drift, Q&A, upload/dataset,
-  audit và status.
-- `api/analysis_routes.py`: lifecycle API cho Analysis Workspace MVP.
-- `models/schemas.py`: contracts profiling/Q&A.
-- `models/analysis_schemas.py`: contracts session, context, quality issue,
-  filter và query spec.
+```text
+POST /api/v1/qa
+POST /api/v1/qa/stream
+```
 
-### Graph và services
+Nhánh Q&A định tuyến giữa câu hỏi có cấu trúc, retrieval và các câu hỏi cần
+profile context. Câu trả lời có `sources` và cờ `is_approximate`. Endpoint
+stream trả Server-Sent Events để UI hiển thị dần câu trả lời.
 
-- `agents/graph.py`, `agents/nodes/`: LangGraph cho profiling và Q&A.
-- `services/compute.py`, `stats_tests.py`, `drift.py`: compute deterministic
-  cho profile.
-- `services/repository.py`: bảng profile và các bảng analysis; vẫn là single
-  metadata registry SQLAlchemy Core.
-- `services/analysis_repository.py`: persistence boundary cho session,
-  context, quality gate và query execution.
-- `services/quality_gate.py`: rule deterministic. Critical issue block execution;
-  warning được lưu để Analyst acknowledge qua API.
-- `services/analysis_engine.py`: DuckDB aggregate engine. Chỉ nhận QuerySpec
-  allowlisted: `count`, `count_distinct`, `sum`, `mean`, `median`, tối đa ba
-  dimensions, filter typed và limit bounded.
-- `services/retrieval.py`, `llm.py`, `guardrails.py`, `security.py`: retrieval,
-  LLM provider, policy, token/rate limit/masking/audit.
+Report profile có thể lấy bằng:
 
-## 5. Analysis guardrails
+```text
+GET /api/v1/profile/{run_id}
+GET /api/v1/profile/{run_id}/report
+GET /api/v1/profile/{run_id}/export
+```
 
-Analysis engine map source từ session sang profile run do server pin, rồi đọc
-`datasets.source_ref`; client/LLM không truyền file path, SQL hoặc executable
-expression. Chỉ identifier đã kiểm tra được quote vào SQL; filter values dùng
-bound parameter.
+LLM key không bắt buộc để backend khởi động hoặc chạy compute. Khi không có
+LLM, các phần narrative có thể trả bảng/thống kê thay vì diễn giải tự nhiên.
 
-- Cột phải có trong profile và trong semantic context đã approve (khi context
-  khai báo danh sách cột).
-- Không aggregate, group-by hoặc filter trực tiếp trên PII đã xác nhận/pending.
-- Không trả raw row: response chỉ chứa aggregate result, query spec, hash,
-  duration, approximate flag và limitations.
-- Mỗi execution lưu context version, canonical query spec, result hash, result
-  bounded, duration và limitations trong `query_executions`.
-- Query bị chặn nếu context stale/chưa approved, chưa có quality gate, hoặc gate
-  có decision `blocked`.
+## 5. Statistical test và drift
 
-Quality gate hiện kiểm tra profile completed, proposal pending, source rỗng,
-sampling, row grain, timezone và missingness của measures. Nó chưa thay thế một
-data-quality framework đầy đủ và không tự sửa outlier/missing/type.
+Statistical test được gửi qua:
 
-## 6. API quan trọng
+```text
+POST /api/v1/profile/{run_id}/test
+```
 
-Mọi endpoint nghiệp vụ nằm dưới `/api/v1`; `/health` nằm ở root.
+Request khai báo `test_type`, danh sách cột, tham số, `alpha` và correction
+method (`benjamini_hochberg`, `bonferroni` hoặc `none`). Response chứa test
+statistic, p-value, adjusted p-value, kết luận và diễn giải.
 
-| Method | Path | Mục đích |
-| --- | --- | --- |
-| POST / GET | `/profile`, `/profile/{run_id}` | Chạy và đọc profile |
-| PATCH | `/profile/{run_id}/confirm` | Review proposal và resume graph |
-| POST | `/profile/{run_id}/test`, `/profile/{run_id}/drift` | Test và drift |
-| POST | `/qa`, `/qa/stream` | Q&A thường/SSE |
-| POST | `/datasets/upload` | Upload file |
-| GET / DELETE | `/datasets`, `/datasets/{dataset_id}` | Dataset metadata |
-| GET | `/datasets/{dataset_id}/runs` | Run history |
-| POST / GET | `/analysis-sessions` | Tạo/liệt kê analysis session |
-| GET | `/analysis-sessions/{id}` | Đọc session, source, context và gate mới nhất |
-| POST | `/analysis-sessions/{id}/context-versions` | Tạo context version |
-| POST | `/analysis-sessions/{id}/context-versions/{context_id}/approve` | Approve context |
-| POST | `/analysis-sessions/{id}/quality-gate` | Chạy quality gate |
-| POST | `/analysis-sessions/{id}/quality-issues/{issue_id}/acknowledge` | Acknowledge warning |
-| POST / GET | `/analysis-sessions/{id}/executions` | Chạy/liệt kê aggregate evidence |
+Drift được gửi qua:
 
-Mutation analysis hiện ghi audit và rate limit giống endpoint profile, nhưng
-chưa có idempotency key hay asynchronous job lifecycle.
+```text
+POST /api/v1/profile/{run_id}/drift
+```
 
-## 7. Persistence
+với `baseline_run_id` và current run. Backend kiểm tra tính tương thích của
+hai run trước khi trả finding, metric, severity và detail.
 
-Profile metadata gồm `datasets`, `profile_runs`, `column_stats`, ba bảng
-proposal, `statistical_test_results` và `drift_reports`.
+## 6. Analysis Workspace MVP
 
-Analysis MVP bổ sung:
+Analysis session được tạo từ một profile run:
 
-- `analysis_sessions`: business goal, mode, status, creator và thread ID;
-- `analysis_sources`: một source `primary` pin vào `dataset_id` và
-  `profile_run_id`;
-- `semantic_context_versions`: JSON context và approval;
-- `quality_gate_runs`, `quality_issues`: quyết định gate và evidence;
-- `query_executions`: query spec, result bounded, result hash, duration,
-  approximation và limitations.
+```text
+POST /api/v1/analysis-sessions
+```
 
-Code hiện enforce một source tại lúc tạo session, nhưng schema chưa có unique
-constraint bảo vệ điều này ở database. Dataset/version lineage riêng, metric
-glossary, plan, artifact, insight và report tables chưa được implement.
+Request có `profile_run_id`, `mode` (`quick` hoặc `deep`), `goal`, tùy chọn
+`decision`, `audience`, `output`, `time_scope`, `population` và `baseline`.
 
-## 8. Frontend
+Workflow thực tế:
 
-- `/chat`, `/datasets`, `/profiles/[runId]`, `/compare`: workflow profiling
-  hiện hữu.
-- `/analyses`: danh sách analysis sessions.
-- `/analyses/new`: intake Quick/Deep và chọn completed profile run.
-- `/analyses/[sessionId]`: workspace MVP gồm Context, Quality gate và Explore
-  aggregate. Result hiển thị execution ID, hash và duration như evidence tối
-  thiểu.
+```text
+completed profile
+      ↓
+analysis session (needs_context)
+      ↓
+context version draft
+      ↓
+context approved
+      ↓
+quality gate
+      ├── blocked
+      ├── warning (có thể acknowledge)
+      └── passed
+      ↓
+bounded execution
+      ↓
+execution + evidence
+```
 
-`Start analysis` xuất hiện trên profile hoàn tất; profile có proposal pending
-vẫn dẫn Analyst tới Review. Các type/client riêng nằm ở
-`frontend/src/lib/analysis-types.ts` và `analysis` functions trong `lib/api.ts`.
+### Semantic context
 
-## 9. Security boundary
+Context version mô tả:
 
-- API token và rate limit được cấu hình qua settings.
-- PII sample values được mask mặc định trong profile/report/Q&A.
-- Agent tools và analysis endpoint chỉ trả aggregate/artifact bounded, không
-  trả raw dataset.
-- Không có arbitrary SQL/Python endpoint.
-- Audit log tách với telemetry; audit question mặc định chỉ lưu hash/độ dài.
+- `row_grain`, `entity`, `keys`
+- `time_column`, `timezone`
+- `dimensions`, `measures`
+- `ignored_columns`, `limitations`
 
-## 10. Những phần chưa có
+Context phải được approve bằng:
 
-- Dataset version/content hash và migration Alembic.
-- Metric DSL/glossary, period comparison, trend, pivot, chart spec và privacy
-  suppression theo kích thước nhóm.
-- Planner–Executor graph, plan CRUD/approval, cancellation/retry/SSE events.
-- Insight bank, consistency/fact check và evidence-linked report/export.
-- Multi-table, cleaning, connector, worker queue, RBAC và production storage.
+```text
+POST /api/v1/analysis-sessions/{session_id}/context-versions
+POST /api/v1/analysis-sessions/{session_id}/context-versions/{context_id}/approve
+```
 
-## 11. Kiểm tra chất lượng
+### Quality gate
+
+```text
+POST /api/v1/analysis-sessions/{session_id}/quality-gate
+```
+
+Gate kiểm tra tối thiểu:
+
+- profile tồn tại, có status `completed` và có row count;
+- không còn proposal pending;
+- row grain đã được khai báo hoặc cảnh báo thiếu;
+- timezone khi có time column;
+- missingness cao của measure;
+- profile sample và tính đại diện của source.
+
+Issue critical làm gate `blocked`; issue warning làm gate `warning`. Issue có
+thể được ghi nhận bằng:
+
+```text
+POST /api/v1/analysis-sessions/{session_id}/quality-issues/{issue_id}/acknowledge
+```
+
+Quality gate chỉ báo cáo và lưu evidence, không sửa source data.
+
+### Bounded aggregate engine
+
+Execution gửi query và context version được kỳ vọng:
+
+```text
+POST /api/v1/analysis-sessions/{session_id}/executions
+GET  /api/v1/analysis-sessions/{session_id}/executions
+```
+
+Query spec chỉ cho phép:
+
+- aggregate: `count`, `count_distinct`, `sum`, `mean`, `median`;
+- tối đa 3 dimensions;
+- tối đa 20 filters;
+- filter `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `is_null`,
+  `not_null`;
+- tối đa 500 dòng kết quả, mặc định 100.
+
+Tên cột được validate/quote; filter value được bind parameter. Engine đọc
+source đã pin bằng DuckDB trong memory, không nhận path file, SQL hoặc code do
+client/LLM truyền vào. Measure/dimension/filter phải thuộc semantic context đã
+approve và không được là PII.
+
+Execution lưu:
+
+```text
+execution_id
+context_version_id
+canonical query spec
+result_hash
+is_approximate
+limitations
+duration_ms
+```
+
+Nếu source profile dùng sample, kết quả aggregate được đánh dấu approximate và
+đi kèm limitation tương ứng.
+
+## 7. Persistence và dữ liệu runtime
+
+Mặc định cấu hình trong `config.yaml` dùng:
+
+```text
+data/app.db                  SQLite metadata
+data/checkpoints.sqlite      LangGraph checkpoint
+data/uploads/                immutable uploaded sources
+data/index/                  retrieval documents/embeddings
+data/audit.jsonl             append-only audit events
+```
+
+Database được khởi tạo additive bằng SQLAlchemy Core khi backend start. SQLite
+là lựa chọn mặc định cho local MVP; `DATABASE_URL` và
+`DATABASE_CHECKPOINTER_URL` có thể override bằng biến môi trường khi cần dùng
+database khác.
+
+`.env` không được commit. Secret như LLM key, API token, database password và
+service-account path phải đặt trong `.env` hoặc secret manager của môi trường
+triển khai.
+
+## 8. Security boundary
+
+- API token là tùy chọn và mặc định tắt cho local development.
+- Khi bật token, request phải gửi `Authorization: Bearer <API_TOKEN>`.
+- Rate limit mặc định là 30 request/user/phút.
+- Upload mặc định giới hạn 500 MB.
+- Raw export mặc định tắt.
+- PII được mask trong câu trả lời theo `security.mask_pii_in_answers`.
+- Agent tool calls, context size và output size có hard limit.
+- Audit log mặc định lưu hash/metadata câu hỏi thay vì nội dung câu hỏi.
+- Raw source không được trả về từ Analysis API; chỉ trả aggregate bounded.
+
+Đây là lớp bảo vệ cho local MVP, không thay thế authentication, authorization,
+secret management và network isolation cần có khi triển khai public.
+
+## 9. Frontend contract
+
+Frontend dùng Next.js 15, React 19, TypeScript, TanStack Query và `pnpm`.
+`frontend/src/lib/api.ts` là API client; `types.ts` và
+`analysis-types.ts` chứa các type tương ứng với backend.
+
+Các route chính:
+
+```text
+/chat
+/datasets
+/datasets/new
+/datasets/{datasetId}/runs
+/profiles/{runId}
+/profiles/{runId}/review
+/profiles/{runId}/analysis
+/analyses
+/analyses/new
+/analyses/{sessionId}
+/compare
+```
+
+Chat history được lưu ở browser localStorage. Dataset, profile và analysis
+history được lưu ở backend database; xóa localStorage chỉ xóa lịch sử chat
+trình duyệt, không xóa profile server.
+
+## 10. Kiểm tra và phát triển
+
+Từ thư mục gốc:
 
 ```powershell
-# Backend
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\ruff.exe check backend/src tests
-
-# Frontend (PowerShell dùng pnpm.cmd)
-pnpm.cmd --dir frontend typecheck
-pnpm.cmd --dir frontend lint
-pnpm.cmd --dir frontend test
-pnpm.cmd --dir frontend build
+pytest -q
 ```
 
-Backend có contract test cho profile, HITL, Q&A/tool guardrails và Quick
-Analysis lifecycle, bao gồm chặn group-by PII.
+Từ `frontend/`:
+
+```powershell
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+Các test backend nằm trong `tests/`, bao gồm agent, API, compute, guardrail,
+security và statistical test. Frontend có unit test Vitest; Playwright được
+khai báo cho e2e test.
+
+## 11. Giới hạn và phần chưa triển khai
+
+- Chỉ một profile run/source cho mỗi Analysis Session; chưa hỗ trợ join nhiều
+  bảng hoặc semantic layer dùng chung.
+- Analysis engine chưa cung cấp arbitrary SQL, notebook, cleaning recipe,
+  rollback hoặc chỉnh sửa source.
+- `deep` mode mới là điểm dừng `plan_review`; planner nhiều bước, approval,
+  retry/cancel, insight bank và final report chưa có API hoàn chỉnh.
+- Profile sample phù hợp khám phá nhanh, không mặc nhiên là số liệu exact.
+- Chưa có migration versioned bằng Alembic.
+- SQLite/checkpointer local phù hợp MVP; triển khai production cần đánh giá
+  concurrency, backup, auth và observability.
+
+## 12. Tài liệu liên quan
+
+- [`README.md`](../README.md): cài đặt, chạy app và hướng dẫn người dùng.
+- [`Data_Analyst.md`](Data_Analyst.md): nguyên tắc nghiệp vụ và roadmap Data
+  Analyst.
+- [`../config.yaml`](../config.yaml): cấu hình không bí mật.
+- [`../.env.example`](../.env.example): biến môi trường và secret setup.

@@ -1,130 +1,113 @@
 # P-170 — Data Profiling & Analysis Workspace
 
-P-170 là ứng dụng local-first giúp Analyst upload, profiling, review và thực
-hiện phân tích aggregate có evidence trên một dataset. Compute engine tạo ra số
-liệu; AI chỉ hỗ trợ đề xuất metadata, narrative và Q&A — không phải nguồn sự
-thật cho các con số.
+P-170 là ứng dụng local-first hỗ trợ Analyst biến một file dữ liệu thành một
+profile có thể kiểm tra, review và dùng cho các phân tích aggregate có
+evidence. Compute engine chịu trách nhiệm tạo số liệu; LLM chỉ hỗ trợ
+narrative, retrieval và hỏi đáp, không phải nguồn sự thật cho các con số.
 
-## 1. Mục tiêu và workflow người dùng
-
-Mục tiêu của dự án là biến một dataset thô thành profile có thể review, giải
-thích và kiểm tra lại. Quy trình sử dụng chính:
+## Quy trình chính
 
 ```text
-Upload dataset → Profiling → Review proposal → Profile hoàn tất
-                                                    │
-                         Test / Drift / Q&A ←───────┼──────→ Start analysis
-                                                    │
-                                  Context → Quality gate → Aggregate evidence
+Upload dataset
+      ↓
+Profiling deterministic
+      ↓
+Review proposal metadata
+      ↓
+Profile completed
+   ↙       ↓        ↘
+Report  Test/Drift  Q&A Agent
+              ↓
+       Start analysis
+              ↓
+ Context → Quality gate → Bounded aggregate → Evidence
 ```
 
-1. Vào **Dataset mới** và upload CSV, TSV, Parquet hoặc JSON.
-2. Chọn `sample` để chạy nhanh hoặc `full` để quét toàn bộ dữ liệu.
-3. Mở profile report sau khi profiling hoàn tất.
-4. Nếu còn proposal chờ xử lý, vào **Review** để confirm, edit, reject hoặc
-   yêu cầu chạy test.
-5. Xem report, mở **Phân tích** để chạy statistical test/drift và dùng **Agent**
-   để hỏi đáp.
-6. Khi profile đã hoàn tất và không còn proposal pending, bấm **Start analysis**
-   để tạo một Analysis Session, khai báo context, chạy quality gate và thực hiện
-   phép aggregate có evidence.
-7. Vào danh sách dataset để xem các profile run trước đó hoặc vào **So sánh
-   drift** để so sánh hai run.
+Một phiên làm việc điển hình:
 
-Chi tiết workflow LangGraph, HITL, API contract và persistence nằm trong
-[`docs/summary.md`](docs/summary.md).
+1. Upload CSV, TSV, Parquet hoặc JSON.
+2. Chọn `sample` để chạy nhanh hoặc `full` để quét toàn bộ file.
+3. Mở profile report và xử lý các proposal về semantic type, candidate key và
+   PII. Proposal chưa review sẽ chặn các bước cần profile đã được xác nhận.
+4. Xem thống kê, report, statistical test hoặc so sánh drift giữa hai profile
+   run.
+5. Dùng Agent để hỏi đáp dựa trên evidence của profile.
+6. Từ một profile đã `completed`, tạo Analysis Session, khai báo semantic
+   context, chạy quality gate và thực hiện aggregate an toàn.
 
-## 2. Các chức năng
+## Chức năng hiện có
 
-- Profiling reproducible: schema, null, duplicate, uniqueness, outlier,
-  distribution, correlation và thống kê theo cột.
-- Phát hiện PII, quasi-identifier, candidate key và semantic type.
-- Human-in-the-loop cho confirm, edit, reject proposal và request test.
-- Report agent hỗ trợ Markdown, Top-k non-PII distribution và Pearson
-  correlation.
-- Statistical test, drift analysis và Q&A streaming qua SSE.
-- Analysis Workspace MVP: pin một completed profile run, approve semantic
-  context, chạy quality gate và aggregate `count`, `count distinct`, `sum`,
-  `mean` hoặc `median` với evidence hash.
-- Mask PII, giới hạn dữ liệu trả về, audit log và các guardrail cho Agent.
-- Lưu lịch sử dataset/profile run để có thể xem lại và so sánh.
+- Profiling reproducible: schema, kiểu dữ liệu, missingness, cardinality,
+  uniqueness, duplicate, outlier, phân phối, top-k và correlation.
+- Phát hiện proposal cho PII, quasi-identifier, candidate key và semantic
+  type, có human-in-the-loop để confirm, edit hoặc reject.
+- Chạy statistical test với alpha và multiple-testing correction.
+- So sánh drift giữa hai profile run.
+- Report Markdown và hỏi đáp Agent qua API thường hoặc SSE streaming.
+- Lưu dataset, profile run, proposal, test result, analysis session và audit
+  event để xem lại.
+- Analysis Workspace MVP với quality gate và các aggregate `count`,
+  `count_distinct`, `sum`, `mean`, `median`.
+- Guardrail: không nhận raw SQL từ client/LLM, không aggregate/group-by/filter
+  trên cột PII, giới hạn số dimension/filter/row trả về và lưu `result_hash`.
 
-## 3. Cấu trúc mã nguồn
+## Kiến trúc
+
+```text
+Next.js frontend :3000
+        │ HTTP/JSON + SSE
+        ▼
+FastAPI backend :8000/api/v1
+        ├── LangGraph profiling + Q&A
+        ├── DuckDB/pandas/numpy/scipy compute engine
+        ├── SQLite metadata và LangGraph checkpoint
+        ├── Local uploaded sources
+        ├── BM25/local embedding retrieval index
+        └── Append-only audit log
+```
+
+Các thư mục chính:
 
 ```text
 backend/src/
-├── main.py                         # FastAPI app, lifespan, CORS, health
-├── api/routes.py                   # REST API profiling/Q&A, SSE và resume
-├── api/analysis_routes.py          # Analysis session/context/gate/execution API
-├── models/schemas.py                # Pydantic contracts profiling/Q&A
-├── models/analysis_schemas.py       # Pydantic contracts Analysis Workspace
-├── agents/
-│   ├── graph.py                    # profiling graph và standalone QA graph
-│   ├── state.py                    # state của profiling/question/resume
-│   ├── nodes/profiling_nodes.py    # ingest, compute, proposal, HITL, test, finalize
-│   ├── nodes/qa_nodes.py           # router, structured QA, retrieval QA, guardrail
-│   └── tools/                      # domain-separated read-only agent tools
+├── main.py                         # FastAPI app, health check, CORS
+├── api/routes.py                   # profiling, dataset, Q&A, test, drift
+├── api/analysis_routes.py          # Analysis Workspace API
+├── models/                         # Pydantic request/response contracts
+├── agents/                         # LangGraph, nodes, state và read-only tools
 └── services/
-    ├── compute.py                  # deterministic profiling metrics
-    ├── stats_tests.py              # statistical tests và FDR correction
+    ├── compute.py                  # số liệu profiling deterministic
+    ├── stats_tests.py              # statistical tests
     ├── drift.py                    # drift computation
-    ├── repository.py               # SQLAlchemy Core metadata/profile + analysis tables
-    ├── analysis_repository.py      # persistence cho Analysis Workspace
-    ├── analysis_engine.py          # DuckDB aggregate bounded, không raw SQL
-    ├── quality_gate.py             # quality rules deterministic cho analysis
-    ├── retrieval.py                # BM25 và local dense retrieval
+    ├── repository.py               # metadata và profile persistence
+    ├── analysis_engine.py          # bounded aggregate engine
+    ├── analysis_repository.py      # Analysis Workspace persistence
+    ├── quality_gate.py             # deterministic quality rules
+    ├── retrieval.py                # BM25/local retrieval
     ├── llm.py                      # OpenAI-compatible providers
-    ├── guardrails.py               # input/output policy
+    ├── guardrails.py               # giới hạn input/output/tool
     └── security.py                 # token, rate limit, audit, masking
 
 frontend/src/
-├── app/chat/                       # Agent workspace, upload, Q&A
+├── app/chat/                       # Agent workspace và upload nhanh
 ├── app/datasets/                   # dataset list, upload, run history
-├── app/profiles/[runId]/           # report, review, analysis
-├── app/analyses/                   # analysis list, intake và workspace MVP
+├── app/profiles/[runId]/           # report, review, test, analysis
+├── app/analyses/                   # Analysis Workspace
 ├── app/compare/                    # so sánh drift
-├── components/                     # app shell, UI và Markdown renderer
-└── lib/                            # API client, SSE, types, chat history
+├── components/                     # layout và UI dùng chung
+└── lib/                            # API client, SSE và TypeScript types
 ```
 
-## 4. Yêu cầu và cấu hình
+## Yêu cầu
 
-Yêu cầu tối thiểu:
+- Python 3.11 trở lên
+- Node.js 20 trở lên
+- pnpm 9 trở lên
+- Git
+- LLM API key là tùy chọn. Profiling, test, drift và compute vẫn chạy được
+  khi chưa cấu hình LLM; phần narrative/Q&A phụ thuộc provider đã chọn.
 
-- Python 3.11 trở lên.
-- Node.js 20 trở lên.
-- pnpm 9 trở lên.
-- Git và một LLM API key nếu muốn dùng narrative/Q&A bằng LLM.
-
-Tạo cấu hình local:
-
-```text
-.env.example → .env
-config.yaml  → cấu hình không chứa secret
-```
-
-Trong `.env`, chọn một provider và model tương ứng:
-
-```env
-OPENAI_API_KEY=your_api_key
-```
-
-Các provider được hỗ trợ gồm `openai`, `openrouter`, `gemini`, `groq`,
-`together`, `ollama` và `custom`. Tên key cụ thể được ghi trong
-[`.env.example`](.env.example). Phiên bản hiện tại dùng SQLite cho metadata và
-LangGraph checkpointer, vì vậy có thể để trống `DATABASE_URL` và
-`DATABASE_CHECKPOINTER_URL`. API token cấu hình qua `API_TOKEN`, còn địa chỉ
-backend của frontend qua `NEXT_PUBLIC_API_URL`.
-
-Retrieval mặc định dùng BM25 kết hợp local embedding của
-`sentence-transformers`. Model `sentence-transformers/all-MiniLM-L6-v2` có thể
-được tải ở lần chạy đầu tiên; nếu không tải được, hệ thống vẫn fallback sang
-BM25-only.
-
-Nếu không có LLM key, backend vẫn có thể chạy
-phần compute deterministic; các chức năng cần LLM sẽ báo thiếu cấu hình.
-
-## 5. Cài đặt và chạy local
+## Cài đặt và chạy local
 
 ### Windows PowerShell
 
@@ -136,50 +119,27 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-# Mở .env và điền API key nếu dùng LLM
-```
 
-Nếu chưa có pnpm, bật Corepack:
-
-```powershell
 corepack enable
+cd frontend
+pnpm install
+cd ..
 ```
 
-Terminal 1 — backend:
+Mở hai terminal:
 
 ```powershell
+# Terminal 1 — backend
 .\.venv\Scripts\python.exe -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
 ```
 
-Terminal 2 — frontend:
-
 ```powershell
+# Terminal 2 — frontend
 cd frontend
-pnpm install
 pnpm dev --port 3000
 ```
 
-#### Shortcut bằng Makefile trên Windows
-
-`Makefile` hiện được viết cho môi trường Windows/PowerShell. Nếu đã cài GNU
-Make, có thể dùng `gmake` thay cho các lệnh chạy thủ công:
-
-```powershell
-gmake help             # Xem toàn bộ shortcut
-gmake install          # Cài dependency backend/frontend
-gmake dev              # Mở backend và frontend ở hai cửa sổ riêng
-gmake backend          # Chỉ chạy backend
-gmake frontend         # Chỉ chạy frontend
-gmake health           # Kiểm tra backend health
-gmake frontend-check   # Typecheck và lint frontend
-gmake frontend-build   # Build frontend production
-```
-
-Trước `gmake install`, vẫn cần tạo `.venv` và sao chép `.env` như các bước ở
-trên. `gmake dev` không dùng cho macOS/Linux vì target hiện tại gọi `cmd.exe`,
-đường dẫn virtualenv kiểu Windows và lệnh `start`.
-
-### macOS
+### macOS/Linux
 
 ```bash
 python3.11 -m venv .venv
@@ -188,104 +148,117 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 cp .env.example .env
 corepack enable
-python -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+cd frontend && pnpm install && cd ..
 ```
 
-Mở terminal khác để chạy frontend:
+Sau đó chạy backend và frontend bằng các lệnh tương tự ở trên, thay đường dẫn
+virtualenv bằng `.venv/bin/python`.
 
-```bash
-cd frontend
-pnpm install
-pnpm dev --port 3000
-```
-
-### Linux
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-cp .env.example .env
-corepack enable
-python -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
-```
-
-Mở terminal khác để chạy frontend:
-
-```bash
-cd frontend
-pnpm install
-pnpm dev --port 3000
-```
-
-Sau khi khởi động:
+Khi khởi động xong:
 
 - Frontend: <http://localhost:3000>
-- Swagger UI: <http://localhost:8000/docs>
-- Health check: <http://localhost:8000/health>
+- API docs: <http://localhost:8000/docs>
+- Health: <http://localhost:8000/health>
+- API root: <http://localhost:8000/>
 
-## 6. Hướng dẫn sử dụng
+Có thể dùng shortcut trên Windows nếu đã cài GNU Make:
 
-### Giao diện Chat với Agent
+```powershell
+gmake install          # cài dependency backend/frontend
+gmake dev              # mở backend và frontend ở hai cửa sổ
+gmake health           # kiểm tra backend
+gmake frontend-check   # typecheck và lint frontend
+gmake frontend-build   # build frontend production
+```
 
-Mở <http://localhost:3000/chat> hoặc bấm **Agent** trong thanh điều hướng.
-Màn hình này là workspace hội thoại với Data Profiling Agent:
+## Cấu hình
 
-1. Nếu chưa có profile, bấm nút **＋** cạnh ô nhập để upload dataset trực tiếp
-   trong chat.
-2. Chọn **Sampling** để có kết quả nhanh hoặc **Full scan** để tính trên toàn
-   bộ file, sau đó bấm **Upload và bắt đầu profiling**.
-3. Chờ Agent hoàn tất profiling. Chat sẽ hiển thị preview số cột, kiểu dữ liệu,
-   null, cardinality và uniqueness.
-4. Nếu profile còn proposal pending, bấm **Review proposals**. Agent sẽ không
-   trả lời câu hỏi về dataset cho đến khi các proposal được Analyst xử lý.
-5. Sau khi review, nhập câu hỏi vào ô chat hoặc chọn một prompt gợi ý, ví dụ:
-   - `Tóm tắt chất lượng dữ liệu của tôi`
-   - `Cột nào có rủi ro PII cao nhất?`
-   - `Có cột nào phù hợp làm candidate key không?`
-6. Bấm nút gửi hoặc nhấn **Enter**. Dùng **Shift + Enter** để xuống dòng.
-   Câu trả lời được stream dần trong chat và có thể gồm heading, danh sách,
-   bảng Markdown cùng các số liệu từ profile.
-7. Có thể bấm **+ New chat** để tạo cuộc trò chuyện mới. Lịch sử hội thoại và
-   profile context được lưu ở trình duyệt hiện tại; xóa localStorage sẽ xóa
-   lịch sử local này.
+`config.yaml` chứa cấu hình không bí mật; `.env` chứa secret và không được
+commit. Bắt đầu bằng cách sao chép `.env.example` thành `.env`.
 
-Agent chỉ trả lời dựa trên evidence đã profiling, bảo vệ giá trị PII và không
-đọc raw row tùy ý. Nếu cần xem đầy đủ proposal, report, test hoặc drift, mở
-profile tương ứng từ dataset/run history.
+Các biến thường dùng:
 
-### Qua giao diện web
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=your_key
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
 
-1. Mở <http://localhost:3000/datasets/new>.
-2. Chọn file CSV, TSV, Parquet hoặc JSON rồi bấm **Upload file**.
-3. Chọn chế độ scan và random seed nếu cần. Chế độ Sample dùng kích thước mẫu
-   mặc định của backend; profile sẽ hiển thị kết quả có phải ước lượng hay không.
-4. Bấm **Bắt đầu profiling**.
-5. Xem report tại `/profiles/{runId}`.
-6. Nếu có proposal pending, bấm **Review** và xử lý từng đề xuất.
-7. Dùng **Phân tích** để chạy test hoặc xem kết quả drift.
-8. Với profile `completed` không còn proposal pending, bấm **Start analysis**.
-9. Ở workspace, khai báo row grain, dimensions và measures, sau đó approve
-   context để chạy quality gate.
-10. Nếu gate không bị block, dùng **Explore** để chạy một aggregate bounded.
-    Kết quả hiển thị execution ID, result hash và thời gian chạy làm evidence.
+Ứng dụng hỗ trợ các provider OpenAI-compatible được khai báo trong
+`.env.example`, gồm `openai`, `openrouter`, `gemini`, `groq`, `together`,
+`ollama` và `custom`. Mặc định metadata dùng `data/app.db`, checkpoint dùng
+`data/checkpoints.sqlite`, file upload nằm trong `data/uploads/`, index nằm
+trong `data/index/` và audit log nằm ở `data/audit.jsonl`.
 
-### Analysis Workspace MVP: phạm vi hiện tại
+Nếu bật `security.require_api_token: true` trong `config.yaml`, cần đặt
+`API_TOKEN` và gửi request với header `Authorization: Bearer <token>`.
 
-Analysis hiện hỗ trợ một source là completed profile run và các aggregate an
-toàn. API/engine không nhận raw SQL, path file do client chọn hay raw row; PII
-không được aggregate, group-by hoặc filter trực tiếp.
+Lần chạy đầu tiên có thể tải model embedding local được cấu hình trong
+`config.yaml`. Nếu không tải được embedding, retrieval có thể fallback về
+BM25-only.
 
-Chế độ **Quick Answer** chạy aggregate sau quality gate. **Deep Analysis** mới
-dừng tại bước plan review; Planner–Executor, plan approval, retry/cancel,
-insight bank và report evidence-linked vẫn là phần roadmap chưa triển khai.
+## Các màn hình chính
 
+- `/chat`: upload nhanh và hỏi Data Profiling Agent.
+- `/datasets`: danh sách dataset và lịch sử profile run.
+- `/datasets/new`: upload và bắt đầu profiling.
+- `/profiles/{runId}`: profile report, thống kê và cảnh báo.
+- `/profiles/{runId}/review`: review proposal metadata.
+- `/profiles/{runId}/analysis`: statistical test và thao tác phân tích liên
+  quan tới profile.
+- `/analyses`: danh sách Analysis Session.
+- `/analyses/new`: tạo session từ profile đã hoàn tất.
+- `/analyses/{sessionId}`: context, quality gate và bounded execution.
+- `/compare`: so sánh drift giữa baseline run và current run.
 
+## API chính
 
-## Tài liệu chi tiết
+Backend mount các router dưới `/api/v1`:
 
-- [`docs/summary.md`](docs/summary.md): kiến trúc, workflow nội bộ, API,
-  persistence, Q&A, security, giới hạn và kiểm tra chất lượng.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md): component diagram, trust boundary và
-  data flow của implementation hiện tại.
+| Nhóm | Endpoint tiêu biểu |
+| --- | --- |
+| Dataset | `POST /datasets/upload`, `GET /datasets`, `GET /datasets/{id}/runs` |
+| Profiling | `POST /profile`, `GET /profile/{run_id}`, `GET /profile/{run_id}/report` |
+| Review | `PATCH /profile/{run_id}/confirm` |
+| Test/drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
+| Q&A | `POST /qa`, `POST /qa/stream` |
+| Analysis | `/analysis-sessions` và các sub-route context/gate/executions |
+| System | `GET /health`, `GET /status`, `GET /audit` |
+
+Swagger UI tại `/docs` là contract chi tiết và nguồn tham khảo tốt nhất khi
+gọi API trực tiếp.
+
+## Kiểm tra chất lượng
+
+```powershell
+# Backend
+pytest -q
+
+# Frontend
+cd frontend
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+## Giới hạn hiện tại
+
+- Analysis Workspace hiện chỉ hỗ trợ một profile run làm source và bounded
+  aggregate; chưa có raw SQL, join nhiều bảng hoặc data-cleaning recipe.
+- `deep` analysis mới dừng ở mức chuẩn bị workflow; planner/executor nhiều
+  bước, retry/cancel, insight bank và report finalization chưa hoàn thiện.
+- Profile chạy bằng `sample` được đánh dấu `is_approximate`; kết quả không nên
+  được xem là số liệu exact nếu chưa xác nhận phạm vi mẫu.
+- SQLite phù hợp cho local MVP. Quy trình migration versioned và deployment
+  production cần được bổ sung khi mở rộng.
+
+## Tài liệu liên quan
+
+- [`docs/summary.md`](docs/summary.md): technical summary, state, persistence,
+  API contract và guardrail.
+- [`docs/Data_Analyst.md`](docs/Data_Analyst.md): nguyên tắc và phạm vi nghiệp
+  vụ của Data Analyst workflow.
+- [`config.yaml`](config.yaml): cấu hình runtime không bí mật.
+- [`.env.example`](.env.example): danh sách biến môi trường và hướng dẫn secret.
