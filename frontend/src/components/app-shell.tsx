@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CHAT_HISTORY_EVENT, createConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
 
 const navigation = [
+  { href: "/analyses", label: "Analyses", icon: "A" },
   { href: "/datasets", label: "Datasets", icon: "▦" },
   { href: "/compare", label: "So sánh drift", icon: "↔" },
 ];
@@ -78,7 +79,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav className="nav-list sidebar-navigation" aria-label="Điều hướng dữ liệu">
           <span className="sidebar-section-label">Phân tích dữ liệu</span>
           {navigation.map((item) => {
-            const active = (item.href === "/datasets" && pathname.startsWith("/datasets"))
+            const active = (item.href === "/analyses" && pathname.startsWith("/analyses"))
+              || (item.href === "/datasets" && pathname.startsWith("/datasets"))
               || (item.href === "/compare" && pathname.startsWith("/compare"));
             return <Link className={active ? "nav-link active" : "nav-link"} href={item.href} key={item.href}><span aria-hidden="true">{item.icon}</span>{item.label}</Link>;
           })}

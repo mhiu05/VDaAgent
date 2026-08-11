@@ -16,8 +16,6 @@ export default function NewDatasetPage() {
   const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [scanMode, setScanMode] = useState<"full" | "sample">("sample");
-  const [sampleSize, setSampleSize] = useState(10_000);
-  const [seed, setSeed] = useState(42);
   const [datasetName, setDatasetName] = useState("");
   const [busy, setBusy] = useState<"upload" | "profile" | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -57,7 +55,7 @@ export default function NewDatasetPage() {
         dataset_ref: upload.dataset_ref,
         dataset_name: datasetName.trim() || upload.suggested_name || upload.filename,
         scan_mode: scanMode,
-        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir", sample_size: sampleSize, random_seed: seed } } : {}),
+        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" } } : {}),
       });
       router.push(`/profiles/${profile.profile_run_id}`);
     } catch (reason) { setError(reason); } finally { setBusy(null); }
@@ -78,8 +76,8 @@ export default function NewDatasetPage() {
         </div>
         <div className="form-actions">{!upload ? <><button className="button primary" disabled={!file || busy !== null} onClick={handleUpload}>{busy === "upload" ? "Đang upload…" : "Upload file"}</button>{busy === "upload" && <button className="button secondary" onClick={() => abortRef.current?.abort()}>Hủy upload</button>}</> : <Notice tone="success"><b>Đã upload an toàn.</b><p>{upload.filename} · {humanFileSize(upload.size_bytes)}</p></Notice>}</div>
       </section>
-      <section className="panel"><div className="panel-title"><h2>2. Cấu hình profiling</h2><small>Tá i lập được với seed</small></div>
-        <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên dataset</label><input id="dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} maxLength={255} disabled={!upload} /></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!upload}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div><div className="field"><label htmlFor="sample-size">Kích thước mẫu</label><input id="sample-size" type="number" min="100" max="10000000" value={sampleSize} onChange={(event) => setSampleSize(Number(event.target.value))} disabled={!upload || scanMode === "full"} /></div><div className="field"><label htmlFor="seed">Random seed</label><input id="seed" type="number" min="0" value={seed} onChange={(event) => setSeed(Number(event.target.value))} disabled={!upload || scanMode === "full"} /></div></div>
+      <section className="panel"><div className="panel-title"><h2>2. Cấu hình profiling</h2><small>Sampling có thể tái lập</small></div>
+        <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên dataset</label><input id="dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} maxLength={255} disabled={!upload} /></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!upload}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div></div>
         <Notice tone="info"><b>Privacy boundary</b><p>PII candidate và candidate key luôn chờ analyst review; mẫu dữ liệu nhạy cảm không được render.</p></Notice>
         <div className="form-actions"><button className="button primary" disabled={!upload || busy !== null} onClick={handleProfile}>{busy === "profile" ? "Agent đang profiling…" : "Bắt đầu profiling"}</button></div>
       </section>

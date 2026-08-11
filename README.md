@@ -1,8 +1,9 @@
-# P-170 — AI Data Profiling Agent
+# P-170 — Data Profiling & Analysis Workspace
 
-P-170 là ứng dụng giúp Analyst upload, profiling và hiểu dataset với sự hỗ trợ
-của AI. Compute engine tạo ra số liệu và evidence; Agent hỗ trợ đề xuất metadata,
-viết report và trả lời câu hỏi trên dữ liệu đã được lưu.
+P-170 là ứng dụng local-first giúp Analyst upload, profiling, review và thực
+hiện phân tích aggregate có evidence trên một dataset. Compute engine tạo ra số
+liệu; AI chỉ hỗ trợ đề xuất metadata, narrative và Q&A — không phải nguồn sự
+thật cho các con số.
 
 ## 1. Mục tiêu và workflow người dùng
 
@@ -10,9 +11,11 @@ Mục tiêu của dự án là biến một dataset thô thành profile có th�
 thích và kiểm tra lại. Quy trình sử dụng chính:
 
 ```text
-Upload dataset → Profiling → Review proposal → Xem report
-                                      │
-                         Test / Drift / Q&A
+Upload dataset → Profiling → Review proposal → Profile hoàn tất
+                                                    │
+                         Test / Drift / Q&A ←───────┼──────→ Start analysis
+                                                    │
+                                  Context → Quality gate → Aggregate evidence
 ```
 
 1. Vào **Dataset mới** và upload CSV, TSV, Parquet hoặc JSON.
@@ -22,7 +25,10 @@ Upload dataset → Profiling → Review proposal → Xem report
    yêu cầu chạy test.
 5. Xem report, mở **Phân tích** để chạy statistical test/drift và dùng **Agent**
    để hỏi đáp.
-6. Vào danh sách dataset để xem các profile run trước đó hoặc vào **So sánh
+6. Khi profile đã hoàn tất và không còn proposal pending, bấm **Start analysis**
+   để tạo một Analysis Session, khai báo context, chạy quality gate và thực hiện
+   phép aggregate có evidence.
+7. Vào danh sách dataset để xem các profile run trước đó hoặc vào **So sánh
    drift** để so sánh hai run.
 
 Chi tiết workflow LangGraph, HITL, API contract và persistence nằm trong
@@ -37,6 +43,9 @@ Chi tiết workflow LangGraph, HITL, API contract và persistence nằm trong
 - Report agent hỗ trợ Markdown, Top-k non-PII distribution và Pearson
   correlation.
 - Statistical test, drift analysis và Q&A streaming qua SSE.
+- Analysis Workspace MVP: pin một completed profile run, approve semantic
+  context, chạy quality gate và aggregate `count`, `count distinct`, `sum`,
+  `mean` hoặc `median` với evidence hash.
 - Mask PII, giới hạn dữ liệu trả về, audit log và các guardrail cho Agent.
 - Lưu lịch sử dataset/profile run để có thể xem lại và so sánh.
 
@@ -45,8 +54,10 @@ Chi tiết workflow LangGraph, HITL, API contract và persistence nằm trong
 ```text
 backend/src/
 ├── main.py                         # FastAPI app, lifespan, CORS, health
-├── api/routes.py                   # REST API, SSE và workflow resume
-├── models/schemas.py               # Pydantic API contracts
+├── api/routes.py                   # REST API profiling/Q&A, SSE và resume
+├── api/analysis_routes.py          # Analysis session/context/gate/execution API
+├── models/schemas.py                # Pydantic contracts profiling/Q&A
+├── models/analysis_schemas.py       # Pydantic contracts Analysis Workspace
 ├── agents/
 │   ├── graph.py                    # profiling graph và standalone QA graph
 │   ├── state.py                    # state của profiling/question/resume
@@ -57,7 +68,10 @@ backend/src/
     ├── compute.py                  # deterministic profiling metrics
     ├── stats_tests.py              # statistical tests và FDR correction
     ├── drift.py                    # drift computation
-    ├── repository.py               # SQLAlchemy Core và migrations
+    ├── repository.py               # SQLAlchemy Core metadata/profile + analysis tables
+    ├── analysis_repository.py      # persistence cho Analysis Workspace
+    ├── analysis_engine.py          # DuckDB aggregate bounded, không raw SQL
+    ├── quality_gate.py             # quality rules deterministic cho analysis
     ├── retrieval.py                # BM25 và local dense retrieval
     ├── llm.py                      # OpenAI-compatible providers
     ├── guardrails.py               # input/output policy
@@ -67,6 +81,7 @@ frontend/src/
 ├── app/chat/                       # Agent workspace, upload, Q&A
 ├── app/datasets/                   # dataset list, upload, run history
 ├── app/profiles/[runId]/           # report, review, analysis
+├── app/analyses/                   # analysis list, intake và workspace MVP
 ├── app/compare/                    # so sánh drift
 ├── components/                     # app shell, UI và Markdown renderer
 └── lib/                            # API client, SSE, types, chat history
@@ -244,11 +259,27 @@ profile tương ứng từ dataset/run history.
 
 1. Mở <http://localhost:3000/datasets/new>.
 2. Chọn file CSV, TSV, Parquet hoặc JSON rồi bấm **Upload file**.
-3. Chọn chế độ scan, sample size và random seed nếu cần.
+3. Chọn chế độ scan và random seed nếu cần. Chế độ Sample dùng kích thước mẫu
+   mặc định của backend; profile sẽ hiển thị kết quả có phải ước lượng hay không.
 4. Bấm **Bắt đầu profiling**.
 5. Xem report tại `/profiles/{runId}`.
 6. Nếu có proposal pending, bấm **Review** và xử lý từng đề xuất.
 7. Dùng **Phân tích** để chạy test hoặc xem kết quả drift.
+8. Với profile `completed` không còn proposal pending, bấm **Start analysis**.
+9. Ở workspace, khai báo row grain, dimensions và measures, sau đó approve
+   context để chạy quality gate.
+10. Nếu gate không bị block, dùng **Explore** để chạy một aggregate bounded.
+    Kết quả hiển thị execution ID, result hash và thời gian chạy làm evidence.
+
+### Analysis Workspace MVP: phạm vi hiện tại
+
+Analysis hiện hỗ trợ một source là completed profile run và các aggregate an
+toàn. API/engine không nhận raw SQL, path file do client chọn hay raw row; PII
+không được aggregate, group-by hoặc filter trực tiếp.
+
+Chế độ **Quick Answer** chạy aggregate sau quality gate. **Deep Analysis** mới
+dừng tại bước plan review; Planner–Executor, plan approval, retry/cancel,
+insight bank và report evidence-linked vẫn là phần roadmap chưa triển khai.
 
 
 
@@ -256,3 +287,5 @@ profile tương ứng từ dataset/run history.
 
 - [`docs/summary.md`](docs/summary.md): kiến trúc, workflow nội bộ, API,
   persistence, Q&A, security, giới hạn và kiểm tra chất lượng.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md): component diagram, trust boundary và
+  data flow của implementation hiện tại.

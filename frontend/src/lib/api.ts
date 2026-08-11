@@ -10,8 +10,11 @@ import type {
   TestResult,
   UploadResult,
 } from "@/lib/types";
+import type { AnalysisExecution, AnalysisSession, QuerySpec } from "@/lib/analysis-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
+
+export type QAHistoryMessage = { role: "user" | "agent"; text: string };
 
 function apiBase(): string {
   if (configuredApiBase) return configuredApiBase.replace(/\/$/, "");
@@ -79,7 +82,7 @@ export function createProfile(payload: {
   dataset_ref: string;
   dataset_name?: string;
   scan_mode: "full" | "sample";
-  sampling?: { strategy: "reservoir" | "tablesample"; sample_size: number; random_seed: number };
+  sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number };
 }): Promise<Profile> {
   return request<Profile>("/profile", {
     method: "POST",
@@ -144,7 +147,25 @@ export async function downloadExport(runId: string): Promise<Blob> {
   return response.blob();
 }
 
-export function askQuestion(payload: { question: string; profile_run_id?: string }): Promise<QAResponse> {
+export async function downloadCombinedReport(runId: string): Promise<Blob> {
+  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}`, {
+    headers: { Accept: "application/pdf" },
+    credentials: "include",
+  });
+  if (!response.ok) throw await readError(response);
+  return response.blob();
+}
+
+export async function downloadCombinedJson(runId: string): Promise<Blob> {
+  const response = await fetch(`${apiBase()}/profile/${encodeURIComponent(runId)}/report`, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+  });
+  if (!response.ok) throw await readError(response);
+  return response.blob();
+}
+
+export function askQuestion(payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[] }): Promise<QAResponse> {
   return request<QAResponse>("/qa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -153,7 +174,7 @@ export function askQuestion(payload: { question: string; profile_run_id?: string
 }
 
 export async function streamQuestion(
-  payload: { question: string; profile_run_id?: string },
+  payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[] },
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -212,4 +233,33 @@ export function uploadDataset(
     formData.append("file", file);
     request.send(formData);
   });
+}
+
+export function listAnalyses(signal?: AbortSignal, profileRunId?: string): Promise<AnalysisSession[]> {
+  const query = profileRunId ? `?profile_run_id=${encodeURIComponent(profileRunId)}` : "";
+  return request<AnalysisSession[]>(`/analysis-sessions${query}`, { signal });
+}
+
+export function getAnalysis(sessionId: string, signal?: AbortSignal): Promise<AnalysisSession> {
+  return request<AnalysisSession>(`/analysis-sessions/${encodeURIComponent(sessionId)}`, { signal });
+}
+
+export function createAnalysis(payload: { profile_run_id: string; mode: "quick" | "deep"; goal: string; decision?: string; audience?: string; output?: "answer" | "report" | "chart" }): Promise<AnalysisSession> {
+  return request<AnalysisSession>("/analysis-sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function createAnalysisContext(sessionId: string, payload: { row_grain?: string; entity?: string; keys: string[]; time_column?: string; timezone?: string; dimensions: string[]; measures: string[]; ignored_columns: string[]; limitations: string[] }): Promise<AnalysisSession["context"]> {
+  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function approveAnalysisContext(sessionId: string, contextId: string, approvedBy: string): Promise<AnalysisSession["context"]> {
+  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions/${encodeURIComponent(contextId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved_by: approvedBy }) });
+}
+
+export function runAnalysisQualityGate(sessionId: string): Promise<AnalysisSession["quality_gate"]> {
+  return request<AnalysisSession["quality_gate"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/quality-gate`, { method: "POST" });
+}
+
+export function executeAnalysis(sessionId: string, contextId: string, query: QuerySpec): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/executions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_context_version_id: contextId, query }) });
 }
