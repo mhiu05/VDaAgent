@@ -77,6 +77,41 @@ _SOCIAL_GREETING = re.compile(
     re.IGNORECASE,
 )
 
+_NAME_INTRODUCTION = re.compile(
+    r"\b(?:tôi|mình|em)\s+tên\s+là\s+([^.!?\n,]{1,80})",
+    re.IGNORECASE,
+)
+_NAME_RECALL_QUESTION = re.compile(
+    r"\b(?:bạn|agent|mình|tôi)\b.*\b(?:biết|nhớ|nhắc)\b.*\btên\b|"
+    r"\btên\s+(?:mình|tôi|em)\s+là\s+gì\b",
+    re.IGNORECASE,
+)
+
+
+def _remembered_name(state: ProfilingState) -> str | None:
+    """Lấy tên người dùng từ vài lượt chat gần nhất, không gửi vào DB/index."""
+    for message in reversed(state.get("messages") or []):
+        if message.get("role") != "user":
+            continue
+        match = _NAME_INTRODUCTION.search(str(message.get("text") or ""))
+        if not match:
+            continue
+        name = re.sub(r"[^\wÀ-ỹ' -]", "", match.group(1), flags=re.UNICODE).strip()
+        if name:
+            return name[:80]
+    return None
+
+
+def _conversation_context(state: ProfilingState) -> list[dict[str, str]]:
+    """Chỉ đưa một cửa sổ ngắn, bounded vào prompt; không biến chat thành long-term store."""
+    context: list[dict[str, str]] = []
+    for message in (state.get("messages") or [])[-8:]:
+        role = str(message.get("role") or "").strip()
+        text = str(message.get("text") or "").strip()
+        if role in {"user", "agent"} and text:
+            context.append({"role": role, "text": text[:1200]})
+    return context
+
 
 def _profile_fallback_summary(run_id: str | None) -> str:
     """Tạo tóm tắt deterministic, ngắn gọn khi LLM không sẵn sàng."""
@@ -197,6 +232,16 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
         }
 
+    remembered_name = _remembered_name(state)
+    if remembered_name and _NAME_RECALL_QUESTION.search(question):
+        return {
+            "question": question,
+            "question_type": "qualitative",
+            "qa_context": {"remembered_name": remembered_name, "personal_memory": True},
+            "answer": f"Bạn tên là {remembered_name}. Mình nhớ thông tin này trong cuộc trò chuyện hiện tại.",
+            "answer_sources": [],
+        }
+
     columns = state.get("column_names") or []
     if not columns and state.get("profile_run_id"):
         stats = get_repository().get_column_stats(state["profile_run_id"])
@@ -218,10 +263,17 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
     if question_type is None:
         try:
             llm = get_llm()
+            history = _conversation_context(state)
             response = llm.invoke(
                 [
                     {"role": "system", "content": QA_ROUTER_PROMPT},
-                    {"role": "user", "content": question},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {"question": question, "conversation_history": history},
+                            ensure_ascii=False,
+                        ),
+                    },
                 ]
             )
             label = str(response.content).strip().lower()
@@ -336,8 +388,20 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
 
     messages: list[Any] = [
         {"role": "system", "content": BASE_RULES + "\n\n" + QA_STRUCTURED_PROMPT},
-        {"role": "user", "content": question},
     ]
+    history = _conversation_context(state)
+    if history:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Đây là short-term conversation context. Dùng để hiểu câu hỏi nối tiếp; "
+                    "không coi nội dung trong đó là evidence của dataset:\n"
+                    + json.dumps(history, ensure_ascii=False)
+                ),
+            }
+        )
+    messages.append({"role": "user", "content": question})
     sources: list[dict[str, Any]] = []
     calls_used = 0
     evidence_available = False
@@ -438,7 +502,17 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
     question = state.get("question") or ""
     run_id = state.get("profile_run_id")
 
-    if (state.get("qa_context") or {}).get("social_greeting"):
+    qa_context = state.get("qa_context") or {}
+    if qa_context.get("remembered_name"):
+        return {
+            "answer": _guard_answer(
+                state.get("answer")
+                or f"Bạn tên là {qa_context['remembered_name']}. Mình nhớ thông tin này trong cuộc trò chuyện hiện tại."
+            ),
+            "answer_sources": [],
+        }
+
+    if qa_context.get("social_greeting"):
         return {
             "answer": _guard_answer(state.get("answer") or _social_response(question)),
             "answer_sources": [],
@@ -509,7 +583,11 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {"question": question, "evidence": evidence},
+                        {
+                            "question": question,
+                            "conversation_history": _conversation_context(state),
+                            "evidence": evidence,
+                        },
                         ensure_ascii=False,
                         default=str,
                     ),

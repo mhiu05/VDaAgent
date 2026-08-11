@@ -26,8 +26,8 @@ from sqlalchemy import (
     Integer,
     MetaData,
     String,
-    Text,
     Table,
+    Text,
     create_engine,
     func,
     select,
@@ -194,6 +194,81 @@ drift_reports = Table(
     Column("profile_run_id_b", String(32), ForeignKey("profile_runs.id"), nullable=False),
     Column("drift_columns", JSON, nullable=False),
     Column("summary", String(2048), nullable=True),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+
+# Analysis workspace is intentionally additive: a completed profile run remains
+# the immutable technical snapshot, while an analysis session captures the
+# business work performed against that snapshot.
+analysis_sessions = Table(
+    "analysis_sessions", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("mode", String(16), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("goal", Text, nullable=False),
+    Column("decision", Text, nullable=True),
+    Column("audience", String(255), nullable=True),
+    Column("output", String(64), nullable=True),
+    Column("time_scope", JSON, nullable=True),
+    Column("population", JSON, nullable=True),
+    Column("baseline", JSON, nullable=True),
+    Column("creator", String(255), nullable=True),
+    Column("graph_thread_id", String(255), nullable=False, unique=True),
+    Column("version", Integer, nullable=False, default=1),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+analysis_sources = Table(
+    "analysis_sources", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("session_id", String(32), ForeignKey("analysis_sessions.id"), nullable=False, index=True),
+    Column("dataset_id", String(32), ForeignKey("datasets.id"), nullable=False),
+    Column("profile_run_id", String(32), ForeignKey("profile_runs.id"), nullable=False),
+    Column("alias", String(64), nullable=False, default="primary"),
+    Column("role", String(32), nullable=False, default="primary"),
+)
+semantic_context_versions = Table(
+    "semantic_context_versions", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("session_id", String(32), ForeignKey("analysis_sessions.id"), nullable=False, index=True),
+    Column("version", Integer, nullable=False),
+    Column("context", JSON, nullable=False),
+    Column("status", String(16), nullable=False, default="draft"),
+    Column("approved_by", String(255), nullable=True),
+    Column("approved_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+quality_gate_runs = Table(
+    "quality_gate_runs", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("session_id", String(32), ForeignKey("analysis_sessions.id"), nullable=False, index=True),
+    Column("context_version_id", String(32), ForeignKey("semantic_context_versions.id"), nullable=True),
+    Column("decision", String(16), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+quality_issues = Table(
+    "quality_issues", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("quality_gate_run_id", String(32), ForeignKey("quality_gate_runs.id"), nullable=False, index=True),
+    Column("rule", String(64), nullable=False),
+    Column("dimension", String(32), nullable=False),
+    Column("severity", String(16), nullable=False),
+    Column("message", Text, nullable=False),
+    Column("evidence", JSON, nullable=True),
+    Column("status", String(16), nullable=False, default="open"),
+    Column("resolution_note", Text, nullable=True),
+)
+query_executions = Table(
+    "query_executions", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("session_id", String(32), ForeignKey("analysis_sessions.id"), nullable=False, index=True),
+    Column("context_version_id", String(32), ForeignKey("semantic_context_versions.id"), nullable=False),
+    Column("query_spec", JSON, nullable=False),
+    Column("result", JSON, nullable=False),
+    Column("result_hash", String(64), nullable=False),
+    Column("is_approximate", Boolean, nullable=False, default=False),
+    Column("limitations", JSON, nullable=True),
+    Column("duration_ms", Integer, nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
 )
 

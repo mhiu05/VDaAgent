@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
-import { ApiError, createProfile, getProfile, streamQuestion, uploadDataset } from "@/lib/api";
+import { ApiError, createProfile, getProfile, streamQuestion, uploadDataset, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource, Profile } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
 
@@ -131,6 +131,7 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<AnswerSource[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const messageListRef = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
   const draftRef = useRef("");
   const hydrated = useRef(false);
@@ -179,6 +180,15 @@ export default function ChatPage() {
     if (!hydrated.current || !conversationId) return;
     updateConversationSnapshot(conversationId, { messages, profile, sources });
   }, [conversationId, messages, profile, sources]);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+    const frame = window.requestAnimationFrame(() => {
+      messageList.scrollTo({ top: messageList.scrollHeight, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages.length, state]);
 
   useEffect(() => {
     const handleNavigation = (event: Event) => {
@@ -258,7 +268,11 @@ export default function ChatPage() {
     setQuestion(""); setError(null); setSources([]); setState("thinking"); draftRef.current = "";
     addMessage("user", prompt, "You");
     try {
-      await streamQuestion({ question: prompt, ...(profile ? { profile_run_id: profile.profile_run_id } : {}) }, (event) => {
+      const history: QAHistoryMessage[] = messages.slice(-12).map((message) => ({
+        role: message.role,
+        text: message.text.slice(0, 2000),
+      }));
+      await streamQuestion({ question: prompt, history, ...(profile ? { profile_run_id: profile.profile_run_id } : {}) }, (event) => {
         if (event.event === "token" && typeof event.data === "object" && event.data) {
           draftRef.current += String((event.data as { text?: unknown }).text || "");
         }
@@ -306,7 +320,7 @@ export default function ChatPage() {
     <div className="agent-layout">
       <section className="agent-chat-panel">
         <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>P-170 Agent</b><small>{profile ? `Active profile · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.dataset_name || "Dataset"}</span>}</div>
-        <div className="agent-message-list" aria-live="polite">
+        <div ref={messageListRef} className="agent-message-list" aria-live="polite">
           {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "You"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <MarkdownMessage text={message.text} profile={profile} /> : <p>{message.text}</p>}</div></article>)}
           {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">P-170 Agent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}
         </div>

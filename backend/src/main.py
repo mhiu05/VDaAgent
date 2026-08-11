@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
+from src.api.analysis_routes import router as analysis_router
 from src.api.routes import router
 from src.config import get_settings
 from src.models.schemas import HealthResponse
@@ -99,6 +99,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(analysis_router, prefix="/api/v1")
 
 @app.get("/")
 async def root() -> dict[str, str]:

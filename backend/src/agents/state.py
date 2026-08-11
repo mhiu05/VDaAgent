@@ -137,6 +137,7 @@ def initial_qa_state(
     profile_run_id: str | None = None,
     column_names: list[str] | None = None,
     requested_by: str = "anonymous",
+    history: list[dict[str, Any]] | None = None,
 ) -> ProfilingState:
     """State khởi tạo cho một lượt hỏi-đáp (chỉ chạy nhánh QA).
 
@@ -144,7 +145,7 @@ def initial_qa_state(
     hạn trong một lần profiling.
     """
     return ProfilingState(
-        messages=[],
+        messages=history or [],
         question=question,
         profile_run_id=profile_run_id,
         column_names=column_names or [],

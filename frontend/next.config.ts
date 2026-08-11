@@ -19,6 +19,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  // Keep dev and production chunks isolated so concurrent commands cannot corrupt `.next`.
+  distDir: isDevelopment ? ".next-dev" : ".next",
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

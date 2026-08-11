@@ -212,10 +212,20 @@ class TestResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 # Q&A
 # --------------------------------------------------------------------------- #
+class QAHistoryMessage(BaseModel):
+    role: Literal["user", "agent"]
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
 class QARequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     profile_run_id: str | None = Field(
         default=None, description="Bỏ trống để tìm trên toàn bộ index."
+    )
+    history: list[QAHistoryMessage] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Một số lượt chat gần nhất để duy trì short-term memory.",
     )
     stream: bool = True
 
@@ -347,6 +357,7 @@ __all__ = [
     "ProfileRunSummary",
     "ProposalDecision",
     "ProposalOut",
+    "QAHistoryMessage",
     "QARequest",
     "QAResponse",
     "SamplingConfig",

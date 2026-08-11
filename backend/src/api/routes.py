@@ -28,8 +28,8 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from src.agents.graph import get_profiling_graph, get_qa_graph
 from langgraph.types import Command
+from src.agents.graph import get_profiling_graph, get_qa_graph
 from src.agents.nodes.profiling_nodes import clear_dataframe_cache
 from src.agents.state import initial_profiling_state, initial_qa_state
 from src.config import get_settings
@@ -50,6 +50,7 @@ from src.models.schemas import (
     UploadResponse,
 )
 from src.services import drift as drift_service
+from src.services.analysis_repository import get_analysis_repository
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
 from src.services.llm import LLMNotConfiguredError, llm_available
 from src.services.repository import get_repository
@@ -224,6 +225,84 @@ async def export_profile(run_id: str, user: str = Depends(require_token)) -> dic
         ),
         "profile": profile,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Combined report source
+# --------------------------------------------------------------------------- #
+def _report_profile(run_id: str) -> dict[str, Any]:
+    """Build a bounded, PII-safe source document for report exporters."""
+    repo = get_repository()
+    profile = repo.full_profile(run_id, mask_pii=True)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy profile run '{run_id}'.")
+
+    # Pending PII is sensitive too. Export must fail closed until the proposal
+    # is rejected, even though the normal profile response masks confirmed PII.
+    pii_columns = {
+        str(item.get("column_name"))
+        for item in profile["proposals"].get("pii", [])
+        if item.get("status") != "rejected" and item.get("column_name")
+    }
+    for stat in profile["column_stats"]:
+        if stat.get("column_name") in pii_columns:
+            stat["top_k_values"] = None
+            stat["pii_masked"] = True
+
+    # Local source paths are implementation details and must not leave the API.
+    dataset = profile.get("dataset") or {}
+    profile["dataset"] = {
+        key: dataset.get(key)
+        for key in ("id", "name", "source_type", "created_at", "last_profiled_at")
+    }
+    run = profile["run"]
+    profile["run"] = {
+        key: run.get(key)
+        for key in (
+            "id", "dataset_id", "version", "created_at", "scan_mode", "sample_size",
+            "random_seed", "row_count", "status", "is_approximate", "narrative_report",
+            "risk_warnings", "quasi_identifiers", "correlation_matrix",
+        )
+    }
+
+    analysis_repo = get_analysis_repository()
+    sessions: list[dict[str, Any]] = []
+    for item in analysis_repo.list_sessions(profile_run_id=run_id):
+        session = analysis_repo.get_session(item["id"]) or item
+        sessions.append(
+            {
+                "id": session.get("id"),
+                "goal": session.get("goal"),
+                "mode": session.get("mode"),
+                "status": session.get("status"),
+                "created_at": session.get("created_at"),
+                "updated_at": session.get("updated_at"),
+                "context": session.get("context"),
+                "quality_gate": session.get("quality_gate"),
+                "executions": analysis_repo.executions(session["id"]),
+            }
+        )
+
+    return {
+        "profile": profile,
+        "analysis_sessions": sessions,
+        "export_policy": {
+            "raw_dataset": False,
+            "raw_rows": False,
+            "pii_values": False,
+            "aggregate_results": True,
+            "evidence": True,
+        },
+    }
+
+
+@router.get("/profile/{run_id}/report")
+async def get_combined_report(run_id: str, user: str = Depends(require_token)) -> dict[str, Any]:
+    """Return the bounded source document used by combined report exporters."""
+    get_rate_limiter().check(user)
+    payload = _report_profile(run_id)
+    get_audit().log("api_report_export", profile_run_id=run_id, user=user)
+    return payload
 
 
 # --------------------------------------------------------------------------- #
@@ -549,6 +628,7 @@ def _qa_state(request: QARequest, user: str) -> dict[str, Any]:
         profile_run_id=request.profile_run_id,
         column_names=columns,
         requested_by=user,
+        history=[item.model_dump() for item in request.history[-12:]],
     )
 
 
