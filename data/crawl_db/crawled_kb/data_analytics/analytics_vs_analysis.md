@@ -1,0 +1,7 @@
+# Analytics vs analysis
+
+*Topic: Data Analytics (https://en.wikipedia.org/wiki/Data_analytics)*
+
+Data analysis focuses on the process of examining past data through business understanding, data understanding, data preparation, modeling and evaluation, and deployment. It is a subset of data analytics, which takes multiple data analysis processes to focus on why an event happened and what may happen in the future based on the previous data.[unreliable source?] Data analytics is used to formulate larger organizational decisions.
+
+Data analytics is a multidisciplinary field. There is extensive use of computer skills, mathematics, statistics, descriptive techniques, and predictive models to gain valuable knowledge from data through analytics. There is increasing use of the term advanced analytics, typically used to describe the technical aspects of analytics, especially in the emerging fields such as the use of machine learning techniques like neural networks, decision trees, logistic regression, linear to multiple regression analysis, and classification to do predictive modeling. It also includes unsupervised machine learning techniques like cluster analysis, principal component analysis, segmentation profile analysis, and association analysis.

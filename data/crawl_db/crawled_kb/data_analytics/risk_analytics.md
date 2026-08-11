@@ -1,0 +1,5 @@
+# Risk analytics
+
+*Topic: Data Analytics (https://en.wikipedia.org/wiki/Data_analytics)*
+
+Predictive models in the banking industry are developed to bring certainty across the risk scores for individual customers. Credit scores are built to predict an individual's delinquency behavior and are widely used to evaluate the credit worthiness of each applicant. Furthermore, risk analyses are carried out in the scientific world and the insurance industry. It is also extensively used in financial institutions like online payment gateway companies to analyse if a transaction was genuine or fraud. For this purpose, they use the transaction history of the customer. This is more commonly used in Credit Card purchases, when there is a sudden spike in the customer transaction volume the customer gets a call of confirmation if the transaction was initiated by him/her. This helps in reducing loss due to such circumstances.

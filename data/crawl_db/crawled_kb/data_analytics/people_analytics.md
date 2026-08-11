@@ -1,0 +1,11 @@
+# People analytics
+
+*Topic: Data Analytics (https://en.wikipedia.org/wiki/Data_analytics)*
+
+People analytics uses behavioral data to understand how people work and change how companies are managed. It can be referred to by various names, depending on the context, the purpose of the analytics, or the specific focus of the analysis. Some examples include workforce analytics, HR analytics, talent analytics, people insights, talent insights, colleague insights, human capital analytics, and human resources information system (HRIS) analytics. HR analytics is the application of analytics to help companies manage human resources.
+
+HR analytics has become a strategic tool in analyzing and forecasting human-related trends in the changing labor markets, using career analytics tools. The aim is to discern which employees to hire, which to reward or promote, what responsibilities to assign, and similar human resource problems. For example, inspection of the strategic phenomenon of employee turnover utilizing people analytics tools may serve as an important analysis at times of disruption.
+
+It has been suggested that people analytics is a separate discipline to HR analytics, with a greater focus on addressing business issues, while HR Analytics is more concerned with metrics related to HR processes. Additionally, people analytics may now extend beyond the human resources function in organizations. However, experts find that many HR departments are burdened by operational tasks and need to prioritize people analytics and automation to become a more strategic and capable business function in the evolving world of work, rather than producing basic reports that offer limited long-term value. Some experts argue that a change in the way HR departments operate is essential. Although HR functions were traditionally centered on administrative tasks, they are now evolving with a new generation of data-driven HR professionals who serve as strategic business partners.
+
+Examples of HR analytic metrics include employee lifetime value (ELTV), labour cost expense percent, union percentage, etc. Quality of promotion is a metric used to assess a person's promotion decisions. The metric determines whether employees appropriately advanced on objective criteria rather or if a bias is present.

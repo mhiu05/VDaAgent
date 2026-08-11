@@ -1,0 +1,7 @@
+# Data cleaning
+
+*Topic: Data Analysis (https://en.wikipedia.org/wiki/Data_analysis)*
+
+Once processed and organized, the data may be incomplete, contain duplicates, or contain errors. The need for data cleaning will arise from problems in the way that the data is entered and stored. Data cleaning is the process of preventing and correcting these errors. Common tasks include record matching, identifying inaccuracy of data, overall quality of existing data, deduplication, and column segmentation.
+
+Such data problems can also be identified through a variety of analytical techniques. For example; with financial information, the totals for particular variables may be compared against separately published numbers that are believed to be reliable. Unusual amounts, above or below predetermined thresholds, may also be reviewed. There are several types of data cleaning that are dependent upon the type of data in the set; this could be phone numbers, email addresses, employers, or other values. Quantitative data methods for outlier detection can be used to get rid of data that appears to have a higher likelihood of being input incorrectly. Text data spell checkers can be used to lessen the amount of mistyped words. However, it is harder to tell if the words are contextually (i.e., semantically and idiomatically) correct.

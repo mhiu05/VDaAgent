@@ -1,0 +1,13 @@
+# Marketing optimization
+
+*Topic: Data Analytics (https://en.wikipedia.org/wiki/Data_analytics)*
+
+Marketing organizations use analytics to evaluate the outcomes of campaigns and initiatives, as well as to guide decisions related to investment and consumer targeting. Techniques such as demographic studies, customer segmentation, conjoint analysis, and others enable marketers to analyze large volumes of consumer purchase data, survey data, and panel data. This helps them better understand consumer behavior and effectively communicate marketing strategies.
+
+Marketing analytics consists of both qualitative and quantitative, structured and unstructured data used to drive strategic decisions about brand and revenue outcomes. The process involves predictive modelling, marketing experimentation, automation, and real-time sales communications. The data enables companies to make predictions and alter strategic execution to maximize performance results.
+
+Web analytics allows marketers to collect session-level information about interactions on a website using an operation called sessionization. Google Analytics is an example of a popular free analytics tool that marketers use for this purpose. Those interactions provide web analytics information systems with the information necessary to track the referrer, search keywords, identify the IP address, and track the activities of the visitor. With this information, a marketer can improve marketing campaigns, website creative content, and information architecture.
+
+Analysis techniques frequently used in marketing include marketing mix modeling, pricing and promotion analyses, sales force optimization, and customer analytics, e.g., segmentation. Web analytics and optimization of websites and online campaigns now frequently work hand in hand with the more traditional marketing analysis techniques. A focus on digital media has slightly changed the vocabulary so that marketing mix modeling is commonly referred to as attribution modeling in the digital or marketing mix modeling context.
+
+These tools and techniques support both strategic marketing decisions (such as how much overall to spend on marketing, how to allocate budgets across a portfolio of brands and the marketing mix) and more tactical campaign support, in terms of targeting the best potential customer with the optimal message in the most cost-effective medium at the ideal time.

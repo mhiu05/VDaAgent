@@ -1,0 +1,7 @@
+# Introduction
+
+*Topic: Data Analytics (https://en.wikipedia.org/wiki/Data_analytics)*
+
+Analytics is the systematic computational analysis of data or statistics. It is used for the discovery, interpretation, and communication of meaningful patterns in data, which also falls under and directly relates to the umbrella term, data science. Analytics also entails applying data patterns toward effective decision-making. It can be valuable in areas rich with recorded information; analytics relies on the simultaneous application of statistics, computer programming, and operations research to quantify performance.
+
+Organizations may apply analytics to business data to describe, predict, and improve business performance. Specifically, areas within analytics include descriptive analytics, diagnostic analytics, predictive analytics, prescriptive analytics, and cognitive analytics. Analytics may apply to a variety of fields such as marketing, management, finance, online systems, information security, and software services. Since analytics can require extensive computation (see big data), the algorithms and software used for analytics harness the most current methods in computer science, statistics, and mathematics. According to International Data Corporation, global spending on big data and business analytics (BDA) solutions is estimated to reach $215.7 billion in 2021. As per Gartner, the overall analytic platforms software market grew by $25.5 billion in 2020.
