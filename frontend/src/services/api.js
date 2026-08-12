@@ -25,7 +25,7 @@ export function databaseConnectionFromForm(values) {
   return {
     type: values.type,
     host: values.host,
-    database: values.database,
+    database: values.database || "",
     username: values.username || null,
     password: values.password || null,
     port: Number(values.port || (values.type === "postgresql" ? 5432 : 1433)),

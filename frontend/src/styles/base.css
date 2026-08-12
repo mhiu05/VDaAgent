@@ -1,18 +1,36 @@
-﻿:root {
+:root {
   font-family: "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --fabric-bg: #f3f2f1;
+  --fabric-bg: #f8fafc;
   --fabric-surface: #ffffff;
-  --fabric-surface-muted: #faf9f8;
-  --fabric-border: #e1dfdd;
-  --fabric-border-strong: #c8c6c4;
-  --fabric-text: #242424;
-  --fabric-muted: #605e5c;
-  --fabric-accent: #117865;
-  --fabric-accent-hover: #0e6a5a;
-  --fabric-blue: #0078d4;
-  --fabric-blue-hover: #106ebe;
-  --fabric-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-  --fabric-shadow-strong: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --fabric-surface-muted: #f8fafc;
+  --fabric-surface-raised: #ffffff;
+  --fabric-border: #e2e8f0;
+  --fabric-border-strong: #cbd5e1;
+  --fabric-text: #0f172a;
+  --fabric-muted: #64748b;
+  --fabric-subtle: #94a3b8;
+  --fabric-navy: #0f172a;
+  --fabric-navy-soft: #1e293b;
+  --fabric-accent: #2563eb;
+  --fabric-accent-hover: #1d4ed8;
+  --fabric-accent-soft: #eff6ff;
+  --fabric-secondary: #0f766e;
+  --fabric-secondary-soft: #ecfdfb;
+  --fabric-blue: #2563eb;
+  --fabric-blue-hover: #1d4ed8;
+  --fabric-success: #16a34a;
+  --fabric-success-soft: #ecfdf3;
+  --fabric-warning: #d97706;
+  --fabric-warning-soft: #fffbeb;
+  --fabric-error: #dc2626;
+  --fabric-error-soft: #fef2f2;
+  --fabric-info: #2563eb;
+  --fabric-info-soft: #edf4ff;
+  --fabric-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 8px rgba(15, 23, 42, 0.04);
+  --fabric-shadow-strong: 0 14px 36px rgba(15, 23, 42, 0.14);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
   color: var(--fabric-text);
   background: var(--fabric-bg);
   font-synthesis: none;
@@ -44,3 +62,22 @@ button:disabled {
   opacity: 0.55;
 }
 
+::selection {
+  background: rgba(37, 99, 235, 0.18);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #9aa8bb;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

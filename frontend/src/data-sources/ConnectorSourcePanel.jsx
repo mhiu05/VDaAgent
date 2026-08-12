@@ -29,6 +29,7 @@ export function ConnectorSourcePanel({
     const haystack = `${source.title} ${source.provider} ${source.description}`.toLowerCase();
     return haystack.includes(searchText.toLowerCase());
   }), [searchText, serverConnectors]);
+  const connectionOk = isConnectionOk(dbStatus);
 
   return (
     <>
@@ -50,12 +51,13 @@ export function ConnectorSourcePanel({
           dbQuery={dbQuery}
           setDbQuery={setDbQuery}
           tables={tables}
+          connectionOk={connectionOk}
           listDbTables={listDbTables}
           previewDbQuery={previewDbQuery}
         />
       </div>
 
-      {dbInputMode === "table" && tables.length > 0 && (
+      {dbInputMode === "table" && connectionOk && tables.length > 0 && (
         <section className="panel database-object-panel">
           <DatabaseTables
             tables={tables}
@@ -119,6 +121,7 @@ function ConnectorDetail({
   dbQuery,
   setDbQuery,
   tables,
+  connectionOk,
   listDbTables,
   previewDbQuery,
 }) {
@@ -136,7 +139,7 @@ function ConnectorDetail({
         <span><Database size={15} /> Test configuration before connecting</span>
       </div>
       <DatabaseForm values={dbValues} setValues={setDbValues} connector={selectedCard} />
-      <p className="helper-text">Connection fields are saved in this browser for the MVP workflow.</p>
+      <p className="helper-text">Enter all connection fields manually. Values are not saved automatically.</p>
       <div className="source-submode-tabs" role="tablist" aria-label="Database input mode">
         <button
           className={dbInputMode === "table" ? "selected" : ""}
@@ -166,7 +169,7 @@ function ConnectorDetail({
       <div className={`inline-status ${connectionStatusTone(dbStatus)}`}>{dbStatus}</div>
       {dbInputMode === "table" ? (
         <p className="helper-text">
-          {tables.length ? "Tables are loaded below. Select one or more tables, then preview before configuring profiling." : "Connect first to load schemas and tables."}
+          {connectionOk && tables.length ? "Tables are loaded below. Select one or more tables, then preview before configuring profiling." : "Connect first to load schemas and tables."}
         </p>
       ) : (
         <QueryPanel
@@ -205,4 +208,9 @@ function connectionStatusTone(status) {
   if (normalized.includes("ok")) return "status-success";
   if (normalized.includes("testing")) return "status-info";
   return "";
+}
+
+function isConnectionOk(status) {
+  const normalized = String(status || "").toLowerCase();
+  return normalized.includes("ok") && !normalized.includes("failed");
 }

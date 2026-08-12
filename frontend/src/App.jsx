@@ -17,28 +17,32 @@ import { sourceCards, statisticalTests } from "./utils/options.js";
 
 const VALID_VIEWS = new Set(["dashboard", "workspace", "reports", "tests", "settings"]);
 const VALID_WORKSPACE_STEPS = new Set(["source", "dataset", "config"]);
-const DB_VALUES_STORAGE_KEY = "profiling-agent.dbValues";
 const APP_STATE_SESSION_KEY = "profiling-agent.sessionState";
+const CHAT_USER_KEY = "profiling-agent.clientUserId";
+const CHAT_WELCOME_MESSAGE = {
+  id: "welcome",
+  role: "agent",
+  text: "I can explain findings, suggest statistical tests, and help confirm ID, PII, or relationship candidates.",
+};
 const DEFAULT_DB_VALUES = {
-  type: "sql_server",
+  type: "",
   host: "",
-  port: "1433",
+  port: "",
   database: "",
   username: "",
   password: "",
   authType: "username_password",
-  driver: "ODBC Driver 18 for SQL Server",
-  connectorId: "azure_sql",
+  driver: "",
+  connectorId: "",
 };
 
 export default function App() {
   const initialRoute = getRouteFromLocation();
-  const initialDbValues = getStoredDbValues();
   const initialSessionState = getStoredSessionState();
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
   const [activeView, setActiveViewState] = useState(initialRoute.view !== "dashboard" ? initialRoute.view : initialSessionState.activeView || initialRoute.view);
   const [workspaceStep, setWorkspaceStep] = useState(initialRoute.step !== "source" ? initialRoute.step : initialSessionState.workspaceStep || initialRoute.step);
-  const [selectedSource, setSelectedSource] = useState(initialSessionState.selectedSource || initialDbValues.connectorId || "csv");
+  const [selectedSource, setSelectedSource] = useState(initialSessionState.selectedSource || "csv");
   const [files, setFiles] = useState([]);
   const [result, setResult] = useState(initialSessionState.result || null);
   const [resultSources, setResultSources] = useState(initialSessionState.resultSources || []);
@@ -50,11 +54,11 @@ export default function App() {
   const [selectedColumnsBySource, setSelectedColumnsBySource] = useState(initialSessionState.selectedColumnsBySource || {});
   const [selectedSections, setSelectedSections] = useState(initialSessionState.selectedSections || ["schema", "columns", "correlations", "findings"]);
   const [history, setHistory] = useState(initialSessionState.history || []);
-  const [dbValues, setDbValues] = useState(initialDbValues);
+  const [dbValues, setDbValues] = useState(DEFAULT_DB_VALUES);
   const [dbStatus, setDbStatus] = useState("Connection not tested.");
-  const [tables, setTables] = useState(initialSessionState.tables || []);
-  const [selectedTable, setSelectedTable] = useState(initialSessionState.selectedTable || { schema_name: "", table_name: "" });
-  const [selectedTables, setSelectedTables] = useState(initialSessionState.selectedTables || []);
+  const [tables, setTables] = useState([]);
+  const [selectedTable, setSelectedTable] = useState({ schema_name: "", table_name: "" });
+  const [selectedTables, setSelectedTables] = useState([]);
   const [dbInputMode, setDbInputMode] = useState(initialSessionState.dbInputMode || "table");
   const [dbQuery, setDbQuery] = useState(initialSessionState.dbQuery || "");
   const [dbProfileProgress, setDbProfileProgress] = useState(null);
@@ -69,15 +73,18 @@ export default function App() {
     alpha: "0.05",
   });
   const [testResult, setTestResult] = useState(null);
-  const [chatMessages, setChatMessages] = useState([
-    {
-      role: "agent",
-      text: "I can explain findings, suggest statistical tests, and help confirm ID, PII, or relationship candidates.",
-    },
-  ]);
+  const [chatUserId] = useState(() => getChatUserId());
+  const [conversationId, setConversationId] = useState(initialSessionState.conversationId || null);
+  const [conversations, setConversations] = useState([]);
+  const [chatMessages, setChatMessages] = useState([CHAT_WELCOME_MESSAGE]);
   const [chatInput, setChatInput] = useState("");
+  const [hitlRecords, setHitlRecords] = useState(initialSessionState.hitlRecords || []);
+  const [agentRuns, setAgentRuns] = useState(initialSessionState.agentRuns || []);
+  const [traceEvents, setTraceEvents] = useState(initialSessionState.traceEvents || []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(
+    initialSessionState.agentCollapsed ?? initialRoute.view === "dashboard",
+  );
   const autoTestRequestId = useRef(0);
   const routeReadyRef = useRef(false);
   const restoringRouteRef = useRef(false);
@@ -103,8 +110,23 @@ export default function App() {
   );
 
   useEffect(() => {
-    saveStoredDbValues(dbValues);
-  }, [dbValues]);
+    clearLegacyStoredDbValues();
+  }, []);
+
+  useEffect(() => {
+    setTables([]);
+    setSelectedTables([]);
+    setSelectedTable({ schema_name: "", table_name: "" });
+  }, [
+    dbValues.type,
+    dbValues.host,
+    dbValues.port,
+    dbValues.database,
+    dbValues.username,
+    dbValues.password,
+    dbValues.driver,
+    dbValues.authType,
+  ]);
 
   useEffect(() => {
     saveStoredSessionState({
@@ -121,11 +143,13 @@ export default function App() {
       selectedColumnsBySource,
       selectedSections,
       history,
-      tables,
-      selectedTable,
-      selectedTables,
+      hitlRecords,
+      agentRuns,
+      traceEvents,
       dbInputMode,
       dbQuery,
+      conversationId,
+      agentCollapsed,
     });
   }, [
     activeView,
@@ -141,18 +165,71 @@ export default function App() {
     selectedColumnsBySource,
     selectedSections,
     history,
-    tables,
-    selectedTable,
-    selectedTables,
+    hitlRecords,
+    agentRuns,
+    traceEvents,
     dbInputMode,
     dbQuery,
+    conversationId,
+    agentCollapsed,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function restoreServerChat() {
+      try {
+        const items = await requestJson(
+          `${apiBase}/conversations?user_id=${encodeURIComponent(chatUserId)}&limit=50`,
+        );
+        if (cancelled) return;
+        setConversations(items || []);
+        const selectedId = conversationId || items?.[0]?.id;
+        if (!selectedId) return;
+        const messages = await requestJson(
+          `${apiBase}/conversations/${selectedId}/messages?user_id=${encodeURIComponent(chatUserId)}&limit=200`,
+        );
+        if (cancelled) return;
+        setConversationId(selectedId);
+        setChatMessages(messages?.length ? messages.map(toClientChatMessage) : [CHAT_WELCOME_MESSAGE]);
+      } catch {
+        // Chat history is best-effort while the backend is starting.
+      }
+    }
+    restoreServerChat();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, chatUserId]);
+
+  useEffect(() => {
+    const runId = displayResult?.agent_run?.run_id;
+    if (!runId) return;
+    refreshAgentGovernance(runId);
+  }, [displayResult?.agent_run?.run_id]);
+
+  useEffect(() => {
+    refreshAgentGovernance();
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (agentCollapsed && activeView !== "dashboard" && activeView !== "reports") return undefined;
+    const intervalId = window.setInterval(() => {
+      refreshAgentGovernance(displayResult?.agent_run?.run_id);
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [activeView, agentCollapsed, apiBase, displayResult?.agent_run?.run_id]);
 
   function setActiveView(nextView) {
     setActiveViewState((current) => {
       const value = typeof nextView === "function" ? nextView(current) : nextView;
       return VALID_VIEWS.has(value) ? value : current;
     });
+  }
+
+  function openProfilingSource(sourceId = "csv") {
+    setSelectedSource(sourceId);
+    setWorkspaceStep("source");
+    setActiveView("workspace");
   }
 
   useEffect(() => {
@@ -389,6 +466,9 @@ export default function App() {
       showToast("This connector needs a backend adapter before listing tables.", "warning");
       return;
     }
+    setTables([]);
+    setSelectedTables([]);
+    setSelectedTable({ schema_name: "", table_name: "" });
     await runTask("Listing tables", async () => {
       const connection = databaseConnectionFromForm(dbValues);
       const data = await requestJson(`${apiBase}/profile/database/tables`, {
@@ -649,14 +729,74 @@ export default function App() {
     const message = chatInput.trim();
     if (!message) return;
     setChatInput("");
-    setChatMessages((current) => [...current, { role: "user", text: message }]);
+    setChatMessages((current) => [...current, { id: `pending-${Date.now()}`, role: "user", text: message }]);
     await runTask("Asking agent", async () => {
       const data = await requestJson(`${apiBase}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({
+          message,
+          conversation_id: conversationId,
+          user_id: chatUserId,
+          run_id: displayResult?.agent_run?.run_id || null,
+        }),
       });
-      setChatMessages((current) => [...current, { role: "agent", text: data.response || "No response." }]);
+      setConversationId(data.conversation_id);
+      const [messages, items] = await Promise.all([
+        requestJson(
+          `${apiBase}/conversations/${data.conversation_id}/messages?user_id=${encodeURIComponent(chatUserId)}&limit=200`,
+        ),
+        requestJson(`${apiBase}/conversations?user_id=${encodeURIComponent(chatUserId)}&limit=50`),
+      ]);
+      setChatMessages(messages?.length ? messages.map(toClientChatMessage) : [CHAT_WELCOME_MESSAGE]);
+      setConversations(items || []);
+      await refreshAgentGovernance(displayResult?.agent_run?.run_id);
+    }, false);
+  }
+
+  async function selectConversation(nextConversationId) {
+    if (!nextConversationId) return;
+    setConversationId(nextConversationId);
+    try {
+      const messages = await requestJson(
+        `${apiBase}/conversations/${nextConversationId}/messages?user_id=${encodeURIComponent(chatUserId)}&limit=200`,
+      );
+      setChatMessages(messages?.length ? messages.map(toClientChatMessage) : [CHAT_WELCOME_MESSAGE]);
+    } catch (error) {
+      showToast(error.message || "Could not load conversation", "error");
+    }
+  }
+
+  function startNewConversation() {
+    setConversationId(null);
+    setChatMessages([CHAT_WELCOME_MESSAGE]);
+    setChatInput("");
+  }
+
+  async function refreshAgentGovernance(runId = displayResult?.agent_run?.run_id) {
+    try {
+      const [records, runs, trace] = await Promise.all([
+        requestJson(`${apiBase}/hitl${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`),
+        requestJson(`${apiBase}/agent/runs`),
+        runId ? requestJson(`${apiBase}/agent/runs/${runId}/trace`) : Promise.resolve([]),
+      ]);
+      setHitlRecords(records || []);
+      setAgentRuns(runs || []);
+      setTraceEvents(trace || []);
+    } catch {
+      // Observability panels are best-effort and should not block profiling UX.
+    }
+  }
+
+  async function decideHitl(recordId, decision) {
+    await runTask(`${decision === "approve" ? "Approving" : "Rejecting"} HITL item`, async () => {
+      await requestJson(`${apiBase}/hitl/${recordId}/${decision}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviewer: "analyst", comment: "Reviewed in Agent Panel" }),
+      });
+      await refreshAgentGovernance();
+      showToast(`HITL item ${decision === "approve" ? "approved" : "rejected"}`, "success");
     }, false);
   }
 
@@ -670,8 +810,16 @@ export default function App() {
         setCollapsed={setSidebarCollapsed}
       />
       <main className="main-panel">
-        <Topbar />
-        {activeView === "dashboard" && <DashboardView result={displayResult} history={history} />}
+        <Topbar onNewProfile={() => openProfilingSource("csv")} />
+        {activeView === "dashboard" && (
+          <DashboardView
+            result={displayResult}
+            history={history}
+            agentRuns={agentRuns}
+            hitlRecords={hitlRecords}
+            onOpenReports={() => setActiveView("reports")}
+          />
+        )}
         {activeView === "workspace" && (
           <DataWorkspaceView
             workspaceStep={workspaceStep}
@@ -727,6 +875,8 @@ export default function App() {
             correlations={correlations}
             quality={quality}
             topCategoricalColumn={topCategoricalColumn}
+            traceEvents={traceEvents}
+            hitlRecords={hitlRecords}
           />
         )}
         {activeView === "tests" && (
@@ -764,10 +914,16 @@ export default function App() {
         collapsed={agentCollapsed}
         setCollapsed={setAgentCollapsed}
         chatMessages={chatMessages}
+        conversations={conversations}
+        conversationId={conversationId}
+        selectConversation={selectConversation}
+        startNewConversation={startNewConversation}
         chatInput={chatInput}
         setChatInput={setChatInput}
         sendChat={sendChat}
         findings={findings}
+        hitlRecords={hitlRecords}
+        decideHitl={decideHitl}
       />
       {toast && <Toast toast={toast} />}
     </div>
@@ -775,7 +931,7 @@ export default function App() {
 }
 
 function isDatabaseConfigReady(values) {
-  const required = [values.host, values.port, values.database];
+  const required = [values.type, values.host, values.port];
   if (values.authType === "username_password") {
     required.push(values.username, values.password);
   }
@@ -918,22 +1074,6 @@ function routeToUrl(route) {
   return `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
 }
 
-function getStoredDbValues() {
-  if (typeof window === "undefined") return DEFAULT_DB_VALUES;
-  try {
-    const raw = window.localStorage.getItem(DB_VALUES_STORAGE_KEY);
-    if (!raw) return DEFAULT_DB_VALUES;
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_DB_VALUES,
-      ...parsed,
-      port: String(parsed.port || DEFAULT_DB_VALUES.port),
-    };
-  } catch {
-    return DEFAULT_DB_VALUES;
-  }
-}
-
 function getStoredSessionState() {
   if (typeof window === "undefined") return {};
   try {
@@ -953,13 +1093,36 @@ function saveStoredSessionState(state) {
   }
 }
 
-function saveStoredDbValues(values) {
+function clearLegacyStoredDbValues() {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(DB_VALUES_STORAGE_KEY, JSON.stringify(values));
+    window.localStorage.removeItem("profiling-agent.dbValues");
   } catch {
-    // Ignore storage failures so profiling still works in private/restricted browsers.
+    // Ignore cleanup failures; credentials still are not written by this version.
   }
+}
+
+function getChatUserId() {
+  if (typeof window === "undefined") return "anonymous";
+  try {
+    const existing = window.localStorage.getItem(CHAT_USER_KEY);
+    if (existing) return existing;
+    const generated = `browser-${window.crypto?.randomUUID?.() || Date.now()}`;
+    window.localStorage.setItem(CHAT_USER_KEY, generated);
+    return generated;
+  } catch {
+    return "anonymous";
+  }
+}
+
+function toClientChatMessage(message) {
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.content,
+    createdAt: message.created_at,
+    runId: message.run_id,
+  };
 }
 
 function tableKey(table) {

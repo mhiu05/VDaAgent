@@ -12,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from src.analysis.statistical_tests import StatisticalTestService
+from src.agents.workflow import ProfilingAgentWorkflow
 from src.models.schemas import (
     DatabaseConnectionConfig,
     DatabaseConnectionStatus,
@@ -48,13 +49,14 @@ class ProfilingService:
     def __init__(self) -> None:
         self.planner = ProfilingPlanner()
         self.normalizer = ProfileResultNormalizer()
+        self.agent_workflow = ProfilingAgentWorkflow()
 
     def profile_csv_file(self, file_path: Path, source_name: str) -> ProfileResult:
         executor = DuckDBProfileExecutor()
         schema = executor.get_schema(file_path)
         plan = self.planner.build_plan(schema)
         raw_result = executor.profile_file(file_path, source_name, plan)
-        return self.normalizer.normalize(raw_result)
+        return self.agent_workflow.complete_profile(self.normalizer.normalize(raw_result))
 
     def profile_csv_files(self, files: list[tuple[Path, str]]) -> ProfileCollectionResult:
         profiles = [self.profile_csv_file(file_path, source_name) for file_path, source_name in files]
@@ -345,7 +347,9 @@ class ProfilingService:
                 writer = csv.DictWriter(file, fieldnames=columns)
                 writer.writeheader()
                 writer.writerows(rows)
-            return self.profile_csv_file(csv_path, "database_query")
+            result = self.profile_csv_file(csv_path, "database_query")
+            result.source.type = request.connection.type
+            return result
 
     def profile_database_table(
         self,
@@ -357,7 +361,7 @@ class ProfilingService:
         schema = executor.get_schema(table_name, schema_name)
         plan = self.planner.build_plan(schema)
         raw_result = executor.profile_table(table_name, schema_name, plan)
-        return self.normalizer.normalize(raw_result)
+        return self.agent_workflow.complete_profile(self.normalizer.normalize(raw_result))
 
     def profile_database_sections(
         self,

@@ -1,47 +1,165 @@
 import React from "react";
-import { Metric, PanelTitle } from "../shared/components.jsx";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  Database,
+  Layers3,
+  MessageSquareText,
+  Rows3,
+  ShieldCheck,
+} from "lucide-react";
 
-export function DashboardView({ result, history }) {
+export function DashboardView({ result, history = [], agentRuns = [], hitlRecords = [], onOpenReports }) {
+  const hasProfile = Boolean(result?.source && result?.dataset_summary);
+  const pendingRecords = hitlRecords.filter((item) => item.status === "pending");
+  const profileRuns = agentRuns.filter((run) => run.source_type !== "chat");
+  const recentActivity = agentRuns.slice(0, 6);
+  const datasetCount = new Set(profileRuns.map((run) => run.source_name)).size;
+  const rowsProfiled = profileRuns.reduce((total, run) => total + Number(run.metrics?.rows_profiled || 0), 0);
+  const warningCount = profileRuns.reduce((total, run) => total + Number(run.metrics?.warnings_count || 0), 0);
+
   return (
-    <section>
-      <div className="section-header">
+    <section className="dashboard-page">
+      <header className="dashboard-header">
         <div>
+          <span className="dashboard-eyebrow">Overview</span>
           <h2>Dashboard</h2>
-          <p>Overview of the latest profiling run, data quality status, and recent jobs.</p>
+          <p>Monitor profiling activity, data quality, and decisions that need review.</p>
         </div>
+        {hasProfile ? (
+          <button className="secondary-button dashboard-report-button" type="button" onClick={onOpenReports}>
+            Open latest report <ArrowRight size={16} />
+          </button>
+        ) : null}
+      </header>
+
+      <div className="dashboard-kpi-grid" aria-label="Profiling operations overview">
+        <DashboardMetric icon={Layers3} label="Profiled sources" value={datasetCount} detail={`${profileRuns.length} profiling runs`} />
+        <DashboardMetric icon={Rows3} label="Rows processed" value={formatNumber(rowsProfiled)} detail="Across persisted runs" />
+        <DashboardMetric icon={AlertTriangle} label="Warnings found" value={formatNumber(warningCount)} detail="Across profiling history" tone={warningCount ? "warning" : "default"} />
+        <DashboardMetric icon={ShieldCheck} label="Pending reviews" value={pendingRecords.length} detail="HITL decisions" tone={pendingRecords.length ? "warning" : "success"} />
       </div>
-      <div className="metric-grid">
-        <Metric label="Rows" value={result?.dataset_summary?.row_count ?? "-"} />
-        <Metric label="Columns" value={result?.dataset_summary?.column_count ?? "-"} />
-        <Metric label="Jobs" value={history.length} />
-        <Metric label="Warnings" value={result?.quality_summary?.warning_count ?? "-"} />
+
+      <div className="dashboard-content-grid">
+        <section className="dashboard-panel dashboard-jobs-panel">
+          <DashboardPanelHeader title="Recent profiling jobs" description="Latest datasets processed by the profiling workflow." aside={history.length ? `${history.length} job${history.length === 1 ? "" : "s"}` : "No jobs yet"} />
+          {profileRuns.length ? <RecentJobs runs={profileRuns} history={history} /> : (
+            <CompactEmptyState icon={Database} title="No profiling runs" description="Completed and failed profiling runs will appear here." />
+          )}
+        </section>
+
+        <section className="dashboard-panel dashboard-activity-panel">
+          <DashboardPanelHeader title="Agent activity" description="Profiling and assistant runs are tracked separately." aside={`${profileRuns.length} profile run${profileRuns.length === 1 ? "" : "s"}`} />
+          {recentActivity.length ? <AgentActivity runs={recentActivity} /> : (
+            <CompactEmptyState icon={Activity} title="No agent activity" description="Runs and trace status will appear here as the agent works." />
+          )}
+        </section>
       </div>
-      <section className="panel">
-        <PanelTitle title="Recent profiling jobs" aside={result?.source?.name || "No dataset profiled"} />
-        {history.length ? <RecentJobs history={history} /> : <div className="empty-state">Open Data Workspace to choose a source and start profiling.</div>}
-      </section>
+
+      {pendingRecords.length ? <PendingReviews records={pendingRecords.slice(0, 4)} /> : null}
     </section>
   );
 }
 
-function RecentJobs({ history }) {
+function DashboardMetric({ icon: Icon, label, value, detail, tone = "default" }) {
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Source</th><th>Rows</th><th>Columns</th><th>Generated</th></tr>
-        </thead>
+    <article className={`dashboard-kpi ${tone}`}>
+      <div className="dashboard-kpi-icon"><Icon size={18} /></div>
+      <div><span>{label}</span><strong>{value}</strong><small title={detail}>{detail}</small></div>
+    </article>
+  );
+}
+
+function DashboardPanelHeader({ title, description, aside }) {
+  return (
+    <div className="dashboard-panel-header">
+      <div><h3>{title}</h3><p>{description}</p></div>
+      <span>{aside}</span>
+    </div>
+  );
+}
+
+function RecentJobs({ runs, history }) {
+  const historyBySource = new Map(history.map((job) => [job.sourceName, job]));
+  return (
+    <div className="dashboard-table-wrap">
+      <table className="dashboard-table">
+        <thead><tr><th>Source</th><th>Rows</th><th>Columns</th><th>Generated</th></tr></thead>
         <tbody>
-          {history.slice(0, 5).map((job) => (
-            <tr key={job.id}>
-              <td>{job.sourceName}</td>
-              <td>{job.rowCount}</td>
-              <td>{job.columnCount}</td>
-              <td>{new Date(job.generatedAt).toLocaleString()}</td>
+          {runs.slice(0, 6).map((run) => {
+            const localJob = historyBySource.get(run.source_name);
+            return (
+            <tr key={run.run_id}>
+              <td><strong title={run.source_name}>{run.source_name}</strong></td>
+              <td>{formatNumber(run.metrics?.rows_profiled ?? localJob?.rowCount)}</td>
+              <td>{run.metrics?.columns_profiled ?? localJob?.columnCount ?? "-"}</td>
+              <td><span className={`run-status ${run.status}`}>{run.status}</span> {formatDate(run.started_at)}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
+}
+
+function AgentActivity({ runs }) {
+  return (
+    <div className="agent-activity-list">
+      {runs.map((run) => {
+        const isChat = run.source_type === "chat";
+        const Icon = isChat ? MessageSquareText : Activity;
+        return (
+          <div className="agent-activity-row" key={run.run_id}>
+            <span className={`agent-activity-icon ${isChat ? "chat" : "profile"}`}><Icon size={15} /></span>
+            <div className="agent-activity-copy">
+              <strong>{isChat ? "Assistant conversation" : run.source_name}</strong>
+              <span>{isChat ? "Chat run" : "Profiling run"} / {formatDate(run.started_at)}</span>
+            </div>
+            <span className={`run-status ${run.status}`}>{run.status}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PendingReviews({ records }) {
+  return (
+    <section className="dashboard-panel dashboard-review-panel">
+      <DashboardPanelHeader title="Pending reviews" description="Agent proposals that require a human decision before becoming trusted metadata." aside={`${records.length} shown`} />
+      <div className="dashboard-review-list">
+        {records.map((record) => (
+          <div key={record.id}>
+            <ShieldCheck size={16} /><strong>{humanize(record.type)}</strong>
+            <span title={record.evidence}>{record.source} / {record.columns?.join(", ") || record.table || "Dataset"}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CompactEmptyState({ icon: Icon, title, description, action, onAction }) {
+  return (
+    <div className="dashboard-compact-empty">
+      <Icon size={20} /><strong>{title}</strong><span>{description}</span>
+      {action ? <button type="button" onClick={onAction}>{action} <ArrowRight size={14} /></button> : null}
+    </div>
+  );
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined || value === "-") return "-";
+  return Number(value).toLocaleString();
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function humanize(value = "Review") {
+  return value.replaceAll("_", " ").replace(/^./, (character) => character.toUpperCase());
 }

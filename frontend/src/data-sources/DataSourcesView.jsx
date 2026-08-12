@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Server, UploadCloud } from "lucide-react";
 import { ConnectorSourcePanel } from "./ConnectorSourcePanel.jsx";
 import { DatabaseForm } from "./DatabaseForm.jsx";
@@ -45,16 +45,37 @@ export function DataSourcesView(props) {
   );
   const selectedCard = serverConnectors.find((source) => source.id === selectedSource) || serverConnectors[0];
 
-  function chooseConnector(source) {
-    setSelectedSource(source.id);
+  useEffect(() => {
+    if (flowMode !== "source" || !selectedCard?.backendType) return;
+    const defaultPort = selectedCard.defaultPort || defaultPortForEngine(selectedCard.backendType);
+    const defaultDriver = selectedCard.defaultDriver ?? defaultDriverForEngine(selectedCard.backendType);
+    const needsDefaults = dbValues.connectorId !== selectedCard.id
+      || !dbValues.type
+      || !dbValues.port
+      || (selectedCard.backendType === "sql_server" && !dbValues.driver);
+    if (!needsDefaults) return;
+
     setDbValues((current) => ({
       ...current,
+      type: selectedCard.backendType,
+      port: current.port || defaultPort,
+      driver: current.driver || defaultDriver,
+      connectorId: selectedCard.id,
+    }));
+  }, [dbValues.connectorId, dbValues.driver, dbValues.port, dbValues.type, flowMode, selectedCard, setDbValues]);
+
+  function chooseConnector(source) {
+    setSelectedSource(source.id);
+    setDbValues(() => ({
+      type: source.backendType || "",
+      host: "",
+      port: source.defaultPort || defaultPortForEngine(source.backendType),
+      database: "",
+      username: "",
+      password: "",
+      authType: "username_password",
+      driver: source.defaultDriver ?? defaultDriverForEngine(source.backendType),
       connectorId: source.id,
-      ...(source.backendType ? {
-        type: source.backendType,
-        port: source.defaultPort || (source.backendType === "postgresql" ? "5432" : "1433"),
-        driver: source.defaultDriver ?? (source.backendType === "postgresql" ? "" : "ODBC Driver 18 for SQL Server"),
-      } : {}),
     }));
   }
 
@@ -106,8 +127,9 @@ export function DataSourcesView(props) {
           className={`source-mode-card ${flowMode === "source" ? "selected" : ""}`}
           onClick={() => {
             setFlowMode("source");
-            if (!serverConnectors.some((source) => source.id === selectedSource)) {
-              chooseConnector(serverConnectors[0]);
+            const currentConnector = serverConnectors.find((source) => source.id === selectedSource) || serverConnectors[0];
+            if (!serverConnectors.some((source) => source.id === selectedSource) || !dbValues.type || !dbValues.port || (currentConnector.backendType === "sql_server" && !dbValues.driver)) {
+              chooseConnector(currentConnector);
             }
           }}
         >
@@ -163,4 +185,16 @@ function toFileList(fileArray) {
   const transfer = new DataTransfer();
   fileArray.forEach((file) => transfer.items.add(file));
   return transfer.files;
+}
+
+function defaultPortForEngine(engine) {
+  if (engine === "sql_server") return "1433";
+  if (engine === "postgresql") return "5432";
+  if (engine === "mysql") return "3306";
+  return "";
+}
+
+function defaultDriverForEngine(engine) {
+  if (engine === "sql_server") return "ODBC Driver 18 for SQL Server";
+  return "";
 }

@@ -1,25 +1,39 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable
+from time import perf_counter
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
+from src.agents.chat import chat_store
 from src.agents.graph import agent
+from src.agents.hitl import hitl_store
+from src.agents.pii import mask_text
+from src.agents.tools.registry import TOOL_REGISTRY
+from src.agents.tracing import trace_store
 from src.models.schemas import (
+    AgentRun,
+    AgentToolDefinition,
+    AgentTraceEvent,
+    ChatMessage,
     ChatRequest,
     ChatResponse,
+    Conversation,
+    ConversationCreateRequest,
     DatabaseConnectionConfig,
     DatabaseConnectionStatus,
     DatabasePreviewRequest,
     DatabasePreviewResult,
+    DatabaseProfileSectionsRequest,
     DatabaseQueryPreviewResult,
     DatabaseQueryRequest,
     DatabaseStatisticalTestRequest,
-    FilePreviewResult,
-    DatabaseProfileSectionsRequest,
     DatabaseTableRequest,
     DatabaseTablesResult,
+    FilePreviewResult,
+    HitlDecisionRequest,
+    HitlRecord,
     ProfileCollectionResult,
     ProfileColumnsResult,
     ProfileCorrelationsResult,
@@ -38,21 +52,203 @@ router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Chat with the AI agent."""
+    """Chat with the agent and persist a PII-safe conversation audit copy."""
+    started = perf_counter()
     try:
-        result = await agent.ainvoke({"query": request.message})
+        conversation = chat_store.get_or_create_conversation(
+            request.conversation_id,
+            request.user_id,
+            request.message,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    run = trace_store.start_run(conversation.id, "chat")
+    safe_prompt = mask_text(request.message)
+    chat_store.add_message(
+        conversation.id,
+        "user",
+        request.message,
+        run_id=run.run_id,
+        metadata={"profile_run_id": request.run_id} if request.run_id else {},
+    )
+    trace_store.add_event(
+        run.run_id,
+        event_type="chat_turn",
+        component="agent_chat",
+        tool_name="chat_request",
+        input_summary=f"User message received ({len(request.message)} characters).",
+        metadata={"conversation_id": conversation.id, "profile_run_id": request.run_id},
+    )
+    try:
+        result = await agent.ainvoke({"query": safe_prompt})
+        response = mask_text(result.get("response", "") or "No response.")
+        analysis_summary = mask_text(result.get("analysis", ""))
+        chat_store.add_message(conversation.id, "agent", response, run_id=run.run_id)
+        duration_ms = int((perf_counter() - started) * 1000)
+        trace_store.add_event(
+            run.run_id,
+            event_type="chat_turn",
+            component="agent_chat",
+            tool_name="chat_response",
+            input_summary="Agent response generation.",
+            output_summary=f"Assistant response stored ({len(response)} characters).",
+            duration_ms=duration_ms,
+        )
+        trace_store.finish_run(
+            run.run_id,
+            "completed",
+            {
+                "conversation_id": conversation.id,
+                "response_time_ms": duration_ms,
+                "input_characters": len(request.message),
+                "output_characters": len(response),
+                "tool_success_rate": 1.0,
+                "tool_error_rate": 0.0,
+            },
+        )
         return ChatResponse(
-            response=result.get("response", ""),
-            analysis=result.get("analysis", ""),
+            response=response,
+            analysis=analysis_summary,
+            conversation_id=conversation.id,
+            run_id=run.run_id,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        duration_ms = int((perf_counter() - started) * 1000)
+        trace_store.add_event(
+            run.run_id,
+            event_type="chat_turn",
+            component="agent_chat",
+            tool_name="chat_response",
+            input_summary="Agent response generation.",
+            output_summary="Assistant response failed.",
+            status="error",
+            error_message=type(e).__name__,
+            duration_ms=duration_ms,
+        )
+        trace_store.finish_run(
+            run.run_id,
+            "failed",
+            {"conversation_id": conversation.id, "response_time_ms": duration_ms, "tool_error_rate": 1.0},
+        )
+        raise HTTPException(status_code=500, detail="Agent response failed. Check the run trace for details.") from e
+
+
+@router.post("/conversations", response_model=Conversation)
+async def create_conversation(request: ConversationCreateRequest) -> Conversation:
+    """Create a server-side conversation before the first chat turn."""
+    return chat_store.create_conversation(request.user_id, request.title)
+
+
+@router.get("/conversations", response_model=list[Conversation])
+async def list_conversations(
+    user_id: str = Query(default="anonymous", min_length=1, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> list[Conversation]:
+    """List conversation summaries for one user, newest first."""
+    return chat_store.list_conversations(user_id, limit=limit, offset=offset)
+
+
+@router.get("/conversations/{conversation_id}/messages", response_model=list[ChatMessage])
+async def list_conversation_messages(
+    conversation_id: str,
+    user_id: str = Query(default="anonymous", min_length=1, max_length=128),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[ChatMessage]:
+    """Return PII-safe messages for one conversation."""
+    try:
+        return chat_store.list_messages(
+            conversation_id,
+            user_id,
+            limit=limit,
+            offset=offset,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/status")
 async def agent_status():
     """Check agent readiness."""
     return {"status": "ready", "agent": "LangGraph Agent v1.0"}
+
+
+@router.get("/agent/tools", response_model=list[AgentToolDefinition])
+async def list_agent_tools() -> list[AgentToolDefinition]:
+    """List deterministic tools available to the profiling agent workflow."""
+    return TOOL_REGISTRY
+
+
+@router.get("/agent/runs", response_model=list[AgentRun])
+async def list_agent_runs(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[AgentRun]:
+    """List recent agent runs for the observability dashboard."""
+    return trace_store.list_runs(limit=limit, offset=offset)
+
+
+@router.get("/agent/runs/{run_id}", response_model=AgentRun)
+async def get_agent_run(run_id: str) -> AgentRun:
+    """Return one agent run."""
+    run = trace_store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    return run
+
+
+@router.get("/agent/runs/{run_id}/trace", response_model=list[AgentTraceEvent])
+async def list_agent_run_trace(
+    run_id: str,
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> list[AgentTraceEvent]:
+    """Return trace events for one agent run."""
+    return trace_store.list_events(run_id, limit=limit, offset=offset)
+
+
+@router.get("/agent/traces", response_model=list[AgentTraceEvent])
+async def list_agent_traces(
+    limit: int = Query(default=500, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> list[AgentTraceEvent]:
+    """Return persisted trace events for the observability dashboard."""
+    return trace_store.list_events(limit=limit, offset=offset)
+
+
+@router.get("/hitl", response_model=list[HitlRecord])
+async def list_hitl_records(
+    status: str | None = None,
+    run_id: str | None = None,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[HitlRecord]:
+    """List HITL governance records."""
+    return hitl_store.list_records(status=status, run_id=run_id, limit=limit, offset=offset)
+
+
+@router.post("/hitl/{record_id}/approve", response_model=HitlRecord)
+async def approve_hitl_record(record_id: str, request: HitlDecisionRequest) -> HitlRecord:
+    """Approve one HITL governance record."""
+    record = hitl_store.decide(record_id, "approved", request)
+    if record is None:
+        raise HTTPException(status_code=404, detail="HITL record not found.")
+    return record
+
+
+@router.post("/hitl/{record_id}/reject", response_model=HitlRecord)
+async def reject_hitl_record(record_id: str, request: HitlDecisionRequest) -> HitlRecord:
+    """Reject one HITL governance record."""
+    record = hitl_store.decide(record_id, "rejected", request)
+    if record is None:
+        raise HTTPException(status_code=404, detail="HITL record not found.")
+    return record
 
 
 @router.post("/profile/file", response_model=ProfileResult)

@@ -152,3 +152,33 @@ main > section > .source-grid {
   min-width: 0;
 }
 
+.observability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.observability-grid div {
+  min-width: 0;
+  border: 1px solid var(--fabric-border);
+  border-radius: 6px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.observability-grid span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.observability-grid strong {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

@@ -1,17 +1,15 @@
 import React from "react";
-import { TextField } from "../shared/components.jsx";
 
 export function DatabaseForm({ values, setValues, connector }) {
-  const hasBackendAdapter = Boolean(connector.backendType);
   return (
     <div className="form-grid">
-      <TextField label="Connector" value={connector.title} onChange={() => {}} disabled />
-      <TextField label="Engine" value={hasBackendAdapter ? values.type : "adapter required"} onChange={() => {}} disabled />
-      <TextField label="Host" value={values.host} onChange={(value) => setValues({ ...values, host: value })} />
-      <TextField label="Port" type="number" value={values.port} onChange={(value) => setValues({ ...values, port: value })} />
-      <TextField label="Database" value={values.database} onChange={(value) => setValues({ ...values, database: value })} />
-      <TextField label="Username" value={values.username} onChange={(value) => setValues({ ...values, username: value })} />
-      <TextField label="Password" type="password" value={values.password} onChange={(value) => setValues({ ...values, password: value })} />
+      <ReadOnlyField label="Connector" value={connector.title} />
+      <ReadOnlyField label="Engine" value={values.type || connector.backendType || "adapter required"} />
+      <FormField label="Host" value={values.host} onChange={(value) => setValues({ ...values, host: value })} />
+      <FormField label="Port" type="number" value={values.port} onChange={(value) => setValues({ ...values, port: value })} />
+      <FormField label="Database (optional)" value={values.database} onChange={(value) => setValues({ ...values, database: value })} />
+      <FormField label="Username" value={values.username} onChange={(value) => setValues({ ...values, username: value })} />
+      <FormField label="Password" type="password" value={values.password} onChange={(value) => setValues({ ...values, password: value })} />
       <label>Auth type
         <select value={values.authType} onChange={(event) => setValues({ ...values, authType: event.target.value })}>
           <option value="username_password">Username/password</option>
@@ -21,7 +19,30 @@ export function DatabaseForm({ values, setValues, connector }) {
           <option value="client_certificate">Client certificate</option>
         </select>
       </label>
-      <TextField label="Driver" value={values.driver} onChange={(value) => setValues({ ...values, driver: value })} />
+      <FormField label="Driver" value={values.driver} onChange={(value) => setValues({ ...values, driver: value })} />
     </div>
+  );
+}
+
+function FormField({ label, type = "text", value, onChange }) {
+  return (
+    <label>
+      {label}
+      <input
+        type={type}
+        value={value}
+        autoComplete={type === "password" ? "new-password" : "off"}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function ReadOnlyField({ label, value }) {
+  return (
+    <label>
+      {label}
+      <input value={value} readOnly disabled />
+    </label>
   );
 }

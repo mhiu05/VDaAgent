@@ -35,13 +35,14 @@ def build_connection_details(config: DatabaseConnectionConfig) -> ConnectionDeta
         credential_fragment += ";UID=" + auth_result.username
     if auth_result.password:
         credential_fragment += ";PWD=" + auth_result.password
+    database_fragment = f";DATABASE={config.database}" if config.database else ""
     odbc = quote_plus(
         "DRIVER={"
         + (config.driver or "ODBC Driver 18 for SQL Server")
         + "};SERVER="
         + config.host
-        + f",{config.port};DATABASE="
-        + config.database
+        + f",{config.port}"
+        + database_fragment
         + credential_fragment
         + f";Encrypt={encrypt};TrustServerCertificate={trust_server_certificate};Connection Timeout=30;"
     )

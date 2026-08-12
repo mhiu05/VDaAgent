@@ -5,17 +5,121 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000, description="Message from user")
+    conversation_id: str | None = Field(default=None, description="Existing conversation identifier")
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128, description="User identifier")
+    run_id: str | None = Field(default=None, description="Optional profiling run context")
 
 
 class ChatResponse(BaseModel):
     response: str = Field(..., description="Agent response")
     analysis: str = Field(default="", description="Internal analysis summary")
+    conversation_id: str = Field(..., description="Conversation identifier")
+    run_id: str = Field(..., description="Agent run created for this chat turn")
+
+
+class ConversationCreateRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    title: str = Field(default="New conversation", min_length=1, max_length=160)
+
+
+class Conversation(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    message_count: int = Field(default=0, ge=0)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class ChatMessage(BaseModel):
+    id: str
+    conversation_id: str
+    role: str = Field(..., pattern="^(user|agent|system)$")
+    content: str
+    run_id: str | None = None
+    created_at: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class AgentToolDefinition(BaseModel):
+    name: str = Field(..., description="Tool name used in agent traces")
+    description: str = Field(..., description="Tool responsibility")
+    input_schema: dict[str, object] = Field(default_factory=dict, description="Human-readable input schema")
+    output_schema: dict[str, object] = Field(default_factory=dict, description="Human-readable output schema")
+
+
+class AgentRunSummary(BaseModel):
+    run_id: str = Field(..., description="Agent run identifier")
+    trace_id: str = Field(..., description="Trace identifier for observability")
+    status: str = Field(..., description="Run status")
+    metrics: dict[str, object | None] = Field(default_factory=dict, description="Run-level governance metrics")
+
+
+class AgentWorkflowStatus(BaseModel):
+    run_id: str = Field(..., description="Agent run identifier")
+    status: str = Field(..., description="Workflow status")
+    current_step: str = Field(..., description="Last completed workflow step")
+    steps: list[str] = Field(default_factory=list, description="Workflow steps")
+    safe_summary: str = Field(..., description="User-safe agent reasoning summary")
+
+
+class AgentRun(BaseModel):
+    run_id: str = Field(..., description="Agent run identifier")
+    source_name: str = Field(..., description="Profiled source")
+    source_type: str = Field(..., description="Source type")
+    status: str = Field(..., description="Run status")
+    started_at: str = Field(..., description="Run start timestamp")
+    updated_at: str = Field(..., description="Last update timestamp")
+    metrics: dict[str, object | None] = Field(default_factory=dict, description="Run metrics")
+
+
+class AgentTraceEvent(BaseModel):
+    run_id: str = Field(..., description="Agent run identifier")
+    trace_id: str = Field(..., description="Trace identifier")
+    span_id: str = Field(..., description="Span identifier")
+    parent_span_id: str | None = Field(default=None, description="Parent span identifier")
+    event_type: str = Field(..., description="Event type")
+    component: str = Field(..., description="Backend component")
+    tool_name: str | None = Field(default=None, description="Tool name")
+    input_summary: str = Field(..., description="PII-safe input summary")
+    output_summary: str = Field(default="", description="PII-safe output summary")
+    status: str = Field(..., description="Event status")
+    started_at: str = Field(..., description="Event start timestamp")
+    ended_at: str = Field(..., description="Event end timestamp")
+    duration_ms: int = Field(default=0, ge=0, description="Duration in milliseconds")
+    error_message: str | None = Field(default=None, description="PII-safe error message")
+    metadata: dict[str, object] = Field(default_factory=dict, description="PII-safe metadata")
+
+
+class HitlRecord(BaseModel):
+    id: str = Field(..., description="HITL record identifier")
+    run_id: str = Field(..., description="Agent run identifier")
+    type: str = Field(..., description="Decision type")
+    severity: str = Field(..., description="Decision severity")
+    source: str = Field(..., description="Source name")
+    table: str | None = Field(default=None, description="Table, file, or object")
+    columns: list[str] = Field(default_factory=list, description="Related columns")
+    evidence: str = Field(..., description="PII-safe evidence")
+    proposed_action: str = Field(..., description="Suggested reviewer action")
+    status: str = Field(default="pending", description="pending, approved, or rejected")
+    reviewer: str | None = Field(default=None, description="Reviewer name")
+    reviewed_at: str | None = Field(default=None, description="Review timestamp")
+    comment: str | None = Field(default=None, description="Reviewer comment")
+
+
+class HitlDecisionRequest(BaseModel):
+    reviewer: str = Field(default="analyst", description="Reviewer name")
+    comment: str | None = Field(default=None, description="Reviewer comment")
 
 
 class DatabaseConnectionConfig(BaseModel):
     type: str = Field(..., pattern="^(sql_server|postgresql)$", description="Database type")
     host: str = Field(..., description="Database host or server")
-    database: str = Field(..., description="Database name")
+    database: str = Field(
+        default="",
+        description="Database name; leave blank to use the login default database when supported",
+    )
     username: str | None = Field(default=None, description="Database username")
     password: str | None = Field(default=None, description="Database password")
     port: int = Field(default=1433, ge=1, le=65535, description="Database port")
@@ -269,6 +373,9 @@ class ProfileResult(BaseModel):
     relationships: ProfileRelationships = Field(..., description="Cross-column relationships")
     findings: list[ProfileFinding] = Field(default_factory=list, description="Automatic findings")
     quality_summary: QualitySummary = Field(..., description="Finding counts by severity")
+    agent_run: AgentRunSummary | None = Field(default=None, description="Agent observability run summary")
+    agent_status: AgentWorkflowStatus | None = Field(default=None, description="Agent workflow status")
+    governance: dict[str, object] = Field(default_factory=dict, description="PII, HITL, and trace governance summary")
 
 
 class ProfileCollectionSummary(BaseModel):
