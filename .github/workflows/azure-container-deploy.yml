@@ -1,0 +1,93 @@
+name: Deploy Azure Containers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP: rg-p170-hieu
+  ACR_NAME: p170acr08140037
+  ACR_LOGIN_SERVER: p170acr08140037.azurecr.io
+  BACKEND_APP: p170-api-08140037
+  FRONTEND_APP: p170-web-08140019
+  BACKEND_URL: https://p170-api-08140037.azurewebsites.net
+  FRONTEND_URL: https://p170-web-08140019.azurewebsites.net
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to Azure Container Registry
+        run: az acr login --name "$ACR_NAME"
+
+      - name: Build and push backend image
+        run: |
+          docker build \
+            -f Dockerfile.backend.azure \
+            -t "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
+            -t "$ACR_LOGIN_SERVER/backend:latest" \
+            .
+          docker push "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
+          docker push "$ACR_LOGIN_SERVER/backend:latest"
+
+      - name: Build and push frontend image
+        run: |
+          docker build \
+            -f Dockerfile.frontend.azure \
+            --build-arg NEXT_PUBLIC_API_URL="$BACKEND_URL/api/v1" \
+            --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}" \
+            --build-arg NEXT_PUBLIC_AUTH_ALLOW_GUEST="${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}" \
+            --build-arg NEXT_PUBLIC_AUTH_ALLOW_SIGNUP="${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}" \
+            -t "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
+            -t "$ACR_LOGIN_SERVER/frontend:latest" \
+            frontend
+          docker push "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}"
+          docker push "$ACR_LOGIN_SERVER/frontend:latest"
+
+      - name: Deploy backend container
+        run: |
+          az webapp config container set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$BACKEND_APP" \
+            --container-image-name "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
+            --container-registry-url "https://$ACR_LOGIN_SERVER"
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$BACKEND_APP" \
+            --settings WEBSITES_PORT=8000 \
+            --output none
+
+      - name: Deploy frontend container
+        run: |
+          az webapp config container set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$FRONTEND_APP" \
+            --container-image-name "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
+            --container-registry-url "https://$ACR_LOGIN_SERVER"
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$FRONTEND_APP" \
+            --settings WEBSITES_PORT=8080 PORT=8080 NODE_ENV=production \
+              NEXT_PUBLIC_API_URL="$BACKEND_URL/api/v1" \
+              NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
+            --output none
+
+      - name: Restart apps
+        run: |
+          az webapp restart --resource-group "$RESOURCE_GROUP" --name "$BACKEND_APP"
+          az webapp restart --resource-group "$RESOURCE_GROUP" --name "$FRONTEND_APP"
