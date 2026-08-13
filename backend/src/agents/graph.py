@@ -129,6 +129,11 @@ def route_after_summarize(state: ProfilingState) -> str:
     return "qa_router" if (state.get("question") or "").strip() else END
 
 
+def route_after_profile_stage(state: ProfilingState) -> str:
+    """Stop profiling at the first failed ingest, compute, or proposal stage."""
+    return "finalize" if state.get("error") else "next"
+
+
 def _guard(state: ProfilingState) -> str | None:
     """Trần tool_calls dùng chung cho các conditional edge."""
     if state.get("tool_calls", 0) >= MAX_TOOL_CALLS:
@@ -186,9 +191,21 @@ def build_profiling_graph(checkpointer: Any = None) -> Any:
     _add_qa_nodes(graph, terminal="finalize")
 
     graph.set_entry_point("ingest")
-    graph.add_edge("ingest", "compute_stats")
-    graph.add_edge("compute_stats", "propose_metadata")
-    graph.add_edge("propose_metadata", "hitl_review")
+    graph.add_conditional_edges(
+        "ingest",
+        route_after_profile_stage,
+        {"finalize": "finalize", "next": "compute_stats"},
+    )
+    graph.add_conditional_edges(
+        "compute_stats",
+        route_after_profile_stage,
+        {"finalize": "finalize", "next": "propose_metadata"},
+    )
+    graph.add_conditional_edges(
+        "propose_metadata",
+        route_after_profile_stage,
+        {"finalize": "finalize", "next": "hitl_review"},
+    )
     graph.add_conditional_edges(
         "hitl_review",
         route_hitl,

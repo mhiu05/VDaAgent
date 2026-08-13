@@ -74,6 +74,7 @@ from src.services.permissions import (
     PROFILE_REVIEW,
     PROFILE_RUN,
     QA_PROFILE_ASK,
+    REPORT_DRAFT_WRITE,
     STATS_RUN,
     WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
@@ -113,6 +114,19 @@ def _audit(context: RequestContext, event: str, **fields: Any) -> None:
         actor_user_id=context.user_id,
         **fields,
     )
+
+
+def _require_completed_profile(profile: dict[str, Any], run_id: str) -> None:
+    """Fail closed when an export is requested before profiling finishes."""
+    status = (profile.get("run") or {}).get("status")
+    if status != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Profile run '{run_id}' chưa hoàn tất "
+                f"(trạng thái hiện tại: {status or 'unknown'})."
+            ),
+        )
 
 
 def _build_profile_response(
@@ -351,6 +365,7 @@ async def export_profile(
         raise HTTPException(
             status_code=404, detail=f"Không tìm thấy profile run '{run_id}'."
         )
+    _require_completed_profile(profile, run_id)
 
     if not settings.security_allow_raw_export:
         for row in profile["column_stats"]:
@@ -399,6 +414,7 @@ def _report_profile(
         raise HTTPException(
             status_code=404, detail=f"Không tìm thấy profile run '{run_id}'."
         )
+    _require_completed_profile(profile, run_id)
 
     # Pending PII is sensitive too. Export must fail closed until the proposal
     # is rejected, even though the normal profile response masks confirmed PII.
@@ -487,6 +503,101 @@ def _report_profile(
             "evidence": True,
         },
     }
+
+
+def _profile_report_payload(report_payload: dict[str, Any], run_id: str) -> dict[str, Any]:
+    """Map the bounded profile projection to the report workflow contract."""
+    profile = report_payload["profile"]
+    run = profile["run"]
+    dataset = profile.get("dataset") or {}
+    dataset_name = dataset.get("name") or run.get("dataset_id") or "Dataset"
+    version = run.get("version") or "?"
+    stats = profile.get("column_stats") or []
+    missing_columns = [
+        str(item.get("column_name"))
+        for item in stats
+        if float(item.get("null_pct") or 0) > 0
+    ]
+    warnings = [str(item) for item in (run.get("risk_warnings") or [])]
+    test_count = len(profile.get("test_results") or [])
+    analysis_count = len(report_payload.get("analysis_sessions") or [])
+
+    summary = run.get("narrative_report") or (
+        f"Profile v{version} đã hoàn tất cho bộ dữ liệu {dataset_name}. "
+        f"Báo cáo gồm {len(stats)} cột và {run.get('row_count') or 0} dòng."
+    )
+    methodology = (
+        f"Profile run: {run_id}\n"
+        f"Chế độ scan: {run.get('scan_mode') or '—'}\n"
+        f"Số dòng: {run.get('row_count') or 0}\n"
+        f"Số cột: {len(stats)}\n"
+        f"Approximate: {'Có' if run.get('is_approximate') else 'Không'}"
+    )
+    findings = (
+        f"Có {len(missing_columns)} cột có giá trị thiếu"
+        + (f": {', '.join(missing_columns)}." if missing_columns else ".")
+        + f"\nCó {len(warnings)} cảnh báo chất lượng/quyền riêng tư."
+        + f"\nCó {test_count} kết quả kiểm định và {analysis_count} phiên phân tích liên kết."
+    )
+    limitations = (
+        "Báo cáo chỉ chứa metadata, thống kê tổng hợp và evidence đã được lọc. "
+        "Không chứa raw rows, raw dataset hoặc giá trị PII chưa được phép export."
+    )
+    sections: list[dict[str, Any]] = [
+        {"kind": "narrative", "title": "Tóm tắt profile", "content": {"text": summary}},
+        {"kind": "methodology", "title": "Phương pháp profiling", "content": {"text": methodology}},
+        {"kind": "findings", "title": "Kết quả chính", "content": {"text": findings}},
+        {"kind": "limitations", "title": "Giới hạn và chính sách", "content": {"text": limitations}},
+    ]
+    if warnings:
+        sections.append({
+            "kind": "recommendations",
+            "title": "Cảnh báo cần xem xét",
+            "content": {"text": "\n".join(f"- {warning}" for warning in warnings)},
+        })
+    return {
+        "title": f"Báo cáo profile · {dataset_name} · v{version}",
+        "slug": f"profile-{run_id}",
+        "executive_summary": summary,
+        "scope": {
+            "profile_run_id": run_id,
+            "dataset_id": run.get("dataset_id"),
+            "dataset_name": dataset_name,
+            "source": "profile_run",
+        },
+        "sections": sections,
+    }
+
+
+@router.post("/profile/{run_id}/report", status_code=201)
+async def create_profile_report(
+    run_id: str,
+    context: RequestContext = Depends(require_permission(REPORT_DRAFT_WRITE)),
+) -> dict[str, Any]:
+    """Create and submit a report snapshot from a completed profile run."""
+    get_rate_limiter().check(context.user_id)
+    payload = _profile_report_payload(
+        _report_profile(run_id, context.workspace_id), run_id
+    )
+    repo = get_repository()
+    try:
+        report = repo.create_report(context.workspace_id, context.user_id, payload)
+        submitted = repo.submit_report(report["id"], context.workspace_id, context.user_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not submitted:
+        raise HTTPException(status_code=404, detail="Không tìm thấy report vừa tạo.")
+    _audit(
+        context,
+        "profile_report_created",
+        resource_type="report",
+        resource_id=submitted["id"],
+        profile_run_id=run_id,
+        report_status=submitted.get("status"),
+    )
+    return submitted
 
 
 @router.get("/profile/{run_id}/report")

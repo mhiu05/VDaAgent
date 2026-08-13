@@ -103,16 +103,13 @@ class ProfileComputation:
 # --------------------------------------------------------------------------- #
 # Nạp dữ liệu
 # --------------------------------------------------------------------------- #
-_SAFE_REF = re.compile(r"^[A-Za-z0-9_\-./\\: ]+$")
-
-
 def _quote(ref: str) -> str:
     """Escape để chèn dataset_ref vào SQL an toàn.
 
     DuckDB không hỗ trợ parameter binding cho tên file trong `FROM`, nên phải
     tự escape. Chặn ký tự lạ trước, rồi nhân đôi dấu nháy đơn.
     """
-    if not _SAFE_REF.match(ref):
+    if not ref or any(ord(char) < 32 for char in ref):
         raise ValueError(
             "dataset_ref chứa ký tự không cho phép. Chỉ nhận chữ, số, _ - . / \\ : và khoảng trắng."
         )

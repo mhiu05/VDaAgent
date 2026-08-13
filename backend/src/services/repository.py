@@ -3244,6 +3244,66 @@ class Repository:
             )
         return self.get_report(report_id, workspace_id)
 
+    def delete_report_draft(
+        self, report_id: str, workspace_id: str, actor_user_id: str
+    ) -> bool:
+        """Delete an analyst-owned report before it becomes a published artifact."""
+        with self.engine.begin() as conn:
+            report = (
+                conn.execute(
+                    select(reports).where(
+                        reports.c.id == report_id,
+                        reports.c.workspace_id == workspace_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not report:
+                return False
+            if report["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ tác giả mới có thể xóa report này.")
+            if report["status"] not in {"draft", "in_review"}:
+                raise ValueError("Chỉ report chưa publish mới có thể xóa.")
+
+            versions = list(
+                conn.execute(
+                    select(report_versions.c.id, report_versions.c.status)
+                    .where(report_versions.c.report_id == report_id)
+                ).mappings()
+            )
+            if not versions:
+                raise ValueError("Report không có version hợp lệ để xóa.")
+            if any(version["status"] in {"approved", "published"} for version in versions):
+                raise ValueError("Report đã qua bước duyệt, không thể xóa.")
+
+            version_ids = [version["id"] for version in versions]
+            conn.execute(
+                report_reviews.delete().where(
+                    report_reviews.c.report_version_id.in_(version_ids)
+                )
+            )
+            conn.execute(
+                report_sections.delete().where(
+                    report_sections.c.report_version_id.in_(version_ids)
+                )
+            )
+            conn.execute(
+                report_visualizations.delete().where(
+                    report_visualizations.c.report_version_id.in_(version_ids)
+                )
+            )
+            conn.execute(
+                report_versions.delete().where(report_versions.c.id.in_(version_ids))
+            )
+            conn.execute(
+                reports.delete().where(
+                    reports.c.id == report_id,
+                    reports.c.workspace_id == workspace_id,
+                )
+            )
+            return True
+
     def submit_report(
         self, report_id: str, workspace_id: str, actor_user_id: str
     ) -> dict[str, Any] | None:

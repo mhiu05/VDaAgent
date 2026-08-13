@@ -212,6 +212,20 @@ export function getPublishedReport<T>(reportId: string): Promise<T> {
   return request<T>(`/reports/${encodeURIComponent(reportId)}`);
 }
 
+export function createProfileReport<T = { id: string; status: string }>(runId: string): Promise<T> {
+  return request<T>(`/profile/${encodeURIComponent(runId)}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+}
+
+export function deleteReport(reportId: string): Promise<{ deleted: boolean; report_id: string }> {
+  return request<{ deleted: boolean; report_id: string }>(`/reports/${encodeURIComponent(reportId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function deleteDataset(datasetId: string): Promise<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }> {
   return request<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }>(`/datasets/${encodeURIComponent(datasetId)}`, {
     method: "DELETE",

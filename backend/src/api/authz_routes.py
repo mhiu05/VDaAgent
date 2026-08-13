@@ -201,14 +201,18 @@ async def update_member(
 
 @router.get("/reports")
 async def list_published_reports(context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ))) -> dict[str, Any]:
-    return {"reports": get_repository().list_reports(context.workspace_id, published_only=True)}
+    # Viewers only see published snapshots. Analysts/Admins also need to see
+    # drafts and in-review reports they create from a completed profile run.
+    published_only = context.workspace.role == "viewer"
+    return {"reports": get_repository().list_reports(context.workspace_id, published_only=published_only)}
 
 
 @router.get("/reports/{report_id}")
 async def get_published_report(report_id: str, context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ))) -> dict[str, Any]:
-    report = get_repository().get_report(report_id, context.workspace_id, published_only=True)
+    published_only = context.workspace.role == "viewer"
+    report = get_repository().get_report(report_id, context.workspace_id, published_only=published_only)
     if not report:
-        raise HTTPException(status_code=404, detail="Không tìm thấy published report.")
+        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
     return report
 
 
@@ -238,6 +242,20 @@ async def update_report(report_id: str, payload: ReportCreate, context: RequestC
         raise HTTPException(status_code=404, detail="Không tìm thấy report.")
     _audit(context, "report_updated", resource_type="report", resource_id=report_id)
     return report
+
+
+@router.delete("/reports/{report_id}")
+async def delete_report(report_id: str, context: RequestContext = Depends(require_permission(REPORT_DRAFT_WRITE))) -> dict[str, Any]:
+    try:
+        deleted = get_repository().delete_report_draft(report_id, context.workspace_id, context.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
+    _audit(context, "report_deleted", resource_type="report", resource_id=report_id)
+    return {"deleted": True, "report_id": report_id}
 
 
 @router.post("/reports/{report_id}/submit")

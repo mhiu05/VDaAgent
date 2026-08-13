@@ -121,6 +121,11 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
             "error": f"Không nạp được dataset: {exc}",
         }
 
+    if df.empty or len(df.columns) == 0:
+        detail = "Dataset has no rows or columns. Check that the file has a header and at least one data row."
+        repo.update_profile_run(run_id, status="failed", error=detail)
+        return {"dataset_id": dataset_id, "profile_run_id": run_id, "error": detail}
+
     cache_dataframe(run_id, df)
     repo.update_profile_run(run_id, row_count=len(df), executed_query=query)
     get_audit().log(
@@ -172,6 +177,9 @@ def compute_stats_node(state: ProfilingState) -> dict[str, Any]:
     df = get_dataframe(run_id)
     if df is None:
         return {"error": "Không tìm thấy dữ liệu đã nạp để tính thống kê."}
+
+    if df.empty or len(df.columns) == 0:
+        return {"error": "Dataset has no rows or columns for statistics. Upload a file with a header and at least one data row."}
 
     scan_mode = state.get("scan_mode", "sample")
     pii_flags = compute.detect_pii(df)

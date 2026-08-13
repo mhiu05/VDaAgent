@@ -60,6 +60,16 @@ export function clearChatHistory(): void {
   notifyHistoryChanged();
 }
 
+export function deleteConversation(id: string): boolean {
+  if (typeof window === "undefined") return false;
+  const conversations = readConversations();
+  const exists = conversations.some((conversation) => conversation.id === id);
+  if (!exists) return false;
+  storage().removeItem(snapshotKey(id));
+  saveConversations(conversations.filter((conversation) => conversation.id !== id));
+  return true;
+}
+
 function notifyHistoryChanged(): void {
   window.dispatchEvent(new Event(CHAT_HISTORY_EVENT));
 }

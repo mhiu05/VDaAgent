@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { CHAT_HISTORY_EVENT, createConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
+import { CHAT_HISTORY_EVENT, clearChatHistory, createConversation, deleteConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
@@ -51,6 +51,28 @@ function AppShellContent({ children }: { children: ReactNode }) {
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0);
   }
 
+  function removeConversation(conversation: ChatConversation) {
+    if (!window.confirm(`Xóa đoạn chat "${conversation.title}" khỏi lịch sử?`)) return;
+    if (!deleteConversation(conversation.id)) return;
+    const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
+    if (!active) return;
+    setShowAllHistory(false);
+    const next = listConversations()[0];
+    if (next) {
+      router.push(`/chat?conversation=${next.id}`);
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: next.id } })), 0);
+    } else {
+      router.push("/dashboard");
+    }
+  }
+
+  function removeAllConversations() {
+    if (!window.confirm("Xóa toàn bộ lịch sử chat trong workspace này? Hành động này không thể hoàn tác.")) return;
+    clearChatHistory();
+    setShowAllHistory(false);
+    if (pathname === "/chat") router.push("/dashboard");
+  }
+
   if (isPublicPage || isAuthPage) return <main className="main-content home-only-content">{children}</main>;
 
   const workspaceShell = (
@@ -75,7 +97,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
             {conversations.length === 0 && <p className="sidebar-empty">Chưa có cuộc trò chuyện</p>}
             {conversations.slice(0, 5).map((conversation) => {
               const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
-              return <Link className={active ? "chat-history-item active" : "chat-history-item"} href={`/chat?conversation=${conversation.id}`} key={conversation.id} onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0)}>{conversation.title}</Link>;
+              return <div className={active ? "chat-history-row active" : "chat-history-row"} key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0)}>{conversation.title}</Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>;
             })}
           </div>
           <div className="chat-history-footer"><button type="button" className="history-button" onClick={() => setShowAllHistory(true)} disabled={!conversations.length}>Lịch sử</button></div>
@@ -94,7 +116,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
           {authenticated && me && <button type="button" className="sidebar-signout" onClick={() => void signOut()}><span aria-hidden="true">↪</span>Đăng xuất</button>}
         </div>
       </aside>
-      {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div><div className="history-modal-list">{conversations.map((conversation) => <Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} key={conversation.id} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link>)}</div></section></div>}
+      {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><div className="history-modal-header-actions"><button type="button" className="history-clear-button" onClick={removeAllConversations}>Xóa tất cả</button><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div></div><div className="history-modal-list">{conversations.map((conversation) => <div className="history-modal-row" key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>)}</div></section></div>}
       <main className="main-content">{children}</main>
     </div>
   );
