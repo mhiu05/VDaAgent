@@ -5,8 +5,8 @@ import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/app/providers";
 
 export const metadata: Metadata = {
-  title: "Profile — Data intelligence",
-  description: "Evidence-first data profiling with human review.",
+  title: "Profile — Phân tích dữ liệu",
+  description: "Profiling dữ liệu dựa trên evidence với quy trình human review.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

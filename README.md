@@ -1,117 +1,146 @@
 # P-170 — Data Profiling & Analysis Workspace
 
-P-170 là ứng dụng local-first hỗ trợ Analyst biến một file dữ liệu thành một
-profile có thể kiểm tra, review và dùng cho các phân tích aggregate có
-evidence. Compute engine chịu trách nhiệm tạo số liệu; LLM chỉ hỗ trợ
-narrative, retrieval và hỏi đáp, không phải nguồn sự thật cho các con số.
+P-170 là workspace giúp biến một dataset thành hồ sơ dữ liệu có thể kiểm tra,
+review và dùng cho phân tích có evidence.
 
-## Quy trình chính
+Nguyên tắc cốt lõi:
+
+- Compute engine tạo các con số deterministic; LLM chỉ diễn giải, retrieval và
+  hỗ trợ Q&A.
+- Metadata, proposal, quality issue, execution và audit được lưu theo workspace.
+- PII và raw row không được đưa vào report/export thông thường.
+- Mọi aggregate trong Analysis Workspace đều bounded, không nhận raw SQL từ
+  frontend hoặc Agent.
+
+## Luồng sử dụng
 
 ```text
-Upload dataset
-      ↓
-Profiling deterministic
-      ↓
-Review proposal metadata
-      ↓
-Profile completed
-   ↙       ↓        ↘
-Report  Test/Drift  Q&A Agent
-              ↓
-       Start analysis
-              ↓
- Context → Quality gate → Bounded aggregate → Evidence
+Chọn workspace hoặc guest trial
+        ↓
+Upload dataset → Profiling deterministic
+        ↓
+Review metadata proposals (semantic type / key / PII)
+        ↓
+Profile report
+   ┌────┼───────────────┬──────────────┐
+   ↓    ↓               ↓              ↓
+ Q&A  Kiểm định      Drift       Tạo Analysis
+                                      ↓
+                         Context → Quality gate
+                                      ↓
+                         Khám phá theo nhóm
+                                      ↓
+                            Aggregate evidence
 ```
 
-Một phiên làm việc điển hình:
+Một workflow thông thường:
 
-1. Upload CSV, TSV, Parquet hoặc JSON.
-2. Chọn `sample` để chạy nhanh hoặc `full` để quét toàn bộ file.
-3. Mở profile report và xử lý các proposal về semantic type, candidate key và
-   PII. Proposal chưa review sẽ chặn các bước cần profile đã được xác nhận.
-4. Xem thống kê, report, statistical test hoặc so sánh drift giữa hai profile
-   run.
-5. Dùng Agent để hỏi đáp dựa trên evidence của profile.
-6. Từ một profile đã `completed`, tạo Analysis Session, khai báo semantic
-   context, chạy quality gate và thực hiện aggregate an toàn.
+1. Mở workspace Analyst hoặc dùng guest Analyst để thử sản phẩm.
+2. Tải CSV, TSV, Parquet hoặc JSON.
+3. Chọn `sample` để khám phá nhanh hoặc `full` để quét toàn bộ source.
+4. Mở profile report và xử lý các proposal còn pending.
+5. Dùng report, Q&A, kiểm định thống kê hoặc drift.
+6. Nếu cần trả lời một câu hỏi nghiệp vụ, tạo Analysis Session từ profile đã
+   hoàn tất.
+7. Khai báo row grain, dimensions và measures; approve context để chạy quality
+   gate.
+8. Trong “Khám phá dữ liệu”, chọn cách so sánh nhóm, metric, filter và thứ tự
+   sắp xếp. Kết quả có execution ID và result hash.
+9. Xuất report PDF/JSON và chọn những mục cần đưa vào bản xuất.
 
-## Chức năng hiện có
+## Hai luồng truy cập
 
-- Profiling reproducible: schema, kiểu dữ liệu, missingness, cardinality,
-  uniqueness, duplicate, outlier, phân phối, top-k và correlation.
-- Phát hiện proposal cho PII, quasi-identifier, candidate key và semantic
-  type, có human-in-the-loop để confirm, edit hoặc reject.
-- Chạy statistical test với alpha và multiple-testing correction.
-- So sánh drift giữa hai profile run.
-- Report Markdown và hỏi đáp Agent qua API thường hoặc SSE streaming.
-- Lưu dataset, profile run, proposal, test result, analysis session và audit
-  event để xem lại.
-- Analysis Workspace MVP với quality gate và các aggregate `count`,
-  `count_distinct`, `sum`, `mean`, `median`.
-- Guardrail: không nhận raw SQL từ client/LLM, không aggregate/group-by/filter
-  trên cột PII, giới hạn số dimension/filter/row trả về và lưu `result_hash`.
+### Chưa đăng nhập — guest trial
+
+Khi `AUTH_ALLOW_GUEST=true`, người dùng có thể chọn Viewer, Analyst hoặc Admin
+trên navbar và dùng workspace tạm mà không cần tạo tài khoản.
+
+- Guest được cấp token riêng cho browser session và workspace guest riêng.
+- Quyền backend vẫn được kiểm tra theo role, giống luồng đăng nhập.
+- Dữ liệu guest không gắn với email hay workspace cá nhân.
+- Guest workspace/file có thể được dọn sau thời gian retention hoặc khi đổi role;
+  không dùng guest trial cho dữ liệu production hoặc dữ liệu cần lưu lâu dài.
+- Guest mode không dùng SQLite. Metadata vẫn đi qua PostgreSQL; storage dùng
+  provider đã cấu hình cho guest (`GUEST_STORAGE_PROVIDER`).
+
+### Đã đăng nhập
+
+Người dùng đăng nhập bằng Supabase Auth. Access token và workspace hiện tại được
+gửi tới backend trong `Authorization: Bearer` và `X-Workspace-Id`.
+
+- Dữ liệu, lịch sử, report draft và workspace membership được giữ lâu dài.
+- Role và capability được resolve lại ở backend cho từng request.
+- Viewer chủ yếu đọc report đã publish.
+- Analyst upload, profiling, review metadata, test, drift, Q&A và tạo Analysis.
+- Admin có thêm quản lý member, report workflow, audit và workspace settings.
+
+Trang chủ và Hướng dẫn chỉ là trang tổng quan; không gắn trạng thái role hiện tại.
+Role/workspace chỉ có ý nghĩa khi người dùng bước vào workspace.
+
+## Tính năng chính
+
+- Profiling deterministic: schema, dtype, missingness, cardinality, uniqueness,
+  duplicate, outlier, top values và correlation.
+- Human-in-the-loop review cho semantic type, candidate key và PII proposal.
+- Profile report có provenance, narrative summary và các metric đã kiểm chứng.
+- Q&A theo profile evidence; có thể mở rộng tới external knowledge base nếu được
+  cấu hình.
+- Statistical tests với alpha và multiple-testing correction.
+- Drift giữa hai profile run của cùng dataset.
+- Analysis Workspace với context, quality gate và bounded aggregate.
+- Exploration presets: so sánh nhóm, tìm nhóm dẫn đầu, tìm nhóm thấp nhất; có
+  filter và insight max/min/spread.
+- Export PDF hoặc JSON với checklist chọn từng nhóm nội dung, Chọn tất cả và Bỏ
+  chọn tất cả. PDF đánh số phân cấp như `1`, `7.1`, `7.1.1`.
+- Google Drive storage tùy chọn cho file lớn; Supabase vẫn là nguồn sự thật cho
+  Auth, workspace, permission, metadata và audit.
 
 ## Kiến trúc
 
 ```text
-Next.js frontend :3000
-        │ HTTP/JSON + SSE
-        ▼
-FastAPI backend :8000/api/v1
-        ├── LangGraph profiling + Q&A
-        ├── DuckDB/pandas/numpy/scipy compute engine
-        ├── SQLite metadata và LangGraph checkpoint
-        ├── Local uploaded sources
-        ├── BM25/local embedding retrieval index
-        └── Append-only audit log
+Next.js :3000
+  ├─ Supabase browser Auth / guest transport
+  └─ HTTP JSON + SSE + X-Workspace-Id
+                    ↓
+FastAPI :8000/api/v1
+  ├─ JWT/JWKS + workspace membership + capability checks
+  ├─ LangGraph profiling và Q&A
+  ├─ DuckDB / pandas / NumPy / SciPy compute
+  ├─ PostgreSQL: metadata, checkpoint, retrieval, audit
+  └─ Storage adapter: Supabase Storage hoặc Google Drive
 ```
 
-Các thư mục chính:
+Các thư mục quan trọng:
 
 ```text
-backend/src/
-├── main.py                         # FastAPI app, health check, CORS
-├── api/routes.py                   # profiling, dataset, Q&A, test, drift
-├── api/analysis_routes.py          # Analysis Workspace API
-├── models/                         # Pydantic request/response contracts
-├── agents/                         # LangGraph, nodes, state và read-only tools
-└── services/
-    ├── compute.py                  # số liệu profiling deterministic
-    ├── stats_tests.py              # statistical tests
-    ├── drift.py                    # drift computation
-    ├── repository.py               # metadata và profile persistence
-    ├── analysis_engine.py          # bounded aggregate engine
-    ├── analysis_repository.py      # Analysis Workspace persistence
-    ├── quality_gate.py             # deterministic quality rules
-    ├── retrieval.py                # BM25/local retrieval
-    ├── llm.py                      # OpenAI-compatible providers
-    ├── guardrails.py               # giới hạn input/output/tool
-    └── security.py                 # token, rate limit, audit, masking
-
-frontend/src/
-├── app/chat/                       # Agent workspace và upload nhanh
-├── app/datasets/                   # dataset list, upload, run history
-├── app/profiles/[runId]/           # report, review, test, analysis
-├── app/analyses/                   # Analysis Workspace
-├── app/compare/                    # so sánh drift
-├── components/                     # layout và UI dùng chung
-└── lib/                            # API client, SSE và TypeScript types
+backend/src/api/                 FastAPI routes
+backend/src/agents/              LangGraph, prompts, read-only tools
+backend/src/services/            compute, storage, retrieval, auth, quality gate
+backend/src/models/              Pydantic contracts
+backend/migrations/              Alembic migrations
+frontend/src/app/                Next.js pages và API route cho PDF
+frontend/src/components/         app shell, navbar, auth và UI dùng chung
+frontend/src/lib/                API client, auth, types, SSE
+scripts/                         knowledge-base và auth migration utilities
+tests/                           backend/API/compute/security tests
+data/knowledge_base/             corpus retrieval local
 ```
 
 ## Yêu cầu
 
-- Python 3.11 trở lên
-- Node.js 20 trở lên
-- pnpm 9 trở lên
+- Python 3.11+
+- Node.js 20+
+- pnpm 9+
+- PostgreSQL (Supabase PostgreSQL dùng cho production)
 - Git
-- LLM API key là tùy chọn. Profiling, test, drift và compute vẫn chạy được
-  khi chưa cấu hình LLM; phần narrative/Q&A phụ thuộc provider đã chọn.
+- LLM key tùy chọn về mặt compute; nếu thiếu, profiling/test/drift vẫn chạy,
+  nhưng narrative/Q&A có thể không hoạt động hoặc dùng fallback.
 
-## Cài đặt và chạy local
+## Cài đặt local
 
 ### Windows PowerShell
 
-Từ thư mục gốc repository:
+Từ thư mục root:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -126,15 +155,29 @@ pnpm install
 cd ..
 ```
 
-Mở hai terminal:
+Mở `.env` và tối thiểu điền:
+
+```env
+APP_ENV=development
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres
+AUTH_MODE=dual
+AUTH_ALLOW_GUEST=true
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+```
+
+Nếu dùng Supabase Auth/Storage, điền thêm `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY` và `SUPABASE_SECRET_KEY`. Không đưa secret key vào
+`NEXT_PUBLIC_*`.
+
+Khởi động hai terminal:
 
 ```powershell
-# Terminal 1 — backend
+# Terminal 1
 .\.venv\Scripts\python.exe -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
 ```
 
 ```powershell
-# Terminal 2 — frontend
+# Terminal 2
 cd frontend
 pnpm dev --port 3000
 ```
@@ -151,114 +194,170 @@ corepack enable
 cd frontend && pnpm install && cd ..
 ```
 
-Sau đó chạy backend và frontend bằng các lệnh tương tự ở trên, thay đường dẫn
-virtualenv bằng `.venv/bin/python`.
+Chạy backend bằng `.venv/bin/python` và frontend bằng `pnpm dev --port 3000`.
 
-Khi khởi động xong:
+Sau khi khởi động:
 
 - Frontend: <http://localhost:3000>
-- API docs: <http://localhost:8000/docs>
 - Health: <http://localhost:8000/health>
-- API root: <http://localhost:8000/>
+- API docs: <http://localhost:8000/docs> khi `APP_ENV` không phải `production`
+- API prefix: <http://localhost:8000/api/v1>
 
-Có thể dùng shortcut trên Windows nếu đã cài GNU Make:
+Có thể dùng shortcut trên Windows nếu đã cài Make:
 
-```powershell
-gmake install          # cài dependency backend/frontend
-gmake dev              # mở backend và frontend ở hai cửa sổ
-gmake health           # kiểm tra backend
-gmake frontend-check   # typecheck và lint frontend
-gmake frontend-build   # build frontend production
+```text
+make install
+make dev
+make health
+make frontend-check
+make frontend-build
 ```
 
-## Cấu hình
+## Cấu hình storage
 
-`config.yaml` chứa cấu hình không bí mật; `.env` chứa secret và không được
-commit. Bắt đầu bằng cách sao chép `.env.example` thành `.env`.
-
-Các biến thường dùng:
+### Supabase Storage mặc định
 
 ```env
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o-mini
-OPENAI_API_KEY=your_key
-NEXT_PUBLIC_API_URL=http://localhost:8000
+STORAGE_PROVIDER=supabase
+SUPABASE_STORAGE_BUCKET=p170-dataset
+SUPABASE_STORAGE_PREFIX=datasets
+SUPABASE_STORAGE_TIMEOUT_SECONDS=300
+SUPABASE_STORAGE_RESUMABLE_THRESHOLD_MB=6
+SUPABASE_STORAGE_CHUNK_MB=6
 ```
 
-Ứng dụng hỗ trợ các provider OpenAI-compatible được khai báo trong
-`.env.example`, gồm `openai`, `openrouter`, `gemini`, `groq`, `together`,
-`ollama` và `custom`. Mặc định metadata dùng `data/app.db`, checkpoint dùng
-`data/checkpoints.sqlite`, file upload nằm trong `data/uploads/`, index nằm
-trong `data/index/` và audit log nằm ở `data/audit.jsonl`.
+File lớn hơn ngưỡng resumable được upload theo chunk. Giới hạn ứng dụng mặc định
+là `SECURITY_MAX_UPLOAD_MB=500`, nhưng Supabase Free có giới hạn file thực tế
+50 MB. Nếu bucket/provider từ chối file lớn hơn giới hạn plan, cần dùng provider
+khác hoặc nâng plan.
 
-Nếu bật `security.require_api_token: true` trong `config.yaml`, cần đặt
-`API_TOKEN` và gửi request với header `Authorization: Bearer <token>`.
+### Google Drive cho file lớn
 
-Lần chạy đầu tiên có thể tải model embedding local được cấu hình trong
-`config.yaml`. Nếu không tải được embedding, retrieval có thể fallback về
-BM25-only.
+Google Drive chỉ lưu binary source; Supabase vẫn lưu Auth, workspace, quyền,
+dataset metadata và audit.
 
-## Các màn hình chính
+1. Tạo OAuth Web Client trong Google Cloud, bật Google Drive API.
+2. Thêm redirect URI chính xác:
+   `http://localhost:8000/api/v1/google-drive/callback`.
+3. Tạo folder private và lấy ID sau `/folders/` làm `GOOGLE_DRIVE_FOLDER_ID`.
+4. Tạo key mã hóa token:
 
-- `/chat`: upload nhanh và hỏi Data Profiling Agent.
-- `/datasets`: danh sách dataset và lịch sử profile run.
-- `/datasets/new`: upload và bắt đầu profiling.
-- `/profiles/{runId}`: profile report, thống kê và cảnh báo.
-- `/profiles/{runId}/review`: review proposal metadata.
-- `/profiles/{runId}/analysis`: statistical test và thao tác phân tích liên
-  quan tới profile.
-- `/analyses`: danh sách Analysis Session.
-- `/analyses/new`: tạo session từ profile đã hoàn tất.
-- `/analyses/{sessionId}`: context, quality gate và bounded execution.
-- `/compare`: so sánh drift giữa baseline run và current run.
+   ```powershell
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
 
-## API chính
+5. Điền `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`,
+   `GOOGLE_DRIVE_FOLDER_ID`, `GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY` và:
 
-Backend mount các router dưới `/api/v1`:
+   ```env
+   STORAGE_PROVIDER=google_drive
+   ```
 
-| Nhóm | Endpoint tiêu biểu |
+6. Restart backend, vào `/datasets/new`, chọn Kết nối Google Drive và hoàn tất
+   OAuth. Kết nối thuộc workspace; sau khi Admin kết nối, Analyst trong workspace
+   có thể upload.
+
+Không commit OAuth client secret, refresh token, Fernet key, `.env` hoặc API key.
+
+## Role và capability
+
+| Role | Phạm vi chính |
 | --- | --- |
-| Dataset | `POST /datasets/upload`, `GET /datasets`, `GET /datasets/{id}/runs` |
-| Profiling | `POST /profile`, `GET /profile/{run_id}`, `GET /profile/{run_id}/report` |
-| Review | `PATCH /profile/{run_id}/confirm` |
-| Test/drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
-| Q&A | `POST /qa`, `POST /qa/stream` |
-| Analysis | `/analysis-sessions` và các sub-route context/gate/executions |
-| System | `GET /health`, `GET /status`, `GET /audit` |
+| Viewer | Đọc và export report đã publish. |
+| Analyst | Viewer + upload, profiling, review metadata, test, drift, Q&A, Analysis và report draft/submit. |
+| Admin | Analyst + quản lý member, review/publish/archive report, audit và workspace settings. |
 
-Swagger UI tại `/docs` là contract chi tiết và nguồn tham khảo tốt nhất khi
-gọi API trực tiếp.
+Frontend chỉ ẩn/hiện action để UX rõ hơn. Backend mới là nơi quyết định quyền.
+Thông thường: `401` là auth không hợp lệ, `403` là thiếu capability, `404` là
+resource không thuộc workspace, `409 workspace_required` là cần chọn workspace.
 
-## Kiểm tra chất lượng
+## Route frontend chính
+
+```text
+/                         Trang chủ
+/guide                    Hướng dẫn
+/login, /signup           Auth
+/dashboard                Dashboard theo role
+/datasets                 Dataset và profile runs
+/datasets/new             Upload và tạo profiling run
+/profiles/{runId}         Profile report
+/profiles/{runId}/review  Review proposal metadata
+/profiles/{runId}/analysis Kiểm định, drift và export
+/analyses                 Danh sách Analysis Session
+/analyses/new             Tạo Analysis Session
+/analyses/{sessionId}     Context, quality gate và exploration
+/chat                     Agent Q&A
+/reports                  Published report portal
+/compare                  So sánh profile/drift
+```
+
+## API nhóm chính
+
+Tất cả API nghiệp vụ có prefix `/api/v1`.
+
+```text
+GET/POST  /session, /me, /workspaces
+POST      /datasets/upload
+GET       /datasets, /datasets/{dataset_id}/runs
+POST      /profile
+GET       /profile/{run_id}
+PATCH     /profile/{run_id}/confirm
+POST      /profile/{run_id}/test
+POST      /profile/{run_id}/drift
+GET       /profile/{run_id}/report
+POST      /qa và /qa/stream
+
+POST      /analysis-sessions
+POST      /analysis-sessions/{id}/context-versions
+POST      /analysis-sessions/{id}/context-versions/{context_id}/approve
+POST      /analysis-sessions/{id}/quality-gate
+POST      /analysis-sessions/{id}/executions
+GET       /analysis-sessions/{id}/executions
+
+GET       /google-drive/status
+GET       /google-drive/connect
+DELETE    /google-drive/connection
+```
+
+## Kiểm tra trước khi commit
+
+Từ root:
 
 ```powershell
-# Backend
-pytest -q
+python -m pytest -q
+```
 
-# Frontend
-cd frontend
+Từ `frontend/`:
+
+```powershell
 pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
 ```
 
+Health backend:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+```
+
+Test cần PostgreSQL test database riêng. Không trỏ test vào database production.
+
 ## Giới hạn hiện tại
 
-- Analysis Workspace hiện chỉ hỗ trợ một profile run làm source và bounded
-  aggregate; chưa có raw SQL, join nhiều bảng hoặc data-cleaning recipe.
-- `deep` analysis mới dừng ở mức chuẩn bị workflow; planner/executor nhiều
-  bước, retry/cancel, insight bank và report finalization chưa hoàn thiện.
-- Profile chạy bằng `sample` được đánh dấu `is_approximate`; kết quả không nên
-  được xem là số liệu exact nếu chưa xác nhận phạm vi mẫu.
-- SQLite phù hợp cho local MVP. Quy trình migration versioned và deployment
-  production cần được bổ sung khi mở rộng.
+- Một Analysis Session gắn với một profile run; chưa hỗ trợ join nhiều bảng.
+- Analysis không nhận arbitrary SQL, notebook hoặc cleaning recipe.
+- `deep` mode vẫn là workflow mở rộng; planner/approval nhiều bước chưa hoàn tất
+  như quick bounded analysis.
+- Sample run phù hợp khám phá nhanh, không mặc định là số liệu exact.
+- Guest trial không phải cơ chế lưu trữ dài hạn.
+- Published report là snapshot; thay đổi lớn cần tạo draft/version theo workflow
+  report hiện có.
 
 ## Tài liệu liên quan
 
-- [`docs/summary.md`](docs/summary.md): technical summary, state, persistence,
-  API contract và guardrail.
-- [`docs/Data_Analyst.md`](docs/Data_Analyst.md): nguyên tắc và phạm vi nghiệp
-  vụ của Data Analyst workflow.
-- [`config.yaml`](config.yaml): cấu hình runtime không bí mật.
-- [`.env.example`](.env.example): danh sách biến môi trường và hướng dẫn secret.
+- [Technical summary](docs/summary.md)
+- [.env.example](.env.example)
+- [config.yaml](config.yaml)
+- [Makefile](Makefile)

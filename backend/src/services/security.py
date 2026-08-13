@@ -20,7 +20,6 @@ from pathlib import Path, PurePath
 from typing import Any
 
 from fastapi import Header, HTTPException, status
-
 from src.config import Settings, get_settings
 
 # Chỉ nhận định dạng bảng mà DuckDB đọc trực tiếp được.
@@ -71,9 +70,8 @@ class Audit:
             **fields,
         }
         line = json.dumps(record, ensure_ascii=False, default=str)
-        with self._lock:
-            with self.path.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+        with self._lock, self.path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
 
     def tail(self, limit: int = 50) -> list[dict[str, Any]]:
         """Đọc `limit` sự kiện gần nhất — phục vụ UI review async."""
@@ -88,6 +86,29 @@ class Audit:
             except json.JSONDecodeError:
                 continue
         return out
+
+
+class DatabaseAudit:
+    """Append-only audit facade backed by the configured metadata database.
+
+    Production deployments must not rely on a process-local JSONL file: a
+    container restart or a second replica would otherwise lose or split the
+    audit trail.  The repository stores the event fields as JSON while keeping
+    the timestamp and event name queryable.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+
+    def log(self, event: str, **fields: Any) -> None:
+        from src.services.repository import get_repository
+
+        get_repository(self.settings).save_audit_event(event, fields)
+
+    def tail(self, limit: int = 50) -> list[dict[str, Any]]:
+        from src.services.repository import get_repository
+
+        return get_repository(self.settings).tail_audit_events(limit)
 
 
 class RateLimiter:
@@ -118,17 +139,17 @@ class RateLimiter:
             )
 
 
-_audit: Audit | None = None
+_audit: Audit | DatabaseAudit | None = None
 _limiter: RateLimiter | None = None
 _lock = threading.Lock()
 
 
-def get_audit(settings: Settings | None = None) -> Audit:
+def get_audit(settings: Settings | None = None) -> Audit | DatabaseAudit:
     global _audit
     with _lock:
         if _audit is None:
             cfg = settings or get_settings()
-            _audit = Audit(cfg.audit_log_path)
+            _audit = Audit(cfg.audit_log_path) if cfg.security_audit_log else DatabaseAudit(cfg)
         return _audit
 
 
@@ -174,6 +195,7 @@ async def require_token(authorization: str | None = Header(default=None)) -> str
 __all__ = [
     "ALLOWED_UPLOAD_SUFFIXES",
     "Audit",
+    "DatabaseAudit",
     "RateLimiter",
     "get_audit",
     "get_rate_limiter",

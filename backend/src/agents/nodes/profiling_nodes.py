@@ -554,6 +554,8 @@ def _risk_warnings(state: ProfilingState) -> list[str]:
             )
 
     for proposal in state.get("pii_proposals") or []:
+        if proposal.get("status") == "rejected":
+            continue
         warnings.append(
             f"Cột '{proposal['column_name']}' nghi là PII ({proposal.get('pii_type')}, "
             f"confidence {proposal['confidence_score']:.0%}) — giá trị đã được ẩn khỏi báo cáo."
@@ -670,7 +672,17 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
     """Sinh báo cáo NL + cảnh báo rủi ro, rồi index cho QA vector search."""
     repo = get_repository()
     run_id = state.get("profile_run_id")
-    warnings = _risk_warnings(state)
+    # Review decisions are persisted in PostgreSQL before the graph resumes.
+    # The checkpoint state still contains the original proposal payload, so
+    # using it directly would make the final narrative report show stale
+    # ``pending`` statuses after the Analyst already confirmed/rejected them.
+    report_state = dict(state)
+    if run_id:
+        stored_proposals = repo.get_proposals(run_id)
+        report_state["candidate_key_proposals"] = stored_proposals.get("candidate_key", [])
+        report_state["semantic_type_proposals"] = stored_proposals.get("semantic_type", [])
+        report_state["pii_proposals"] = stored_proposals.get("pii", [])
+    warnings = _risk_warnings(report_state)
 
     try:
         llm = get_llm()
@@ -681,7 +693,7 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
                     "role": "user",
                     "content": SUMMARIZE_PROMPT.format(
                         row_count=state.get("row_count"),
-                        profile_data=_profile_digest(state, warnings),
+                        profile_data=_profile_digest(report_state, warnings),
                     ),
                 },
             ]
@@ -719,10 +731,12 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
                 doc_id=f"run:{run_id}",
                 text=repo.profile_summary_text(run_id),
                 metadata={
+                    "knowledge_type": "profile_report",
                     "profile_run_id": run_id,
                     "dataset_id": state.get("dataset_id"),
                     "dataset_name": state.get("dataset_name"),
                 },
+                workspace_id=state.get("workspace_id"),
             )
         except Exception:  # noqa: BLE001 - index lỗi không được chặn báo cáo
             warnings.append("Không index được kết quả cho QA vector search.")

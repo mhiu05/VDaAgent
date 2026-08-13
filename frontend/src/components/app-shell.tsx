@@ -1,30 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { CHAT_HISTORY_EVENT, createConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
+import { useAuth } from "@/components/auth-provider";
+import { can, PERMISSIONS } from "@/lib/auth/permissions";
+import { requiredPermissionForPath } from "@/lib/auth/route-access";
+import { PublicNavbar } from "@/components/public-navbar";
 
 const navigation = [
-  { href: "/analyses", label: "Analyses", icon: "A" },
-  { href: "/datasets", label: "Datasets", icon: "▦" },
-  { href: "/compare", label: "So sánh drift", icon: "↔" },
-];
+  { href: "/datasets", label: "Bộ dữ liệu", icon: "▦", permission: PERMISSIONS.datasetRead },
+  { href: "/analyses", label: "Phân tích", icon: "A", permission: PERMISSIONS.analysisRun },
+  { href: "/compare", label: "So sánh drift", icon: "↔", permission: PERMISSIONS.driftRun },
+] as const;
 
-export function AppShell({ children }: { children: ReactNode }) {
+function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [showAllHistory, setShowAllHistory] = useState(false);
+  const { me, authenticated, isGuest, workspaceId, switchWorkspace, signOut } = useAuth();
+  const isHome = pathname === "/";
+  const isGuide = pathname.startsWith("/guide");
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
+  const isPublicPage = isHome || isGuide;
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem("p170-theme");
-    const nextTheme = savedTheme === "dark" ? "dark" : "light";
-    setTheme(nextTheme);
-    document.documentElement.dataset.theme = nextTheme;
-  }, []);
+    if (isPublicPage || isAuthPage) return;
+    const permission = requiredPermissionForPath(pathname);
+    if (me && permission && !can(me.effective_permissions, permission)) router.replace("/dashboard");
+  }, [isAuthPage, isPublicPage, me, pathname, router]);
 
   useEffect(() => {
+    if (isPublicPage || isAuthPage) return;
     const refresh = () => setConversations(listConversations());
     refresh();
     window.addEventListener(CHAT_HISTORY_EVENT, refresh);
@@ -33,7 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.removeEventListener(CHAT_HISTORY_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, []);
+  }, [isAuthPage, isPublicPage]);
 
   function startNewChat() {
     const conversation = createConversation();
@@ -41,52 +51,63 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0);
   }
 
-  function toggleTheme() {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-    document.documentElement.dataset.theme = nextTheme;
-    window.localStorage.setItem("p170-theme", nextTheme);
-  }
+  if (isPublicPage || isAuthPage) return <main className="main-content home-only-content">{children}</main>;
 
-  return (
+  const workspaceShell = (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
-        <Link href="/chat" className="brand" aria-label="P-170 Data Profile">
+        <Link href="/" className="brand" aria-label="P-170 Data Profile">
           <span className="brand-mark" aria-hidden="true">P</span>
-          <span><b>Profile</b><small>Data intelligence</small></span>
+          <span><b>Profile</b><small>Phân tích dữ liệu</small></span>
         </Link>
-        <button
-          type="button"
-          className="theme-toggle"
-          onClick={toggleTheme}
-          aria-label={`Chuyển sang chế độ ${theme === "dark" ? "sáng" : "tối"}`}
-          aria-pressed={theme === "dark"}
-        >
-          <span className="theme-toggle-icon" aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
-          <span>{theme === "dark" ? "Chế độ sáng" : "Chế độ tối"}</span>
-          <span className="theme-toggle-track" aria-hidden="true"><span /></span>
-        </button>
+        <Link className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/"><span aria-hidden="true">⌂</span>Trang chủ</Link>
         <section className="chat-history" aria-label="Lịch sử chat">
-          <div className="sidebar-section-heading"><span>Lịch sử chat</span><button type="button" className="new-chat-button" onClick={startNewChat}>+ New chat</button></div>
+          <div className="sidebar-section-heading"><span>Lịch sử chat</span><button type="button" className="new-chat-button" onClick={startNewChat}>+ Chat mới</button></div>
           <div className="chat-history-list">
             {conversations.length === 0 && <p className="sidebar-empty">Chưa có cuộc trò chuyện</p>}
-            {conversations.slice(0, 12).map((conversation) => {
-              const active = pathname === "/chat";
+            {conversations.slice(0, 5).map((conversation) => {
+              const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
               return <Link className={active ? "chat-history-item active" : "chat-history-item"} href={`/chat?conversation=${conversation.id}`} key={conversation.id} onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0)}>{conversation.title}</Link>;
             })}
           </div>
+          <div className="chat-history-footer"><button type="button" className="history-button" onClick={() => setShowAllHistory(true)} disabled={!conversations.length}>Lịch sử</button></div>
         </section>
         <nav className="nav-list sidebar-navigation" aria-label="Điều hướng dữ liệu">
           <span className="sidebar-section-label">Phân tích dữ liệu</span>
-          {navigation.map((item) => {
+          <Link className={pathname.startsWith("/reports") ? "nav-link active" : "nav-link"} href="/reports"><span aria-hidden="true">▤</span>Báo cáo</Link>
+          {navigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
             const active = (item.href === "/analyses" && pathname.startsWith("/analyses"))
               || (item.href === "/datasets" && pathname.startsWith("/datasets"))
               || (item.href === "/compare" && pathname.startsWith("/compare"));
             return <Link className={active ? "nav-link active" : "nav-link"} href={item.href} key={item.href}><span aria-hidden="true">{item.icon}</span>{item.label}</Link>;
           })}
         </nav>
+        <div className="sidebar-footer">
+          {authenticated && me && <div className="workspace-controls">
+            <div className="current-role" aria-label={`Vai trò hiện tại: ${me.workspace.role}`}>
+              <span className="current-role-dot" aria-hidden="true" />
+              <span><small>Vai trò hiện tại</small><b>{me.workspace.role}</b></span>
+            </div>
+            <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void switchWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
+            <button type="button" className="history-button" onClick={() => void signOut()}>Đăng xuất</button>
+          </div>}
+          <Link href="/guide" className="sidebar-guide-link">
+            <span className="sidebar-guide-icon" aria-hidden="true">?</span>
+            <span><b>Hướng dẫn sử dụng</b><small>Từng bước với Agent</small></span>
+            <span className="sidebar-guide-arrow" aria-hidden="true">→</span>
+          </Link>
+        </div>
       </aside>
+      {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div><div className="history-modal-list">{conversations.map((conversation) => <Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} key={conversation.id} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link>)}</div></section></div>}
       <main className="main-content">{children}</main>
     </div>
   );
+
+  // A guest can switch roles without losing the public navbar; the workspace
+  // beneath it is the only part that changes with the selected role.
+  return isGuest ? <div className="guest-workspace"><PublicNavbar />{workspaceShell}</div> : workspaceShell;
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<main className="main-content home-only-content">{children}</main>}><AppShellContent>{children}</AppShellContent></Suspense>;
 }

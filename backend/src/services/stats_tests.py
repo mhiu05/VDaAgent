@@ -87,7 +87,7 @@ def shapiro_wilk(df: pd.DataFrame, columns: list[str], alpha: float, **_: Any) -
             else f"p = {p:.4g} ≥ {alpha} → chưa đủ bằng chứng bác bỏ phân phối chuẩn."
         ),
         alpha=alpha,
-        extra={"n": int(len(x))},
+        extra={"n": len(x)},
     )
 
 
@@ -111,7 +111,7 @@ def anderson_darling(df: pd.DataFrame, columns: list[str], alpha: float, **_: An
             f"ở mức 5% → {'KHÔNG' if rejected else 'chưa bác bỏ được'} phân phối chuẩn."
         ),
         alpha=alpha,
-        extra={"critical_value_5pct": critical, "n": int(len(x))},
+        extra={"critical_value_5pct": critical, "n": len(x)},
     )
 
 
@@ -259,7 +259,7 @@ def pearson(df: pd.DataFrame, columns: list[str], alpha: float, **_: Any) -> Tes
             + " Tương quan KHÔNG đồng nghĩa nhân quả."
         ),
         alpha=alpha,
-        extra={"n": int(len(a))},
+        extra={"n": len(a)},
     )
 
 
@@ -278,7 +278,7 @@ def spearman(df: pd.DataFrame, columns: list[str], alpha: float, **_: Any) -> Te
             + ("< alpha → tương quan hạng có ý nghĩa." if p < alpha else "≥ alpha → chưa có ý nghĩa.")
         ),
         alpha=alpha,
-        extra={"n": int(len(a))},
+        extra={"n": len(a)},
     )
 
 

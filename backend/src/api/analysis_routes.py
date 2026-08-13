@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from src.api.dependencies import RequestContext, require_permission
 from src.models.analysis_schemas import (
     AnalysisSessionCreate,
     ContextApprove,
@@ -14,15 +15,20 @@ from src.models.analysis_schemas import (
 )
 from src.services.analysis_engine import AnalysisEngine, AnalysisQueryError
 from src.services.analysis_repository import get_analysis_repository
+from src.services.permissions import ANALYSIS_RUN
 from src.services.quality_gate import evaluate_quality_gate
 from src.services.repository import get_repository
-from src.services.security import get_audit, get_rate_limiter, require_token
+from src.services.security import get_audit, get_rate_limiter
 
 router = APIRouter(prefix="/analysis-sessions", tags=["analysis"])
 
 
-def _session_or_404(session_id: str) -> dict[str, Any]:
-    session = get_analysis_repository().get_session(session_id)
+def _audit(context: RequestContext, event: str, **fields: Any) -> None:
+    get_audit().log(event, workspace_id=context.workspace_id, actor_user_id=context.user_id, **fields)
+
+
+def _session_or_404(session_id: str, context: RequestContext) -> dict[str, Any]:
+    session = get_analysis_repository().get_session(session_id, workspace_id=context.workspace_id)
     if not session:
         raise HTTPException(status_code=404, detail="Không tìm thấy analysis session.")
     return session
@@ -31,30 +37,30 @@ def _session_or_404(session_id: str) -> dict[str, Any]:
 @router.get("")
 async def list_analysis_sessions(
     profile_run_id: str | None = Query(default=None),
-    user: str = Depends(require_token),
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
 ) -> list[dict[str, Any]]:
-    get_rate_limiter().check(user)
-    return get_analysis_repository().list_sessions(profile_run_id=profile_run_id)
+    get_rate_limiter().check(context.user_id)
+    return get_analysis_repository().list_sessions(profile_run_id=profile_run_id, workspace_id=context.workspace_id)
 
 
 @router.post("", status_code=201)
 async def create_analysis_session(
-    payload: AnalysisSessionCreate, user: str = Depends(require_token)
+    payload: AnalysisSessionCreate, context: RequestContext = Depends(require_permission(ANALYSIS_RUN))
 ) -> dict[str, Any]:
-    get_rate_limiter().check(user)
+    get_rate_limiter().check(context.user_id)
     try:
         session = get_analysis_repository().create_session(
-            payload.model_dump(), profile_run_id=payload.profile_run_id, creator=user
+            payload.model_dump(), profile_run_id=payload.profile_run_id, creator=context.user_id, workspace_id=context.workspace_id
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    get_audit().log(
-        "analysis_session_created",
+    _audit(context, "analysis_session_created",
         session_id=session["id"],
         profile_run_id=payload.profile_run_id,
-        user=user,
+        resource_type="analysis_session",
+        resource_id=session["id"],
         mode=payload.mode,
     )
     return session
@@ -62,24 +68,24 @@ async def create_analysis_session(
 
 @router.get("/{session_id}")
 async def get_analysis_session(
-    session_id: str, user: str = Depends(require_token)
+    session_id: str, context: RequestContext = Depends(require_permission(ANALYSIS_RUN))
 ) -> dict[str, Any]:
-    get_rate_limiter().check(user)
-    return _session_or_404(session_id)
+    get_rate_limiter().check(context.user_id)
+    return _session_or_404(session_id, context)
 
 
 @router.post("/{session_id}/context-versions", status_code=201)
 async def create_context(
-    session_id: str, payload: ContextCreate, user: str = Depends(require_token)
+    session_id: str, payload: ContextCreate, context: RequestContext = Depends(require_permission(ANALYSIS_RUN))
 ) -> dict[str, Any]:
-    get_rate_limiter().check(user)
-    _session_or_404(session_id)
+    get_rate_limiter().check(context.user_id)
+    _session_or_404(session_id, context)
     item = get_analysis_repository().add_context(session_id, payload.model_dump())
-    get_audit().log(
-        "analysis_context_created",
+    _audit(context, "analysis_context_created",
         session_id=session_id,
         context_version_id=item["id"],
-        user=user,
+        resource_type="analysis_session",
+        resource_id=session_id,
     )
     return item
 
@@ -89,46 +95,49 @@ async def approve_context(
     session_id: str,
     context_id: str,
     payload: ContextApprove,
-    user: str = Depends(require_token),
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
 ) -> dict[str, Any]:
-    get_rate_limiter().check(user)
+    get_rate_limiter().check(context.user_id)
+    _session_or_404(session_id, context)
     item = get_analysis_repository().approve_context(
-        session_id, context_id, payload.approved_by
+        session_id, context_id, context.user_id
     )
     if not item:
         raise HTTPException(status_code=404, detail="Không tìm thấy context version.")
-    get_audit().log(
-        "analysis_context_approved",
+    _audit(context, "analysis_context_approved",
         session_id=session_id,
         context_version_id=context_id,
-        user=user,
-        approved_by=payload.approved_by,
+        resource_type="analysis_session",
+        resource_id=session_id,
+        approved_by_user_id=context.user_id,
     )
     return item
 
 
 @router.post("/{session_id}/quality-gate")
 async def run_quality_gate(
-    session_id: str, user: str = Depends(require_token)
+    session_id: str, context: RequestContext = Depends(require_permission(ANALYSIS_RUN))
 ) -> dict[str, Any]:
-    get_rate_limiter().check(user)
-    session = _session_or_404(session_id)
-    context = session.get("context")
+    get_rate_limiter().check(context.user_id)
+    session = _session_or_404(session_id, context)
+    semantic_context = session.get("context")
     source = session.get("source")
-    if not context or context["status"] != "approved":
+    if not source or not source.get("profile_run_id"):
+        raise HTTPException(status_code=409, detail="Analysis session chua co profile du lieu hop le.")
+    if not semantic_context or semantic_context["status"] != "approved":
         raise HTTPException(
             status_code=409, detail="Cần approve semantic context trước quality gate."
         )
     decision, issues = evaluate_quality_gate(
-        get_repository(), source["profile_run_id"], context["context"]
+        get_repository(), source["profile_run_id"], semantic_context["context"]
     )
     gate = get_analysis_repository().save_gate(
-        session_id, context["id"], decision, issues
+        session_id, semantic_context["id"], decision, issues
     )
-    get_audit().log(
-        "analysis_quality_gate",
+    _audit(context, "analysis_quality_gate",
         session_id=session_id,
-        user=user,
+        resource_type="analysis_session",
+        resource_id=session_id,
         decision=decision,
         issue_count=len(issues),
     )
@@ -140,34 +149,35 @@ async def acknowledge_quality_issue(
     session_id: str,
     issue_id: str,
     payload: QualityAcknowledge,
-    user: str = Depends(require_token),
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
 ) -> dict[str, bool]:
-    get_rate_limiter().check(user)
+    get_rate_limiter().check(context.user_id)
+    _session_or_404(session_id, context)
     if not get_analysis_repository().acknowledge_issue(
         session_id, issue_id, payload.resolution_note
     ):
         raise HTTPException(status_code=404, detail="Không tìm thấy quality issue.")
-    get_audit().log(
-        "analysis_quality_acknowledged",
+    _audit(context, "analysis_quality_acknowledged",
         session_id=session_id,
         issue_id=issue_id,
-        user=user,
+        resource_type="analysis_session",
+        resource_id=session_id,
     )
     return {"acknowledged": True}
 
 
 @router.post("/{session_id}/executions", status_code=201)
 async def execute_analysis(
-    session_id: str, payload: ExecutionCreate, user: str = Depends(require_token)
+    session_id: str, payload: ExecutionCreate, context: RequestContext = Depends(require_permission(ANALYSIS_RUN))
 ) -> dict[str, Any]:
-    get_rate_limiter().check(user)
-    session = _session_or_404(session_id)
-    context = session.get("context")
+    get_rate_limiter().check(context.user_id)
+    session = _session_or_404(session_id, context)
+    semantic_context = session.get("context")
     gate = session.get("quality_gate")
     if (
-        not context
-        or context["status"] != "approved"
-        or context["id"] != payload.expected_context_version_id
+        not semantic_context
+        or semantic_context["status"] != "approved"
+        or semantic_context["id"] != payload.expected_context_version_id
     ):
         raise HTTPException(
             status_code=409, detail="Context version stale hoặc chưa được approve."
@@ -181,17 +191,20 @@ async def execute_analysis(
             status_code=409,
             detail="Quality gate đang block; hãy resolve source/context trước.",
         )
+    source = session.get("source")
+    if not source or not source.get("profile_run_id"):
+        raise HTTPException(status_code=409, detail="Analysis session chua co profile du lieu hop le.")
     try:
         output = AnalysisEngine(get_repository()).execute(
-            profile_run_id=session["source"]["profile_run_id"],
-            context=context["context"],
+            profile_run_id=source["profile_run_id"],
+            context=semantic_context["context"],
             query=payload.query.model_dump(),
         )
     except AnalysisQueryError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     execution = get_analysis_repository().save_execution(
         session_id,
-        context["id"],
+        semantic_context["id"],
         output["canonical_query"],
         output["result"],
         output["result_hash"],
@@ -199,11 +212,11 @@ async def execute_analysis(
         limitations=output["limitations"],
         duration_ms=output["duration_ms"],
     )
-    get_audit().log(
-        "analysis_execution",
+    _audit(context, "analysis_execution",
         session_id=session_id,
         execution_id=execution["id"],
-        user=user,
+        resource_type="analysis_session",
+        resource_id=session_id,
         result_hash=output["result_hash"],
     )
     return {
@@ -218,8 +231,8 @@ async def execute_analysis(
 
 @router.get("/{session_id}/executions")
 async def list_executions(
-    session_id: str, user: str = Depends(require_token)
+    session_id: str, context: RequestContext = Depends(require_permission(ANALYSIS_RUN))
 ) -> list[dict[str, Any]]:
-    get_rate_limiter().check(user)
-    _session_or_404(session_id)
+    get_rate_limiter().check(context.user_id)
+    _session_or_404(session_id, context)
     return get_analysis_repository().executions(session_id)

@@ -30,3 +30,17 @@ export function humanFileSize(bytes: number): string {
 export function toTitle(value: string): string {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
+
+export function formatStatus(value: string): string {
+  const labels: Record<string, string> = {
+    created: "Mới tạo",
+    queued: "Đang chờ",
+    running: "Đang chạy",
+    pending_review: "Chờ duyệt",
+    resuming: "Đang tiếp tục",
+    completed: "Hoàn tất",
+    failed: "Thất bại",
+    cancelled: "Đã hủy",
+  };
+  return labels[value.toLowerCase()] || toTitle(value);
+}

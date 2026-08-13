@@ -11,7 +11,6 @@ thư viện tuỳ chọn.
 
 from __future__ import annotations
 
-import json
 import math
 import re
 import threading
@@ -101,6 +100,7 @@ class Embedder:
         self._model: Any = None
         self._client: Any = None
         self.provider = settings.retrieval_embedding_provider
+        self.active_provider = self.provider
         self.available = False
         self._init()
 
@@ -128,15 +128,54 @@ class Embedder:
                 self.available = True
             except ImportError:
                 self.available = False
+            return
+        if self.provider == "voyage":
+            if not self.settings.voyage_api_key:
+                self._use_local_fallback()
+                return
+            try:
+                import voyageai
 
-    def encode(self, texts: list[str]) -> list[list[float]]:
+                self._client = voyageai.Client(api_key=self.settings.voyage_api_key)
+                self.available = True
+            except ImportError:
+                self._use_local_fallback()
+
+    def _use_local_fallback(self) -> bool:
+        """Switch permanently after a Voyage failure; never retry every batch."""
+        if self._model is not None:
+            return True
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            self._model = SentenceTransformer(self.settings.retrieval_local_fallback_model)
+            self.active_provider = "local_fallback"
+            self.available = True
+            return True
+        except Exception:  # noqa: BLE001 - local model may be absent/offline.
+            # BM25 remains available. Do not convert a remote embedding outage
+            # into a Q&A outage, or repeatedly attempt model downloads.
+            self.available = False
+            return False
+
+    def encode(self, texts: list[str], input_type: str | None = None) -> list[list[float]]:
         if not self.available or not texts:
             return []
         if self._model is not None:
             return [list(map(float, v)) for v in self._model.encode(texts, show_progress_bar=False)]
-        response = self._client.embeddings.create(
-            model="text-embedding-3-small", input=texts
-        )
+        if self.provider == "voyage":
+            try:
+                response = self._client.embed(
+                    texts,
+                    model=self.settings.retrieval_embedding_model,
+                    input_type=input_type or "document",
+                )
+                return [list(map(float, embedding)) for embedding in response.embeddings]
+            except Exception:  # noqa: BLE001 - quota/network/provider errors fail over safely.
+                if self._use_local_fallback():
+                    return [list(map(float, vector)) for vector in self._model.encode(texts, show_progress_bar=False)]
+                return []
+        response = self._client.embeddings.create(model="text-embedding-3-small", input=texts)
         return [list(map(float, item.embedding)) for item in response.data]
 
 
@@ -151,52 +190,46 @@ def _cosine(a: list[float], b: list[float]) -> float:
 # Index
 # --------------------------------------------------------------------------- #
 class HybridIndex:
-    """Index dense + sparse, persist ra JSON để không mất khi restart.
+    """Index dense + sparse, persist vào metadata database.
 
     Quy mô MVP (vài trăm profile run) nên giữ toàn bộ trong RAM và brute-force
-    cosine — đủ nhanh mà không cần thêm FAISS vào dependency bắt buộc.
+    cosine — đủ nhanh mà không cần thêm FAISS/pgvector vào dependency bắt buộc.
+    Nội dung index và vector được lưu trong bảng `retrieval_documents`, vì vậy
+    restart hoặc đổi instance deploy không làm mất index như cơ chế JSON local
+    trước đây.
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.dir = self.settings.index_path
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.store = self.dir / "documents.json"
         self._lock = threading.Lock()
         self._docs: list[Document] = []
         self._vectors: list[list[float]] = []
         self._bm25: Any = None
         self._vocab: list[Counter[str]] = []
         self._embedder: Embedder | None = None
+        self._workspace_id: str | None = None
         self._load()
 
     # --- persistence ---------------------------------------------------- #
-    def _load(self) -> None:
-        if not self.store.exists():
-            return
-        try:
-            raw = json.loads(self.store.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return
-        self._docs = [
-            Document(d["doc_id"], d["text"], d.get("metadata", {})) for d in raw.get("documents", [])
-        ]
-        self._vectors = raw.get("vectors", [])
+    def _load(self, workspace_id: str | None = None) -> None:
+        # Import lazy để tránh vòng import khi repository khởi tạo metadata.
+        from src.services.repository import get_repository
+
+        rows = get_repository(self.settings).list_retrieval_documents(workspace_id=workspace_id)
+        self._workspace_id = workspace_id
+        self._docs = []
+        for row in rows:
+            metadata = dict(row.get("document_metadata") or {})
+            # Documents created before the external corpus did not have a
+            # discriminator. A profile run is the only safe legacy inference.
+            if not metadata.get("knowledge_type") and metadata.get("profile_run_id"):
+                metadata["knowledge_type"] = "profile_report"
+            self._docs.append(Document(row["doc_id"], row["text"], metadata))
+        self._vectors = [d.get("vector") or [] for d in rows]
         # Vector cũ có thể lệch chiều với model hiện tại -> bỏ, index lại khi cần.
         if self._vectors and len(self._vectors) != len(self._docs):
             self._vectors = []
         self._rebuild_sparse()
-
-    def _save(self) -> None:
-        payload = {
-            "documents": [
-                {"doc_id": d.doc_id, "text": d.text, "metadata": d.metadata} for d in self._docs
-            ],
-            "vectors": self._vectors,
-        }
-        tmp = self.store.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(self.store)
 
     def _rebuild_sparse(self) -> None:
         corpus = [tokenize(d.text) for d in self._docs]
@@ -216,14 +249,16 @@ class HybridIndex:
         return self._embedder
 
     # --- write ---------------------------------------------------------- #
-    def upsert(self, doc_id: str, text: str, metadata: dict[str, Any] | None = None) -> None:
+    def upsert(
+        self, doc_id: str, text: str, metadata: dict[str, Any] | None = None, *, workspace_id: str | None = None
+    ) -> None:
         """Thêm/ghi đè một document theo doc_id (index incremental)."""
         if not text.strip():
             return
         with self._lock:
             vector: list[float] = []
             if self.embedder.available:
-                encoded = self.embedder.encode([text])
+                encoded = self.embedder.encode([text], input_type="document")
                 vector = encoded[0] if encoded else []
 
             existing = next((i for i, d in enumerate(self._docs) if d.doc_id == doc_id), None)
@@ -239,9 +274,42 @@ class HybridIndex:
                     self._vectors = []
 
             self._rebuild_sparse()
-            self._save()
+            from src.services.repository import get_repository
 
-    def delete(self, doc_id: str) -> bool:
+            get_repository(self.settings).upsert_retrieval_document(
+                doc_id=doc_id,
+                text=text,
+                document_metadata=metadata or {},
+                vector=vector,
+                workspace_id=workspace_id,
+            )
+
+    def upsert_many(self, documents: list[Document], batch_size: int = 64, *, workspace_id: str | None = None) -> dict[str, int]:
+        """Encode and persist a batch, rebuilding the in-memory index once."""
+        clean = [doc for doc in documents if doc.doc_id and doc.text.strip()]
+        if not clean:
+            return {"inserted": 0, "updated": 0, "unchanged": 0}
+        with self._lock:
+            from src.services.repository import get_repository
+
+            old = {doc.doc_id: doc for doc in self._docs}
+            vectors: list[list[float]] = []
+            for start in range(0, len(clean), max(1, batch_size)):
+                group = clean[start : start + max(1, batch_size)]
+                encoded = self.embedder.encode([doc.text for doc in group], input_type="document") if self.embedder.available else []
+                vectors.extend(encoded if len(encoded) == len(group) else ([[]] * len(group)))
+            payload = [(doc.doc_id, doc.text, doc.metadata, vector) for doc, vector in zip(clean, vectors, strict=True)]
+            result = get_repository(self.settings).upsert_retrieval_documents(payload, workspace_id=workspace_id)
+            merged = {doc.doc_id: doc for doc in self._docs}
+            merged.update({doc.doc_id: doc for doc in clean})
+            self._docs = [merged[key] for key in sorted(merged)]
+            vector_by_id = {doc.doc_id: vector for doc, vector in zip(clean, vectors, strict=True)}
+            prior_vectors = {doc.doc_id: self._vectors[index] for index, doc in enumerate(old.values()) if index < len(self._vectors)}
+            self._vectors = [vector_by_id.get(doc.doc_id, prior_vectors.get(doc.doc_id, [])) for doc in self._docs]
+            self._rebuild_sparse()
+            return result
+
+    def delete(self, doc_id: str, *, workspace_id: str | None = None) -> bool:
         with self._lock:
             idx = next((i for i, d in enumerate(self._docs) if d.doc_id == doc_id), None)
             if idx is None:
@@ -250,27 +318,29 @@ class HybridIndex:
             if len(self._vectors) > idx:
                 self._vectors.pop(idx)
             self._rebuild_sparse()
-            self._save()
+            from src.services.repository import get_repository
+
+            get_repository(self.settings).delete_retrieval_document(doc_id, workspace_id=workspace_id)
             return True
 
     def __len__(self) -> int:
         return len(self._docs)
 
     # --- read ----------------------------------------------------------- #
-    def _dense(self, query: str, k: int) -> list[tuple[int, float]]:
+    def _dense(self, query: str, k: int, eligible: list[int]) -> list[tuple[int, float]]:
         if not self.embedder.available or len(self._vectors) != len(self._docs):
             return []
-        encoded = self.embedder.encode([query])
+        encoded = self.embedder.encode([query], input_type="query")
         if not encoded:
             return []
         qv = encoded[0]
         scored = [
-            (i, _cosine(qv, v)) for i, v in enumerate(self._vectors) if len(v) == len(qv)
+            (i, _cosine(qv, self._vectors[i])) for i in eligible if len(self._vectors[i]) == len(qv)
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:k]
 
-    def _sparse(self, query: str, k: int) -> list[tuple[int, float]]:
+    def _sparse(self, query: str, k: int, eligible: list[int]) -> list[tuple[int, float]]:
         """BM25 trên toàn corpus.
 
         Không lọc `score > 0`: khi mọi document đều chứa từ khoá (corpus nhỏ,
@@ -290,11 +360,20 @@ class HybridIndex:
         vocab = self._vocab
         scored = [
             (i, float(s))
-            for i, s in enumerate(scores)
+            for i in eligible
+            for s in [scores[i]]
             if i < len(vocab) and any(vocab[i].get(t) for t in tokens)
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:k]
+
+    def _eligible_indices(self, where: dict[str, Any] | None) -> list[int]:
+        if not where:
+            return list(range(len(self._docs)))
+        return [
+            index for index, doc in enumerate(self._docs)
+            if all(doc.metadata.get(key) == value for key, value in where.items())
+        ]
 
     def search(
         self,
@@ -302,16 +381,24 @@ class HybridIndex:
         top_k: int | None = None,
         candidate_k: int | None = None,
         where: dict[str, Any] | None = None,
+        workspace_id: str | None = None,
     ) -> list[Hit]:
         """Hybrid search: dense + sparse -> RRF -> (tuỳ chọn) cross-encoder rerank."""
+        # Mỗi worker có cache RAM riêng; đọc lại metadata giúp các instance
+        # nhìn thấy document mới được index bởi worker khác.
+        with self._lock:
+            self._load(workspace_id)
         if not self._docs or not query.strip():
             return []
 
         top_k = top_k or self.settings.retrieval_top_k
         candidate_k = candidate_k or self.settings.retrieval_candidate_k
 
-        dense = self._dense(query, candidate_k)
-        sparse = self._sparse(query, candidate_k)
+        eligible = self._eligible_indices(where)
+        if not eligible:
+            return []
+        dense = self._dense(query, candidate_k, eligible)
+        sparse = self._sparse(query, candidate_k, eligible)
 
         # Reciprocal Rank Fusion: cộng 1/(60+rank) — không cần chuẩn hoá score
         # giữa hai thang đo khác nhau (cosine vs BM25).
@@ -323,13 +410,6 @@ class HybridIndex:
                 origin.setdefault(idx, set()).add(name)
 
         candidates = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
-
-        if where:
-            candidates = [
-                (i, s)
-                for i, s in candidates
-                if all(self._docs[i].metadata.get(k) == v for k, v in where.items())
-            ]
 
         candidates = candidates[:candidate_k]
 

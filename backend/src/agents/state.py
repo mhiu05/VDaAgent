@@ -31,6 +31,7 @@ class ProfilingState(TypedDict, total=False):
     dataset_ref: str
     dataset_name: str
     profile_run_id: str
+    workspace_id: str
     graph_thread_id: str
     requested_by: str
     scan_mode: ScanMode
@@ -94,6 +95,7 @@ def initial_profiling_state(
     question: str | None = None,
     dataset_id: str | None = None,
     profile_run_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> ProfilingState:
     """State khởi tạo cho một lần chạy pipeline profiling.
 
@@ -108,6 +110,7 @@ def initial_profiling_state(
         requested_by=requested_by,
         dataset_id=dataset_id,
         profile_run_id=profile_run_id,
+        workspace_id=workspace_id,
         stats_json={},
         correlation_matrix={},
         pii_flags=[],
@@ -138,6 +141,7 @@ def initial_qa_state(
     column_names: list[str] | None = None,
     requested_by: str = "anonymous",
     history: list[dict[str, Any]] | None = None,
+    workspace_id: str | None = None,
 ) -> ProfilingState:
     """State khởi tạo cho một lượt hỏi-đáp (chỉ chạy nhánh QA).
 
@@ -148,6 +152,7 @@ def initial_qa_state(
         messages=history or [],
         question=question,
         profile_run_id=profile_run_id,
+        workspace_id=workspace_id,
         column_names=column_names or [],
         requested_by=requested_by,
         question_type=None,

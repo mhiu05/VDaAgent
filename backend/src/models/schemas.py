@@ -10,7 +10,7 @@ Quy ước:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -32,8 +32,11 @@ class SamplingConfig(BaseModel):
 
 
 class ProfileRequest(BaseModel):
-    dataset_ref: str = Field(
-        ...,
+    # dataset_id is the normal contract after an authenticated upload.  The
+    # legacy ref remains temporarily available only to development/dual mode.
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=64)
+    dataset_ref: str | None = Field(
+        default=None,
         min_length=1,
         max_length=1000,
         description="Đường dẫn file CSV/Parquet, hoặc tên bảng BigQuery.",
@@ -51,7 +54,9 @@ class ProfileRequest(BaseModel):
 
     @field_validator("dataset_ref")
     @classmethod
-    def _no_control_chars(cls, v: str) -> str:
+    def _no_control_chars(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if any(ord(c) < 32 for c in v):
             raise ValueError("dataset_ref chứa ký tự điều khiển không hợp lệ.")
         return v.strip()
@@ -146,9 +151,7 @@ class ProposalDecision(BaseModel):
 
 
 class ConfirmRequest(BaseModel):
-    """Analyst xác nhận/từ chối đề xuất. `confirmed_by` là bắt buộc để truy vết."""
-
-    confirmed_by: str = Field(..., min_length=1, max_length=255)
+    """Actor attribution is taken from the verified JWT, never client input."""
     action: Literal["confirm", "edit", "reject", "request_test"] | None = None
     decisions: list[ProposalDecision] = Field(default_factory=list, max_length=500)
     test_requests: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
@@ -182,7 +185,6 @@ class TestSpec(BaseModel):
 
 
 class TestRequest(BaseModel):
-    requested_by: str = Field(..., min_length=1, max_length=255)
     tests: list[TestSpec] = Field(..., min_length=1, max_length=20)
     alpha: float | None = Field(default=None, gt=0.0, lt=1.0)
     fdr_method: Literal["benjamini_hochberg", "bonferroni", "none"] | None = None
@@ -238,11 +240,55 @@ class QARequest(BaseModel):
         return value
 
 
+class ProfileReportSource(BaseModel):
+    type: Literal["profile_report"]
+    citation_id: str
+    doc_id: str
+    profile_run_id: str | None = None
+    dataset_name: str | None = None
+    retrieval_channel: str
+    score: float
+
+
+class ExternalKnowledgeSource(BaseModel):
+    type: Literal["external_knowledge"]
+    citation_id: str
+    doc_id: str
+    source_id: str
+    title: str | None = None
+    canonical_url: str
+    retrieved_at: str | None = None
+    category: str | None = None
+    retrieval_channel: str
+    score: float
+
+    @field_validator("canonical_url")
+    @classmethod
+    def http_url_only(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("canonical_url must use HTTP(S)")
+        return value
+
+
+class ToolSource(BaseModel):
+    type: Literal["tool"]
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    profile_run_id: str | None = None
+
+
+AnswerSource = Annotated[
+    ProfileReportSource | ExternalKnowledgeSource | ToolSource,
+    Field(discriminator="type"),
+]
+
+
 class QAResponse(BaseModel):
     question: str
     question_type: str | None = None
     answer: str
-    sources: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[AnswerSource] = Field(default_factory=list)
     is_approximate: bool = False
 
 
@@ -293,6 +339,7 @@ class UploadResponse(BaseModel):
     """Kết quả upload file — `dataset_ref` truyền thẳng vào `POST /profile`."""
 
     dataset_ref: str
+    dataset_id: str | None = None
     filename: str
     size_bytes: int
     suggested_name: str | None = None
@@ -326,6 +373,10 @@ class StatusResponse(BaseModel):
     allow_raw_export: bool
     require_api_token: bool
     indexed_documents: int = 0
+    external_knowledge_enabled: bool = False
+    profile_report_documents: int = 0
+    external_knowledge_documents: int = 0
+    corpus_revision: str | None = None
     missing_config: list[str] = Field(
         default_factory=list, description="Các biến môi trường bạn cần điền."
     )
@@ -347,6 +398,7 @@ __all__ = [
     "ConfirmRequest",
     "ConfirmResponse",
     "DatasetOut",
+    "ExternalKnowledgeSource",
     "DriftFinding",
     "DriftRequest",
     "DriftResponse",
@@ -354,6 +406,7 @@ __all__ = [
     "HealthResponse",
     "ProfileRequest",
     "ProfileResponse",
+    "ProfileReportSource",
     "ProfileRunSummary",
     "ProposalDecision",
     "ProposalOut",
@@ -362,6 +415,7 @@ __all__ = [
     "QAResponse",
     "SamplingConfig",
     "StatusResponse",
+    "ToolSource",
     "TestRequest",
     "TestResponse",
     "TestResultOut",

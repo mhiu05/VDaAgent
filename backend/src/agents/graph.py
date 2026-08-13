@@ -69,44 +69,42 @@ MAX_DEEP_ANALYSIS = 5
 # Checkpointer
 # --------------------------------------------------------------------------- #
 def build_checkpointer() -> Any:
-    """Tạo checkpointer theo `settings.checkpointer_url` (ADR-009).
-
-    Postgres cho production, SQLite cho dev. Thiếu driver thì hạ xuống
-    MemorySaver và ghi cảnh báo — state sẽ mất khi restart, nhưng agent vẫn
-    chạy được để dev không bị chặn.
-    """
-    url = get_settings().checkpointer_url
+    """Tạo PostgreSQL checkpointer theo `settings.checkpointer_url` (ADR-009)."""
+    settings = get_settings()
+    url = settings.checkpointer_url
+    if not url.startswith(("postgresql://", "postgres://")):
+        raise RuntimeError("DATABASE_CHECKPOINTER_URL phải là PostgreSQL cho LangGraph.")
 
     try:
         if url.startswith(("postgresql://", "postgres://")):
             from langgraph.checkpoint.postgres import PostgresSaver
+            from psycopg import Connection
+            from psycopg.rows import dict_row
 
-            saver = PostgresSaver.from_conn_string(url)
-            # from_conn_string trả context manager ở một số phiên bản.
-            saver = saver.__enter__() if hasattr(saver, "__enter__") else saver
-            saver.setup()
+            # `from_conn_string` is a context manager.  Calling `__enter__`
+            # manually and then returning the saver lets the context close the
+            # connection before `setup()`/the first graph request.  Keep the
+            # connection owned by the long-lived checkpointer instead.
+            conn = Connection.connect(
+                url,
+                autocommit=True,
+                prepare_threshold=0,
+                row_factory=dict_row,
+            )
+            try:
+                saver = PostgresSaver(conn)
+                saver.setup()
+            except Exception:
+                conn.close()
+                raise
             return saver
 
-        if url.startswith("sqlite:///"):
-            import sqlite3
-
-            from langgraph.checkpoint.sqlite import SqliteSaver
-
-            path = url.removeprefix("sqlite:///")
-            conn = sqlite3.connect(path, check_same_thread=False)
-            return SqliteSaver(conn)
     except ImportError as exc:
-        logger.warning(
-            "Thiếu package cho checkpointer (%s). Dùng MemorySaver — state mất khi restart. "
-            "Cài lại dependency bằng: pip install -r requirements.txt",
-            exc,
-        )
-    except Exception as exc:  # noqa: BLE001 - không được để checkpointer chặn khởi động
-        logger.warning("Không khởi tạo được checkpointer (%s). Dùng MemorySaver.", exc)
-
-    from langgraph.checkpoint.memory import MemorySaver
-
-    return MemorySaver()
+        raise RuntimeError(
+            "Cần langgraph-checkpoint-postgres và psycopg để lưu state trên PostgreSQL."
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError("Không khởi tạo được PostgreSQL checkpointer.") from exc
 
 
 # --------------------------------------------------------------------------- #

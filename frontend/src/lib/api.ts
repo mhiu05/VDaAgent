@@ -14,6 +14,20 @@ import type { AnalysisExecution, AnalysisSession, QuerySpec } from "@/lib/analys
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
+type AuthTransport = {
+  accessToken: () => Promise<string | null>;
+  workspaceId: () => string | null;
+  refresh: () => Promise<string | null>;
+};
+
+let authTransport: AuthTransport | null = null;
+
+/** Installed by AuthProvider; keeping transport here makes every API path use
+ * the same token/workspace policy, including SSE, XHR and downloads. */
+export function setApiAuthTransport(next: AuthTransport | null) {
+  authTransport = next;
+}
+
 export type QAHistoryMessage = { role: "user" | "agent"; text: string };
 
 function apiBase(): string {
@@ -50,18 +64,113 @@ async function readError(response: Response): Promise<ApiError> {
   return new ApiError(message, response.status, correlationId);
 }
 
+async function authHeaders(headers?: HeadersInit): Promise<Headers> {
+  const next = new Headers(headers);
+  next.set("Accept", next.get("Accept") ?? "application/json");
+  const token = await authTransport?.accessToken();
+  const workspaceId = authTransport?.workspaceId();
+  if (token) next.set("Authorization", `Bearer ${token}`);
+  if (workspaceId) next.set("X-Workspace-Id", workspaceId);
+  return next;
+}
+
+async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase()}${path}`, {
+      ...init,
+      headers: await authHeaders(init.headers),
+      credentials: "include",
+    });
+  } catch (reason) {
+    // Preserve cancellations used by page transitions and explicit aborts.
+    if (reason instanceof Error && reason.name === "AbortError") throw reason;
+    throw new ApiError(
+      "Không thể kết nối tới backend. Hãy kiểm tra backend đang chạy và thử lại.",
+      0,
+    );
+  }
+  if (response.status === 401 && !retried && authTransport) {
+    const refreshed = await authTransport.refresh();
+    if (refreshed) return apiFetch(path, init, true);
+  }
+  return response;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${apiBase()}${path}`, {
-    ...init,
-    headers: { Accept: "application/json", ...init.headers },
-    credentials: "include",
-  });
+  const response = await apiFetch(path, init);
   if (!response.ok) throw await readError(response);
   return response.json() as Promise<T>;
 }
 
 export function listDatasets(signal?: AbortSignal): Promise<Dataset[]> {
   return request<Dataset[]>("/datasets", { signal });
+}
+
+export type GoogleDriveStatus = {
+  provider: "supabase" | "google_drive" | "local";
+  configured: boolean;
+  connected: boolean;
+  folder_id: string | null;
+  can_connect: boolean;
+};
+
+export function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
+  return request<GoogleDriveStatus>("/google-drive/status");
+}
+
+export async function connectGoogleDrive(): Promise<void> {
+  const payload = await request<{ authorization_url: string }>("/google-drive/connect");
+  window.location.assign(payload.authorization_url);
+}
+
+export function getDashboard<T>(): Promise<T> {
+  return request<T>("/dashboard");
+}
+
+export type SelfSignupRole = "viewer" | "analyst" | "admin";
+
+export async function provisionSelfSignup(role: SelfSignupRole, accessToken: string): Promise<{
+  workspace_id: string;
+  workspace_name: string;
+  workspace_slug: string;
+  role: SelfSignupRole;
+  created: boolean;
+}> {
+  const response = await fetch(`${apiBase()}/onboarding/provision`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify({ role }),
+  });
+  if (!response.ok) throw await readError(response);
+  return response.json();
+}
+
+export async function cleanupGuestSession(accessToken: string): Promise<void> {
+  try {
+    await fetch(`${apiBase()}/guest/session`, {
+      method: "DELETE",
+      headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+      credentials: "include",
+      keepalive: true,
+    });
+  } catch {
+    // Cleanup is deliberately best-effort. A stale guest session must not
+    // prevent the visitor from starting a fresh trial role.
+  }
+}
+
+export function listPublishedReports<T>(): Promise<T> {
+  return request<T>("/reports");
+}
+
+export function getPublishedReport<T>(reportId: string): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}`);
 }
 
 export function deleteDataset(datasetId: string): Promise<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }> {
@@ -79,7 +188,8 @@ export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile
 }
 
 export function createProfile(payload: {
-  dataset_ref: string;
+  dataset_id?: string;
+  dataset_ref?: string;
   dataset_name?: string;
   scan_mode: "full" | "sample";
   sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number };
@@ -94,7 +204,6 @@ export function createProfile(payload: {
 export function confirmProposals(
   runId: string,
   payload: {
-    confirmed_by: string;
     resume: boolean;
     action?: "confirm" | "edit" | "reject" | "request_test";
     test_requests?: Array<{ test_type: string; columns: string[]; params?: Record<string, unknown> }>;
@@ -117,7 +226,6 @@ export function confirmProposals(
 export function runTests(
   runId: string,
   payload: {
-    requested_by: string;
     tests: Array<{ test_type: string; columns: string[] }>;
     alpha?: number;
     fdr_method?: "benjamini_hochberg" | "bonferroni" | "none";
@@ -139,28 +247,29 @@ export function detectDrift(runId: string, baselineRunId: string): Promise<Drift
 }
 
 export async function downloadExport(runId: string): Promise<Blob> {
-  const response = await fetch(`${apiBase()}/profile/${encodeURIComponent(runId)}/export`, {
-    headers: { Accept: "application/json" },
+  const response = await apiFetch(`/profile/${encodeURIComponent(runId)}/export`);
+  if (!response.ok) throw await readError(response);
+  return response.blob();
+}
+
+export type CombinedReportSection = "overview" | "technical_profile" | "quality" | "tests" | "drift" | "agent_summary" | "analysis";
+export const ALL_COMBINED_REPORT_SECTIONS: CombinedReportSection[] = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
+
+function reportSectionQuery(sections?: CombinedReportSection[]): string {
+  return sections?.length ? `?sections=${encodeURIComponent(sections.join(","))}` : "";
+}
+
+export async function downloadCombinedReport(runId: string, sections?: CombinedReportSection[]): Promise<Blob> {
+  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}${reportSectionQuery(sections)}`, {
+    headers: await authHeaders({ Accept: "application/pdf" }),
     credentials: "include",
   });
   if (!response.ok) throw await readError(response);
   return response.blob();
 }
 
-export async function downloadCombinedReport(runId: string): Promise<Blob> {
-  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}`, {
-    headers: { Accept: "application/pdf" },
-    credentials: "include",
-  });
-  if (!response.ok) throw await readError(response);
-  return response.blob();
-}
-
-export async function downloadCombinedJson(runId: string): Promise<Blob> {
-  const response = await fetch(`${apiBase()}/profile/${encodeURIComponent(runId)}/report`, {
-    headers: { Accept: "application/json" },
-    credentials: "include",
-  });
+export async function downloadCombinedJson(runId: string, sections?: CombinedReportSection[]): Promise<Blob> {
+  const response = await apiFetch(`/profile/${encodeURIComponent(runId)}/report${reportSectionQuery(sections)}`);
   if (!response.ok) throw await readError(response);
   return response.blob();
 }
@@ -178,10 +287,9 @@ export async function streamQuestion(
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${apiBase()}/qa/stream`, {
+  const response = await apiFetch("/qa/stream", {
     method: "POST",
     headers: { Accept: "text/event-stream", "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify(payload),
     signal,
   });
@@ -211,12 +319,14 @@ export function uploadDataset(
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
 ): Promise<UploadResult> {
-  return new Promise((resolve, reject) => {
+  return (async () => {
+    const headers = await authHeaders();
+    return new Promise<UploadResult>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", `${apiBase()}/datasets/upload`);
     request.responseType = "json";
     request.withCredentials = true;
-    request.setRequestHeader("Accept", "application/json");
+    headers.forEach((value, key) => request.setRequestHeader(key, value));
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
     };
@@ -232,7 +342,8 @@ export function uploadDataset(
     const formData = new FormData();
     formData.append("file", file);
     request.send(formData);
-  });
+    });
+  })();
 }
 
 export function listAnalyses(signal?: AbortSignal, profileRunId?: string): Promise<AnalysisSession[]> {
@@ -252,8 +363,8 @@ export function createAnalysisContext(sessionId: string, payload: { row_grain?: 
   return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
-export function approveAnalysisContext(sessionId: string, contextId: string, approvedBy: string): Promise<AnalysisSession["context"]> {
-  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions/${encodeURIComponent(contextId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved_by: approvedBy }) });
+export function approveAnalysisContext(sessionId: string, contextId: string): Promise<AnalysisSession["context"]> {
+  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions/${encodeURIComponent(contextId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
 }
 
 export function runAnalysisQualityGate(sessionId: string): Promise<AnalysisSession["quality_gate"]> {
