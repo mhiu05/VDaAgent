@@ -4,9 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
-import { cleanupGuestSession, setApiAuthTransport } from "@/lib/api";
+import { cleanupGuestSession, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
 import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
-import { clearGuestSession, getGuestSession, guestEnabled, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
+import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
+import { requestedSignupRole } from "@/lib/auth/onboarding";
 
 export type Workspace = { id: string; name: string; slug: string; role: string };
 export type Me = {
@@ -38,6 +39,16 @@ function apiBase() {
   return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
 }
 
+async function readWorkspaceError(response: Response): Promise<Error> {
+  try {
+    const body = await response.clone().json() as { detail?: unknown };
+    if (typeof body.detail === "string" && body.detail) return new Error(body.detail);
+  } catch {
+    // Keep the stable workspace error below when the response is not JSON.
+  }
+  return new Error("Phiên đăng nhập không có quyền truy cập workspace.");
+}
+
 async function fetchSessionResource(url: string, headers: Headers): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
@@ -53,6 +64,18 @@ async function fetchSessionResource(url: string, headers: Headers): Promise<Resp
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), milliseconds);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -63,47 +86,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const loadInFlight = useRef<Promise<void> | null>(null);
+  const loadInFlight = useRef<Promise<boolean> | null>(null);
   const workspaceIdRef = useRef<string | null>(null);
+  const loadSequence = useRef(0);
+  const guestSwitchSequence = useRef(0);
+  const bootstrapWatchdog = useRef<number | null>(null);
+  // A role button is an explicit request to use the temporary guest
+  // principal. Keep it separate from React state so it wins over an expired
+  // Supabase session that may still be present in browser storage.
+  const guestModeRef = useRef(false);
 
   const supabaseAccessToken = useCallback(async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return null;
-    const { data } = await client.auth.getSession();
+    const { data } = await withTimeout(
+      client.auth.getSession(),
+      12_000,
+      "Supabase không trả phiên đăng nhập trong 12 giây. Hãy tải lại trang và thử lại.",
+    );
     return data.session?.access_token ?? null;
   }, []);
 
   const accessToken = useCallback(async () => {
+    const guestSession = getGuestSession();
+    if (guestModeRef.current && guestSession) return guestSession.accessToken;
     const token = await supabaseAccessToken();
     if (token) return token;
-    if (!guestEnabled()) return null;
-    return (getGuestSession() ?? startGuestSession()).accessToken;
+    if (guestSession) return guestSession.accessToken;
+    return null;
   }, [supabaseAccessToken]);
 
   const refresh = useCallback(async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return null;
-    const { data, error: refreshError } = await client.auth.refreshSession();
-    if (refreshError) return null;
-    return data.session?.access_token ?? null;
+    try {
+      const { data, error: refreshError } = await withTimeout(client.auth.refreshSession(), 12_000, "Supabase refresh timeout");
+      if (refreshError) return null;
+      return data.session?.access_token ?? null;
+    } catch {
+      return null;
+    }
   }, []);
 
-  const load = useCallback((requestedWorkspace?: string | null) => {
-    if (loadInFlight.current) return loadInFlight.current;
+  const load = useCallback((requestedWorkspace?: string | null, force = false, preferGuest = false, background = false) => {
+    if (loadInFlight.current && !force) return loadInFlight.current;
+
+    const sequence = ++loadSequence.current;
 
     const task = (async () => {
-      setLoading(true);
-      setError(null);
+      if (!background) {
+        setLoading(true);
+        setError(null);
+      }
       try {
-        const supabaseToken = await supabaseAccessToken();
+        const existingGuestSession = getGuestSession();
+        const useGuestSession = preferGuest || (guestModeRef.current && Boolean(existingGuestSession));
+        const supabaseToken = useGuestSession ? null : await supabaseAccessToken();
         if (supabaseToken) {
+          guestModeRef.current = false;
           const staleGuest = getGuestSession();
           if (staleGuest) {
-            await cleanupGuestSession(staleGuest.accessToken);
+            // Cleanup must never block workspace bootstrap if the backend is
+            // temporarily unavailable.
+            void cleanupGuestSession(staleGuest.accessToken);
             clearGuestSession();
           }
         }
-        const guestSession = !supabaseToken && guestEnabled() ? (getGuestSession() ?? startGuestSession()) : null;
+        // A trial starts only after an explicit role selection. This prevents
+        // a new guest workspace from being recreated immediately after the
+        // visitor ends a trial session.
+        const guestSession = !supabaseToken ? existingGuestSession : null;
         const token = supabaseToken ?? guestSession?.accessToken ?? null;
         const headers = new Headers({ Accept: "application/json" });
         if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -113,8 +165,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? requestedWorkspace ?? window.localStorage.getItem("p170-workspace-id")
           : null;
         if (saved) headers.set("X-Workspace-Id", saved);
-        const response = await fetchSessionResource(`${apiBase()}/session`, headers);
-        if (!response.ok) throw new Error("Phiên đăng nhập không có quyền truy cập workspace.");
+        let response = await fetchSessionResource(`${apiBase()}/session`, headers);
+        // A workspace id is persisted for convenience, but it may belong to a
+        // previous account or have been removed. Retry without it before
+        // treating the session as unauthorized.
+        if (!response.ok && response.status === 404 && saved) {
+          headers.delete("X-Workspace-Id");
+          response = await fetchSessionResource(`${apiBase()}/session`, headers);
+        }
+        // Supabase Auth users can exist without an application workspace when
+        // they were created from the Supabase dashboard or an older signup
+        // flow. Provision the idempotent personal workspace once, then retry
+        // the normal session lookup. Guest sessions are excluded because the
+        // backend creates their temporary workspace itself.
+        if (!response.ok && response.status === 403 && supabaseToken) {
+          const client = getSupabaseBrowserClient();
+          const { data: sessionData } = client
+            ? await withTimeout(client.auth.getSession(), 12_000, "Supabase không trả phiên đăng nhập trong 12 giây.")
+            : { data: { session: null } };
+          const role = requestedSignupRole(sessionData.session?.user.user_metadata?.requested_role);
+          await provisionSelfSignup(role, supabaseToken);
+          if (sequence !== loadSequence.current) return false;
+          response = await fetchSessionResource(`${apiBase()}/session`, headers);
+        }
+        // A guest can change role while this request is in flight. Ignore the
+        // old response instead of allowing it to replace the newer workspace.
+        if (sequence !== loadSequence.current) return false;
+        if (!response.ok) throw await readWorkspaceError(response);
         const payload = await response.json() as Me;
         const selected = payload.workspace.id;
         workspaceIdRef.current = selected;
@@ -125,15 +202,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsGuest(Boolean(guestSession));
         setGuestRole(guestSession?.role ?? null);
         setChatHistoryScope(payload.user.id, selected, Boolean(guestSession));
+        return true;
       } catch (reason) {
+        if (sequence !== loadSequence.current) return false;
+        // A background revalidation must not blank a workspace because of a
+        // transient network/auth refresh failure. The next API request can
+        // still refresh the token through the shared auth transport.
+        if (background && workspaceIdRef.current) return false;
         setMe(null);
         setAuthenticated(false);
         workspaceIdRef.current = null;
         setWorkspaceId(null);
         setChatHistoryScope(null, null);
         setError(reason instanceof Error ? reason.message : "Không thể khởi tạo phiên đăng nhập.");
+        return false;
       } finally {
-        setLoading(false);
+        if (!background && sequence === loadSequence.current) setLoading(false);
       }
     })();
     loadInFlight.current = task;
@@ -148,6 +232,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setApiAuthTransport(null);
   }, [accessToken, refresh]);
 
+  // A browser auth lock, an unreachable Supabase endpoint, or a stalled API
+  // must never leave the whole workspace shell in a permanent loading state.
+  useEffect(() => {
+    if (!loading) return;
+    bootstrapWatchdog.current = window.setTimeout(() => {
+      if (!loading) return;
+      ++loadSequence.current;
+      loadInFlight.current = null;
+      setMe(null);
+      setAuthenticated(false);
+      workspaceIdRef.current = null;
+      setWorkspaceId(null);
+      setError("Không thể xác định phiên và workspace trong 20 giây. Hãy tải lại trang để thử lại.");
+      setLoading(false);
+    }, 20_000);
+    return () => {
+      if (bootstrapWatchdog.current !== null) window.clearTimeout(bootstrapWatchdog.current);
+      bootstrapWatchdog.current = null;
+    };
+  }, [loading]);
+
   useEffect(() => {
     void load();
     const client = getSupabaseBrowserClient();
@@ -157,8 +262,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // callback can deadlock guest mode (the client exists, but there is no
     // Supabase session). Defer the reload until the callback has returned.
     const { data } = client.auth.onAuthStateChange((event) => {
-      if (event === "INITIAL_SESSION") return;
-      window.setTimeout(() => { void load(workspaceIdRef.current); }, 0);
+      // Supabase refreshes the access token when a background tab becomes
+      // active. The API transport reads the fresh token on demand, so a token
+      // refresh does not require rebuilding the workspace shell.
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      if (event === "SIGNED_OUT") {
+        ++loadSequence.current;
+        loadInFlight.current = null;
+        setMe(null);
+        setAuthenticated(false);
+        setIsGuest(false);
+        setGuestRole(null);
+        workspaceIdRef.current = null;
+        setWorkspaceId(null);
+        setError(null);
+        setLoading(false);
+        setChatHistoryScope(null, null);
+        return;
+      }
+      window.setTimeout(() => {
+        const preferGuest = guestModeRef.current;
+        const hasActiveWorkspace = Boolean(workspaceIdRef.current);
+        void load(
+          preferGuest ? null : workspaceIdRef.current,
+          preferGuest,
+          preferGuest,
+          hasActiveWorkspace,
+        );
+      }, 0);
     });
     return () => data.subscription.unsubscribe();
   }, [load]); // Session callback always reads fresh persisted workspace.
@@ -167,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (nextWorkspaceId === workspaceId) return;
     await queryClient.cancelQueries();
     queryClient.clear();
-    await load(nextWorkspaceId);
+    await load(nextWorkspaceId, true);
   }, [load, queryClient, workspaceId]);
 
   const signOut = useCallback(async () => {
@@ -187,13 +318,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     workspaceIdRef.current = null;
     setWorkspaceId(null);
     setChatHistoryScope(null, null);
+    guestModeRef.current = false;
     await getSupabaseBrowserClient()?.auth.signOut();
     window.location.assign("/");
   }, [queryClient]);
 
   const enterGuestRole = useCallback(async (role: GuestRole) => {
+    const switchSequence = ++guestSwitchSequence.current;
+    guestModeRef.current = true;
     void queryClient.cancelQueries();
     queryClient.clear();
+    // The initial auth bootstrap may still be resolving when a visitor picks
+    // a trial role from the public navbar. Start the new role immediately;
+    // load() sequence checks below will ignore any older response instead of
+    // making the click wait for a slow or stalled request.
+    if (switchSequence !== guestSwitchSequence.current) return;
     const previous = getGuestSession();
     if (previous) {
       // Cleanup is best-effort. Do not make switching roles wait for the API.
@@ -201,13 +340,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearChatHistory();
       clearGuestSession();
     }
-    if (authenticated) await getSupabaseBrowserClient()?.auth.signOut();
+    // The page may look signed out while Supabase still holds an expired
+    // token. Clear it regardless, otherwise that token can be chosen before
+    // the new guest token and the backend returns 401.
+    try {
+      await getSupabaseBrowserClient()?.auth.signOut({ scope: "local" });
+    } catch {
+      // Local guest mode does not depend on revoking a remote Supabase token.
+    }
+    if (switchSequence !== guestSwitchSequence.current) return;
     window.localStorage.removeItem("p170-workspace-id");
     startGuestSession(role);
-    // Keep the app shell and AuthProvider alive. A client transition avoids a
-    // full Next.js boot and lets the dashboard show its loading state at once.
-    void load();
-    router.push("/dashboard");
+    // Enter the workspace immediately. Its shell shows the loading state while
+    // the fresh role/session resolves, so a slow backend cannot make a navbar
+    // click appear to do nothing.
+    void load(null, true, true);
+    if (switchSequence === guestSwitchSequence.current) router.push("/dashboard");
   }, [authenticated, load, queryClient, router]);
 
   const value = useMemo(() => ({ me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh }), [me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh]);

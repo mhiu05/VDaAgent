@@ -28,7 +28,10 @@ _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 _REPO_ROOT = _BACKEND_ROOT.parent
 PROJECT_ROOT = (
     _REPO_ROOT
-    if any((_REPO_ROOT / marker).exists() for marker in (".env", ".env.example", "README.md", "docs"))
+    if any(
+        (_REPO_ROOT / marker).exists()
+        for marker in (".env", ".env.example", "README.md", "docs")
+    )
     else _BACKEND_ROOT
 )
 
@@ -75,7 +78,9 @@ LLM_PROVIDERS: dict[str, dict[str, str]] = {
     },
 }
 
-ProviderName = Literal["openai", "openrouter", "gemini", "groq", "together", "ollama", "custom"]
+ProviderName = Literal[
+    "openai", "openrouter", "gemini", "groq", "together", "ollama", "custom"
+]
 
 
 def _load_yaml(root: Path) -> dict[str, Any]:
@@ -145,7 +150,9 @@ class Settings(BaseSettings):
 
     # --- stats -------------------------------------------------------------
     stats_alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
-    stats_fdr_method: Literal["benjamini_hochberg", "bonferroni", "none"] = "benjamini_hochberg"
+    stats_fdr_method: Literal["benjamini_hochberg", "bonferroni", "none"] = (
+        "benjamini_hochberg"
+    )
     stats_max_tests_per_request: int = Field(default=20, ge=1)
 
     # --- retrieval (ADR-007) ----------------------------------------------
@@ -153,8 +160,12 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
     retrieval_candidate_k: int = Field(default=20, ge=1, le=200)
     retrieval_embedding_provider: Literal["local", "openai", "voyage", "none"] = "local"
-    retrieval_embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    retrieval_local_fallback_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    retrieval_embedding_model: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+    retrieval_local_fallback_model: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
     retrieval_rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     retrieval_enable_rerank: bool = False
     # External corpus is deliberately opt-in: turning this off is the safe
@@ -180,8 +191,18 @@ class Settings(BaseSettings):
     guest_max_upload_mb: int = Field(default=25, ge=1, le=100)
     guest_retention_hours: int = Field(default=24, ge=1, le=168)
     auth_require_email_confirmed: bool = True
-    auth_issuer: str = Field(default="", validation_alias=AliasChoices("SUPABASE_AUTH_ISSUER", "AUTH_ISSUER", "auth_issuer"))
-    auth_audience: str = Field(default="authenticated", validation_alias=AliasChoices("SUPABASE_AUTH_AUDIENCE", "AUTH_AUDIENCE", "auth_audience"))
+    auth_issuer: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SUPABASE_AUTH_ISSUER", "AUTH_ISSUER", "auth_issuer"
+        ),
+    )
+    auth_audience: str = Field(
+        default="authenticated",
+        validation_alias=AliasChoices(
+            "SUPABASE_AUTH_AUDIENCE", "AUTH_AUDIENCE", "auth_audience"
+        ),
+    )
     auth_jwks_cache_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     auth_jwks_timeout_seconds: float = Field(default=3.0, ge=0.5, le=30.0)
     auth_jwt_algorithms: tuple[str, ...] = ("ES256", "RS256")
@@ -189,7 +210,12 @@ class Settings(BaseSettings):
     # can be backfilled into a real membership instead of becoming unscoped.
     auth_bootstrap_user_id: str = Field(
         default="00000000-0000-0000-0000-000000000001",
-        validation_alias=AliasChoices("P170_BOOTSTRAP_USER_ID", "P170_BOOTSTRAP_OWNER_USER_ID", "AUTH_BOOTSTRAP_OWNER_USER_ID", "auth_bootstrap_user_id"),
+        validation_alias=AliasChoices(
+            "P170_BOOTSTRAP_USER_ID",
+            "P170_BOOTSTRAP_OWNER_USER_ID",
+            "AUTH_BOOTSTRAP_OWNER_USER_ID",
+            "auth_bootstrap_user_id",
+        ),
     )
     security_require_api_token: bool = False
     security_user_rate_per_minute: int = Field(default=30, ge=1)
@@ -206,6 +232,19 @@ class Settings(BaseSettings):
     guardrails_max_context_chars: int = Field(default=24_000, ge=1_000, le=200_000)
     guardrails_max_output_chars: int = Field(default=12_000, ge=500, le=100_000)
     guardrails_audit_question_content: bool = False
+
+    # --- Agent runtime rollout -------------------------------------------
+    # New runtime layers are deliberately opt-in.  ``shadow`` persists a
+    # redacted trace without changing the compatibility workflow; ``required``
+    # makes a trace persistence failure fail the request closed.
+    agent_trace_mode: Literal["off", "shadow", "required"] = "off"
+    agent_verifier_mode: Literal["off", "shadow", "enforce"] = "off"
+    agent_planner_enabled: bool = False
+    agent_jobs_enabled: bool = False
+    agent_workspace_memory_enabled: bool = False
+    agent_personal_memory_enabled: bool = False
+    agent_runtime_version: str = "2.0.0"
+    agent_trace_event_limit: int = Field(default=500, ge=1, le=2_000)
 
     # --- Supabase / database (ADR-009) ------------------------------------
     # The backend connects directly to Supabase PostgreSQL; the service-role
@@ -227,7 +266,9 @@ class Settings(BaseSettings):
     storage_provider: Literal["supabase", "google_drive", "local"] = "supabase"
     google_drive_client_id: str = ""
     google_drive_client_secret: str = ""
-    google_drive_redirect_uri: str = "http://localhost:8000/api/v1/google-drive/callback"
+    google_drive_redirect_uri: str = (
+        "http://localhost:8000/api/v1/google-drive/callback"
+    )
     google_drive_folder_id: str = ""
     google_drive_token_encryption_key: str = ""
     google_drive_frontend_url: str = "http://localhost:3000"
@@ -256,8 +297,12 @@ class Settings(BaseSettings):
 
         if not self.database_url:
             raise ValueError("DATABASE_URL bắt buộc phải trỏ tới PostgreSQL.")
-        if not self.database_url.startswith(("postgresql://", "postgresql+psycopg://", "postgres://")):
-            raise ValueError("DATABASE_URL phải là PostgreSQL (postgresql:// hoặc postgresql+psycopg://).")
+        if not self.database_url.startswith(
+            ("postgresql://", "postgresql+psycopg://", "postgres://")
+        ):
+            raise ValueError(
+                "DATABASE_URL phải là PostgreSQL (postgresql:// hoặc postgresql+psycopg://)."
+            )
 
         if not self.auth_issuer and self.supabase_url:
             self.auth_issuer = f"{self.supabase_url.rstrip('/')}/auth/v1"
@@ -266,6 +311,27 @@ class Settings(BaseSettings):
                 raise ValueError("AUTH_MODE=supabase yêu cầu SUPABASE_URL.")
             if not self.auth_issuer:
                 raise ValueError("AUTH_MODE=supabase yêu cầu SUPABASE_AUTH_ISSUER.")
+        # The planner/verifier/queue switches are intentionally fail-closed
+        # until their capability registry, deterministic evaluation and durable
+        # execution phases have shipped. A truthy flag must never expose an
+        # unfinished SQL/code-capable path by accident.
+        if self.agent_planner_enabled:
+            raise ValueError(
+                "AGENT_PLANNER_ENABLED chưa khả dụng: cần capability registry, "
+                "verifier và durable executor đã qua deterministic eval gate."
+            )
+        if self.agent_verifier_mode == "enforce":
+            raise ValueError(
+                "AGENT_VERIFIER_MODE=enforce chưa khả dụng trước khi deterministic verifier được phát hành."
+            )
+        if (
+            self.agent_jobs_enabled
+            or self.agent_workspace_memory_enabled
+            or self.agent_personal_memory_enabled
+        ):
+            raise ValueError(
+                "Agent jobs và long-term memory chưa được phát hành; giữ các feature flag AGENT_*_ENABLED=false."
+            )
         return self
 
     # ------------------------------------------------------------------ #
@@ -304,7 +370,9 @@ class Settings(BaseSettings):
             # PostgresSaver expects the plain PostgreSQL form.
             value = value.replace("postgresql+psycopg://", "postgresql://", 1)
         if not value:
-            raise ValueError("DATABASE_URL hoặc DATABASE_CHECKPOINTER_URL bắt buộc cho PostgreSQL checkpointer.")
+            raise ValueError(
+                "DATABASE_URL hoặc DATABASE_CHECKPOINTER_URL bắt buộc cho PostgreSQL checkpointer."
+            )
         if not value.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_CHECKPOINTER_URL phải là PostgreSQL.")
         return value
@@ -351,10 +419,16 @@ class Settings(BaseSettings):
                 missing.append("AUTH_MODE=supabase")
             if not self.supabase_publishable_key:
                 missing.append("SUPABASE_PUBLISHABLE_KEY")
-            if self.storage_provider == "google_drive" and not self.google_drive_configured:
+            if (
+                self.storage_provider == "google_drive"
+                and not self.google_drive_configured
+            ):
                 missing.append("GOOGLE_DRIVE_* (storage provider google_drive)")
             if self.auth_allow_guest:
-                if self.guest_storage_provider == "supabase" and not self.supabase_backend_key:
+                if (
+                    self.guest_storage_provider == "supabase"
+                    and not self.supabase_backend_key
+                ):
                     missing.append("SUPABASE_SECRET_KEY (guest trial storage)")
                 if self.guest_storage_provider == "local":
                     missing.append("GUEST_STORAGE_PROVIDER=supabase")
@@ -387,7 +461,11 @@ def get_settings() -> Settings:
 
     # `case_sensitive=False` nên so khớp tên field với env var không phân biệt hoa thường.
     env_keys = {key.lower() for key in os.environ}
-    defaults = {key: value for key, value in yaml_defaults.items() if key.lower() not in env_keys}
+    defaults = {
+        key: value
+        for key, value in yaml_defaults.items()
+        if key.lower() not in env_keys
+    }
 
     return Settings(**defaults)
 

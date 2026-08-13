@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 from fastapi import HTTPException, status
 from src.config import Settings, get_settings
 
@@ -76,6 +77,38 @@ class SupabaseJWTVerifier:
                 )
             return self._client
 
+    def _email_is_confirmed(self, access_token: str) -> bool:
+        """Read email confirmation from Supabase Auth's authoritative user record.
+
+        ``email_confirmed_at`` is present on Supabase's User object, but it is
+        not guaranteed to be included in every access-token JWT, especially
+        with asymmetric signing keys. Do not treat an omitted claim as proof
+        that the email is unconfirmed.
+        """
+        if not self.settings.supabase_url:
+            raise JWTVerificationError("Thiếu SUPABASE_URL để kiểm tra email xác nhận.")
+        api_key = self.settings.supabase_publishable_key or self.settings.supabase_backend_key
+        if not api_key:
+            raise JWTVerificationError("Thiếu Supabase API key để kiểm tra email xác nhận.")
+        try:
+            response = httpx.get(
+                f"{self.settings.supabase_url.rstrip('/')}/auth/v1/user",
+                headers={
+                    "apikey": api_key,
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=self.settings.auth_jwks_timeout_seconds,
+            )
+        except httpx.RequestError as exc:
+            raise JWTVerificationError("Không thể kiểm tra trạng thái xác nhận email.") from exc
+        if response.status_code != 200:
+            raise JWTVerificationError("JWT không hợp lệ hoặc email của tài khoản chưa được xác nhận.")
+        try:
+            user = response.json()
+        except ValueError as exc:
+            raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.") from exc
+        return bool(isinstance(user, dict) and user.get("email_confirmed_at"))
+
     def verify(self, token: str) -> AuthContext:
         try:
             import jwt
@@ -117,8 +150,12 @@ class SupabaseJWTVerifier:
 
         if claims.get("role") != "authenticated":
             raise JWTVerificationError("JWT không phải phiên authenticated.")
-        if self.settings.auth_require_email_confirmed and not claims.get("email_confirmed_at"):
-            raise JWTVerificationError("Email của phiên đăng nhập chưa được xác nhận.")
+        if self.settings.auth_require_email_confirmed:
+            # Older/local JWTs may carry this claim directly. Newer Supabase
+            # asymmetric tokens can omit it, so consult the Auth user endpoint
+            # instead of rejecting an already-confirmed callback session.
+            if not claims.get("email_confirmed_at") and not self._email_is_confirmed(token):
+                raise JWTVerificationError("Email của phiên đăng nhập chưa được xác nhận.")
         subject = claims.get("sub")
         try:
             user_id = str(uuid.UUID(str(subject)))

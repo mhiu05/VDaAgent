@@ -5,10 +5,10 @@ import { PublicNavbar } from "@/components/public-navbar";
 type Step = { title: string; description: string; action?: string };
 
 const guestSteps: Step[] = [
-  { title: "Bật guest mode và chọn vai trò", description: "Từ Trang chủ hoặc Hướng dẫn, chọn Viewer, Analyst hoặc Admin trên navbar. Nếu không thấy lựa chọn này, guest mode chưa được bật ở backend/frontend; hãy đăng nhập.", action: "Trang chủ → chọn role" },
+  { title: "Bật guest mode và chọn vai trò", description: "Từ Trang chủ hoặc Hướng dẫn, chọn Viewer, Analyst hoặc Admin trên navbar. Nếu không vào được workspace, kiểm tra AUTH_ALLOW_GUEST ở backend rồi khởi động lại frontend/backend.", action: "Trang chủ → chọn role" },
   { title: "Mở guest workspace", description: "Ứng dụng tạo một token và workspace tạm cho browser session hiện tại. Bạn không cần email, mật khẩu hay tài khoản Supabase.", action: "Workspace dùng thử" },
   { title: "Thử đúng tính năng của role", description: "Viewer đọc report; Analyst upload và chạy profiling/analysis; Admin thử member, report workflow và settings. Backend vẫn kiểm tra permission như luồng đăng nhập.", action: "Dashboard" },
-  { title: "Kết thúc phiên thử", description: "Đổi role hoặc dọn guest session khi không cần nữa. Guest data có retention giới hạn, có thể bị cleanup và không phù hợp với dữ liệu production.", action: "Đổi role / Đăng nhập" },
+  { title: "Kết thúc phiên thử", description: "Đổi role hoặc bấm Kết thúc dùng thử khi không cần nữa. Token browser được xóa ngay; dữ liệu backend được dọn best-effort hoặc theo retention, nên không dùng cho dữ liệu production.", action: "Đổi role / Kết thúc dùng thử" },
 ];
 
 const signedInSteps: Step[] = [
@@ -38,7 +38,7 @@ const roleDetails = [
 ];
 
 const troubleshooting = [
-  ["Không thấy role guest", "Kiểm tra AUTH_ALLOW_GUEST và NEXT_PUBLIC_AUTH_ALLOW_GUEST ở backend/frontend, sau đó restart cả hai server."],
+  ["Không thấy hoặc không mở được role guest", "Kiểm tra AUTH_ALLOW_GUEST=true ở backend, NEXT_PUBLIC_AUTH_ALLOW_GUEST có cùng giá trị khi build frontend, rồi restart cả hai server. Sau đó chọn một role trên navbar trước khi mở workspace."],
   ["Không upload được file", "Kiểm tra role có quyền upload, bucket/provider, DATABASE_URL và giới hạn file của Supabase/Google Drive. Supabase Free có thể giới hạn 50 MB dù app cho phép lớn hơn."],
   ["Quality gate bị blocked", "Đọc từng issue trong Quality gate. Thường cần review proposal còn pending, khai báo row grain, chọn đúng dimensions/measures hoặc xử lý missingness/timezone."],
   ["Không chạy được exploration", "Context phải approved, quality gate không được blocked, dimension/measure phải là cột đã khai báo và không phải PII."],
@@ -55,11 +55,11 @@ function RouteCard({ number, label, title, description, steps, note }: { number:
 
 export default function GuidePage() {
   return <div className="public-page guide-public-page"><PublicNavbar /><main className="guide-page">
-    <PageHeader eyebrow="Trung tâm hướng dẫn" title="Dùng VDaAgent đúng theo từng luồng" description="VDaAgent có hai cách sử dụng: guest trial để thử nhanh không cần tài khoản và workspace đăng nhập để lưu dữ liệu, cộng tác và vận hành lâu dài. Hãy chọn luồng phù hợp trước khi bắt đầu." action={<div className="inline-actions"><Link className="button primary" href="/dashboard">Mở workspace</Link><Link className="button secondary" href="/login">Đăng nhập</Link></div>} />
+    <PageHeader eyebrow="Trung tâm hướng dẫn" title="Dùng VDaAgent đúng theo từng luồng" description="VDaAgent có hai cách sử dụng: guest trial để thử nhanh không cần tài khoản và workspace đăng nhập để lưu dữ liệu, cộng tác và vận hành lâu dài. Hãy chọn luồng phù hợp trước khi bắt đầu." action={<div className="inline-actions"><Link className="button primary" href="/">Chọn role dùng thử</Link><Link className="button secondary" href="/login">Đăng nhập</Link></div>} />
 
     <div className="guide-overview"><span aria-hidden="true">✦</span><p><strong>Luồng chuẩn của Analyst:</strong> Upload → Profiling → Review proposal → Report/Q&A/Test/Drift → Analysis context → Quality gate → Exploration → Export evidence.</p></div>
 
-    <section className="guide-intro-panel panel"><div><p className="eyebrow">BẮT ĐẦU TỪ ĐÂU?</p><h2>Chọn chế độ trước, chọn role sau</h2><p>Trang chủ và Hướng dẫn chỉ mang tính tổng quan. Role/workspace thực sự được áp dụng khi bạn bước vào workspace; backend luôn kiểm tra quyền ở mỗi request.</p></div><div className="guide-quick-links"><Link href="/">Trang chủ</Link><Link href="/signup">Đăng ký</Link><Link href="/datasets">Bộ dữ liệu</Link><Link href="/chat">Chat Agent</Link></div></section>
+    <section className="guide-intro-panel panel"><div><p className="eyebrow">BẮT ĐẦU TỪ ĐÂU?</p><h2>Chọn mode và role trước</h2><p>Trang chủ và Hướng dẫn chỉ mang tính tổng quan. Để dùng thử, hãy chọn role trên navbar trước khi mở workspace; backend luôn kiểm tra quyền ở mỗi request.</p></div><div className="guide-quick-links"><Link href="/">Trang chủ / chọn role</Link><Link href="/signup">Đăng ký</Link><Link href="/login">Đăng nhập</Link></div></section>
 
     <div className="guide-route-grid"><RouteCard number="01" label="Chưa đăng nhập · Guest trial" title="Thử sản phẩm không cần tài khoản" description="Dùng khi muốn xem giao diện, thử permission hoặc chạy demo với dữ liệu không quan trọng." steps={guestSteps} note="Guest không dùng SQLite và không đại diện cho tài khoản cá nhân. Metadata vẫn đi qua backend/PostgreSQL; file dùng provider guest được cấu hình. Workspace và file trial có thể bị cleanup, vì vậy không dùng cho dữ liệu production." /><RouteCard number="02" label="Đã đăng nhập · Workspace thật" title="Làm việc và lưu kết quả lâu dài" description="Dùng khi cần giữ dataset, lịch sử, report, membership, Google Drive connection hoặc cộng tác trong workspace." steps={signedInSteps} note="Supabase quản lý Auth; backend resolve membership và permission. Nếu có nhiều workspace, luôn kiểm tra workspace đang chọn trước khi đọc hoặc upload dữ liệu." /></div>
 

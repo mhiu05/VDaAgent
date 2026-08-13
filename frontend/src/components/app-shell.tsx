@@ -21,7 +21,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
-  const { me, authenticated, isGuest, workspaceId, switchWorkspace, signOut } = useAuth();
+  const { me, authenticated, isGuest, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
@@ -61,6 +61,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
           <span><b>Profile</b><small>Phân tích dữ liệu</small></span>
         </Link>
         <Link className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/"><span aria-hidden="true">⌂</span>Trang chủ</Link>
+        {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
+          <span className="sidebar-workspace-label">Workspace của bạn</span>
+          <div className="current-role" aria-label={`Vai trò hiện tại: ${me.workspace.role}`}>
+            <span className="current-role-dot" aria-hidden="true" />
+            <span><small>Vai trò hiện tại</small><b>{me.workspace.role}</b></span>
+          </div>
+          <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void switchWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
+        </section>}
         <section className="chat-history" aria-label="Lịch sử chat">
           <div className="sidebar-section-heading"><span>Lịch sử chat</span><button type="button" className="new-chat-button" onClick={startNewChat}>+ Chat mới</button></div>
           <div className="chat-history-list">
@@ -83,19 +91,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="sidebar-footer">
-          {authenticated && me && <div className="workspace-controls">
-            <div className="current-role" aria-label={`Vai trò hiện tại: ${me.workspace.role}`}>
-              <span className="current-role-dot" aria-hidden="true" />
-              <span><small>Vai trò hiện tại</small><b>{me.workspace.role}</b></span>
-            </div>
-            <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void switchWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
-            <button type="button" className="history-button" onClick={() => void signOut()}>Đăng xuất</button>
-          </div>}
-          <Link href="/guide" className="sidebar-guide-link">
-            <span className="sidebar-guide-icon" aria-hidden="true">?</span>
-            <span><b>Hướng dẫn sử dụng</b><small>Từng bước với Agent</small></span>
-            <span className="sidebar-guide-arrow" aria-hidden="true">→</span>
-          </Link>
+          {authenticated && me && <button type="button" className="sidebar-signout" onClick={() => void signOut()}><span aria-hidden="true">↪</span>Đăng xuất</button>}
         </div>
       </aside>
       {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div><div className="history-modal-list">{conversations.map((conversation) => <Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} key={conversation.id} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link>)}</div></section></div>}
@@ -105,6 +101,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   // A guest can switch roles without losing the public navbar; the workspace
   // beneath it is the only part that changes with the selected role.
+  if (loading) return <main className="main-content workspace-auth-loading" aria-live="polite" aria-busy="true"><section className="workspace-auth-loading-card"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>Đang mở workspace…</b><p>Đang xác định phiên và quyền truy cập.</p></div></section></main>;
+  if (error && !me && !isPublicPage && !isAuthPage) return <main className="main-content workspace-auth-loading"><section className="workspace-auth-loading-card"><div><b>Không thể mở workspace</b><p>{error}</p><button className="button secondary" onClick={() => window.location.reload()}>Thử lại</button></div></section></main>;
+
   return isGuest ? <div className="guest-workspace"><PublicNavbar />{workspaceShell}</div> : workspaceShell;
 }
 

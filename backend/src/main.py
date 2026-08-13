@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import router as analysis_router
 from src.api.authz_routes import router as authz_router
 from src.api.google_drive_routes import router as google_drive_router
@@ -60,16 +61,25 @@ async def lifespan(app: FastAPI) -> Any:
     except Exception as exc:
         logger.error("Không kết nối được metadata DB: %s", exc)
         if settings.app_env == "production":
-            raise RuntimeError("Production yêu cầu kết nối được Supabase PostgreSQL.") from exc
+            raise RuntimeError(
+                "Production yêu cầu kết nối được Supabase PostgreSQL."
+            ) from exc
 
     missing = settings.missing_required()
     if missing:
         logger.warning(
-            "Còn %d biến môi trường chưa điền trong .env: %s", len(missing), ", ".join(missing)
+            "Còn %d biến môi trường chưa điền trong .env: %s",
+            len(missing),
+            ", ".join(missing),
         )
         logger.warning("Xem hướng dẫn từng biến trong .env.example và README.md.")
     if settings.app_env == "production":
-        critical = {"DATABASE_URL", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "AUTH_MODE=supabase"}
+        critical = {
+            "DATABASE_URL",
+            "SUPABASE_URL",
+            "SUPABASE_PUBLISHABLE_KEY",
+            "AUTH_MODE=supabase",
+        }
         if settings.storage_provider == "supabase":
             critical.add("SUPABASE_SECRET_KEY")
         elif settings.storage_provider == "google_drive":
@@ -91,7 +101,9 @@ async def lifespan(app: FastAPI) -> Any:
                 if not keys:
                     raise RuntimeError("JWKS không có signing key.")
             except Exception as exc:
-                raise RuntimeError("Không kiểm tra được Supabase JWKS khi khởi động production.") from exc
+                raise RuntimeError(
+                    "Không kiểm tra được Supabase JWKS khi khởi động production."
+                ) from exc
     if not settings.llm_configured:
         logger.warning(
             "Chưa có API key cho LLM — profiling và kiểm định vẫn chạy, nhưng báo cáo sẽ ở "
@@ -132,9 +144,11 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
+app.include_router(agent_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
 app.include_router(google_drive_router, prefix="/api/v1")
+
 
 @app.get("/")
 async def root() -> dict[str, str]:

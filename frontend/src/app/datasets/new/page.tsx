@@ -1,16 +1,18 @@
 "use client";
 
-import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { connectGoogleDrive, createProfile, getGoogleDriveStatus, uploadDataset, ApiError, type GoogleDriveStatus } from "@/lib/api";
 import { humanFileSize } from "@/lib/format";
 import type { UploadResult } from "@/lib/types";
 import { ErrorNotice, Notice, PageHeader } from "@/components/ui";
+import { useAuth } from "@/components/auth-provider";
 
 const supportedExtensions = ["csv", "tsv", "parquet", "json"];
 
 export default function NewDatasetPage() {
   const router = useRouter();
+  const { authenticated, loading: authLoading, workspaceId } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const [progress, setProgress] = useState(0);
@@ -22,10 +24,39 @@ export default function NewDatasetPage() {
   const [driveStatus, setDriveStatus] = useState<GoogleDriveStatus | null>(null);
   const [driveConnecting, setDriveConnecting] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const driveStatusSequence = useRef(0);
+
+  const refreshDriveStatus = useCallback(async () => {
+    // The API client gets its bearer token and workspace id from AuthProvider.
+    // Do not query Drive during the initial render, otherwise the request can
+    // race auth bootstrap and make an existing connection look absent.
+    if (authLoading || !authenticated || !workspaceId) return;
+    const sequence = ++driveStatusSequence.current;
+    try {
+      const status = await getGoogleDriveStatus();
+      if (sequence === driveStatusSequence.current) setDriveStatus(status);
+    } catch {
+      if (sequence === driveStatusSequence.current) setDriveStatus(null);
+    }
+  }, [authLoading, authenticated, workspaceId]);
 
   useEffect(() => {
-    getGoogleDriveStatus().then(setDriveStatus).catch(() => setDriveStatus(null));
-  }, []);
+    void refreshDriveStatus();
+    const handleDriveMessage = (event: MessageEvent<{ type?: string; status?: string; reason?: string }>) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "p170-google-drive") return;
+      if (event.data.status === "connected") {
+        setError(null);
+        void refreshDriveStatus();
+      } else {
+        setError(new ApiError(event.data.reason || "Kết nối Google Drive thất bại.", 400));
+        setDriveConnecting(false);
+      }
+    };
+    window.addEventListener("message", handleDriveMessage);
+    return () => {
+      window.removeEventListener("message", handleDriveMessage);
+    };
+  }, [refreshDriveStatus]);
 
   function selectFile(next: File | null) {
     setError(null);
@@ -70,9 +101,27 @@ export default function NewDatasetPage() {
   async function handleConnectDrive() {
     setDriveConnecting(true);
     setError(null);
+    // Open the tab synchronously from the click handler so popup blockers do
+    // not reject it while the authorization URL is being fetched.
+    const oauthWindow = window.open("about:blank", "_blank");
+    if (!oauthWindow) {
+      setError(new ApiError("Trình duyệt đã chặn tab Google mới. Hãy cho phép popup rồi thử lại.", 0));
+      setDriveConnecting(false);
+      return;
+    }
+    // Keep the popup visibly occupied while the authorization URL is fetched.
+    // The callback uses this opener to notify the original upload tab and
+    // close itself after Google finishes.
     try {
-      await connectGoogleDrive();
+      oauthWindow.document.title = "Connecting Google Drive...";
+      oauthWindow.document.body.textContent = "Connecting Google Drive...";
+    } catch {
+      // The blank window can become cross-origin immediately in some browsers.
+    }
+    try {
+      await connectGoogleDrive(oauthWindow);
     } catch (reason) {
+      oauthWindow.close();
       setError(reason);
       setDriveConnecting(false);
     }
@@ -86,7 +135,7 @@ export default function NewDatasetPage() {
     {error && <ErrorNotice error={error} retry={file && !upload ? handleUpload : undefined} />}
     {driveStatus?.provider === "google_drive" && <Notice tone={driveStatus.connected ? "success" : "info"}>
       <b>{driveStatus.connected ? "Google Drive đã kết nối." : "Cần kết nối Google Drive trước khi upload."}</b>
-      <p>{driveStatus.connected ? "File gốc của workspace được lưu trong thư mục Drive đã cấu hình; Supabase vẫn giữ metadata và quyền truy cập." : driveStatus.can_connect ? "Admin workspace cần cấp quyền Google Drive một lần." : "Liên hệ Admin workspace để kết nối Google Drive."}</p>
+      {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn có thể tự kết nối Google Drive một lần bằng tài khoản Google của mình." : "Liên hệ Admin workspace để kết nối Google Drive."}</p>}
       {!driveStatus.connected && driveStatus.can_connect && <button className="button secondary" onClick={handleConnectDrive} disabled={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</button>}
     </Notice>}
     <div className="grid two">

@@ -17,29 +17,27 @@ function AuthCallbackContent() {
     async function finish() {
       const client = getSupabaseBrowserClient();
       const requestedRole = params.get("requested_role");
-      const role = validRoles.includes(requestedRole as SelfSignupRole) ? requestedRole as SelfSignupRole : null;
+      const requestedRoleFromUrl = validRoles.includes(requestedRole as SelfSignupRole) ? requestedRole as SelfSignupRole : null;
       if (!client) {
         setMessage("Supabase Auth chưa được cấu hình cho frontend.");
         return;
       }
-      const code = params.get("code");
-      if (code) {
-        const { error } = await client.auth.exchangeCodeForSession(code);
-        if (error) {
-          setMessage(error.message);
-          return;
-        }
-      }
+      // createBrowserClient enables detectSessionInUrl, so Supabase exchanges
+      // the PKCE code during client initialization. Calling
+      // exchangeCodeForSession here as well would consume the verifier twice
+      // and surface "PKCE code verifier not found in storage".
       const { data: sessionData, error: sessionError } = await client.auth.getSession();
       const session = sessionData.session;
       if (sessionError || !session) {
         setMessage(sessionError?.message ?? "Liên kết xác thực không hợp lệ hoặc phiên đã hết hạn.");
         return;
       }
-      if (!role) {
-        window.location.assign("/dashboard");
-        return;
-      }
+      const metadataRole = session.user.user_metadata?.requested_role;
+      const role = requestedRoleFromUrl
+        ?? (validRoles.includes(metadataRole as SelfSignupRole) ? metadataRole as SelfSignupRole : null)
+        // Older confirmation links did not carry requested_role. Provision a
+        // safe default so those accounts do not land in a workspace-less state.
+        ?? "analyst";
       try {
         await provisionSelfSignup(role, session.access_token);
         if (!cancelled) window.location.assign("/dashboard");

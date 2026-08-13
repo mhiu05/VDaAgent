@@ -652,16 +652,43 @@ function buildPdf(payload: ReportPayload): Uint8Array {
 }
 
 async function getReport(runId: string, request: Request, sections?: string): Promise<ReportPayload> {
-  const base = (process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
+  const configuredBase = (process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
+  const bases = [configuredBase];
+  // In local Windows/Node environments, localhost may resolve differently
+  // from the address used by the browser. Keep a loopback fallback for the
+  // server-side PDF proxy without changing the public API URL contract.
+  if (configuredBase.includes("localhost")) bases.push(configuredBase.replace("localhost", "127.0.0.1"));
+  if (configuredBase.includes("127.0.0.1")) bases.push(configuredBase.replace("127.0.0.1", "localhost"));
   const headers: Record<string, string> = { Accept: "application/json" };
   const authorization = request.headers.get("authorization");
   const workspaceId = request.headers.get("x-workspace-id");
   if (authorization) headers.Authorization = authorization;
   if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
   const query = sections ? `?sections=${encodeURIComponent(sections)}` : "";
-  const response = await fetch(`${base}/profile/${encodeURIComponent(runId)}/report${query}`, { headers, cache: "no-store" });
-  if (!response.ok) throw new Error(`Không thể lấy dữ liệu report (${response.status}).`);
-  return response.json() as Promise<ReportPayload>;
+  let lastNetworkError: unknown = null;
+  for (const base of [...new Set(bases)]) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(`${base}/profile/${encodeURIComponent(runId)}/report${query}`, {
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Không thể lấy dữ liệu report (${response.status}).`);
+      return response.json() as Promise<ReportPayload>;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Không thể lấy dữ liệu report (")) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        lastNetworkError = new Error("Backend không phản hồi trong 30 giây khi chuẩn bị PDF.");
+      } else {
+        lastNetworkError = error;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error(lastNetworkError instanceof Error ? `Không thể kết nối backend để xuất PDF: ${lastNetworkError.message}` : "Không thể kết nối backend để xuất PDF.");
 }
 
 export async function GET(request: Request, context: { params: Promise<{ runId: string }> }) {

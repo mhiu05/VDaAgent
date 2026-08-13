@@ -135,6 +135,9 @@ class ProfileResponse(BaseModel):
     answer: str | None = None
     answer_sources: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
+    # Additive runtime v2 provenance. Older clients can ignore these fields.
+    agent_run_id: str | None = None
+    trace_summary: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -152,6 +155,7 @@ class ProposalDecision(BaseModel):
 
 class ConfirmRequest(BaseModel):
     """Actor attribution is taken from the verified JWT, never client input."""
+
     action: Literal["confirm", "edit", "reject", "request_test"] | None = None
     decisions: list[ProposalDecision] = Field(default_factory=list, max_length=500)
     test_requests: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
@@ -290,6 +294,9 @@ class QAResponse(BaseModel):
     answer: str
     sources: list[AnswerSource] = Field(default_factory=list)
     is_approximate: bool = False
+    agent_run_id: str | None = None
+    verification: dict[str, Any] | None = None
+    trace_summary: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -398,15 +405,15 @@ __all__ = [
     "ConfirmRequest",
     "ConfirmResponse",
     "DatasetOut",
-    "ExternalKnowledgeSource",
     "DriftFinding",
     "DriftRequest",
     "DriftResponse",
     "ErrorResponse",
+    "ExternalKnowledgeSource",
     "HealthResponse",
+    "ProfileReportSource",
     "ProfileRequest",
     "ProfileResponse",
-    "ProfileReportSource",
     "ProfileRunSummary",
     "ProposalDecision",
     "ProposalOut",
@@ -415,10 +422,10 @@ __all__ = [
     "QAResponse",
     "SamplingConfig",
     "StatusResponse",
-    "ToolSource",
     "TestRequest",
     "TestResponse",
     "TestResultOut",
     "TestSpec",
+    "ToolSource",
     "UploadResponse",
 ]

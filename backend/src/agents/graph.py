@@ -55,6 +55,7 @@ from src.agents.nodes.qa_nodes import (
     qa_structured_node,
     qa_vector_node,
 )
+from src.agents.runtime.trace import traced_node
 from src.agents.state import ProfilingState
 from src.config import get_settings
 
@@ -73,29 +74,42 @@ def build_checkpointer() -> Any:
     settings = get_settings()
     url = settings.checkpointer_url
     if not url.startswith(("postgresql://", "postgres://")):
-        raise RuntimeError("DATABASE_CHECKPOINTER_URL phải là PostgreSQL cho LangGraph.")
+        raise RuntimeError(
+            "DATABASE_CHECKPOINTER_URL phải là PostgreSQL cho LangGraph."
+        )
 
     try:
         if url.startswith(("postgresql://", "postgres://")):
             from langgraph.checkpoint.postgres import PostgresSaver
-            from psycopg import Connection
             from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
 
-            # `from_conn_string` is a context manager.  Calling `__enter__`
-            # manually and then returning the saver lets the context close the
-            # connection before `setup()`/the first graph request.  Keep the
-            # connection owned by the long-lived checkpointer instead.
-            conn = Connection.connect(
-                url,
-                autocommit=True,
-                prepare_threshold=0,
-                row_factory=dict_row,
+            # Keep a pool instead of one process-lifetime connection. Supabase
+            # pooler/server-side idle timeouts can close an otherwise healthy
+            # connection; ConnectionPool replaces broken connections and the
+            # PostgresSaver integration obtains a fresh connection per cursor.
+            pool = ConnectionPool(
+                conninfo=url,
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,
+                    "row_factory": dict_row,
+                },
+                # Keep this pool small because the metadata SQLAlchemy pool
+                # uses the same Supabase session-mode client quota.
+                min_size=1,
+                max_size=2,
+                max_idle=300,
+                max_lifetime=1800,
+                check=ConnectionPool.check_connection,
+                open=True,
             )
             try:
-                saver = PostgresSaver(conn)
+                pool.wait(timeout=30)
+                saver = PostgresSaver(pool)
                 saver.setup()
             except Exception:
-                conn.close()
+                pool.close()
                 raise
             return saver
 
@@ -132,11 +146,13 @@ def route_hitl(state: ProfilingState) -> str:
 # Graph
 # --------------------------------------------------------------------------- #
 def _add_qa_nodes(graph: StateGraph, terminal: str = END) -> None:
-    graph.add_node("qa_router", qa_router_node)
-    graph.add_node("qa_structured", qa_structured_node)
-    graph.add_node("qa_vector", qa_vector_node)
-    graph.add_node("clarify", clarify_node)
-    graph.add_node("qa_guardrail", qa_guardrail_node)
+    graph.add_node("qa_router", traced_node("qa_router", qa_router_node, 10))
+    graph.add_node(
+        "qa_structured", traced_node("qa_structured", qa_structured_node, 11)
+    )
+    graph.add_node("qa_vector", traced_node("qa_vector", qa_vector_node, 11))
+    graph.add_node("clarify", traced_node("qa_clarify", clarify_node, 11))
+    graph.add_node("qa_guardrail", traced_node("qa_guardrail", qa_guardrail_node, 11))
 
     graph.add_conditional_edges(
         "qa_router",
@@ -158,13 +174,15 @@ def build_profiling_graph(checkpointer: Any = None) -> Any:
     """Graph đầy đủ: ingest → … → summarize → (QA nếu có câu hỏi)."""
     graph = StateGraph(ProfilingState)
 
-    graph.add_node("ingest", ingest_node)
-    graph.add_node("compute_stats", compute_stats_node)
-    graph.add_node("propose_metadata", propose_metadata_node)
-    graph.add_node("hitl_review", hitl_review_node)
-    graph.add_node("deep_analysis", deep_analysis_node)
-    graph.add_node("summarize", summarize_node)
-    graph.add_node("finalize", finalize_profile_node)
+    graph.add_node("ingest", traced_node("ingest", ingest_node, 1))
+    graph.add_node("compute_stats", traced_node("compute_stats", compute_stats_node, 2))
+    graph.add_node(
+        "propose_metadata", traced_node("propose_metadata", propose_metadata_node, 3)
+    )
+    graph.add_node("hitl_review", traced_node("hitl_review", hitl_review_node, 4))
+    graph.add_node("deep_analysis", traced_node("deep_analysis", deep_analysis_node, 5))
+    graph.add_node("summarize", traced_node("summarize", summarize_node, 6))
+    graph.add_node("finalize", traced_node("finalize", finalize_profile_node, 12))
     _add_qa_nodes(graph, terminal="finalize")
 
     graph.set_entry_point("ingest")

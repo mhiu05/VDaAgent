@@ -1,4 +1,4 @@
-"""Workspace-admin Google Drive connection endpoints."""
+"""Workspace-scoped Google Drive connection endpoints."""
 
 # FastAPI dependencies are intentionally constructed inline to keep the
 # permission requirement next to each endpoint.
@@ -7,11 +7,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
 from src.services.google_drive import (
@@ -22,21 +23,42 @@ from src.services.google_drive import (
     new_oauth_state_id,
     oauth_state_expiry,
 )
-from src.services.permissions import DATASET_READ, WORKSPACE_SETTINGS_MANAGE
+from src.services.permissions import (
+    DATASET_READ,
+    WORKSPACE_SETTINGS_MANAGE,
+    WORKSPACE_STORAGE_CONNECT,
+)
 from src.services.repository import get_repository
 
 router = APIRouter(prefix="/google-drive", tags=["google-drive"])
 
 
-def _frontend_redirect(path: str, **params: str) -> RedirectResponse:
+def _oauth_result_page(*, connected: bool, reason: str | None = None) -> HTMLResponse:
     settings = get_settings()
-    safe_path = path if path.startswith("/") and not path.startswith("//") else "/datasets/new"
-    base = settings.google_drive_frontend_url.rstrip("/") + safe_path
-    parsed = urlsplit(base)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.update(params)
-    target = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
-    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+    frontend_url = settings.google_drive_frontend_url.rstrip("/")
+    parsed = urlsplit(frontend_url)
+    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    payload = json.dumps(
+        {"type": "p170-google-drive", "status": "connected" if connected else "error", "reason": reason},
+        ensure_ascii=False,
+    )
+    origin_json = json.dumps(origin)
+    title = "Google Drive đã kết nối" if connected else "Kết nối Google Drive thất bại"
+    message = "Bạn có thể đóng tab này." if connected else (reason or "Bạn có thể đóng tab này và thử lại.")
+    html = f"""<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><title>{title}</title>
+<style>body{{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f5f7fb;color:#17253d}}main{{max-width:440px;padding:28px;border:1px solid #dce4ef;border-radius:14px;background:white;text-align:center}}p{{color:#66758d}}a{{color:#3156d9;font-weight:700}}</style>
+</head><body><main><h1>{title}</h1><p id="message"></p><a href="{frontend_url}/datasets/new">Quay lại trang upload</a></main>
+<script>
+const result = {payload};
+const targetOrigin = {origin_json};
+document.getElementById("message").textContent = {json.dumps(message, ensure_ascii=False)};
+if (window.opener && !window.opener.closed) {{
+  try {{ window.opener.postMessage(result, targetOrigin); }} catch (_) {{}}
+  window.setTimeout(() => window.close(), 300);
+}}
+</script></body></html>"""
+    return HTMLResponse(html)
 
 
 @router.get("/status")
@@ -51,13 +73,13 @@ async def google_drive_status(
         "configured": settings.google_drive_configured,
         "connected": connection is not None,
         "folder_id": connection.get("folder_id") if connection else None,
-        "can_connect": WORKSPACE_SETTINGS_MANAGE in context.workspace.effective_permissions,
+        "can_connect": WORKSPACE_STORAGE_CONNECT in context.workspace.effective_permissions,
     }
 
 
 @router.get("/connect")
 async def google_drive_connect(
-    context: RequestContext = Depends(require_permission(WORKSPACE_SETTINGS_MANAGE)),
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
 ) -> dict[str, str]:
     settings = get_settings()
     try:
@@ -76,12 +98,12 @@ async def google_drive_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
-) -> RedirectResponse:
+) -> HTMLResponse:
     if error or not code or not state:
-        return _frontend_redirect("/datasets/new", google_drive="error", reason="oauth_denied")
+        return _oauth_result_page(connected=False, reason="oauth_denied")
     state_row = get_repository().consume_google_drive_oauth_state(state)
     if not state_row:
-        return _frontend_redirect("/datasets/new", google_drive="error", reason="invalid_state")
+        return _oauth_result_page(connected=False, reason="invalid_state")
     settings = get_settings()
     try:
         oauth = GoogleDriveOAuth(settings)
@@ -94,10 +116,10 @@ async def google_drive_callback(
             state_row["user_id"],
         )
     except (GoogleDriveError, GoogleDriveOAuthError) as exc:
-        return _frontend_redirect("/datasets/new", google_drive="error", reason=str(exc)[:160])
+        return _oauth_result_page(connected=False, reason=str(exc)[:160])
     except Exception:  # noqa: BLE001
-        return _frontend_redirect("/datasets/new", google_drive="error", reason="connection_failed")
-    return _frontend_redirect("/datasets/new", google_drive="connected")
+        return _oauth_result_page(connected=False, reason="connection_failed")
+    return _oauth_result_page(connected=True)
 
 
 @router.delete("/connection")

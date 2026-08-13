@@ -38,6 +38,16 @@ function apiBase(): string {
   return "http://localhost:8000/api/v1";
 }
 
+function apiBaseCandidates(): string[] {
+  const candidates = [apiBase()];
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost") candidates.push(`${window.location.protocol}//127.0.0.1:8000/api/v1`);
+    if (hostname === "127.0.0.1") candidates.push(`${window.location.protocol}//localhost:8000/api/v1`);
+  }
+  return [...new Set(candidates)];
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -119,9 +129,26 @@ export function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
   return request<GoogleDriveStatus>("/google-drive/status");
 }
 
-export async function connectGoogleDrive(): Promise<void> {
-  const payload = await request<{ authorization_url: string }>("/google-drive/connect");
-  window.location.assign(payload.authorization_url);
+export async function connectGoogleDrive(targetWindow?: Window | null): Promise<void> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const authorization = request<{ authorization_url: string }>("/google-drive/connect");
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new ApiError("API khÃ´ng tráº£ link Google trong 15 giÃ¢y.", 0)), 15_000);
+  });
+  let payload: { authorization_url: string };
+  try {
+    payload = await Promise.race([authorization, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.replace(payload.authorization_url);
+    return;
+  }
+  const opened = window.open(payload.authorization_url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    throw new ApiError("Trình duyệt đã chặn tab Google mới. Hãy cho phép popup rồi thử lại.", 0);
+  }
 }
 
 export function getDashboard<T>(): Promise<T> {
@@ -137,18 +164,30 @@ export async function provisionSelfSignup(role: SelfSignupRole, accessToken: str
   role: SelfSignupRole;
   created: boolean;
 }> {
-  const response = await fetch(`${apiBase()}/onboarding/provision`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
-    body: JSON.stringify({ role }),
-  });
-  if (!response.ok) throw await readError(response);
-  return response.json();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(`${apiBase()}/onboarding/provision`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ role }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw await readError(response);
+    return response.json();
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === "AbortError") {
+      throw new ApiError("KhÃ´ng thá»ƒ táº¡o workspace trong 12 giÃ¢y. HÃ£y kiá»ƒm tra backend Ä‘ang cháº¡y.", 0);
+    }
+    throw reason;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function cleanupGuestSession(accessToken: string): Promise<void> {
@@ -314,16 +353,17 @@ export async function streamQuestion(
   }
 }
 
-export function uploadDataset(
+function uploadDatasetOnce(
   file: File,
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
+  baseUrl = apiBase(),
 ): Promise<UploadResult> {
   return (async () => {
     const headers = await authHeaders();
     return new Promise<UploadResult>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", `${apiBase()}/datasets/upload`);
+    request.open("POST", `${baseUrl}/datasets/upload`);
     request.responseType = "json";
     request.withCredentials = true;
     headers.forEach((value, key) => request.setRequestHeader(key, value));
@@ -344,6 +384,34 @@ export function uploadDataset(
     request.send(formData);
     });
   })();
+}
+
+export async function uploadDataset(
+  file: File,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
+): Promise<UploadResult> {
+  try {
+    return await uploadDatasetOnce(file, onProgress, signal);
+  } catch (reason) {
+    // XHR does not use apiFetch, so retry once after refreshing an expired
+    // Supabase session just like the other API calls do.
+    if (reason instanceof ApiError && reason.status === 401 && authTransport) {
+      const refreshed = await authTransport.refresh();
+      if (refreshed) return uploadDatasetOnce(file, onProgress, signal, apiBase());
+      throw new ApiError("PhiÃªn Ä‘Äƒng nháº­p Ä‘Ã£ háº¿t háº¡n. HÃ£y Ä‘Äƒng nháº­p láº¡i.", 401);
+    }
+    if (reason instanceof ApiError && reason.status === 0) {
+      for (const baseUrl of apiBaseCandidates().slice(1)) {
+        try {
+          return await uploadDatasetOnce(file, onProgress, signal, baseUrl);
+        } catch (fallbackReason) {
+          if (!(fallbackReason instanceof ApiError) || fallbackReason.status !== 0) throw fallbackReason;
+        }
+      }
+    }
+    throw reason;
+  }
 }
 
 export function listAnalyses(signal?: AbortSignal, profileRunId?: string): Promise<AnalysisSession[]> {

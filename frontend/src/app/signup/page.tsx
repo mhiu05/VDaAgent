@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import type { SelfSignupRole } from "@/lib/api";
@@ -17,10 +17,21 @@ export default function SignupPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [registeredRole, setRegisteredRole] = useState<SelfSignupRole | null>(null);
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const signupAllowed = process.env.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP === "true";
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = window.setTimeout(() => setResendCooldown((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendCooldown]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (!signupAllowed) {
       setError("Đăng ký tài khoản đang tắt. Hãy liên hệ workspace admin để nhận lời mời.");
       return;
@@ -30,7 +41,7 @@ export default function SignupPage() {
       setError("Supabase Auth chưa được cấu hình cho frontend.");
       return;
     }
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     const email = String(form.get("email")).trim();
     const password = String(form.get("password"));
     const confirmPassword = String(form.get("confirm-password"));
@@ -45,7 +56,7 @@ export default function SignupPage() {
     const { data, error: signupError } = await client.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: redirect },
+      options: { emailRedirectTo: redirect, data: { requested_role: role } },
     });
     setBusy(false);
     if (signupError) {
@@ -57,7 +68,41 @@ export default function SignupPage() {
       return;
     }
     setMessage(`Tài khoản đã được tạo với role ${role}. Hãy kiểm tra email để xác nhận; sau đó hệ thống sẽ tự tạo personal workspace và đăng nhập cho bạn.`);
-    event.currentTarget.reset();
+    setRegisteredEmail(email);
+    setRegisteredRole(role);
+    setResendCooldown(120);
+    formElement.reset();
+  }
+
+  async function resendConfirmation() {
+    if (!registeredEmail || !registeredRole || resendBusy || resendCooldown > 0) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      setError("Supabase Auth chưa được cấu hình cho frontend.");
+      return;
+    }
+    setResendBusy(true);
+    setError(null);
+    const redirect = `${window.location.origin}/auth/callback?requested_role=${encodeURIComponent(registeredRole)}`;
+    const { error: resendError } = await client.auth.resend({
+      type: "signup",
+      email: registeredEmail,
+      options: { emailRedirectTo: redirect },
+    });
+    setResendBusy(false);
+    if (resendError) {
+      const status = "status" in resendError ? resendError.status : undefined;
+      const rawMessage = resendError.message.toLowerCase();
+      if (status === 429 || rawMessage.includes("rate limit") || rawMessage.includes("too many")) {
+        setError("Supabase đang giới hạn số email xác thực. Với SMTP mặc định, project có thể chỉ gửi khoảng 2 email mỗi giờ; hãy chờ thêm hoặc cấu hình SMTP riêng.");
+      } else {
+        setError(resendError.message);
+      }
+      return;
+    }
+    const sentAt = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(new Date());
+    setMessage(`Supabase đã nhận yêu cầu gửi lại email tới ${registeredEmail} lúc ${sentAt}. Hãy kiểm tra Inbox, Spam và Promotions.`);
+    setResendCooldown(120);
   }
 
   return <div className="public-page auth-screen">
@@ -88,7 +133,7 @@ export default function SignupPage() {
           </fieldset>
           <p className="auth-password-hint">Dùng mật khẩu dài, riêng biệt và không chia sẻ cho người khác.</p>
           {error && <div className="notice error" role="alert"><b>Không thể tạo tài khoản</b><p>{error}</p></div>}
-          {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p></div>}
+          {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p>{registeredEmail && <div className="signup-resend"><button className="button secondary" type="button" onClick={() => void resendConfirmation()} disabled={resendBusy || resendCooldown > 0}>{resendBusy ? "Đang gửi lại…" : resendCooldown > 0 ? `Gửi lại sau ${Math.floor(resendCooldown / 60)}:${String(resendCooldown % 60).padStart(2, "0")}` : "Gửi lại email xác nhận"}</button><small>Gmail có thể gộp email mới vào thread cũ; hãy mở rộng thread để xem thư mới nhất.</small></div>}</div>}
           <button className="button primary auth-submit" type="submit" disabled={busy || !signupAllowed}>{busy ? "Đang tạo tài khoản…" : "Đăng ký"}</button>
         </form>
         <p className="auth-switch">Đã có tài khoản? <Link href="/login">Đăng nhập</Link></p>

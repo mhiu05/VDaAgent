@@ -84,6 +84,18 @@ guardrails:
   # Mặc định audit chỉ lưu hash + độ dài câu hỏi, không lưu nội dung người dùng.
   audit_question_content: false
 
+# Agent runtime v2 is additive. Keep every enforcement feature off until the
+# corresponding migration and deterministic eval gates have passed.
+agent:
+  trace_mode: "off"
+  verifier_mode: "off"
+  planner_enabled: false
+  jobs_enabled: false
+  workspace_memory_enabled: false
+  personal_memory_enabled: false
+  runtime_version: 2.0.0
+  trace_event_limit: 500
+
 database:
   # Set DATABASE_URL in .env. PostgreSQL is required in every environment.
   url: ""

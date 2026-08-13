@@ -137,7 +137,8 @@ class GoogleDriveStorage:
         self.oauth = GoogleDriveOAuth(self.settings)
 
     def _service(self, workspace_id: str):
-        connection = get_repository(self.settings).get_google_drive_connection(workspace_id)
+        repository = get_repository(self.settings)
+        connection = repository.get_google_drive_connection(workspace_id)
         if not connection:
             raise GoogleDriveConnectionRequiredError(
                 "Workspace chưa kết nối Google Drive. Admin cần kết nối trước."
@@ -157,7 +158,41 @@ class GoogleDriveStorage:
             client_secret=self.settings.google_drive_client_secret,
             scopes=[DRIVE_SCOPE],
         )
-        return build("drive", "v3", credentials=credentials, cache_discovery=False), connection
+        service = build("drive", "v3", credentials=credentials, cache_discovery=False)
+
+        # The configured folder may belong to a different Google account. The
+        # OAuth token must be able to access the actual upload parent, so fall
+        # back to a private app-created folder owned by the connected account.
+        try:
+            service.files().get(
+                fileId=connection["folder_id"],
+                fields="id,mimeType",
+                supportsAllDrives=True,
+            ).execute()
+        except Exception as exc:
+            response = getattr(exc, "resp", None)
+            response_status = getattr(response, "status", None)
+            if response_status not in {403, 404}:
+                raise
+            folder = service.files().create(
+                body={
+                    "name": f"P170 workspace {workspace_id}",
+                    "mimeType": "application/vnd.google-apps.folder",
+                },
+                fields="id",
+                supportsAllDrives=True,
+            ).execute()
+            folder_id = str(folder.get("id") or "")
+            if not folder_id:
+                raise GoogleDriveError("Google Drive khÃ´ng tráº£ folder ID.")
+            repository.save_google_drive_connection(
+                workspace_id,
+                folder_id,
+                connection["encrypted_refresh_token"],
+                connection["connected_by_user_id"],
+            )
+            connection = {**connection, "folder_id": folder_id}
+        return service, connection
 
     def upload(self, workspace_id: str, local_path: Path, filename: str, content_type: str | None) -> str:
         try:

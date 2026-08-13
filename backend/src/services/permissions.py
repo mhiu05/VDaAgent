@@ -33,7 +33,11 @@ WORKSPACE_ACTIVITY_READ: Final = "workspace.activity.read"
 WORKSPACE_AUDIT_READ: Final = "workspace.audit.read"
 WORKSPACE_MEMBERS_MANAGE: Final = "workspace.members.manage"
 WORKSPACE_SETTINGS_MANAGE: Final = "workspace.settings.manage"
+WORKSPACE_STORAGE_CONNECT: Final = "workspace.storage.connect"
 WORKSPACE_LIFECYCLE_MANAGE: Final = "workspace.lifecycle.manage"
+AGENT_RUN_READ: Final = "agent.run.read"
+AGENT_TRACE_READ: Final = "agent.trace.read"
+AGENT_TRACE_DEBUG_READ: Final = "agent.trace.debug.read"
 
 _VIEWER = frozenset({REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT, QA_PUBLISHED_ASK})
 _ANALYST = _VIEWER | {
@@ -48,6 +52,9 @@ _ANALYST = _VIEWER | {
     ANALYSIS_RUN,
     REPORT_DRAFT_WRITE,
     REPORT_SUBMIT,
+    WORKSPACE_STORAGE_CONNECT,
+    AGENT_RUN_READ,
+    AGENT_TRACE_READ,
 }
 _ADMIN_BASE = _ANALYST | {
     DATASET_DELETE,
@@ -58,7 +65,11 @@ _ADMIN_BASE = _ANALYST | {
     WORKSPACE_AUDIT_READ,
     WORKSPACE_MEMBERS_MANAGE,
 }
-_ADMIN = _ADMIN_BASE | {WORKSPACE_SETTINGS_MANAGE, WORKSPACE_LIFECYCLE_MANAGE}
+_ADMIN = _ADMIN_BASE | {
+    WORKSPACE_SETTINGS_MANAGE,
+    WORKSPACE_LIFECYCLE_MANAGE,
+    AGENT_TRACE_DEBUG_READ,
+}
 
 ROLE_PERMISSIONS: Final[dict[WorkspaceRole, frozenset[str]]] = {
     "viewer": _VIEWER,
@@ -89,6 +100,9 @@ def role_can_manage_target(actor_role: str, target_role: str) -> bool:
 
 
 __all__ = [
+    "AGENT_RUN_READ",
+    "AGENT_TRACE_DEBUG_READ",
+    "AGENT_TRACE_READ",
     "ALL_PERMISSIONS",
     "ANALYSIS_RUN",
     "DATASET_DELETE",
@@ -102,18 +116,19 @@ __all__ = [
     "QA_PUBLISHED_ASK",
     "REPORT_ARCHIVE",
     "REPORT_DRAFT_WRITE",
+    "REPORT_PUBLISH",
     "REPORT_PUBLISHED_EXPORT",
     "REPORT_PUBLISHED_READ",
-    "REPORT_PUBLISH",
     "REPORT_REVIEW",
     "REPORT_SUBMIT",
     "ROLE_PERMISSIONS",
     "STATS_RUN",
     "WORKSPACE_ACTIVITY_READ",
     "WORKSPACE_AUDIT_READ",
-    "WORKSPACE_MEMBERS_MANAGE",
     "WORKSPACE_LIFECYCLE_MANAGE",
+    "WORKSPACE_MEMBERS_MANAGE",
     "WORKSPACE_SETTINGS_MANAGE",
+    "WORKSPACE_STORAGE_CONNECT",
     "WorkspaceRole",
     "canonical_role",
     "permissions_for_role",
