@@ -42,6 +42,14 @@ export function DataWorkspaceView({
   setSelectedColumnsBySource,
   selectedSections,
   setSelectedSections,
+  customRequirements,
+  setCustomRequirements,
+  knowledgeDocs,
+  uploadKnowledgeDocs,
+  profilingPlan,
+  generateProfilingPlan,
+  confirmProfilingPlan,
+  userRules,
   columns,
   runSectionsProfile,
 }) {
@@ -54,13 +62,19 @@ export function DataWorkspaceView({
     { id: "dataset", number: 2, label: "Dataset", enabled: hasSchemaPreview },
     { id: "config", number: 3, label: "Configuration", enabled: hasSchemaPreview },
   ];
+  const pageTitle = currentStep === "source" ? "Add Data Source" : currentStep === "config" ? "Data Profiling Plan" : "Dataset Explorer";
+  const pageDescription = currentStep === "source"
+    ? "Connect local files or database sources while keeping the current profiling workflow."
+    : currentStep === "config"
+      ? "Configure profiling strategy, sections, requirements, and execution plan."
+      : "Inspect schema, choose columns, and preview rows before profiling.";
 
   return (
     <section className="workspace-page">
       <div className="section-header">
         <div>
-          <h2>Data Workspace</h2>
-          <p>Choose a source, explore the dataset, select columns, then run profiling.</p>
+          <h2>{pageTitle}</h2>
+          <p>{pageDescription}</p>
         </div>
       </div>
       <div className="workspace-tabs" role="tablist" aria-label="Data workspace steps">
@@ -139,6 +153,14 @@ export function DataWorkspaceView({
             selectedTables={selectedTables}
             selectedSections={selectedSections}
             setSelectedSections={setSelectedSections}
+            customRequirements={customRequirements}
+            setCustomRequirements={setCustomRequirements}
+            knowledgeDocs={knowledgeDocs}
+            uploadKnowledgeDocs={uploadKnowledgeDocs}
+            profilingPlan={profilingPlan}
+            generateProfilingPlan={generateProfilingPlan}
+            confirmProfilingPlan={confirmProfilingPlan}
+            userRules={userRules}
             columns={columns}
             schema={schema}
             dbProfileProgress={dbProfileProgress}

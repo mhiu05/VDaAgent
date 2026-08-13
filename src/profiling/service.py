@@ -51,18 +51,18 @@ class ProfilingService:
         self.normalizer = ProfileResultNormalizer()
         self.agent_workflow = ProfilingAgentWorkflow()
 
-    def profile_csv_file(self, file_path: Path, source_name: str) -> ProfileResult:
+    def profile_csv_file(self, file_path: Path, source_name: str, user_id: str = "anonymous") -> ProfileResult:
         executor = DuckDBProfileExecutor()
         schema = executor.get_schema(file_path)
         plan = self.planner.build_plan(schema)
         raw_result = executor.profile_file(file_path, source_name, plan)
-        return self.agent_workflow.complete_profile(self.normalizer.normalize(raw_result))
+        return self.agent_workflow.complete_profile(self.normalizer.normalize(raw_result), user_id=user_id)
 
-    def profile_csv_files(self, files: list[tuple[Path, str]]) -> ProfileCollectionResult:
-        profiles = [self.profile_csv_file(file_path, source_name) for file_path, source_name in files]
+    def profile_csv_files(self, files: list[tuple[Path, str]], user_id: str = "anonymous") -> ProfileCollectionResult:
+        profiles = [self.profile_csv_file(file_path, source_name, user_id=user_id) for file_path, source_name in files]
         return self._build_collection_result("multi_csv", "uploaded_csv_files", profiles)
 
-    def profile_excel_workbook(self, workbook_path: Path, workbook_name: str, temp_dir: Path) -> ProfileCollectionResult:
+    def profile_excel_workbook(self, workbook_path: Path, workbook_name: str, temp_dir: Path, user_id: str = "anonymous") -> ProfileCollectionResult:
         try:
             from openpyxl import load_workbook
         except ImportError as exc:
@@ -76,7 +76,7 @@ class ProfilingService:
             csv_files.append((csv_path, f"{workbook_name}:{sheet.title}"))
         workbook.close()
 
-        profiles = [self.profile_csv_file(file_path, source_name) for file_path, source_name in csv_files]
+        profiles = [self.profile_csv_file(file_path, source_name, user_id=user_id) for file_path, source_name in csv_files]
         return self._build_collection_result("excel_workbook", workbook_name, profiles)
 
     def inspect_csv_schema(self, file_path: Path, source_name: str) -> ProfileSchemaResult:
@@ -98,8 +98,8 @@ class ProfilingService:
         rows = DuckDBProfileExecutor().preview_file(file_path, limit)
         return FilePreviewResult(source_name=source_name, source_type="file", rows=rows)
 
-    def profile_csv_columns(self, file_path: Path, source_name: str) -> ProfileColumnsResult:
-        full_result = self.profile_csv_file(file_path, source_name)
+    def profile_csv_columns(self, file_path: Path, source_name: str, user_id: str = "anonymous") -> ProfileColumnsResult:
+        full_result = self.profile_csv_file(file_path, source_name, user_id=user_id)
         return ProfileColumnsResult(
             source_name=full_result.source.name,
             source_type=full_result.source.type,
@@ -108,16 +108,16 @@ class ProfilingService:
             columns=full_result.columns,
         )
 
-    def profile_csv_correlations(self, file_path: Path, source_name: str) -> ProfileCorrelationsResult:
-        full_result = self.profile_csv_file(file_path, source_name)
+    def profile_csv_correlations(self, file_path: Path, source_name: str, user_id: str = "anonymous") -> ProfileCorrelationsResult:
+        full_result = self.profile_csv_file(file_path, source_name, user_id=user_id)
         return ProfileCorrelationsResult(
             source_name=full_result.source.name,
             source_type=full_result.source.type,
             correlations=full_result.relationships.correlations,
         )
 
-    def profile_csv_findings(self, file_path: Path, source_name: str) -> ProfileFindingsResult:
-        full_result = self.profile_csv_file(file_path, source_name)
+    def profile_csv_findings(self, file_path: Path, source_name: str, user_id: str = "anonymous") -> ProfileFindingsResult:
+        full_result = self.profile_csv_file(file_path, source_name, user_id=user_id)
         return ProfileFindingsResult(
             source_name=full_result.source.name,
             source_type=full_result.source.type,
@@ -129,8 +129,9 @@ class ProfilingService:
         file_path: Path,
         source_name: str,
         sections: list[str],
+        user_id: str = "anonymous",
     ) -> ProfileSectionsResult:
-        full_result = self.profile_csv_file(file_path, source_name)
+        full_result = self.profile_csv_file(file_path, source_name, user_id=user_id)
         return self._build_sections_result(full_result, sections)
 
     def run_csv_statistical_test(
@@ -333,7 +334,7 @@ class ProfilingService:
             rows=rows,
         )
 
-    def profile_database_query(self, request: DatabaseQueryRequest) -> ProfileResult:
+    def profile_database_query(self, request: DatabaseQueryRequest, user_id: str = "anonymous") -> ProfileResult:
         executor = DatabaseProfileExecutor(request.connection)
         query = _read_only_query(request.query)
         with executor.engine.connect() as connection:
@@ -347,7 +348,7 @@ class ProfilingService:
                 writer = csv.DictWriter(file, fieldnames=columns)
                 writer.writeheader()
                 writer.writerows(rows)
-            result = self.profile_csv_file(csv_path, "database_query")
+            result = self.profile_csv_file(csv_path, "database_query", user_id=user_id)
             result.source.type = request.connection.type
             return result
 
@@ -356,12 +357,13 @@ class ProfilingService:
         config: DatabaseConnectionConfig,
         table_name: str,
         schema_name: str | None = None,
+        user_id: str = "anonymous",
     ) -> ProfileResult:
         executor = DatabaseProfileExecutor(config)
         schema = executor.get_schema(table_name, schema_name)
         plan = self.planner.build_plan(schema)
         raw_result = executor.profile_table(table_name, schema_name, plan)
-        return self.agent_workflow.complete_profile(self.normalizer.normalize(raw_result))
+        return self.agent_workflow.complete_profile(self.normalizer.normalize(raw_result), user_id=user_id)
 
     def profile_database_sections(
         self,
@@ -369,8 +371,9 @@ class ProfilingService:
         table_name: str,
         schema_name: str | None,
         sections: list[str],
+        user_id: str = "anonymous",
     ) -> ProfileSectionsResult:
-        full_result = self.profile_database_table(config, table_name, schema_name)
+        full_result = self.profile_database_table(config, table_name, schema_name, user_id=user_id)
         return self._build_sections_result(full_result, sections)
 
     def _build_sections_result(

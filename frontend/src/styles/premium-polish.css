@@ -475,6 +475,26 @@ tbody tr:hover {
   gap: 8px;
 }
 
+.agent-purpose {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.agent-purpose strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.agent-purpose span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .chat-message {
   max-width: 96%;
   padding: 9px 11px;
@@ -492,6 +512,43 @@ tbody tr:hover {
 
 .hitl-card p {
   margin: 9px 0 0;
+}
+
+.agent-hitl-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.agent-hitl-summary.attention {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.agent-hitl-summary > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.agent-hitl-summary.attention > div {
+  color: #92400e;
+}
+
+.agent-hitl-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-form {

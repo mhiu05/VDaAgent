@@ -9,19 +9,23 @@ from __future__ import annotations
 from time import perf_counter
 
 from src.agents.hitl import hitl_store
+from src.agents.persistence import agent_repository
 from src.agents.pii import mask_profile_columns
 from src.agents.tracing import trace_store
 from src.models.schemas import AgentRun, AgentRunSummary, AgentWorkflowStatus, ProfileResult
 
 
 class ProfilingAgentWorkflow:
-    def __init__(self, trace_service=None, hitl_service=None) -> None:
+    def __init__(self, trace_service=None, hitl_service=None, repository=None) -> None:
         self.trace_store = trace_service or trace_store
         self.hitl_store = hitl_service or hitl_store
+        self.repository = repository or agent_repository
 
-    def complete_profile(self, profile: ProfileResult) -> ProfileResult:
+    def complete_profile(self, profile: ProfileResult, user_id: str = "anonymous") -> ProfileResult:
         started = perf_counter()
         run = self.trace_store.start_run(profile.source.name, profile.source.type)
+        run.metrics = {"user_id": user_id}
+        self.repository.save_run(run)
 
         self.trace_store.add_event(
             run.run_id,
@@ -50,6 +54,7 @@ class ProfilingAgentWorkflow:
         critical_count = profile.quality_summary.critical_count
         pii_findings = sum(len(column.pii_detection) for column in profile.columns)
         metrics = {
+            "user_id": user_id,
             "profiling_runtime_ms": int((perf_counter() - started) * 1000),
             "rows_profiled": profile.dataset_summary.row_count,
             "columns_profiled": profile.dataset_summary.column_count,
@@ -105,6 +110,7 @@ class ProfilingAgentWorkflow:
             input_summary="Safe profile summary.",
             output_summary=profile.agent_status.safe_summary,
         )
+        self.repository.save_profile_report(profile, user_id=user_id)
         return profile
 
 

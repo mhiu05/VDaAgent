@@ -85,8 +85,8 @@ class TraceStore:
             self.add_event(run_id, "tool_call", component, tool_name, input_summary, "failed", "error", str(exc), duration_ms=duration)
             raise
 
-    def list_runs(self, limit: int = 100, offset: int = 0) -> list[AgentRun]:
-        return self.repository.list_runs(limit=limit, offset=offset)
+    def list_runs(self, limit: int = 100, offset: int = 0, user_id: str | None = None) -> list[AgentRun]:
+        return self.repository.list_runs(limit=limit, offset=offset, user_id=user_id)
 
     def get_run(self, run_id: str) -> AgentRun | None:
         return self.repository.get_run(run_id)

@@ -15,6 +15,17 @@ export function ColumnDetailPanel({ column, findings }) {
 
   const columnFindings = findings.filter((item) => item.column === column.name);
   const categorical = isCategoricalLike(column);
+  const outlier = column.outlier || column.outliers;
+  const numeric = getColumnKind(column).includes("numeric");
+  const stats = [
+    ["Min", column.min],
+    ["Max", column.max],
+    ["Average", column.avg],
+    ["Stddev", column.stddev],
+    ["P25", column.p25],
+    ["Median", column.median],
+    ["P75", column.p75],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== "");
 
   return (
     <section className="panel column-detail-panel">
@@ -29,20 +40,20 @@ export function ColumnDetailPanel({ column, findings }) {
         <MiniMetric icon={Hash} label="Null ratio" value={formatPercentValue(column.null_ratio)} />
         <MiniMetric icon={Hash} label="Distinct ratio" value={formatPercentValue(column.distinct_ratio)} />
         <MiniMetric icon={Sigma} label="Distinct count" value={formatMaybeNumber(column.distinct_count)} />
-        <MiniMetric icon={Fingerprint} label="Outliers" value={formatMaybeNumber(column.outlier?.outlier_count)} />
+        {numeric && outlier ? <MiniMetric icon={Fingerprint} label="Outliers" value={formatMaybeNumber(outlier.outlier_count)} /> : null}
       </div>
-      <section className="detail-section">
-        <h4>Statistics</h4>
-        <div className="detail-kv">
-          <span>Min</span><b>{formatMaybeNumber(column.min)}</b>
-          <span>Max</span><b>{formatMaybeNumber(column.max)}</b>
-          <span>Average</span><b>{formatMaybeNumber(column.avg)}</b>
-          <span>Stddev</span><b>{formatMaybeNumber(column.stddev)}</b>
-          <span>P25</span><b>{formatMaybeNumber(column.p25)}</b>
-          <span>Median</span><b>{formatMaybeNumber(column.median)}</b>
-          <span>P75</span><b>{formatMaybeNumber(column.p75)}</b>
-        </div>
-      </section>
+      {stats.length ? (
+        <section className="detail-section">
+          <h4>Statistics</h4>
+          <div className="detail-kv">
+            {stats.map(([label, value]) => (
+              <React.Fragment key={label}>
+                <span>{label}</span><b>{formatMaybeNumber(value)}</b>
+              </React.Fragment>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <section className="detail-section">
         <h4>Distribution</h4>
         {categorical ? (
@@ -87,7 +98,7 @@ function MiniMetric({ icon: Icon, label, value }) {
 function PatternList({ column }) {
   const patterns = column.regex_patterns || column.patterns || [];
   const pii = column.pii_detection || column.pii_candidates || [];
-  const outlier = column.outlier;
+  const outlier = column.outlier || column.outliers;
   if (!patterns.length && !pii.length && !outlier) {
     return <p className="muted">No pattern, PII, or outlier metadata returned.</p>;
   }

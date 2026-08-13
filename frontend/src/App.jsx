@@ -1,9 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { LoginView } from "./auth/LoginView.jsx";
+import { getSession, logout } from "./auth/session.js";
+import { AgentWorkspaceView } from "./agent/AgentWorkspaceView.jsx";
 import { DashboardView } from "./dashboard/DashboardView.jsx";
 import { AgentPanel } from "./layout/AgentPanel.jsx";
+import { HistoryView } from "./history/HistoryView.jsx";
 import { Sidebar } from "./layout/Sidebar.jsx";
 import { Topbar } from "./layout/Topbar.jsx";
 import { StatisticalTestsView } from "./profiling/StatisticalTestsView.jsx";
+import { ReviewCenterView } from "./review/ReviewCenterView.jsx";
 import { ResultsView } from "./results/ResultsView.jsx";
 import { SettingsView } from "./settings/SettingsView.jsx";
 import { Toast } from "./shared/components.jsx";
@@ -15,14 +20,13 @@ import { DEFAULT_API_BASE, databaseConnectionFromForm, fileForm, requestJson } f
 import { sectionsToResult } from "./utils/formatters.js";
 import { sourceCards, statisticalTests } from "./utils/options.js";
 
-const VALID_VIEWS = new Set(["dashboard", "workspace", "reports", "tests", "settings"]);
+const VALID_VIEWS = new Set(["dashboard", "workspace", "reports", "agent", "review", "history", "tests", "settings"]);
 const VALID_WORKSPACE_STEPS = new Set(["source", "dataset", "config"]);
 const APP_STATE_SESSION_KEY = "profiling-agent.sessionState";
-const CHAT_USER_KEY = "profiling-agent.clientUserId";
 const CHAT_WELCOME_MESSAGE = {
   id: "welcome",
   role: "agent",
-  text: "I can explain findings, suggest statistical tests, and help confirm ID, PII, or relationship candidates.",
+  text: "Ask me about the selected report.",
 };
 const DEFAULT_DB_VALUES = {
   type: "",
@@ -39,6 +43,7 @@ const DEFAULT_DB_VALUES = {
 export default function App() {
   const initialRoute = getRouteFromLocation();
   const initialSessionState = getStoredSessionState();
+  const [session, setSession] = useState(() => getSession());
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
   const [activeView, setActiveViewState] = useState(initialRoute.view !== "dashboard" ? initialRoute.view : initialSessionState.activeView || initialRoute.view);
   const [workspaceStep, setWorkspaceStep] = useState(initialRoute.step !== "source" ? initialRoute.step : initialSessionState.workspaceStep || initialRoute.step);
@@ -54,6 +59,7 @@ export default function App() {
   const [selectedColumnsBySource, setSelectedColumnsBySource] = useState(initialSessionState.selectedColumnsBySource || {});
   const [selectedSections, setSelectedSections] = useState(initialSessionState.selectedSections || ["schema", "columns", "correlations", "findings"]);
   const [history, setHistory] = useState(initialSessionState.history || []);
+  const [profileReports, setProfileReports] = useState(initialSessionState.profileReports || []);
   const [dbValues, setDbValues] = useState(DEFAULT_DB_VALUES);
   const [dbStatus, setDbStatus] = useState("Connection not tested.");
   const [tables, setTables] = useState([]);
@@ -73,7 +79,7 @@ export default function App() {
     alpha: "0.05",
   });
   const [testResult, setTestResult] = useState(null);
-  const [chatUserId] = useState(() => getChatUserId());
+  const chatUserId = session?.id || "anonymous";
   const [conversationId, setConversationId] = useState(initialSessionState.conversationId || null);
   const [conversations, setConversations] = useState([]);
   const [chatMessages, setChatMessages] = useState([CHAT_WELCOME_MESSAGE]);
@@ -81,10 +87,17 @@ export default function App() {
   const [hitlRecords, setHitlRecords] = useState(initialSessionState.hitlRecords || []);
   const [agentRuns, setAgentRuns] = useState(initialSessionState.agentRuns || []);
   const [traceEvents, setTraceEvents] = useState(initialSessionState.traceEvents || []);
+  const [userWorkspace, setUserWorkspace] = useState(initialSessionState.userWorkspace || null);
+  const [knowledgeDocs, setKnowledgeDocs] = useState(initialSessionState.knowledgeDocs || []);
+  const [customRequirements, setCustomRequirements] = useState(initialSessionState.customRequirements || "");
+  const [profilingPlan, setProfilingPlan] = useState(initialSessionState.profilingPlan || null);
+  const [userRules, setUserRules] = useState(initialSessionState.userRules || []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(initialSessionState.sidebarWidth || 280);
   const [agentCollapsed, setAgentCollapsed] = useState(
     initialSessionState.agentCollapsed ?? initialRoute.view === "dashboard",
   );
+  const [agentWidth, setAgentWidth] = useState(initialSessionState.agentWidth || 320);
   const autoTestRequestId = useRef(0);
   const routeReadyRef = useRef(false);
   const restoringRouteRef = useRef(false);
@@ -143,13 +156,21 @@ export default function App() {
       selectedColumnsBySource,
       selectedSections,
       history,
+      profileReports,
       hitlRecords,
       agentRuns,
       traceEvents,
+      userWorkspace,
+      knowledgeDocs: knowledgeDocs.map(({ extracted_text, ...doc }) => doc),
+      customRequirements,
+      profilingPlan,
+      userRules,
       dbInputMode,
       dbQuery,
       conversationId,
       agentCollapsed,
+      agentWidth,
+      sidebarWidth,
     });
   }, [
     activeView,
@@ -165,16 +186,69 @@ export default function App() {
     selectedColumnsBySource,
     selectedSections,
     history,
+    profileReports,
     hitlRecords,
     agentRuns,
     traceEvents,
+    userWorkspace,
+    knowledgeDocs,
+    customRequirements,
+    profilingPlan,
+    userRules,
     dbInputMode,
     dbQuery,
     conversationId,
     agentCollapsed,
+    agentWidth,
+    sidebarWidth,
   ]);
 
+  function startSidebarResize(event) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    function onMove(moveEvent) {
+      const nextWidth = Math.min(420, Math.max(72, startWidth + moveEvent.clientX - startX));
+      setSidebarWidth(nextWidth);
+      if (nextWidth > 96 && sidebarCollapsed) setSidebarCollapsed(false);
+    }
+
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("is-resizing-panel");
+    }
+
+    document.body.classList.add("is-resizing-panel");
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  function startAgentResize(event) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = agentWidth;
+
+    function onMove(moveEvent) {
+      const nextWidth = Math.min(560, Math.max(280, startWidth + startX - moveEvent.clientX));
+      setAgentWidth(nextWidth);
+      if (agentCollapsed) setAgentCollapsed(false);
+    }
+
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("is-resizing-panel");
+    }
+
+    document.body.classList.add("is-resizing-panel");
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   useEffect(() => {
+    if (!session) return undefined;
     let cancelled = false;
     async function restoreServerChat() {
       try {
@@ -183,7 +257,10 @@ export default function App() {
         );
         if (cancelled) return;
         setConversations(items || []);
-        const selectedId = conversationId || items?.[0]?.id;
+        const selectedId = items?.some((item) => item.id === conversationId) ? conversationId : items?.[0]?.id;
+        if (conversationId && selectedId !== conversationId) {
+          setConversationId(selectedId || null);
+        }
         if (!selectedId) return;
         const messages = await requestJson(
           `${apiBase}/conversations/${selectedId}/messages?user_id=${encodeURIComponent(chatUserId)}&limit=200`,
@@ -199,25 +276,32 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, chatUserId]);
+  }, [apiBase, chatUserId, session]);
 
   useEffect(() => {
+    if (!session) return;
     const runId = displayResult?.agent_run?.run_id;
     if (!runId) return;
     refreshAgentGovernance(runId);
-  }, [displayResult?.agent_run?.run_id]);
+  }, [displayResult?.agent_run?.run_id, session]);
 
   useEffect(() => {
+    if (!session) return;
     refreshAgentGovernance();
-  }, [apiBase]);
+    loadProfileReports();
+    loadUserWorkspace();
+    loadKnowledgeDocs();
+    loadUserRules();
+  }, [apiBase, chatUserId, session]);
 
   useEffect(() => {
+    if (!session) return undefined;
     if (agentCollapsed && activeView !== "dashboard" && activeView !== "reports") return undefined;
     const intervalId = window.setInterval(() => {
       refreshAgentGovernance(displayResult?.agent_run?.run_id);
     }, 5000);
     return () => window.clearInterval(intervalId);
-  }, [activeView, agentCollapsed, apiBase, displayResult?.agent_run?.run_id]);
+  }, [activeView, agentCollapsed, apiBase, displayResult?.agent_run?.run_id, session]);
 
   function setActiveView(nextView) {
     setActiveViewState((current) => {
@@ -305,12 +389,15 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [activeView, apiBase, dbValues, selectedConnector]);
 
-  function setProfileResult(data) {
+  function setProfileResult(data, addToHistory = true) {
     setResult(data);
     setResultSources(data ? [data] : []);
     setSelectedProfileIndex(0);
-      setSectionsResult(null);
+    setSectionsResult(null);
+    if (addToHistory && data) {
       setHistory((current) => [createHistoryEntry(data), ...current]);
+    }
+    loadProfileReports();
   }
 
   function setProfileResults(sources) {
@@ -321,6 +408,7 @@ export default function App() {
     setSelectedProfileIndex(0);
     setSectionsResult(null);
     setHistory((current) => normalizedSources.map(createHistoryEntry).concat(current));
+    loadProfileReports();
   }
 
   async function checkApi() {
@@ -329,6 +417,130 @@ export default function App() {
       const health = await requestJson(healthUrl);
       showToast(`Backend ${health.status} (${health.env})`, "success");
     });
+  }
+
+  async function loadProfileReports() {
+    try {
+      const reports = await requestJson(`${apiBase}/profile/reports?user_id=${encodeURIComponent(chatUserId)}&limit=100`);
+      setProfileReports(reports || []);
+    } catch {
+      // Report history is best-effort while the backend is starting.
+    }
+  }
+
+  async function loadUserWorkspace() {
+    try {
+      const workspace = await requestJson(`${apiBase}/users/${encodeURIComponent(chatUserId)}/workspace`);
+      setUserWorkspace(workspace);
+    } catch {
+      // User workspace is best-effort for MVP identity.
+    }
+  }
+
+  async function updateUserWorkspace(nextValues) {
+    await runTask("Saving workspace", async () => {
+      const workspace = await requestJson(`${apiBase}/users/${encodeURIComponent(chatUserId)}/workspace`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          display_name: nextValues.display_name || "Analyst",
+          role: nextValues.role || "data_analyst",
+          metadata: nextValues.metadata || {},
+        }),
+      });
+      setUserWorkspace(workspace);
+      showToast("Workspace saved", "success");
+    }, false);
+  }
+
+  async function loadKnowledgeDocs() {
+    try {
+      const docs = await requestJson(`${apiBase}/knowledge/documents?user_id=${encodeURIComponent(chatUserId)}`);
+      setKnowledgeDocs(docs || []);
+    } catch {
+      // Knowledge documents are optional.
+    }
+  }
+
+  async function uploadKnowledgeDocs(fileList) {
+    const selectedFiles = Array.from(fileList || []);
+    if (!selectedFiles.length) return [];
+    const uploaded = [];
+    await runTask("Uploading requirement docs", async () => {
+      for (const file of selectedFiles) {
+        const form = fileForm(file, "file");
+        form.append("user_id", chatUserId);
+        const doc = await requestJson(`${apiBase}/knowledge/documents`, { method: "POST", body: form });
+        uploaded.push(doc);
+      }
+      setKnowledgeDocs((current) => [...uploaded, ...current]);
+      showToast(`Uploaded ${uploaded.length} requirement document(s)`, "success");
+    }, false);
+    return uploaded;
+  }
+
+  async function loadUserRules() {
+    try {
+      const rules = await requestJson(`${apiBase}/users/${encodeURIComponent(chatUserId)}/rules`);
+      setUserRules(rules || []);
+    } catch {
+      // Rules are optional metadata.
+    }
+  }
+
+  async function generateProfilingPlan() {
+    const activePreview = explorerPreviews[safeSelectedSchemaIndex];
+    await runTask("Generating profiling plan", async () => {
+      const plan = await requestJson(`${apiBase}/profiling/plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: chatUserId,
+          source_name: activePreview?.name || displayResult?.source?.name || null,
+          columns: schema.map((column) => column.name),
+          selected_sections: selectedSections,
+          custom_requirements: customRequirements,
+          document_ids: knowledgeDocs.map((doc) => doc.id),
+        }),
+      });
+      setProfilingPlan(plan);
+      if (plan.selected_sections?.length) {
+        setSelectedSections(plan.selected_sections);
+      }
+      showToast("Profiling plan generated", "success");
+    }, false);
+  }
+
+  async function confirmProfilingPlan(answers = {}) {
+    if (!profilingPlan?.id) {
+      showToast("Generate a profiling plan first.", "warning");
+      return;
+    }
+    await runTask("Confirming profiling plan", async () => {
+      const confirmed = await requestJson(`${apiBase}/profiling/plans/${profilingPlan.id}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: chatUserId,
+          confirmed_items: profilingPlan.items?.map((item) => item.id) || [],
+          answers,
+        }),
+      });
+      setProfilingPlan(confirmed);
+      await loadUserRules();
+      showToast("Profiling plan confirmed", "success");
+    }, false);
+  }
+
+  async function openStoredReport(runId, nextView = "reports") {
+    if (!runId) return;
+    await runTask("Loading saved report", async () => {
+      const data = await requestJson(`${apiBase}/profile/reports/${runId}?user_id=${encodeURIComponent(chatUserId)}`);
+      if (data?.report) {
+        setProfileResult(data.report, false);
+        setActiveView(nextView);
+      }
+    }, false);
   }
 
   async function runFullProfile() {
@@ -340,16 +552,19 @@ export default function App() {
       const selectedFiles = Array.from(files);
       if (selectedFiles.length > 1) {
         const form = fileForm(selectedFiles, "files");
+        form.append("user_id", chatUserId);
         const data = await requestJson(`${apiBase}/profile/files`, { method: "POST", body: form });
         setProfileResults((data.sources || []).map((source) => applySelectedColumnsToProfile(source, selectedColumnsBySource)));
         showToast(`Profiled ${data.collection_summary.source_count} sources`, "success");
       } else if (selectedFiles[0].name.toLowerCase().endsWith(".xlsx")) {
         const form = fileForm(selectedFiles[0], "file");
+        form.append("user_id", chatUserId);
         const data = await requestJson(`${apiBase}/profile/excel`, { method: "POST", body: form });
         setProfileResults((data.sources || []).map((source) => applySelectedColumnsToProfile(source, selectedColumnsBySource)));
         showToast(`Profiled ${data.collection_summary.source_count} sheets`, "success");
       } else {
         const form = fileForm(selectedFiles[0], "file");
+        form.append("user_id", chatUserId);
         const data = await requestJson(`${apiBase}/profile/file`, { method: "POST", body: form });
         setProfileResult(applySelectedColumnsToProfile(data, selectedColumnsBySource));
         showToast("Full profile completed", "success");
@@ -366,6 +581,7 @@ export default function App() {
     await runTask("Running selected sections", async () => {
       const form = fileForm(Array.from(files)[0], "file");
       form.append("sections", JSON.stringify(selectedSections));
+      form.append("user_id", chatUserId);
       const data = await requestJson(`${apiBase}/profile/file/sections`, { method: "POST", body: form });
       setSectionsResult(data);
       setResult(null);
@@ -387,6 +603,7 @@ export default function App() {
       for (const file of selectedFiles) {
         if (file.name.toLowerCase().endsWith(".xlsx")) {
           const form = fileForm(file, "file");
+          form.append("user_id", chatUserId);
           const data = await requestJson(`${apiBase}/profile/excel`, { method: "POST", body: form });
           (data.sources || []).forEach((source) => {
             previews.push({
@@ -397,9 +614,11 @@ export default function App() {
           });
         } else {
           const form = fileForm(file, "file");
+          form.append("user_id", chatUserId);
           const data = await requestJson(`${apiBase}/profile/file/schema`, { method: "POST", body: form });
           const previewForm = fileForm(file, "file");
           previewForm.append("limit", String(effectivePreviewLimit));
+          previewForm.append("user_id", chatUserId);
           const previewData = await requestJson(`${apiBase}/profile/file/preview`, { method: "POST", body: previewForm });
           previews.push({
             name: data.source_name || file.name,
@@ -439,6 +658,7 @@ export default function App() {
     await runTask("Refreshing preview rows", async () => {
       const previewForm = fileForm(matchedFile, "file");
       previewForm.append("limit", String(limit));
+      previewForm.append("user_id", chatUserId);
       const previewData = await requestJson(`${apiBase}/profile/file/preview`, { method: "POST", body: previewForm });
       setSchemaPreviews((current) => current.map((preview) => (
         preview.name === selectedPreview.name
@@ -551,7 +771,7 @@ export default function App() {
         setDbProfileProgress({ current: 0, total: tableSelections.length, tableName: tableKey(tableSelections[0]), completed: completedTables });
         for (const [index, table] of tableSelections.entries()) {
           setDbProfileProgress({ current: index, total: tableSelections.length, tableName: tableKey(table), completed: [...completedTables] });
-          const data = await requestJson(`${apiBase}/profile/database/table`, {
+          const data = await requestJson(`${apiBase}/profile/database/table?user_id=${encodeURIComponent(chatUserId)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ connection, ...table }),
@@ -618,7 +838,7 @@ export default function App() {
       return;
     }
     await runTask("Profiling query", async () => {
-      const data = await requestJson(`${apiBase}/profile/database/query`, {
+      const data = await requestJson(`${apiBase}/profile/database/query?user_id=${encodeURIComponent(chatUserId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -710,6 +930,7 @@ export default function App() {
     }
     await runTask("Loading file columns", async () => {
       const form = fileForm(testFile, "file");
+      form.append("user_id", chatUserId);
       const data = await requestJson(`${apiBase}/profile/file/schema`, { method: "POST", body: form });
       setSchemaPreviews([{
         name: data.source_name || testFile.name,
@@ -724,34 +945,72 @@ export default function App() {
     }, false);
   }
 
-  async function sendChat(event) {
-    event.preventDefault();
-    const message = chatInput.trim();
+  async function askAgent(messageText, options = {}) {
+    const message = String(messageText || "").trim();
     if (!message) return;
+    const finalMessage = options.context ? `${message}\n\nContext:\n${options.context}` : message;
     setChatInput("");
     setChatMessages((current) => [...current, { id: `pending-${Date.now()}`, role: "user", text: message }]);
     await runTask("Asking agent", async () => {
-      const data = await requestJson(`${apiBase}/chat`, {
+      const runId = options.runId || displayResult?.agent_run?.run_id || null;
+      const postChat = (nextConversationId) => requestJson(`${apiBase}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message,
-          conversation_id: conversationId,
+          message: finalMessage,
+          conversation_id: nextConversationId,
           user_id: chatUserId,
-          run_id: displayResult?.agent_run?.run_id || null,
+          run_id: runId,
         }),
       });
+      let data;
+      try {
+        data = await postChat(conversationId);
+      } catch (error) {
+        if (isStaleConversationError(error)) {
+          setConversationId(null);
+          data = await postChat(null);
+        } else {
+          setChatMessages((current) => [
+            ...current,
+            {
+              id: `agent-error-${Date.now()}`,
+              role: "agent",
+              text: error.message || "Agent request failed.",
+            },
+          ]);
+          throw error;
+        }
+      }
       setConversationId(data.conversation_id);
-      const [messages, items] = await Promise.all([
-        requestJson(
-          `${apiBase}/conversations/${data.conversation_id}/messages?user_id=${encodeURIComponent(chatUserId)}&limit=200`,
-        ),
-        requestJson(`${apiBase}/conversations?user_id=${encodeURIComponent(chatUserId)}&limit=50`),
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: data.run_id || `agent-${Date.now()}`,
+          role: "agent",
+          text: data.response || "No response.",
+          runId: data.run_id,
+        },
       ]);
-      setChatMessages(messages?.length ? messages.map(toClientChatMessage) : [CHAT_WELCOME_MESSAGE]);
-      setConversations(items || []);
-      await refreshAgentGovernance(displayResult?.agent_run?.run_id);
+      try {
+        const [messages, items] = await Promise.all([
+          requestJson(
+            `${apiBase}/conversations/${data.conversation_id}/messages?user_id=${encodeURIComponent(chatUserId)}&limit=200`,
+          ),
+          requestJson(`${apiBase}/conversations?user_id=${encodeURIComponent(chatUserId)}&limit=50`),
+        ]);
+        setChatMessages(messages?.length ? messages.map(toClientChatMessage) : [CHAT_WELCOME_MESSAGE]);
+        setConversations(items || []);
+        await refreshAgentGovernance(runId);
+      } catch {
+        // Keep the live response visible even if history sync is temporarily unavailable.
+      }
     }, false);
+  }
+
+  async function sendChat(event) {
+    event.preventDefault();
+    await askAgent(chatInput);
   }
 
   async function selectConversation(nextConversationId) {
@@ -776,8 +1035,8 @@ export default function App() {
   async function refreshAgentGovernance(runId = displayResult?.agent_run?.run_id) {
     try {
       const [records, runs, trace] = await Promise.all([
-        requestJson(`${apiBase}/hitl${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`),
-        requestJson(`${apiBase}/agent/runs`),
+        requestJson(`${apiBase}/hitl?user_id=${encodeURIComponent(chatUserId)}`),
+        requestJson(`${apiBase}/agent/runs?user_id=${encodeURIComponent(chatUserId)}`),
         runId ? requestJson(`${apiBase}/agent/runs/${runId}/trace`) : Promise.resolve([]),
       ]);
       setHitlRecords(records || []);
@@ -793,31 +1052,55 @@ export default function App() {
       await requestJson(`${apiBase}/hitl/${recordId}/${decision}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reviewer: "analyst", comment: "Reviewed in Agent Panel" }),
+        body: JSON.stringify({ reviewer: chatUserId, comment: "Reviewed in Agent Panel" }),
       });
       await refreshAgentGovernance();
       showToast(`HITL item ${decision === "approve" ? "approved" : "rejected"}`, "success");
     }, false);
   }
 
+  if (!session) {
+    return <LoginView onLogin={setSession} />;
+  }
+
+  if (session.role !== "da") {
+    return <RoleComingSoon session={session} onLogout={() => { logout(); setSession(null); }} />;
+  }
+
   return (
-    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${agentCollapsed ? "agent-collapsed" : ""}`}>
+    <div
+      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${agentCollapsed || activeView === "agent" ? "agent-collapsed" : ""}`}
+      style={{
+        "--sidebar-width": `${sidebarWidth}px`,
+        "--agent-width": `${agentWidth}px`,
+      }}
+    >
       <Sidebar
         activeView={activeView}
         setActiveView={setActiveView}
         loading={loading}
         collapsed={sidebarCollapsed}
         setCollapsed={setSidebarCollapsed}
+        onResizeStart={startSidebarResize}
       />
       <main className="main-panel">
-        <Topbar onNewProfile={() => openProfilingSource("csv")} />
+        <Topbar
+          onNewProfile={() => openProfilingSource("csv")}
+          session={session}
+          onLogout={() => {
+            logout();
+            setSession(null);
+          }}
+        />
         {activeView === "dashboard" && (
           <DashboardView
             result={displayResult}
             history={history}
             agentRuns={agentRuns}
             hitlRecords={hitlRecords}
+            profileReports={profileReports}
             onOpenReports={() => setActiveView("reports")}
+            onOpenWorkspace={() => setActiveView("workspace")}
           />
         )}
         {activeView === "workspace" && (
@@ -860,6 +1143,14 @@ export default function App() {
             setSelectedColumnsBySource={setSelectedColumnsBySource}
             selectedSections={selectedSections}
             setSelectedSections={setSelectedSections}
+            customRequirements={customRequirements}
+            setCustomRequirements={setCustomRequirements}
+            knowledgeDocs={knowledgeDocs}
+            uploadKnowledgeDocs={uploadKnowledgeDocs}
+            profilingPlan={profilingPlan}
+            generateProfilingPlan={generateProfilingPlan}
+            confirmProfilingPlan={confirmProfilingPlan}
+            userRules={userRules}
             columns={columns}
             runSectionsProfile={runSectionsProfile}
           />
@@ -877,6 +1168,49 @@ export default function App() {
             topCategoricalColumn={topCategoricalColumn}
             traceEvents={traceEvents}
             hitlRecords={hitlRecords}
+            decideHitl={decideHitl}
+            savedReports={profileReports}
+            openStoredReport={openStoredReport}
+            apiBase={apiBase}
+            userId={chatUserId}
+          />
+        )}
+        {activeView === "agent" && (
+          <AgentWorkspaceView
+            currentReport={displayResult}
+            profileReports={profileReports}
+            openStoredReport={(runId) => openStoredReport(runId, "agent")}
+            chatMessages={chatMessages}
+            conversations={conversations}
+            conversationId={conversationId}
+            selectConversation={selectConversation}
+            startNewConversation={startNewConversation}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            askAgent={askAgent}
+            hitlRecords={hitlRecords}
+            loading={loading}
+            onOpenReports={() => setActiveView("reports")}
+            knowledgeDocs={knowledgeDocs}
+            uploadKnowledgeDocs={uploadKnowledgeDocs}
+          />
+        )}
+        {activeView === "review" && (
+          <ReviewCenterView
+            hitlRecords={hitlRecords}
+            agentRuns={agentRuns}
+            decideHitl={decideHitl}
+          />
+        )}
+        {activeView === "history" && (
+          <HistoryView
+            history={history}
+            profileReports={profileReports}
+            conversations={conversations}
+            agentRuns={agentRuns}
+            openStoredReport={openStoredReport}
+            selectConversation={selectConversation}
+            setActiveView={setActiveView}
           />
         )}
         {activeView === "tests" && (
@@ -908,23 +1242,40 @@ export default function App() {
             runStatisticalTest={runStatisticalTest}
           />
         )}
-        {activeView === "settings" && <SettingsView apiBase={apiBase} setApiBase={setApiBase} />}
+        {activeView === "settings" && (
+          <SettingsView
+            apiBase={apiBase}
+            setApiBase={setApiBase}
+            userWorkspace={userWorkspace}
+            updateUserWorkspace={updateUserWorkspace}
+            userRules={userRules}
+          />
+        )}
       </main>
-      <AgentPanel
-        collapsed={agentCollapsed}
-        setCollapsed={setAgentCollapsed}
-        chatMessages={chatMessages}
-        conversations={conversations}
-        conversationId={conversationId}
-        selectConversation={selectConversation}
-        startNewConversation={startNewConversation}
-        chatInput={chatInput}
-        setChatInput={setChatInput}
-        sendChat={sendChat}
-        findings={findings}
-        hitlRecords={hitlRecords}
-        decideHitl={decideHitl}
-      />
+      {activeView !== "agent" && (
+        <AgentPanel
+          collapsed={agentCollapsed}
+          setCollapsed={setAgentCollapsed}
+          chatMessages={chatMessages}
+          conversations={conversations}
+          conversationId={conversationId}
+          selectConversation={selectConversation}
+          startNewConversation={startNewConversation}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          sendChat={sendChat}
+          askAgent={askAgent}
+          loading={loading}
+          currentReport={displayResult}
+          profileReports={profileReports}
+          openStoredReport={(runId) => openStoredReport(runId, activeView)}
+          findings={findings}
+          hitlRecords={hitlRecords}
+          decideHitl={decideHitl}
+          openReviewCenter={() => setActiveView("reports")}
+          onResizeStart={startAgentResize}
+        />
+      )}
       {toast && <Toast toast={toast} />}
     </div>
   );
@@ -939,6 +1290,23 @@ function isDatabaseConfigReady(values) {
     required.push(values.driver);
   }
   return required.every((value) => String(value || "").trim());
+}
+
+function RoleComingSoon({ session, onLogout }) {
+  const title = session.role === "admin" ? "Admin workspace" : "User workspace";
+  return (
+    <main className="role-soon-shell">
+      <section className="role-soon-card">
+        <span className="fabric-kicker">{session.role}</span>
+        <h1>{title} is coming soon</h1>
+        <p>
+          You are signed in as <b>{session.displayName}</b>. The current build enables the
+          Data Analyst role only; user and admin workflows will be added later.
+        </p>
+        <button className="secondary-button" type="button" onClick={onLogout}>Sign out</button>
+      </section>
+    </main>
+  );
 }
 
 function buildExplorerPreviews(profileSources, existingPreviews) {
@@ -1102,19 +1470,6 @@ function clearLegacyStoredDbValues() {
   }
 }
 
-function getChatUserId() {
-  if (typeof window === "undefined") return "anonymous";
-  try {
-    const existing = window.localStorage.getItem(CHAT_USER_KEY);
-    if (existing) return existing;
-    const generated = `browser-${window.crypto?.randomUUID?.() || Date.now()}`;
-    window.localStorage.setItem(CHAT_USER_KEY, generated);
-    return generated;
-  } catch {
-    return "anonymous";
-  }
-}
-
 function toClientChatMessage(message) {
   return {
     id: message.id,
@@ -1123,6 +1478,15 @@ function toClientChatMessage(message) {
     createdAt: message.created_at,
     runId: message.run_id,
   };
+}
+
+function isStaleConversationError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("conversation") && (
+    message.includes("not found")
+    || message.includes("does not belong")
+    || message.includes("403")
+  );
 }
 
 function tableKey(table) {

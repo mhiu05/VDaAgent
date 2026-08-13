@@ -14,6 +14,14 @@ export function ProfilingView({
   profileDbQuery,
   dbInputMode,
   dbQuery,
+  customRequirements,
+  setCustomRequirements,
+  knowledgeDocs = [],
+  uploadKnowledgeDocs,
+  profilingPlan,
+  generateProfilingPlan,
+  confirmProfilingPlan,
+  userRules = [],
 }) {
   const [samplingEnabled, setSamplingEnabled] = useState(false);
   const fileCount = Array.from(files || []).length;
@@ -31,6 +39,7 @@ export function ProfilingView({
   const runAction = isDatabaseRun ? profileSelectedDbTable : isQueryRun ? profileDbQuery : runFullProfile;
 
   return (
+    <>
     <section className="profiling-config-grid">
       <section className="panel">
         <PanelTitle
@@ -115,6 +124,77 @@ export function ProfilingView({
         </div>
       </section>
     </section>
+
+    <section className="panel agent-plan-panel">
+      <PanelTitle title="Agent-assisted profiling plan" aside={profilingPlan?.confirmed ? "Confirmed" : "Review before running"} />
+      <div className="agent-plan-grid">
+        <div className="agent-plan-inputs">
+          <label>
+            Custom report requirements
+            <textarea
+              value={customRequirements}
+              onChange={(event) => setCustomRequirements(event.target.value)}
+              placeholder="Example: flag email as PII, check duplicate customer_id, include null threshold warnings, compare revenue by region..."
+              rows={5}
+            />
+          </label>
+          <label className="agent-doc-upload compact-upload">
+            Upload requirements / policy docs
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.txt,.md,.json,.csv"
+              onChange={(event) => {
+                uploadKnowledgeDocs?.(event.target.files);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          <div className="button-row">
+            <button className="secondary-button" type="button" onClick={generateProfilingPlan}>
+              Generate plan
+            </button>
+            <button className="primary-button" type="button" onClick={() => confirmProfilingPlan?.()}>
+              Confirm plan
+            </button>
+          </div>
+        </div>
+        <div className="agent-plan-output">
+          {profilingPlan ? (
+            <>
+              <div className="plan-summary-row">
+                <strong>{profilingPlan.items?.length || 0} plan items</strong>
+                <span>{profilingPlan.selected_sections?.join(", ")}</span>
+              </div>
+              <div className="plan-item-list">
+                {profilingPlan.items?.map((item) => (
+                  <article key={item.id} className={item.requires_confirmation ? "needs-confirmation" : ""}>
+                    <strong>{item.label}</strong>
+                    <p>{item.reason}</p>
+                    {item.requires_confirmation ? <small>Requires analyst confirmation</small> : null}
+                  </article>
+                ))}
+              </div>
+              {profilingPlan.clarification_questions?.length ? (
+                <div className="plan-questions">
+                  <strong>Questions to confirm</strong>
+                  {profilingPlan.clarification_questions.map((question) => <span key={question}>{question}</span>)}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="empty-state compact">
+              Add custom requirements or upload docs, then generate a plan. The Agent will propose metrics and questions before profiling.
+            </div>
+          )}
+          <div className="plan-context-strip">
+            <span>{knowledgeDocs.length} docs</span>
+            <span>{userRules.length} saved rules</span>
+          </div>
+        </div>
+      </div>
+    </section>
+    </>
   );
 }
 

@@ -113,6 +113,113 @@ class HitlDecisionRequest(BaseModel):
     comment: str | None = Field(default=None, description="Reviewer comment")
 
 
+class ReportCommentCreateRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128, description="Comment author user id")
+    author_name: str = Field(default="Analyst", min_length=1, max_length=128, description="Display name")
+    comment: str = Field(..., min_length=1, max_length=2000, description="PII-safe report comment")
+    column: str | None = Field(default=None, max_length=256, description="Optional related column")
+
+
+class ReportComment(BaseModel):
+    id: str = Field(..., description="Comment identifier")
+    run_id: str = Field(..., description="Profile report run identifier")
+    user_id: str = Field(..., description="Comment author user id")
+    author_name: str = Field(..., description="Display name")
+    comment: str = Field(..., description="PII-safe report comment")
+    column: str | None = Field(default=None, description="Optional related column")
+    created_at: str = Field(..., description="Comment timestamp")
+
+
+class UserWorkspace(BaseModel):
+    user_id: str = Field(..., description="Workspace owner user id")
+    display_name: str = Field(default="Analyst", description="Display name")
+    role: str = Field(default="data_analyst", description="User role")
+    created_at: str = Field(..., description="Workspace creation timestamp")
+    updated_at: str = Field(..., description="Workspace update timestamp")
+    metadata: dict[str, object] = Field(default_factory=dict, description="User-scoped workspace metadata")
+
+
+class UserWorkspaceUpdateRequest(BaseModel):
+    display_name: str = Field(default="Analyst", min_length=1, max_length=128)
+    role: str = Field(default="data_analyst", min_length=1, max_length=64)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class KnowledgeDocument(BaseModel):
+    id: str = Field(..., description="Document identifier")
+    user_id: str = Field(..., description="Document owner user id")
+    name: str = Field(..., description="Original file name")
+    content_type: str = Field(default="application/octet-stream", description="Uploaded content type")
+    size: int = Field(default=0, ge=0, description="Uploaded file size")
+    status: str = Field(..., description="ingested or metadata_only")
+    extracted_text: str = Field(default="", description="PII-masked extracted text preview")
+    summary: str = Field(default="", description="Short extracted summary")
+    created_at: str = Field(..., description="Ingestion timestamp")
+
+
+class KnowledgeSearchResult(BaseModel):
+    document_id: str
+    document_name: str
+    score: float = Field(default=0, ge=0)
+    excerpt: str = Field(default="")
+
+
+class ProfilingPlanGenerateRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    source_name: str | None = Field(default=None, description="Selected source name")
+    columns: list[str] = Field(default_factory=list, description="Selected column names")
+    selected_sections: list[str] = Field(default_factory=list, description="Currently selected profiling sections")
+    custom_requirements: str = Field(default="", max_length=5000, description="User-defined report requirements")
+    document_ids: list[str] = Field(default_factory=list, description="Optional uploaded requirement documents")
+
+
+class ProfilingPlanItem(BaseModel):
+    id: str = Field(..., description="Plan item id")
+    label: str = Field(..., description="Human-readable action")
+    reason: str = Field(..., description="Why this item is recommended")
+    section: str | None = Field(default=None, description="Profiling section affected")
+    requires_confirmation: bool = Field(default=False)
+
+
+class ProfilingPlan(BaseModel):
+    id: str = Field(..., description="Plan identifier")
+    user_id: str = Field(..., description="Plan owner")
+    source_name: str | None = None
+    selected_sections: list[str] = Field(default_factory=list)
+    custom_requirements: str = ""
+    items: list[ProfilingPlanItem] = Field(default_factory=list)
+    clarification_questions: list[str] = Field(default_factory=list)
+    confirmed: bool = Field(default=False)
+    created_at: str
+    updated_at: str
+
+
+class ProfilingPlanConfirmRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    confirmed_items: list[str] = Field(default_factory=list)
+    answers: dict[str, str] = Field(default_factory=dict)
+
+
+class UserRuleCreateRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    source_name: str | None = None
+    column: str | None = None
+    rule_type: str = Field(..., min_length=1, max_length=128)
+    description: str = Field(..., min_length=1, max_length=1000)
+    evidence: str = Field(default="", max_length=1000)
+
+
+class UserRule(BaseModel):
+    id: str
+    user_id: str
+    source_name: str | None = None
+    column: str | None = None
+    rule_type: str
+    description: str
+    evidence: str = ""
+    created_at: str
+
+
 class DatabaseConnectionConfig(BaseModel):
     type: str = Field(..., pattern="^(sql_server|postgresql)$", description="Database type")
     host: str = Field(..., description="Database host or server")
@@ -376,6 +483,22 @@ class ProfileResult(BaseModel):
     agent_run: AgentRunSummary | None = Field(default=None, description="Agent observability run summary")
     agent_status: AgentWorkflowStatus | None = Field(default=None, description="Agent workflow status")
     governance: dict[str, object] = Field(default_factory=dict, description="PII, HITL, and trace governance summary")
+
+
+class ProfileReportSummary(BaseModel):
+    run_id: str = Field(..., description="Profiling agent run identifier")
+    user_id: str = Field(default="anonymous", description="Owner user id")
+    source_name: str = Field(..., description="File, table, sheet, or query name")
+    source_type: str = Field(..., description="Profiled source type")
+    row_count: int = Field(default=0, ge=0, description="Profiled row count")
+    column_count: int = Field(default=0, ge=0, description="Profiled column count")
+    warning_count: int = Field(default=0, ge=0, description="Warning finding count")
+    critical_count: int = Field(default=0, ge=0, description="Critical finding count")
+    created_at: str = Field(..., description="Report persistence timestamp")
+
+
+class ProfileReportRecord(ProfileReportSummary):
+    report: ProfileResult = Field(..., description="Persisted profile report payload")
 
 
 class ProfileCollectionSummary(BaseModel):

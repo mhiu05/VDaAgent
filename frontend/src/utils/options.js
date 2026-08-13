@@ -1,5 +1,7 @@
 import {
   BarChart3,
+  Bot,
+  Clock3,
   Database,
   FileSpreadsheet,
   FileText,
@@ -13,6 +15,8 @@ export const navItems = [
   ["dashboard", BarChart3, "Dashboard"],
   ["workspace", Database, "Data Workspace"],
   ["reports", BarChart3, "Reports"],
+  ["agent", Bot, "Agent"],
+  ["history", Clock3, "History"],
   ["tests", FlaskConical, "Statistical Tests"],
   ["settings", Settings, "Settings"],
 ];

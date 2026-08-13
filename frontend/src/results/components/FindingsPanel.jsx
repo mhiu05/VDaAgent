@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Filter, ShieldCheck } from "lucide-react";
+import { Filter } from "lucide-react";
 import { SeverityBadge } from "../../shared/components.jsx";
 
 export function FindingsPanel({ findings, columns }) {
@@ -48,7 +48,7 @@ export function FindingsPanel({ findings, columns }) {
         </label>
       </div>
       {filtered.length ? (
-        <div className="finding-list report-findings-list">
+        <div className="finding-list report-findings-list simple-findings-list">
           {filtered.map((finding, index) => (
             <article className={`finding ${finding.severity || "info"}`} key={`${finding.column || "dataset"}-${index}`}>
               <div className="finding-heading">
@@ -56,9 +56,6 @@ export function FindingsPanel({ findings, columns }) {
                 <span title={finding.column || "Dataset-level"}>{finding.column || "Dataset-level"}</span>
               </div>
               <p>{finding.message}</p>
-              {isHitlCandidate(finding) ? (
-                <div className="hitl-hint"><ShieldCheck size={14} /> HITL review recommended</div>
-              ) : null}
             </article>
           ))}
         </div>
@@ -80,7 +77,3 @@ function deriveFindingType(finding) {
   return "General";
 }
 
-function isHitlCandidate(finding) {
-  const type = deriveFindingType(finding);
-  return ["PII", "Identifier"].includes(type) || String(finding.message || "").toLowerCase().includes("relationship");
-}

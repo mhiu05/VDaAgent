@@ -1,0 +1,386 @@
+.review-page,
+.history-page {
+  display: grid;
+  gap: 18px;
+  padding: 22px 28px 32px;
+}
+
+.view-header {
+  display: grid;
+  gap: 6px;
+}
+
+.view-header h2 {
+  margin: 0;
+  color: var(--color-text, #0f172a);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.view-header p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--color-muted, #64748b);
+}
+
+.review-summary-grid,
+.history-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.review-metric,
+.history-metric {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 20px rgb(15 23 42 / 5%);
+}
+
+.review-metric > span,
+.history-metric > span {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.review-metric.success > span { background: #ecfdf5; color: #16a34a; }
+.review-metric.warning > span { background: #fffbeb; color: #d97706; }
+.review-metric.danger > span { background: #fef2f2; color: #dc2626; }
+
+.review-metric strong,
+.history-metric strong {
+  display: block;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.review-metric small,
+.history-metric small {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.review-list-panel,
+.history-list-panel {
+  padding: 18px;
+}
+
+.review-record-list,
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.review-record,
+.history-row-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.review-record.pending {
+  border-left: 3px solid #f59e0b;
+}
+
+.review-record.approved {
+  border-left: 3px solid #16a34a;
+}
+
+.review-record.rejected {
+  border-left: 3px solid #dc2626;
+}
+
+.review-record-title,
+.review-record-meta,
+.history-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-record-title strong {
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.review-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #94a3b8;
+}
+
+.review-status-dot.pending { background: #f59e0b; }
+.review-status-dot.approved { background: #16a34a; }
+.review-status-dot.rejected { background: #dc2626; }
+
+.review-record p {
+  margin: 8px 0;
+  color: #334155;
+  line-height: 1.45;
+}
+
+.review-record-meta span,
+.history-row-meta span {
+  max-width: 260px;
+  overflow: hidden;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #64748b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.review-record-action {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  color: #64748b;
+}
+
+.review-record-action small {
+  max-width: 260px;
+  text-align: right;
+  line-height: 1.35;
+}
+
+.review-empty,
+.history-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 190px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  text-align: center;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.history-row-card {
+  cursor: pointer;
+}
+
+.history-row-card:hover {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.history-row-card h4 {
+  margin: 0;
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-row-card p {
+  margin: 6px 0 0;
+  color: #64748b;
+}
+
+.report-history-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.report-combobox {
+  position: relative;
+  max-width: 760px;
+}
+
+.report-combobox-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 8px 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #64748b;
+}
+
+.report-combobox-input:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+}
+
+.report-combobox-input input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #0f172a;
+  font: inherit;
+}
+
+.report-combobox-input button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.report-combobox-input button:hover {
+  background: #f1f5f9;
+  color: #2563eb;
+}
+
+.report-combobox-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgb(15 23 42 / 14%);
+}
+
+.report-combobox-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report-combobox-option:last-child {
+  border-bottom: 0;
+}
+
+.report-combobox-option:hover {
+  background: #f8fbff;
+}
+
+.report-option-main,
+.report-option-main strong,
+.report-option-main small {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-option-main strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.report-option-main small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.report-option-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-option-meta b,
+.report-option-meta i {
+  font-style: normal;
+}
+
+.report-option-meta i {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.report-option-meta i.warning {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.report-option-meta i.critical {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.report-combobox-empty {
+  padding: 14px;
+  color: #64748b;
+  text-align: center;
+}
+
+@media (max-width: 1100px) {
+  .review-summary-grid,
+  .history-summary-grid,
+  .history-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .review-record {
+    grid-template-columns: 1fr;
+  }
+
+  .review-record-action {
+    justify-items: start;
+  }
+
+  .review-record-action small {
+    text-align: left;
+  }
+}
+
+@media (max-width: 720px) {
+  .review-summary-grid,
+  .history-summary-grid,
+  .history-grid {
+    grid-template-columns: 1fr;
+  }
+}

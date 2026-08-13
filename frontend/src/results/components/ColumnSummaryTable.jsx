@@ -74,13 +74,11 @@ export function ColumnSummaryTable({
             <tr>
               <SortableHeader label="Column" sortKey="name" sort={sort} onSort={updateSort} />
               <SortableHeader label="Type" sortKey="data_type" sort={sort} onSort={updateSort} />
-              <SortableHeader label="Null %" sortKey="null_ratio" sort={sort} onSort={updateSort} />
+              <SortableHeader label="Missing %" sortKey="null_ratio" sort={sort} onSort={updateSort} />
               <SortableHeader label="Distinct %" sortKey="distinct_ratio" sort={sort} onSort={updateSort} />
-              <SortableHeader label="Unique count" sortKey="distinct_count" sort={sort} onSort={updateSort} />
               <SortableHeader label="Min" sortKey="min" sort={sort} onSort={updateSort} />
               <SortableHeader label="Max" sortKey="max" sort={sort} onSort={updateSort} />
-              <SortableHeader label="Mean / median" sortKey="median" sort={sort} onSort={updateSort} />
-              <th>Issues</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -97,17 +95,13 @@ export function ColumnSummaryTable({
                   <td><span className="type-pill" title={column.data_type}>{column.data_type || "-"}</span></td>
                   <td><MetricBar value={column.null_ratio} tone="warn" /></td>
                   <td><MetricBar value={column.distinct_ratio} tone="info" /></td>
-                  <td title={String(column.distinct_count ?? "-")}>{formatMaybeNumber(column.distinct_count)}</td>
                   <td title={String(column.min ?? "-")}>{formatMaybeNumber(column.min)}</td>
                   <td title={String(column.max ?? "-")}>{formatMaybeNumber(column.max)}</td>
-                  <td title={`Mean: ${formatMaybeNumber(column.avg)}, median: ${formatMaybeNumber(column.median)}`}>
-                    {formatMaybeNumber(column.avg ?? column.median)}
-                  </td>
                   <td><IssueSummary findings={columnFindings} /></td>
                 </tr>
               );
             }) : (
-              <tr><td colSpan={9} className="empty-cell">No columns match the current filters.</td></tr>
+              <tr><td colSpan={7} className="empty-cell">No columns match the current filters.</td></tr>
             )}
           </tbody>
         </table>
@@ -141,7 +135,7 @@ function MetricBar({ value, tone }) {
 function IssueSummary({ findings }) {
   const severity = getWorstSeverity(findings);
   if (severity === "ok") {
-    return <span className="ok-mark" title="OK: no profiling findings"><CheckCircle2 size={15} /> OK</span>;
+    return <span className="ok-mark" title="Healthy: no profiling findings"><CheckCircle2 size={15} /> Healthy</span>;
   }
   return (
     <span className={`issue-summary ${severity}`} title={findings.map((finding) => finding.message).join("\n")}>

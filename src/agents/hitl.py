@@ -46,12 +46,14 @@ class HitlStore:
         self,
         status: str | None = None,
         run_id: str | None = None,
+        user_id: str | None = None,
         limit: int = 200,
         offset: int = 0,
     ) -> list[HitlRecord]:
         return self.repository.list_hitl_records(
             status=status,
             run_id=run_id,
+            user_id=user_id,
             limit=limit,
             offset=offset,
         )
