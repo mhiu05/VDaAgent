@@ -104,6 +104,7 @@ export interface Profile {
 
 export interface UploadResult {
   dataset_ref: string;
+  dataset_id?: string | null;
   filename: string;
   size_bytes: number;
   suggested_name?: string | null;
@@ -146,13 +147,10 @@ export interface DriftResponse {
   findings: DriftFinding[];
 }
 
-export interface AnswerSource {
-  profile_run_id?: string;
-  column_name?: string;
-  metric?: string;
-  value?: unknown;
-  [key: string]: unknown;
-}
+export type AnswerSource =
+  | { type: "profile_report"; citation_id: string; doc_id: string; profile_run_id?: string | null; dataset_name?: string | null; retrieval_channel: string; score: number }
+  | { type: "external_knowledge"; citation_id: string; doc_id: string; source_id: string; title?: string | null; canonical_url: string; retrieved_at?: string | null; category?: string | null; retrieval_channel: string; score: number }
+  | { type: "tool"; tool: string; args?: Record<string, unknown>; status: string; profile_run_id?: string | null };
 
 export interface QAResponse {
   question: string;

@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { toTitle } from "@/lib/format";
+import { formatStatus } from "@/lib/format";
 import type { RunStatus } from "@/lib/types";
 
 export function StatusBadge({ status }: { status: RunStatus }) {
   const normalized = status.toLowerCase();
-  return <span className={`status status-${normalized}`}>{toTitle(normalized)}</span>;
+  return <span className={`status status-${normalized}`}>{formatStatus(normalized)}</span>;
 }
 
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {

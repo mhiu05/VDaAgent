@@ -82,11 +82,54 @@ def test_profile_rejects_empty_dataset_ref(client: TestClient) -> None:
     assert client.post("/api/v1/profile", json={"dataset_ref": ""}).status_code == 422
 
 
-def test_export_never_returns_raw_values(client: TestClient, profile_run: dict) -> None:
+def test_export_never_returns_raw_values(client: TestClient, reviewed_profile_run: dict) -> None:
     """Export chỉ có metadata + thống kê, không có dữ liệu thô (eval C-02)."""
-    body = client.get(f"/api/v1/profile/{profile_run['profile_run_id']}/export").json()
+    body = client.get(f"/api/v1/profile/{reviewed_profile_run['profile_run_id']}/export").json()
     raw = [row.get("top_k_values") for row in body["profile"]["column_stats"]]
     assert not any(raw)
+
+
+def test_exports_reject_incomplete_profile_run(client: TestClient, profile_run: dict) -> None:
+    """Backend không được phụ thuộc vào điều kiện hiển thị của frontend."""
+    run_id = profile_run["profile_run_id"]
+    for path in (f"/api/v1/profile/{run_id}/export", f"/api/v1/profile/{run_id}/report"):
+        response = client.get(path)
+        assert response.status_code == 409, response.text
+        assert "pending_review" in response.json()["detail"]
+    response = client.post(f"/api/v1/profile/{run_id}/report", json={})
+    assert response.status_code == 409, response.text
+    assert "pending_review" in response.json()["detail"]
+
+
+def test_completed_profile_can_create_report_workspace_entry(
+    client: TestClient, reviewed_profile_run: dict
+) -> None:
+    run_id = reviewed_profile_run["profile_run_id"]
+    response = client.post(f"/api/v1/profile/{run_id}/report", json={})
+    assert response.status_code == 201, response.text
+    report = response.json()
+    assert report["status"] == "in_review"
+    assert report["versions"]
+    assert report["versions"][0]["sections"]
+
+    detail = client.get(f"/api/v1/reports/{report['id']}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["versions"][0]["scope"]["profile_run_id"] == run_id
+
+
+def test_report_author_can_delete_report_before_publish(
+    client: TestClient, reviewed_profile_run: dict
+) -> None:
+    created = client.post(
+        f"/api/v1/profile/{reviewed_profile_run['profile_run_id']}/report", json={}
+    )
+    assert created.status_code == 201, created.text
+    report_id = created.json()["id"]
+
+    deleted = client.delete(f"/api/v1/reports/{report_id}")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"deleted": True, "report_id": report_id}
+    assert client.get(f"/api/v1/reports/{report_id}").status_code == 404
 
 
 # --------------------------------------------------------------------------- #

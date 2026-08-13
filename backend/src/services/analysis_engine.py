@@ -14,6 +14,7 @@ from typing import Any
 
 import duckdb
 from src.services.repository import Repository
+from src.services.storage import materialize_source
 
 
 class AnalysisQueryError(ValueError):
@@ -48,11 +49,9 @@ class AnalysisEngine:
         if not run:
             raise AnalysisQueryError("Profile run không tồn tại.")
         dataset = self.repository.get_dataset(run["dataset_id"])
-        source = Path(str((dataset or {}).get("source_ref", "")))
-        if not source.is_file():
-            raise AnalysisQueryError(
-                "Không thể truy cập immutable source của profile run."
-            )
+        source_ref = str((dataset or {}).get("source_ref", ""))
+        if not source_ref:
+            raise AnalysisQueryError("Profile run không có immutable source.")
 
         stats = self.repository.get_column_stats(profile_run_id)
         columns = set(stats)
@@ -80,7 +79,11 @@ class AnalysisEngine:
         )
         if allowed and any(
             column not in allowed
-            for column in [*dimensions, *([value_column] if value_column else [])]
+            for column in [
+                *dimensions,
+                *([value_column] if value_column else []),
+                *[str(item.get("column")) for item in query.get("filters") or []],
+            ]
         ):
             raise AnalysisQueryError("Cột chưa được duyệt trong semantic context.")
 
@@ -97,22 +100,24 @@ class AnalysisEngine:
         select_dimensions = ", ".join(_identifier(item) for item in dimensions)
         select_prefix = f"{select_dimensions}, " if select_dimensions else ""
         group = f" GROUP BY {select_dimensions}" if dimensions else ""
-        order = " ORDER BY value DESC NULLS LAST" if dimensions else ""
+        sort = "ASC" if query.get("sort", "desc") == "asc" else "DESC"
+        order = f" ORDER BY value {sort} NULLS LAST" if dimensions else ""
         limit = int(query.get("limit", 100))
         sql = f"SELECT {select_prefix}{expressions[aggregate]} AS value FROM source{where}{group}{order} LIMIT {limit}"
         started = time.perf_counter()
         connection = duckdb.connect(database=":memory:")
         try:
-            # DuckDB does not prepare CREATE VIEW, while CREATE TABLE supports
-            # bound file paths.  This temporary in-memory table never exposes
-            # rows through the API; it only feeds bounded aggregates below.
-            connection.execute(
-                f"CREATE TEMP TABLE source AS SELECT * FROM {_reader(source)}",
-                [str(source)],
-            )
-            rows = connection.execute(sql, params).fetchall()
-            names = [item[0] for item in connection.description]
-        except duckdb.Error as exc:
+            with materialize_source(source_ref) as source:
+                # DuckDB does not prepare CREATE VIEW, while CREATE TABLE supports
+                # bound file paths. This temporary in-memory table never exposes
+                # rows through the API; it only feeds bounded aggregates below.
+                connection.execute(
+                    f"CREATE TEMP TABLE source AS SELECT * FROM {_reader(source)}",
+                    [str(source)],
+                )
+                rows = connection.execute(sql, params).fetchall()
+                names = [item[0] for item in connection.description]
+        except (duckdb.Error, FileNotFoundError, ValueError) as exc:
             raise AnalysisQueryError(
                 "Không thể thực thi query an toàn trên source."
             ) from exc

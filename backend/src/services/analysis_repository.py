@@ -33,9 +33,9 @@ class AnalysisRepository:
         self.engine = repository.engine
 
     def create_session(
-        self, payload: dict[str, Any], *, profile_run_id: str, creator: str
+        self, payload: dict[str, Any], *, profile_run_id: str, creator: str, workspace_id: str
     ) -> dict[str, Any]:
-        run = self.repository.get_profile_run(profile_run_id)
+        run = self.repository.get_profile_run(profile_run_id, workspace_id=workspace_id)
         if not run:
             raise LookupError("Không tìm thấy profile run.")
         if run["status"] != "completed":
@@ -54,6 +54,7 @@ class AnalysisRepository:
             "population": payload.get("population"),
             "baseline": payload.get("baseline"),
             "creator": creator,
+            "workspace_id": workspace_id,
             "graph_thread_id": f"analysis:{session_id}",
             "version": 1,
             "created_at": now,
@@ -71,16 +72,15 @@ class AnalysisRepository:
                     role="primary",
                 )
             )
-        return self.get_session(session_id) or session
+        return self.get_session(session_id, workspace_id=workspace_id) or session
 
-    def get_session(self, session_id: str) -> dict[str, Any] | None:
+    def get_session(self, session_id: str, *, workspace_id: str | None = None) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
+            statement = select(analysis_sessions).where(analysis_sessions.c.id == session_id)
+            if workspace_id is not None:
+                statement = statement.where(analysis_sessions.c.workspace_id == workspace_id)
             session = (
-                conn.execute(
-                    select(analysis_sessions).where(
-                        analysis_sessions.c.id == session_id
-                    )
-                )
+                conn.execute(statement)
                 .mappings()
                 .first()
             )
@@ -131,7 +131,7 @@ class AnalysisRepository:
                 result["quality_gate"] = current_gate
             return result
 
-    def list_sessions(self, profile_run_id: str | None = None) -> list[dict[str, Any]]:
+    def list_sessions(self, profile_run_id: str | None = None, *, workspace_id: str | None = None) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
             statement = select(analysis_sessions)
             if profile_run_id:
@@ -139,6 +139,8 @@ class AnalysisRepository:
                     analysis_sources,
                     analysis_sources.c.session_id == analysis_sessions.c.id,
                 ).where(analysis_sources.c.profile_run_id == profile_run_id)
+            if workspace_id is not None:
+                statement = statement.where(analysis_sessions.c.workspace_id == workspace_id)
             sessions = conn.execute(
                 statement.order_by(analysis_sessions.c.updated_at.desc())
             ).mappings()

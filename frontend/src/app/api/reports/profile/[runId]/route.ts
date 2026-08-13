@@ -32,7 +32,10 @@ type ReportPayload = {
     quality_gate?: { decision?: string };
     executions?: Array<Record<string, unknown>>;
   }>;
+  export_sections?: string[];
 };
+
+const ALL_EXPORT_SECTIONS = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
@@ -338,6 +341,7 @@ function ratioPercentage(value: unknown): number | null {
 
 function buildLayout(payload: ReportPayload): string[] {
   const { profile, analysis_sessions: sessions } = payload;
+  const selectedSections = new Set(payload.export_sections || ALL_EXPORT_SECTIONS);
   const run = profile.run;
   const pages: Page[] = [];
   let page: Page;
@@ -346,7 +350,7 @@ function buildLayout(payload: ReportPayload): string[] {
     page = { commands: [], y: PAGE_HEIGHT - 64 };
     pages.push(page);
     rectCommand(page.commands, 0, PAGE_HEIGHT - 34, PAGE_WIDTH, 34, COLORS.navy);
-    textCommand(page.commands, MARGIN, PAGE_HEIGHT - 22, "P-170  |  BÁO CÁO HỒ SƠ DỮ LIỆU", 8, true, COLORS.white);
+    textCommand(page.commands, MARGIN, PAGE_HEIGHT - 22, "VDaAgent  |  BÁO CÁO HỒ SƠ DỮ LIỆU", 8, true, COLORS.white);
     textCommand(page.commands, PAGE_WIDTH - MARGIN - 126, PAGE_HEIGHT - 22, "Evidence-first export", 7, false, "0.82 0.88 0.96");
   };
 
@@ -354,7 +358,14 @@ function buildLayout(payload: ReportPayload): string[] {
     if (page.y - height < BOTTOM) startPage();
   };
 
+  let activeSection = "overview";
+  let topHeadingNumber = 0;
+  let subHeadingNumber = 0;
+  let detailHeadingNumber = 0;
+  const sectionByHeading = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
+
   const addParagraph = (value: string, size = 9, color = COLORS.ink, width = CONTENT_WIDTH - 10) => {
+    if (!selectedSections.has(activeSection)) return;
     const leading = size + 4;
     for (const line of wrap(value, width, size)) {
       ensure(leading);
@@ -365,6 +376,21 @@ function buildLayout(payload: ReportPayload): string[] {
   };
 
   const addHeading = (title: string, level = 1) => {
+    if (level === 1) {
+      topHeadingNumber += 1;
+      subHeadingNumber = 0;
+      detailHeadingNumber = 0;
+      activeSection = sectionByHeading[topHeadingNumber - 1] || "";
+      title = `${topHeadingNumber}. ${title}`;
+    } else if (level === 2) {
+      subHeadingNumber += 1;
+      detailHeadingNumber = 0;
+      title = `${topHeadingNumber}.${subHeadingNumber} ${title}`;
+    } else if (level === 3) {
+      detailHeadingNumber += 1;
+      title = `${topHeadingNumber}.${subHeadingNumber}.${detailHeadingNumber} ${title}`;
+    }
+    if (!selectedSections.has(activeSection)) return;
     const size = level === 1 ? 12 : 10;
     const lines = fitLines(title, CONTENT_WIDTH - 24, size, 2);
     const height = Math.max(level === 1 ? 21 : 18, 8 + lines.length * (size + 2));
@@ -377,6 +403,7 @@ function buildLayout(payload: ReportPayload): string[] {
   };
 
   const addCallout = (value: string, warning = false) => {
+    if (!selectedSections.has(activeSection)) return;
     const lines = wrap(value, CONTENT_WIDTH - 30, 8.2);
     const height = 16 + lines.length * 11;
     ensure(height + 8);
@@ -392,6 +419,7 @@ function buildLayout(payload: ReportPayload): string[] {
     rows: Array<{ label: string; value: number }>,
     color = COLORS.blue,
   ) => {
+    if (!selectedSections.has(activeSection)) return;
     const visibleRows = rows.sort((left, right) => right.value - left.value).slice(0, 10);
     if (!visibleRows.length) return;
     const rowHeight = 20;
@@ -416,6 +444,7 @@ function buildLayout(payload: ReportPayload): string[] {
   };
 
   const addTable = (headers: string[], rows: string[][], widths: number[]) => {
+    if (!selectedSections.has(activeSection)) return;
     if (!headers.length) return;
     const drawHeader = () => {
       const height = 25;
@@ -494,7 +523,7 @@ function buildLayout(payload: ReportPayload): string[] {
   rectCommand(page.commands, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, COLORS.paleGray);
   rectCommand(page.commands, 0, PAGE_HEIGHT - 230, PAGE_WIDTH, 230, COLORS.navy);
   rectCommand(page.commands, 0, 0, 13, PAGE_HEIGHT, COLORS.blue);
-  textCommand(page.commands, MARGIN, PAGE_HEIGHT - 78, "P-170", 15, true, COLORS.white);
+  textCommand(page.commands, MARGIN, PAGE_HEIGHT - 78, "VDaAgent", 15, true, COLORS.white);
   textCommand(page.commands, MARGIN, PAGE_HEIGHT - 126, "Báo cáo hồ sơ dữ liệu", 27, true, COLORS.white);
   textCommand(page.commands, MARGIN, PAGE_HEIGHT - 160, "Phân tích kỹ thuật và bằng chứng từ Analysis", 11, false, "0.83 0.89 0.97");
   fitLines(cell(profile.dataset?.name, 90), CONTENT_WIDTH - 20, 10, 2).forEach((line, index) => textCommand(page.commands, MARGIN, PAGE_HEIGHT - 195 - index * 12, line, 10, false, COLORS.white));
@@ -557,7 +586,7 @@ function buildLayout(payload: ReportPayload): string[] {
   addHeading("Các phiên phân tích nghiệp vụ");
   if (!sessions.length) addCallout("Chưa có phiên Analysis được liên kết. Bạn có thể thêm Analysis để có insight nghiệp vụ, hoặc bỏ qua và xuất trực tiếp báo cáo kỹ thuật.");
   sessions.forEach((session, sessionIndex) => {
-    addHeading(`${sessionIndex + 1}. ${cell(session.goal)}`, 2);
+    addHeading(cell(session.goal), 2);
     addTable(["Trường", "Giá trị"], [
       ["Session", cell(session.id)], ["Chế độ", cell(session.mode)], ["Trạng thái", cell(session.status)],
       ["Ngày tạo", date(session.created_at)], ["Quality gate", cell(session.quality_gate?.decision)],
@@ -622,19 +651,51 @@ function buildPdf(payload: ReportPayload): Uint8Array {
   return output;
 }
 
-async function getReport(runId: string): Promise<ReportPayload> {
-  const base = (process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
-  const headers: HeadersInit = { Accept: "application/json" };
-  if (process.env.API_TOKEN) headers.Authorization = `Bearer ${process.env.API_TOKEN}`;
-  const response = await fetch(`${base}/profile/${encodeURIComponent(runId)}/report`, { headers, cache: "no-store" });
-  if (!response.ok) throw new Error(`Không thể lấy dữ liệu report (${response.status}).`);
-  return response.json() as Promise<ReportPayload>;
+async function getReport(runId: string, request: Request, sections?: string): Promise<ReportPayload> {
+  const configuredBase = (process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
+  const bases = [configuredBase];
+  // In local Windows/Node environments, localhost may resolve differently
+  // from the address used by the browser. Keep a loopback fallback for the
+  // server-side PDF proxy without changing the public API URL contract.
+  if (configuredBase.includes("localhost")) bases.push(configuredBase.replace("localhost", "127.0.0.1"));
+  if (configuredBase.includes("127.0.0.1")) bases.push(configuredBase.replace("127.0.0.1", "localhost"));
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const authorization = request.headers.get("authorization");
+  const workspaceId = request.headers.get("x-workspace-id");
+  if (authorization) headers.Authorization = authorization;
+  if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
+  const query = sections ? `?sections=${encodeURIComponent(sections)}` : "";
+  let lastNetworkError: unknown = null;
+  for (const base of [...new Set(bases)]) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(`${base}/profile/${encodeURIComponent(runId)}/report${query}`, {
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Không thể lấy dữ liệu report (${response.status}).`);
+      return response.json() as Promise<ReportPayload>;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Không thể lấy dữ liệu report (")) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        lastNetworkError = new Error("Backend không phản hồi trong 30 giây khi chuẩn bị PDF.");
+      } else {
+        lastNetworkError = error;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error(lastNetworkError instanceof Error ? `Không thể kết nối backend để xuất PDF: ${lastNetworkError.message}` : "Không thể kết nối backend để xuất PDF.");
 }
 
-export async function GET(_request: Request, context: { params: Promise<{ runId: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ runId: string }> }) {
   try {
     const { runId } = await context.params;
-    const payload = await getReport(runId);
+    const sections = new URL(request.url).searchParams.get("sections") || ALL_EXPORT_SECTIONS.join(",");
+    const payload = await getReport(runId, request, sections);
     return new Response(buildPdf(payload) as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",

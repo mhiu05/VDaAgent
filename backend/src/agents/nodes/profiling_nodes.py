@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 from langgraph.types import interrupt
 from src.agents.prompts import BASE_RULES, SEMANTIC_TYPE_REFINE_PROMPT, SUMMARIZE_PROMPT
+from src.agents.runtime.trace import invoke_model
 from src.agents.state import ProfilingState
 from src.config import get_settings
 from src.services import compute
@@ -120,6 +121,11 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
             "error": f"Không nạp được dataset: {exc}",
         }
 
+    if df.empty or len(df.columns) == 0:
+        detail = "Dataset has no rows or columns. Check that the file has a header and at least one data row."
+        repo.update_profile_run(run_id, status="failed", error=detail)
+        return {"dataset_id": dataset_id, "profile_run_id": run_id, "error": detail}
+
     cache_dataframe(run_id, df)
     repo.update_profile_run(run_id, row_count=len(df), executed_query=query)
     get_audit().log(
@@ -172,6 +178,9 @@ def compute_stats_node(state: ProfilingState) -> dict[str, Any]:
     if df is None:
         return {"error": "Không tìm thấy dữ liệu đã nạp để tính thống kê."}
 
+    if df.empty or len(df.columns) == 0:
+        return {"error": "Dataset has no rows or columns for statistics. Upload a file with a header and at least one data row."}
+
     scan_mode = state.get("scan_mode", "sample")
     pii_flags = compute.detect_pii(df)
     pii_columns = {f["column_name"] for f in pii_flags}
@@ -211,7 +220,14 @@ def compute_stats_node(state: ProfilingState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # propose_metadata
 # --------------------------------------------------------------------------- #
-_VALID_SEMANTIC_TYPES = {"ID", "categorical", "ordinal", "continuous", "datetime", "free-text"}
+_VALID_SEMANTIC_TYPES = {
+    "ID",
+    "categorical",
+    "ordinal",
+    "continuous",
+    "datetime",
+    "free-text",
+}
 
 
 def _refine_semantic_types(
@@ -231,7 +247,9 @@ def _refine_semantic_types(
         col = item["column_name"]
         st = stats.get(col, {})
         samples = [
-            str(v.get("value")) for v in (st.get("top_k_values") or [])[:5] if isinstance(v, dict)
+            str(v.get("value"))
+            for v in (st.get("top_k_values") or [])[:5]
+            if isinstance(v, dict)
         ]
         lines.append(
             f"- {col}: dtype={st.get('dtype')}, cardinality={st.get('cardinality')}, "
@@ -241,14 +259,18 @@ def _refine_semantic_types(
 
     try:
         llm = get_llm()
-        response = llm.invoke(
+        response = invoke_model(
+            llm,
             [
                 {"role": "system", "content": BASE_RULES},
                 {
                     "role": "user",
-                    "content": SEMANTIC_TYPE_REFINE_PROMPT.format(columns_block="\n".join(lines)),
+                    "content": SEMANTIC_TYPE_REFINE_PROMPT.format(
+                        columns_block="\n".join(lines)
+                    ),
                 },
-            ]
+            ],
+            prompt_id="profile_metadata",
         )
         text = enforce_output_guardrails(
             str(response.content), get_settings().guardrails_max_output_chars
@@ -343,7 +365,9 @@ def propose_metadata_node(state: ProfilingState) -> dict[str, Any]:
             item["proposed_type"] = better["proposed_type"]
             item["confidence_score"] = better["confidence"]
             item["evidence"] = better["evidence"]
-            item["semantic_description"] = better.get("description") or item.get("semantic_description")
+            item["semantic_description"] = better.get("description") or item.get(
+                "semantic_description"
+            )
 
     # 3. PII — nâng flag thành proposal entity (ADR-003).
     pii = [
@@ -419,7 +443,11 @@ def hitl_review_node(state: ProfilingState) -> dict[str, Any]:
                 if (proposal.get("confidence_score") or 0.0) < threshold:
                     continue
                 repo.update_proposal(
-                    kind, proposal["id"], "auto_confirmed", confirmed_by="system:auto", run_id=run_id
+                    kind,
+                    proposal["id"],
+                    "auto_confirmed",
+                    confirmed_by="system:auto",
+                    run_id=run_id,
                 )
                 record = {
                     "kind": kind,
@@ -435,14 +463,18 @@ def hitl_review_node(state: ProfilingState) -> dict[str, Any]:
     resume_requested = bool(state.get("resume_requested"))
     payload: dict[str, Any] | None = None
     if pending or resume_requested:
-        repo.update_profile_run(run_id, status="pending_review" if pending else "resuming")
-        payload = interrupt({
-            "type": "profile_review",
-            "profile_run_id": run_id,
-            "pending_proposals": pending,
-            "proposals": repo.get_proposals(run_id),
-            "actions": ["confirm", "edit", "reject", "request_test"],
-        })
+        repo.update_profile_run(
+            run_id, status="pending_review" if pending else "resuming"
+        )
+        payload = interrupt(
+            {
+                "type": "profile_review",
+                "profile_run_id": run_id,
+                "pending_proposals": pending,
+                "proposals": repo.get_proposals(run_id),
+                "actions": ["confirm", "edit", "reject", "request_test"],
+            }
+        )
 
     update: dict[str, Any] = {
         "auto_confirmed": auto_confirmed,
@@ -538,12 +570,18 @@ def _risk_warnings(state: ProfilingState) -> list[str]:
     for col, st in stats.items():
         null_pct = st.get("null_pct") or 0.0
         if null_pct >= 50:
-            warnings.append(f"Cột '{col}' thiếu {approx}{null_pct:.2f}% giá trị — gần như không dùng được.")
+            warnings.append(
+                f"Cột '{col}' thiếu {approx}{null_pct:.2f}% giá trị — gần như không dùng được."
+            )
         elif null_pct >= 20:
-            warnings.append(f"Cột '{col}' thiếu {approx}{null_pct:.2f}% giá trị — cần xử lý null.")
+            warnings.append(
+                f"Cột '{col}' thiếu {approx}{null_pct:.2f}% giá trị — cần xử lý null."
+            )
 
         if st.get("cardinality") == 1:
-            warnings.append(f"Cột '{col}' chỉ có 1 giá trị duy nhất — không mang thông tin phân biệt.")
+            warnings.append(
+                f"Cột '{col}' chỉ có 1 giá trị duy nhất — không mang thông tin phân biệt."
+            )
 
         outliers = st.get("outlier_count") or 0
         row_count = st.get("row_count") or 0
@@ -554,6 +592,8 @@ def _risk_warnings(state: ProfilingState) -> list[str]:
             )
 
     for proposal in state.get("pii_proposals") or []:
+        if proposal.get("status") == "rejected":
+            continue
         warnings.append(
             f"Cột '{proposal['column_name']}' nghi là PII ({proposal.get('pii_type')}, "
             f"confidence {proposal['confidence_score']:.0%}) — giá trị đã được ẩn khỏi báo cáo."
@@ -670,21 +710,37 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
     """Sinh báo cáo NL + cảnh báo rủi ro, rồi index cho QA vector search."""
     repo = get_repository()
     run_id = state.get("profile_run_id")
-    warnings = _risk_warnings(state)
+    # Review decisions are persisted in PostgreSQL before the graph resumes.
+    # The checkpoint state still contains the original proposal payload, so
+    # using it directly would make the final narrative report show stale
+    # ``pending`` statuses after the Analyst already confirmed/rejected them.
+    report_state = dict(state)
+    if run_id:
+        stored_proposals = repo.get_proposals(run_id)
+        report_state["candidate_key_proposals"] = stored_proposals.get(
+            "candidate_key", []
+        )
+        report_state["semantic_type_proposals"] = stored_proposals.get(
+            "semantic_type", []
+        )
+        report_state["pii_proposals"] = stored_proposals.get("pii", [])
+    warnings = _risk_warnings(report_state)
 
     try:
         llm = get_llm()
-        response = llm.invoke(
+        response = invoke_model(
+            llm,
             [
                 {"role": "system", "content": BASE_RULES},
                 {
                     "role": "user",
                     "content": SUMMARIZE_PROMPT.format(
                         row_count=state.get("row_count"),
-                        profile_data=_profile_digest(state, warnings),
+                        profile_data=_profile_digest(report_state, warnings),
                     ),
                 },
-            ]
+            ],
+            prompt_id="profile_summary",
         )
         guarded = enforce_output_guardrails(
             str(response.content), get_settings().guardrails_max_output_chars
@@ -719,10 +775,12 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
                 doc_id=f"run:{run_id}",
                 text=repo.profile_summary_text(run_id),
                 metadata={
+                    "knowledge_type": "profile_report",
                     "profile_run_id": run_id,
                     "dataset_id": state.get("dataset_id"),
                     "dataset_name": state.get("dataset_name"),
                 },
+                workspace_id=state.get("workspace_id"),
             )
         except Exception:  # noqa: BLE001 - index lỗi không được chặn báo cáo
             warnings.append("Không index được kết quả cho QA vector search.")
@@ -742,6 +800,18 @@ def finalize_profile_node(state: ProfilingState) -> dict[str, Any]:
     if not run_id:
         return {"error": "Không thể finalize profile không có profile_run_id."}
     repo = get_repository()
+    # A graph may reach the unconditional finalize edge after a recoverable
+    # node error.  Never project that run as completed: the terminal domain
+    # status must agree with the execution trace and require an explicit retry.
+    if state.get("error"):
+        repo.update_profile_run(
+            run_id,
+            status="failed",
+            error="Profiling workflow không hoàn thành.",
+            terminal_result={"profile_run_id": run_id, "status": "failed"},
+        )
+        get_audit().log("finalize_failed", profile_run_id=run_id)
+        return {"tool_calls": state.get("tool_calls", 0) + 1}
     if state.get("question"):
         repo.save_terminal_result(
             run_id,

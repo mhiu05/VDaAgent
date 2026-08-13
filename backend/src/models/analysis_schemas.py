@@ -40,7 +40,9 @@ class ContextCreate(BaseModel):
 
 
 class ContextApprove(BaseModel):
-    approved_by: str = Field(min_length=1, max_length=255)
+    """Empty body: approver attribution comes from the verified JWT."""
+
+    pass
 
 
 class QualityAcknowledge(BaseModel):
@@ -61,6 +63,7 @@ class QuerySpec(BaseModel):
     dimensions: list[str] = Field(default_factory=list, max_length=3)
     filters: list[FilterSpec] = Field(default_factory=list, max_length=20)
     limit: int = Field(default=100, ge=1, le=500)
+    sort: Literal["asc", "desc"] = "desc"
 
 
 class ExecutionCreate(BaseModel):

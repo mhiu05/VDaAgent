@@ -24,5 +24,5 @@ export interface AnalysisSession {
   id: string; mode: AnalysisMode; status: AnalysisStatus; goal: string; decision?: string | null; audience?: string | null; output?: string | null;
   source?: { profile_run_id: string; dataset_id: string; alias: string }; context?: AnalysisContext; quality_gate?: QualityGate; created_at?: string;
 }
-export interface QuerySpec { aggregate: "count" | "count_distinct" | "sum" | "mean" | "median"; column?: string; dimensions: string[]; filters: Array<{ column: string; operator: string; value?: unknown }>; limit: number; }
+export interface QuerySpec { aggregate: "count" | "count_distinct" | "sum" | "mean" | "median"; column?: string; dimensions: string[]; filters: Array<{ column: string; operator: string; value?: unknown }>; limit: number; sort?: "asc" | "desc"; }
 export interface AnalysisExecution { id: string; query_spec: QuerySpec; result: { data: Array<Record<string, unknown>>; columns: string[]; row_count: number }; result_hash: string; limitations: string[]; is_approximate: boolean; duration_ms?: number; created_at?: string; }

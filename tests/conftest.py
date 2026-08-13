@@ -38,8 +38,8 @@ os.environ.update(
         "LANGSMITH_TRACING": "false",
         "OPENAI_API_KEY": "",
         "LLM_API_KEY": "",
-        # DB / index / audit riêng cho mỗi lần chạy pytest.
-        "DATABASE_URL": f"sqlite:///{(_TMP / 'test.db').as_posix()}",
+        # Tests require an explicit PostgreSQL test database.
+        "DATABASE_URL": os.environ.get("P170_TEST_DATABASE_URL", ""),
         "RETRIEVAL_INDEX_DIR": str(_TMP / "index"),
         "SECURITY_AUDIT_LOG": str(_TMP / "audit.jsonl"),
         "SECURITY_REQUIRE_API_TOKEN": "false",
