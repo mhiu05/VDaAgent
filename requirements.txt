@@ -1,4 +1,4 @@
-# P-170 — AI Data Profiling Agent
+# VDaAgent — AI Data Profiling Agent
 #
 # Danh sách dependency đầy đủ cho backend local/CI/deploy.
 # Production dùng Supabase PostgreSQL + Supabase Storage.

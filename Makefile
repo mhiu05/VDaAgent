@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-# P-170 development shortcuts.
+# VDaAgent development shortcuts.
 # These commands are written for the repository's Windows/PowerShell setup.
 
 SHELL := cmd.exe
@@ -15,7 +15,7 @@ BACKEND_PYTHON ?= ..\.venv\Scripts\python.exe
 .PHONY: help backend frontend dev install install-backend install-frontend health frontend-build frontend-check
 
 help:
-	@echo "P-170 commands:"
+	@echo "VDaAgent commands:"
 	@echo "  make backend          Start FastAPI backend on port $(BACKEND_PORT)"
 	@echo "  make frontend         Start Next.js frontend on port $(FRONTEND_PORT)"
 	@echo "  make dev              Open backend and frontend in separate terminals"
@@ -31,10 +31,10 @@ frontend:
 	cd frontend && pnpm.cmd dev --port $(FRONTEND_PORT)
 
 # Windows helper: starts each long-running process in its own terminal window.
-# Run this target only when no P-170 backend/frontend process is already running.
+# Run this target only when no VDaAgent backend/frontend process is already running.
 dev:
-	cmd.exe /d /c start "P-170 backend" cmd.exe /k "cd /d $(CURDIR)\backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
-	cmd.exe /d /c start "P-170 frontend" cmd.exe /k "cd /d $(CURDIR)\frontend && pnpm.cmd dev --port $(FRONTEND_PORT)"
+	cmd.exe /d /c start "VDaAgent backend" cmd.exe /k "cd /d $(CURDIR)\backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
+	cmd.exe /d /c start "VDaAgent frontend" cmd.exe /k "cd /d $(CURDIR)\frontend && pnpm.cmd dev --port $(FRONTEND_PORT)"
 
 install: install-backend install-frontend
 

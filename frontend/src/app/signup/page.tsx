@@ -66,11 +66,11 @@ export default function SignupPage() {
       <section className="auth-intro">
         <p className="eyebrow">Create your workspace identity</p>
         <h1>Bắt đầu với một workspace rõ ràng.</h1>
-        <p>Chọn role ngay khi đăng ký. Sau khi xác nhận email, P-170 tự tạo một personal workspace riêng và kích hoạt membership cho tài khoản của bạn.</p>
+        <p>Chọn role ngay khi đăng ký. Sau khi xác nhận email, VDaAgent tự tạo một personal workspace riêng và kích hoạt membership cho tài khoản của bạn.</p>
         <div className="auth-trust-list"><span><b>Confirm your email</b><small>Liên kết xác nhận dùng callback an toàn</small></span><span><b>Choose your role</b><small>Role được áp dụng ngay cho workspace riêng</small></span><span><b>Keep data scoped</b><small>Dữ liệu luôn thuộc workspace phù hợp</small></span></div>
       </section>
       <section className="auth-card panel" aria-labelledby="signup-title">
-        <div className="auth-card-heading"><p className="eyebrow">P-170 account</p><h2 id="signup-title">Đăng ký</h2><p>Tạo tài khoản và chọn role khởi đầu của bạn.</p></div>
+        <div className="auth-card-heading"><p className="eyebrow">VDaAgent account</p><h2 id="signup-title">Đăng ký</h2><p>Tạo tài khoản và chọn role khởi đầu của bạn.</p></div>
         {!signupAllowed && <div className="notice info" role="status"><b>Đăng ký công khai đang tắt</b><p>Workspace hiện nhận thành viên qua invitation. Admin có thể bật <code>AUTH_ALLOW_SIGNUP=true</code> để mở signup.</p></div>}
         <form className="auth-form" onSubmit={submit}>
           <label htmlFor="signup-email">Email<input id="signup-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></label>

@@ -121,7 +121,7 @@ const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
 export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    makeMessage("agent", "Xin chào, tôi là Data Profiling Agent. Hãy upload một dataset và tôi sẽ dùng compute engine để lập hồ sơ dữ liệu, phát hiện rủi ro, sau đó bạn có thể hỏi tôi bất cứ điều gì dựa trên evidence đã tính.", "P-170 Agent"),
+    makeMessage("agent", "Xin chào, tôi là VDaAgent. Hãy upload một dataset và tôi sẽ dùng compute engine để lập hồ sơ dữ liệu, phát hiện rủi ro, sau đó bạn có thể hỏi tôi bất cứ điều gì dựa trên evidence đã tính.", "VDaAgent"),
   ]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -202,7 +202,7 @@ export default function ChatPage() {
       const saved = getConversationSnapshot(nextId);
       activeConversationRef.current = nextId;
       setConversationId(nextId);
-      setMessages(saved?.messages.length ? saved.messages : [makeMessage("agent", "Xin chào, tôi là Data Profiling Agent. Hãy upload một dataset và tôi sẽ giúp bạn phân tích dựa trên evidence.", "P-170 Agent")]);
+      setMessages(saved?.messages.length ? saved.messages : [makeMessage("agent", "Xin chào, tôi là VDaAgent. Hãy upload một dataset và tôi sẽ giúp bạn phân tích dựa trên evidence.", "VDaAgent")]);
       setProfile(saved?.profile || null);
       setSources(saved?.sources || []);
       setError(null);
@@ -230,7 +230,7 @@ export default function ChatPage() {
     addMessage("user", `Đã chọn dataset: ${file.name}`, "Bạn");
     addMessage("agent", isLarge
       ? `Dataset này lớn hơn 50 MB (${(file.size / 1024 / 1024).toFixed(1)} MB). Tôi đề xuất Sampling để giảm thời gian và RAM, nhưng quyết định vẫn thuộc về bạn. Hãy chọn chế độ bên dưới.`
-      : "Tôi đã nhận diện dataset. Hãy chọn Sampling để có kết quả nhanh hoặc Full scan để tính trên toàn bộ dữ liệu.", "P-170 Agent");
+      : "Tôi đã nhận diện dataset. Hãy chọn Sampling để có kết quả nhanh hoặc Full scan để tính trên toàn bộ dữ liệu.", "VDaAgent");
   }
 
   async function startProfile() {
@@ -238,7 +238,7 @@ export default function ChatPage() {
     setError(null); setState("uploading");
     try {
       const upload = await uploadDataset(selectedFile, undefined);
-      addMessage("agent", `Đã nhận ${upload.filename}. Tôi đang chạy ingest và compute engine — các số liệu sẽ được tính từ dữ liệu thật, không do LLM bịa ra.`, "P-170 Agent");
+      addMessage("agent", `Đã nhận ${upload.filename}. Tôi đang chạy ingest và compute engine — các số liệu sẽ được tính từ dữ liệu thật, không do LLM bịa ra.`, "VDaAgent");
       setState("profiling");
       const result = await createProfile({
         ...(upload.dataset_id ? { dataset_id: upload.dataset_id } : { dataset_ref: upload.dataset_ref }),
@@ -247,12 +247,12 @@ export default function ChatPage() {
         ...(scanMode === "sample" ? { sampling: { strategy: "reservoir", sample_size: 10_000, random_seed: 42 } } : {}),
       });
       setProfile(result); setProfileLoading(false); setSelectedFile(null);
-      addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} dòng và ${result.column_count} cột. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metric và có thể trả lời câu hỏi của bạn dựa trên evidence.", "P-170 Agent");
+      addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} dòng và ${result.column_count} cột. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metric và có thể trả lời câu hỏi của bạn dựa trên evidence.", "VDaAgent");
       setState("ready");
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Upload hoặc profiling thất bại.";
       setError(message); setState("error");
-      addMessage("agent", `Tôi chưa thể hoàn thành profiling: ${message}`, "P-170 Agent");
+      addMessage("agent", `Tôi chưa thể hoàn thành profiling: ${message}`, "VDaAgent");
     }
   }
 
@@ -262,7 +262,7 @@ export default function ChatPage() {
     if (profileLoading) return;
     if (profile?.pending_proposals) {
       setQuestion("");
-      addMessage("agent", `Trước khi tiếp tục, bạn cần review ${profile.pending_proposals} đề xuất metadata của profile. Hãy hoàn tất bước xem xét proposals để tôi có thể trả lời dựa trên báo cáo đã được xác nhận.`, "P-170 Agent");
+      addMessage("agent", `Trước khi tiếp tục, bạn cần review ${profile.pending_proposals} đề xuất metadata của profile. Hãy hoàn tất bước xem xét proposals để tôi có thể trả lời dựa trên báo cáo đã được xác nhận.`, "VDaAgent");
       return;
     }
     controller.current?.abort();
@@ -280,7 +280,7 @@ export default function ChatPage() {
         }
         if (event.event === "source" && typeof event.data === "object" && event.data) responseSourcesRef.current = (event.data as { sources?: AnswerSource[] }).sources || [];
         if (event.event === "done") {
-          setMessages((current) => [...current, makeMessage("agent", draftRef.current, "P-170 Agent", responseSourcesRef.current)]);
+          setMessages((current) => [...current, makeMessage("agent", draftRef.current, "VDaAgent", responseSourcesRef.current)]);
           setState("ready");
         }
         if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent response failed."));
@@ -289,13 +289,13 @@ export default function ChatPage() {
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === "AbortError")) {
         if (reason instanceof ApiError && reason.status === 409 && profile?.pending_proposals) {
-          addMessage("agent", `Bạn cần review ${profile.pending_proposals} đề xuất metadata trước khi tiếp tục hỏi về dataset.`, "P-170 Agent");
+          addMessage("agent", `Bạn cần review ${profile.pending_proposals} đề xuất metadata trước khi tiếp tục hỏi về dataset.`, "VDaAgent");
           setState("ready");
         } else if (reason instanceof ApiError && reason.status === 404 && profile) {
           setProfile(null);
           setSources([]);
           setError(null);
-          addMessage("agent", "Profile này không còn tồn tại trong backend hiện tại. Hãy upload lại dataset để tiếp tục.", "P-170 Agent");
+          addMessage("agent", "Profile này không còn tồn tại trong backend hiện tại. Hãy upload lại dataset để tiếp tục.", "VDaAgent");
           setState("ready");
         } else {
           setError(reason instanceof Error ? reason.message : "Agent không thể trả lời.");
@@ -321,10 +321,10 @@ export default function ChatPage() {
     </header>}
     <div className="agent-layout">
       <section className="agent-chat-panel">
-        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>P-170 Agent</b><small>{profile ? `Profile đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.dataset_name || "Dataset"}</span>}</div>
+        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Profile đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.dataset_name || "Dataset"}</span>}</div>
         <div ref={messageListRef} className="agent-message-list" aria-live="polite">
           {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p>{message.text}</p>}</div></article>)}
-          {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">P-170 Agent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}
+          {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">VDaAgent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}
         </div>
         {selectedFile && <section className="agent-intake-card" aria-label="Tùy chọn profiling">
           <div className="intake-file"><span className="file-icon">▤</span><div><b>{selectedFile.name}</b><small>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để profiling</small></div></div>

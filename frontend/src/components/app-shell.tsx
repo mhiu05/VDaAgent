@@ -56,7 +56,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const workspaceShell = (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
-        <Link href="/" className="brand" aria-label="P-170 Data Profile">
+        <Link href="/" className="brand" aria-label="VDaAgent Data Profile">
           <span className="brand-mark" aria-hidden="true">P</span>
           <span><b>Profile</b><small>Phân tích dữ liệu</small></span>
         </Link>

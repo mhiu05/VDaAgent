@@ -37,7 +37,7 @@ export function PublicNavbar() {
   }
 
   return <header className={`public-navbar${isGuest ? " guest-navbar" : ""}`}>
-    <Link href="/" className="public-brand" aria-label="P-170 Trang chủ">
+    <Link href="/" className="public-brand" aria-label="VDaAgent Trang chủ">
       <span className="public-brand-mark" aria-hidden="true">P</span>
       <span><b>Profile</b><small>Data intelligence</small></span>
     </Link>

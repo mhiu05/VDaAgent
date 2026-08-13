@@ -40,7 +40,7 @@ RAW_ROOT = KB_ROOT / "raw"
 NORMALIZED_ROOT = KB_ROOT / "normalized"
 MANIFEST_PATH = KB_ROOT / "manifests" / "sources.jsonl"
 
-USER_AGENT = "P-170-knowledge-base-crawler/1.0 (+local-first-data-profiling-agent)"
+USER_AGENT = "VDaAgent-knowledge-base-crawler/1.0 (+local-first-data-profiling-agent)"
 BLOCK_TAGS = {"script", "style", "noscript", "svg", "canvas", "nav", "footer", "header", "aside", "form"}
 BLOCK_END = {"article", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "pre", "section", "table", "tr", "ul", "ol", "title"}
 

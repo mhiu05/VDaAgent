@@ -179,7 +179,7 @@ def _social_response(question: str) -> str:
     # chặn markup/control text và payload dài.
     name = re.sub(r"[^\wÀ-ỹ' -]", "", raw_name, flags=re.UNICODE).strip()[:80] or "bạn"
     return (
-        f"Rất vui được làm quen với {name}! Mình là P-170 Agent, trợ lý profiling dữ liệu.\n\n"
+        f"Rất vui được làm quen với {name}! Mình là VDaAgent, trợ lý profiling dữ liệu.\n\n"
         "Bạn có thể bắt đầu bằng cách upload một dataset. Sau đó:\n"
         "- Chọn Sampling hoặc Full scan để tính metrics.\n"
         "- Review và xác nhận các proposals metadata.\n"

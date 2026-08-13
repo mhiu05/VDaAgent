@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI) -> Any:
 
 
 app = FastAPI(
-    title="P-170 — AI Data Profiling Agent",
+    title="VDaAgent — AI Data Profiling Agent",
     description=(
         "Agent tự động lập hồ sơ dữ liệu: tính thống kê, phát hiện PII, đề xuất "
         "candidate key và semantic type, chạy kiểm định thống kê, so sánh drift, "

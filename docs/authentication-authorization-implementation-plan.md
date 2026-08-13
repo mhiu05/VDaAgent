@@ -1,10 +1,10 @@
 # Plan
 
-> Current implementation note (2026-08-12): P-170 uses three roles only:
+> Current implementation note (2026-08-12): VDaAgent uses three roles only:
 > `viewer`, `analyst`, and `admin`. The former `owner` role is retired and its
 > permissions are included in `admin`; references to owner below are historical.
 
-Triển khai Supabase Auth và workspace-based RBAC cho P-170, đồng thời nâng frontend hiện tại thành ba trải nghiệm trong cùng một Next.js application: Viewer Portal, Analyst Workspace và Admin Console. Viewer chỉ tiêu thụ báo cáo đã publish; analyst thực hiện profiling/phân tích và tạo draft; admin kiểm duyệt, giám sát và quản lý thành viên; owner quản lý chính sách và lifecycle workspace. FastAPI tiếp tục là domain API và authorization boundary duy nhất, còn Supabase đảm nhiệm Auth, PostgreSQL và Storage.
+Triển khai Supabase Auth và workspace-based RBAC cho VDaAgent, đồng thời nâng frontend hiện tại thành ba trải nghiệm trong cùng một Next.js application: Viewer Portal, Analyst Workspace và Admin Console. Viewer chỉ tiêu thụ báo cáo đã publish; analyst thực hiện profiling/phân tích và tạo draft; admin kiểm duyệt, giám sát và quản lý thành viên; owner quản lý chính sách và lifecycle workspace. FastAPI tiếp tục là domain API và authorization boundary duy nhất, còn Supabase đảm nhiệm Auth, PostgreSQL và Storage.
 
 ## Scope
 

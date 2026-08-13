@@ -350,7 +350,7 @@ function buildLayout(payload: ReportPayload): string[] {
     page = { commands: [], y: PAGE_HEIGHT - 64 };
     pages.push(page);
     rectCommand(page.commands, 0, PAGE_HEIGHT - 34, PAGE_WIDTH, 34, COLORS.navy);
-    textCommand(page.commands, MARGIN, PAGE_HEIGHT - 22, "P-170  |  BÁO CÁO HỒ SƠ DỮ LIỆU", 8, true, COLORS.white);
+    textCommand(page.commands, MARGIN, PAGE_HEIGHT - 22, "VDaAgent  |  BÁO CÁO HỒ SƠ DỮ LIỆU", 8, true, COLORS.white);
     textCommand(page.commands, PAGE_WIDTH - MARGIN - 126, PAGE_HEIGHT - 22, "Evidence-first export", 7, false, "0.82 0.88 0.96");
   };
 
@@ -523,7 +523,7 @@ function buildLayout(payload: ReportPayload): string[] {
   rectCommand(page.commands, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, COLORS.paleGray);
   rectCommand(page.commands, 0, PAGE_HEIGHT - 230, PAGE_WIDTH, 230, COLORS.navy);
   rectCommand(page.commands, 0, 0, 13, PAGE_HEIGHT, COLORS.blue);
-  textCommand(page.commands, MARGIN, PAGE_HEIGHT - 78, "P-170", 15, true, COLORS.white);
+  textCommand(page.commands, MARGIN, PAGE_HEIGHT - 78, "VDaAgent", 15, true, COLORS.white);
   textCommand(page.commands, MARGIN, PAGE_HEIGHT - 126, "Báo cáo hồ sơ dữ liệu", 27, true, COLORS.white);
   textCommand(page.commands, MARGIN, PAGE_HEIGHT - 160, "Phân tích kỹ thuật và bằng chứng từ Analysis", 11, false, "0.83 0.89 0.97");
   fitLines(cell(profile.dataset?.name, 90), CONTENT_WIDTH - 20, 10, 2).forEach((line, index) => textCommand(page.commands, MARGIN, PAGE_HEIGHT - 195 - index * 12, line, 10, false, COLORS.white));

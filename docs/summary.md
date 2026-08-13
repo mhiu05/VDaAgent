@@ -1,10 +1,10 @@
-# P-170 — Technical Summary
+# VDaAgent — Technical Summary
 
-Tài liệu này mô tả contract kỹ thuật và các boundary quan trọng của P-170. README dành cho cài đặt và user flow; file này dành cho người phát triển, review code và vận hành deployment.
+Tài liệu này mô tả contract kỹ thuật và các boundary quan trọng của VDaAgent. README dành cho cài đặt và user flow; file này dành cho người phát triển, review code và vận hành deployment.
 
 ## 1. Mục tiêu và invariant
 
-P-170 là hệ thống profiling và phân tích dữ liệu theo workspace. Một kết quả hợp lệ phải truy được về profile run, context, quality gate và execution tương ứng.
+VDaAgent là hệ thống profiling và phân tích dữ liệu theo workspace. Một kết quả hợp lệ phải truy được về profile run, context, quality gate và execution tương ứng.
 
 Các invariant chính:
 

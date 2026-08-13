@@ -43,7 +43,7 @@ function LoginForm() {
         <div className="auth-trust-list"><span><b>Evidence-first</b><small>Con số đến từ compute engine</small></span><span><b>Workspace-aware</b><small>Quyền được kiểm tra ở backend</small></span><span><b>Privacy by design</b><small>Không export raw rows</small></span></div>
       </section>
       <section className="auth-card panel" aria-labelledby="login-title">
-        <div className="auth-card-heading"><p className="eyebrow">P-170 account</p><h2 id="login-title">Đăng nhập</h2><p>Đăng nhập bằng email và mật khẩu Supabase của bạn.</p></div>
+        <div className="auth-card-heading"><p className="eyebrow">VDaAgent account</p><h2 id="login-title">Đăng nhập</h2><p>Đăng nhập bằng email và mật khẩu Supabase của bạn.</p></div>
         <form className="auth-form" onSubmit={submit}>
           <label htmlFor="login-email">Email<input id="login-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></label>
           <label htmlFor="login-password">Mật khẩu<input id="login-password" name="password" type="password" autoComplete="current-password" placeholder="Nhập mật khẩu" required /></label>

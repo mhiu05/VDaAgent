@@ -607,7 +607,7 @@ class Repository:
             if not exists:
                 conn.execute(workspaces.insert().values(
                     id=workspace_id,
-                    name="P-170 Trial Workspace",
+                    name="VDaAgent Trial Workspace",
                     slug=f"guest-{workspace_id.replace('-', '')[:20]}",
                     created_by_user_id=guest_user_id,
                     status="active",
@@ -1870,7 +1870,7 @@ def build_engine(settings: Settings | None = None) -> Engine:
     cfg = settings or get_settings()
     url = make_url(cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
-        raise ValueError("P-170 chỉ hỗ trợ PostgreSQL.")
+        raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
     return create_engine(url, future=True, pool_pre_ping=True)
 
 
