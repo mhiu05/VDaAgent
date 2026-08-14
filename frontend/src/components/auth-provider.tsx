@@ -9,7 +9,7 @@ import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
 import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
 import { requestedSignupRole } from "@/lib/auth/onboarding";
 
-export type Workspace = { id: string; name: string; slug: string; role: string };
+export type Workspace = { id: string; name: string; slug: string; role: string; created_by_user_id?: string; is_project?: boolean };
 export type Me = {
   user: { id: string; email: string | null };
   workspace: { id: string; role: string };
@@ -157,8 +157,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // visitor ends a trial session.
         const guestSession = !supabaseToken ? existingGuestSession : null;
         const token = supabaseToken ?? guestSession?.accessToken ?? null;
+        // A private route can be opened directly before the visitor has
+        // signed in or selected a guest role. Do not send an anonymous
+        // request to /session: it is guaranteed to return 401 and causes
+        // every protected page mounted underneath the shell to repeat it.
+        if (!token) {
+          if (sequence !== loadSequence.current) return false;
+          setMe(null);
+          setAuthenticated(false);
+          setIsGuest(false);
+          setGuestRole(null);
+          workspaceIdRef.current = null;
+          setWorkspaceId(null);
+          setChatHistoryScope(null, null);
+          setError(null);
+          return false;
+        }
         const headers = new Headers({ Accept: "application/json" });
-        if (token) headers.set("Authorization", `Bearer ${token}`);
+        headers.set("Authorization", `Bearer ${token}`);
         // Guest sessions have exactly one short-lived workspace. Avoid sending
         // a stale signed-in workspace id when a visitor starts a new trial.
         const saved = supabaseToken
@@ -166,6 +182,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : null;
         if (saved) headers.set("X-Workspace-Id", saved);
         let response = await fetchSessionResource(`${apiBase()}/session`, headers);
+        // Supabase can return a locally cached token that has just expired.
+        // Refresh it once at the auth boundary, then let the normal error
+        // state handle a genuinely invalid or revoked session.
+        if (!response.ok && response.status === 401 && supabaseToken) {
+          const refreshed = await refresh();
+          if (refreshed && refreshed !== supabaseToken) {
+            headers.set("Authorization", `Bearer ${refreshed}`);
+            response = await fetchSessionResource(`${apiBase()}/session`, headers);
+          }
+        }
         // A workspace id is persisted for convenience, but it may belong to a
         // previous account or have been removed. Retry without it before
         // treating the session as unauthorized.
@@ -225,7 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (loadInFlight.current === task) loadInFlight.current = null;
     });
     return task;
-  }, [supabaseAccessToken]);
+  }, [refresh, supabaseAccessToken]);
 
   useEffect(() => {
     setApiAuthTransport({ accessToken, workspaceId: () => workspaceIdRef.current, refresh });

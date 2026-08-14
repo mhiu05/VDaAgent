@@ -479,6 +479,7 @@ def test_qa_pending_review_remains_fail_closed(client: TestClient, profile_run: 
         },
     )
     assert response.status_code == 409
+    assert "chưa hoàn tất" in response.json()["detail"]
 
 
 def test_qa_unknown_run_returns_404(client: TestClient) -> None:
@@ -526,6 +527,33 @@ def test_upload_csv_returns_usable_dataset_ref(client: TestClient) -> None:
     assert profiled.json()["row_count"] == 3
 
 
+def test_uploaded_datasets_can_be_named_as_one_collection(client: TestClient) -> None:
+    first = client.post(
+        "/api/v1/datasets/upload",
+        files={"file": ("orders.csv", b"id,total\n1,100\n", "text/csv")},
+    )
+    second = client.post(
+        "/api/v1/datasets/upload",
+        files={"file": ("customers.csv", b"id,name\n1,Alice\n", "text/csv")},
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    dataset_ids = [first.json()["dataset_id"], second.json()["dataset_id"]]
+
+    grouped = client.patch(
+        "/api/v1/datasets/collection",
+        json={
+            "dataset_ids": dataset_ids,
+            "collection_name": "Dữ liệu bán hàng",
+        },
+    )
+    assert grouped.status_code == 200, grouped.text
+    assert {item["id"] for item in grouped.json()} == set(dataset_ids)
+    assert {item["collection_name"] for item in grouped.json()} == {
+        "Dữ liệu bán hàng"
+    }
+
+
 def test_upload_rejects_path_traversal_name(client: TestClient) -> None:
     """Tên file dạng `../../etc/passwd.csv` phải bị làm sạch, không ghi ra ngoài."""
     upload = client.post(
@@ -555,6 +583,37 @@ def test_upload_rejects_empty_file(client: TestClient) -> None:
 # --------------------------------------------------------------------------- #
 # Dataset & audit
 # --------------------------------------------------------------------------- #
+def test_workspace_can_be_created_listed_and_archived(client: TestClient) -> None:
+    created = client.post("/api/v1/workspaces", json={"name": "Project Workspace QA"})
+    assert created.status_code == 201, created.text
+    workspace = created.json()
+    assert workspace["is_project"] is True
+    assert workspace["name"] == "Project Workspace QA"
+
+    listed = client.get("/api/v1/workspaces")
+    assert listed.status_code == 200, listed.text
+    assert any(item["id"] == workspace["id"] for item in listed.json()["workspaces"])
+
+    archived = client.delete(f"/api/v1/workspaces/{workspace['id']}")
+    assert archived.status_code == 200, archived.text
+    assert archived.json() == {"deleted": True, "workspace_id": workspace["id"]}
+    assert not any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces").json()["workspaces"])
+
+
+def test_analyst_can_permanently_delete_owned_workspace(client: TestClient) -> None:
+    created = client.post("/api/v1/workspaces", json={"name": "Project Workspace Purge QA"})
+    assert created.status_code == 201, created.text
+    workspace = created.json()
+
+    purged = client.delete(f"/api/v1/workspaces/{workspace['id']}/permanent")
+    assert purged.status_code == 200, purged.text
+    assert purged.json() == {"deleted": True, "workspace_id": workspace["id"]}
+    assert not any(
+        item["id"] == workspace["id"]
+        for item in client.get("/api/v1/workspaces").json()["workspaces"]
+    )
+
+
 def test_list_datasets_and_runs(client: TestClient, profile_run: dict) -> None:
     datasets = client.get("/api/v1/datasets").json()
     assert any(d["id"] == profile_run["dataset_id"] for d in datasets)

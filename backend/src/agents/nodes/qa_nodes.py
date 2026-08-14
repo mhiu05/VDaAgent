@@ -225,6 +225,8 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
     if assessment.blocked:
         get_audit().log(
             "guardrail_block",
+            workspace_id=state.get("workspace_id"),
+            actor_user_id=state.get("requested_by"),
             reason=assessment.reason,
             profile_run_id=state.get("profile_run_id"),
             user=state.get("requested_by"),
@@ -535,6 +537,8 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
 
     get_audit().log(
         "qa_structured",
+        workspace_id=state.get("workspace_id"),
+        actor_user_id=state.get("requested_by"),
         profile_run_id=run_id,
         tools_used=[s.get("tool") for s in sources],
         tool_calls=calls_used,
@@ -645,6 +649,14 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         for hit in profile_hits
         if (hit.metadata or {}).get("profile_run_id") == run_id
     ]
+    # A custom index implementation must not be able to smuggle a profile
+    # document through the external-knowledge branch by ignoring `where`.
+    # Keep the source type contract explicit at the node boundary.
+    knowledge_hits = [
+        hit
+        for hit in knowledge_hits
+        if (hit.metadata or {}).get("knowledge_type") == "external_knowledge"
+    ]
     record_retrieval_call(
         query=question,
         profile_run_id=run_id,
@@ -739,6 +751,8 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
 
     get_audit().log(
         "qa_vector",
+        workspace_id=workspace_id,
+        actor_user_id=state.get("requested_by"),
         profile_run_id=run_id,
         profile_hits=len(profile_hits),
         knowledge_hits=len(knowledge_hits),

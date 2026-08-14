@@ -17,6 +17,7 @@ export interface Dataset {
   name: string;
   source_type?: string | null;
   source_ref?: string | null;
+  collection_name?: string | null;
   last_profiled_at?: string | null;
 }
 
@@ -158,4 +159,5 @@ export interface QAResponse {
   answer: string;
   sources: AnswerSource[];
   is_approximate: boolean;
+  agent_run_id?: string | null;
 }

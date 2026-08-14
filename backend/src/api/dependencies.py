@@ -43,13 +43,14 @@ async def get_current_workspace(
     workspace_header: Annotated[str | None, Header(alias="X-Workspace-Id")] = None,
 ) -> WorkspaceContext:
     repo = get_repository()
+    legacy_workspace_id: str | None = None
     if user.is_guest:
         role = str(user.raw_claims.get("role", "analyst"))
         repo.ensure_guest_workspace(user.user_id, role)
     # In dual mode the legacy principal must always map to the one bootstrap
     # workspace, never to an unscoped query.
     if user.is_legacy:
-        repo.ensure_bootstrap_workspace(user.user_id)
+        legacy_workspace_id = repo.ensure_bootstrap_workspace(user.user_id)
 
     memberships = repo.list_active_memberships_for_user(user.user_id)
     if workspace_header:
@@ -57,6 +58,19 @@ async def get_current_workspace(
         if not membership:
             # Do not reveal whether a workspace id exists outside this tenant.
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy workspace.")
+    elif legacy_workspace_id:
+        # Backward compatibility for scripts/tests using the shared legacy
+        # token. New authenticated users with multiple workspaces must still
+        # send X-Workspace-Id explicitly below.
+        membership = next(
+            (item for item in memberships if item["workspace_id"] == legacy_workspace_id),
+            None,
+        )
+        if membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Legacy workspace không còn hoạt động.",
+            )
     elif len(memberships) == 1:
         membership = memberships[0]
     elif len(memberships) > 1:

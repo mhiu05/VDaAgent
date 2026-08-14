@@ -41,6 +41,7 @@ from src.config import get_settings
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
+    DatasetCollectionUpdate,
     DatasetOut,
     DriftRequest,
     DriftResponse,
@@ -208,6 +209,7 @@ async def create_profile(
             )
         dataset_id = str(dataset["id"])
         dataset_ref = str(dataset["source_ref"])
+        dataset_name = request.dataset_name or str(dataset.get("name") or dataset_ref)
     else:
         dataset_ref = request.dataset_ref or ""
         if not dataset_ref:
@@ -232,6 +234,7 @@ async def create_profile(
             source_ref=dataset_ref,
             workspace_id=context.workspace_id,
         )
+        dataset_name = request.dataset_name or dataset_ref
     if settings.app_env == "production" and not (
         is_supabase_ref(dataset_ref) or is_google_drive_ref(dataset_ref)
     ):
@@ -268,7 +271,7 @@ async def create_profile(
     )
     state = initial_profiling_state(
         dataset_ref=dataset_ref,
-        dataset_name=request.dataset_name or dataset_ref,
+        dataset_name=dataset_name,
         scan_mode=scan_mode,
         sampling_config=sampling_config,
         requested_by=context.user_id,
@@ -936,6 +939,14 @@ def _qa_state(
                 status_code=404,
                 detail=f"Không tìm thấy profile run '{request.profile_run_id}'.",
             )
+        if run.get("status") != "completed":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Profile run '{request.profile_run_id}' chưa hoàn tất "
+                    f"(trạng thái hiện tại: {run.get('status') or 'unknown'})."
+                ),
+            )
         pending = repo.pending_count(request.profile_run_id)
         if pending:
             raise HTTPException(
@@ -1396,6 +1407,32 @@ async def list_datasets(
     ]
 
 
+@router.patch("/datasets/collection", response_model=list[DatasetOut])
+async def set_dataset_collection(
+    payload: DatasetCollectionUpdate,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> list[DatasetOut]:
+    """Persist one logical name for every dataset in an uploaded batch."""
+    get_rate_limiter().check(context.user_id)
+    datasets_in_collection = get_repository().set_dataset_collection(
+        payload.dataset_ids,
+        payload.collection_name,
+        workspace_id=context.workspace_id,
+    )
+    if datasets_in_collection is None:
+        raise HTTPException(
+            status_code=404, detail="Có dataset không thuộc workspace hiện tại."
+        )
+    _audit(
+        context,
+        "api_set_dataset_collection",
+        resource_type="dataset_collection",
+        resource_id=payload.collection_name,
+        dataset_ids=payload.dataset_ids,
+    )
+    return [DatasetOut(**dataset) for dataset in datasets_in_collection]
+
+
 @router.delete("/datasets/{dataset_id}")
 async def delete_dataset(
     dataset_id: str,
@@ -1551,11 +1588,7 @@ async def audit_tail(
 ) -> dict[str, Any]:
     """Xem audit log gần nhất — dùng để review các quyết định auto-confirm."""
     get_rate_limiter().check(context.user_id)
-    return {
-        "entries": get_repository().tail_audit_events(
-            limit, workspace_id=context.workspace_id
-        )
-    }
+    return {"entries": get_audit().tail(limit, workspace_id=context.workspace_id)}
 
 
 __all__ = ["router"]

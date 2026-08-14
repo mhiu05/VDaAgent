@@ -22,6 +22,7 @@ from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import router as analysis_router
 from src.api.authz_routes import router as authz_router
 from src.api.google_drive_routes import router as google_drive_router
+from src.api.notebook_routes import router as notebook_router
 from src.api.routes import router
 from src.config import get_settings
 from src.models.schemas import HealthResponse
@@ -148,6 +149,7 @@ app.include_router(agent_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
 app.include_router(google_drive_router, prefix="/api/v1")
+app.include_router(notebook_router, prefix="/api/v1")
 
 
 @app.get("/")

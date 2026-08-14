@@ -23,6 +23,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 from src.config import Settings, get_settings
+from src.services.tabular_source import utf8_tabular_source
 
 logger = logging.getLogger(__name__)
 
@@ -200,7 +201,7 @@ class SupabaseStorage:
                 try:
                     with httpx.Client(timeout=10) as client:
                         client.delete(upload_url, headers={"Authorization": f"Bearer {key}", "Tus-Resumable": "1.0.0"})
-                except Exception:  # noqa: BLE001
+                except Exception:
                     # Completed uploads may reject DELETE; cleanup is best-effort.
                     logger.debug("Không cleanup được resumable upload URL", exc_info=True)
 
@@ -288,7 +289,8 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         temp_path = Path(temp_name)
         try:
             GoogleDriveStorage(settings).download(workspace_id, file_id, temp_path)
-            yield temp_path
+            with utf8_tabular_source(temp_path) as readable_path:
+                yield readable_path
         finally:
             temp_path.unlink(missing_ok=True)
         return
@@ -297,7 +299,8 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         path = Path(source_ref)
         if not path.is_file():
             raise FileNotFoundError(f"Không tìm thấy dataset: {source_ref}")
-        yield path
+        with utf8_tabular_source(path) as readable_path:
+            yield readable_path
         return
 
     bucket, object_path = parse_supabase_ref(source_ref)
@@ -308,7 +311,8 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
     try:
         payload = get_storage(settings).download(bucket, object_path)
         temp_path.write_bytes(payload)
-        yield temp_path
+        with utf8_tabular_source(temp_path) as readable_path:
+            yield readable_path
     finally:
         temp_path.unlink(missing_ok=True)
 

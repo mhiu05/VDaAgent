@@ -21,6 +21,10 @@ const themeInitScript = `
 export const metadata: Metadata = {
   title: "Profile — Phân tích dữ liệu",
   description: "Profiling dữ liệu dựa trên evidence với quy trình human review.",
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
-import { ApiError, createProfile, getProfile, streamQuestion, uploadDataset, type QAHistoryMessage } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { ApiError, createProfile, getProfile, listDatasets, listRuns, streamQuestion, uploadDataset, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource, Profile } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
@@ -121,9 +122,11 @@ const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
 export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
-    makeMessage("agent", "Xin chào, tôi là VDaAgent. Hãy upload một dataset và tôi sẽ dùng compute engine để lập hồ sơ dữ liệu, phát hiện rủi ro, sau đó bạn có thể hỏi tôi bất cứ điều gì dựa trên evidence đã tính.", "VDaAgent"),
+    makeMessage("agent", "Xin chào, tôi là VDaAgent. Hãy chọn dataset và profile run đã có trong workspace; tôi sẽ trả lời dựa trên evidence đã tính. Nếu cần, bạn vẫn có thể upload nhanh bằng nút ＋ bên dưới.", "VDaAgent"),
   ]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [scanMode, setScanMode] = useState<ScanMode>("sample");
   const [question, setQuestion] = useState("");
@@ -138,17 +141,22 @@ export default function ChatPage() {
   const responseSourcesRef = useRef<AnswerSource[]>([]);
   const hydrated = useRef(false);
   const activeConversationRef = useRef<string | null>(null);
+  const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
+  const runs = useQuery({ queryKey: ["chat-runs", selectedDatasetId], queryFn: () => listRuns(selectedDatasetId), enabled: Boolean(selectedDatasetId) });
 
-  function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null) {
-    if (!savedProfile) {
+  function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null, savedProfileRunId?: string | null) {
+    const profileRunId = savedProfile?.profile_run_id || savedProfileRunId;
+    if (!profileRunId) {
       setProfileLoading(false);
       return;
     }
 
     setProfileLoading(true);
-    void getProfile(savedProfile.profile_run_id).then((freshProfile) => {
+    void getProfile(profileRunId).then((freshProfile) => {
       if (activeConversationRef.current !== targetConversationId) return;
       setProfile(freshProfile);
+      setSelectedDatasetId(freshProfile.dataset_id);
+      setSelectedRunId(freshProfile.profile_run_id);
     }).catch((reason) => {
       if (activeConversationRef.current !== targetConversationId) return;
       // A browser snapshot can outlive a deleted profile or an old DB. Do not
@@ -172,16 +180,25 @@ export default function ChatPage() {
     setConversationId(current.id);
     const saved = getConversationSnapshot(current.id);
     if (saved?.messages.length) setMessages(saved.messages);
-    if (saved?.profile) setProfile(saved.profile);
+    if (saved?.profile) {
+      setProfile(saved.profile);
+    }
+    setSelectedDatasetId(saved?.datasetId || saved?.profile?.dataset_id || "");
+    setSelectedRunId(saved?.profileRunId || saved?.profile?.profile_run_id || "");
     if (saved?.sources) setSources(saved.sources);
-    refreshConversationProfile(current.id, saved?.profile || null);
+    refreshConversationProfile(current.id, saved?.profile || null, saved?.profileRunId);
     hydrated.current = true;
   }, []);
 
   useEffect(() => {
     if (!hydrated.current || !conversationId) return;
-    updateConversationSnapshot(conversationId, { messages, profile });
-  }, [conversationId, messages, profile, sources]);
+    updateConversationSnapshot(conversationId, {
+      messages,
+      profile,
+      datasetId: selectedDatasetId || profile?.dataset_id || null,
+      profileRunId: selectedRunId || profile?.profile_run_id || null,
+    });
+  }, [conversationId, messages, profile, selectedDatasetId, selectedRunId, sources]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -202,12 +219,14 @@ export default function ChatPage() {
       const saved = getConversationSnapshot(nextId);
       activeConversationRef.current = nextId;
       setConversationId(nextId);
-      setMessages(saved?.messages.length ? saved.messages : [makeMessage("agent", "Xin chào, tôi là VDaAgent. Hãy upload một dataset và tôi sẽ giúp bạn phân tích dựa trên evidence.", "VDaAgent")]);
+      setMessages(saved?.messages.length ? saved.messages : [makeMessage("agent", "Xin chào, tôi là VDaAgent. Hãy chọn dataset và profile run trong workspace để bắt đầu hỏi dựa trên evidence.", "VDaAgent")]);
       setProfile(saved?.profile || null);
+      setSelectedDatasetId(saved?.datasetId || saved?.profile?.dataset_id || "");
+      setSelectedRunId(saved?.profileRunId || saved?.profile?.profile_run_id || "");
       setSources(saved?.sources || []);
       setError(null);
       setQuestion("");
-      refreshConversationProfile(nextId, saved?.profile || null);
+      refreshConversationProfile(nextId, saved?.profile || null, saved?.profileRunId);
     };
     window.addEventListener("popstate", handleNavigation);
     window.addEventListener("p170-chat-navigation", handleNavigation);
@@ -221,12 +240,41 @@ export default function ChatPage() {
     setMessages((current) => [...current, makeMessage(role, text, label)]);
   }
 
+  function selectDataset(datasetId: string) {
+    setSelectedDatasetId(datasetId);
+    setSelectedRunId("");
+    setProfile(null);
+    setSources([]);
+    setError(null);
+  }
+
+  async function selectProfileRun(runId: string) {
+    setSelectedRunId(runId);
+    if (!runId) {
+      setProfile(null);
+      return;
+    }
+    setProfileLoading(true);
+    setError(null);
+    try {
+      const selected = await getProfile(runId);
+      setProfile(selected);
+      setSelectedDatasetId(selected.dataset_id);
+      addMessage("agent", `Đã chọn profile ${selected.version ? `v${selected.version}` : "mới nhất"} của ${selected.dataset_name || "dataset"}. Bạn có thể hỏi Agent dựa trên evidence đã tính.`, "VDaAgent");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể mở profile đã chọn.");
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  }
+
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
     const isLarge = file.size > LARGE_FILE_THRESHOLD;
-    setError(null); setProfile(null); setSources([]); setProfileLoading(false); setSelectedFile(file); setScanMode("sample"); setState("ready");
+    setError(null); setProfile(null); setSources([]); setProfileLoading(false); setSelectedDatasetId(""); setSelectedRunId(""); setSelectedFile(file); setScanMode("sample"); setState("ready");
     addMessage("user", `Đã chọn dataset: ${file.name}`, "Bạn");
     addMessage("agent", isLarge
       ? `Dataset này lớn hơn 50 MB (${(file.size / 1024 / 1024).toFixed(1)} MB). Tôi đề xuất Sampling để giảm thời gian và RAM, nhưng quyết định vẫn thuộc về bạn. Hãy chọn chế độ bên dưới.`
@@ -246,7 +294,7 @@ export default function ChatPage() {
         scan_mode: scanMode,
         ...(scanMode === "sample" ? { sampling: { strategy: "reservoir", sample_size: 10_000, random_seed: 42 } } : {}),
       });
-      setProfile(result); setProfileLoading(false); setSelectedFile(null);
+      setProfile(result); setProfileLoading(false); setSelectedFile(null); setSelectedDatasetId(result.dataset_id); setSelectedRunId(result.profile_run_id);
       addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} dòng và ${result.column_count} cột. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metric và có thể trả lời câu hỏi của bạn dựa trên evidence.", "VDaAgent");
       setState("ready");
     } catch (reason) {
@@ -260,6 +308,11 @@ export default function ChatPage() {
     const prompt = value.trim();
     if (!prompt || state === "thinking" || state === "uploading" || state === "profiling") return;
     if (profileLoading) return;
+    if (!profile) {
+      setQuestion("");
+      addMessage("agent", "Hãy chọn một profile run đã hoàn tất trong workspace trước khi hỏi Agent.", "VDaAgent");
+      return;
+    }
     if (profile?.pending_proposals) {
       setQuestion("");
       addMessage("agent", `Trước khi tiếp tục, bạn cần review ${profile.pending_proposals} đề xuất metadata của profile. Hãy hoàn tất bước xem xét proposals để tôi có thể trả lời dựa trên báo cáo đã được xác nhận.`, "VDaAgent");
@@ -316,12 +369,13 @@ export default function ChatPage() {
 
   return <div className="agent-workspace">
     {!hasChatStarted && <header className="agent-hero">
-      <div><p className="eyebrow">Trí tuệ dữ liệu tự động</p><h1>Chat với Data Profiling Agent</h1><p>Quy trình analyst: tải dataset lên → chọn chế độ profiling → review và xác nhận proposals → đặt câu hỏi dựa trên evidence đã tính.</p></div>
+      <div><p className="eyebrow">Trí tuệ dữ liệu tự động</p><h1>Chat với Data Profiling Agent</h1><p>Quy trình analyst: chọn dataset và profile run trong workspace → review proposals → đặt câu hỏi dựa trên evidence đã tính.</p></div>
       <div className="agent-status"><span className="pulse" /> {statusText}</div>
     </header>}
     <div className="agent-layout">
       <section className="agent-chat-panel">
         <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Profile đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.dataset_name || "Dataset"}</span>}</div>
+        <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Profile run</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || runs.isPending || busy}><option value="">Chọn profile đã profiling…</option>{runs.data?.map((run) => <option value={run.id} key={run.id} disabled={run.status !== "completed"}>v{run.version || "—"} · {run.status} · {run.row_count?.toLocaleString() || "—"} dòng</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.data?.length && !runs.isPending ? "Dataset này chưa có profile run." : "Agent chỉ trả lời theo profile run bạn đã chọn."}</div></section>
         <div ref={messageListRef} className="agent-message-list" aria-live="polite">
           {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p>{message.text}</p>}</div></article>)}
           {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">VDaAgent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}
@@ -336,9 +390,9 @@ export default function ChatPage() {
         {error && <div className="notice error" role="alert"><b>Agent gặp lỗi</b><p>{error}</p></div>}
         <form className="agent-composer" onSubmit={submit}>
           <input ref={fileRef} type="file" accept=".csv,.tsv,.parquet,.json,application/json,text/csv" hidden onChange={handleFile} />
-          <button type="button" className="upload-trigger" onClick={() => fileRef.current?.click()} disabled={busy} title="Tải dataset lên">＋</button>
-          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={profile?.pending_proposals ? "Xem xét proposals trước khi hỏi Agent…" : profile ? "Đặt câu hỏi về dataset của bạn…" : "Hỏi về data quality, statistics hoặc tải dataset…"} rows={1} disabled={Boolean(profile?.pending_proposals) || (busy && state !== "thinking")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-          <button className="send-trigger" disabled={!question.trim() || busy} aria-label="Gửi câu hỏi">➤</button>
+          <button type="button" className="upload-trigger" onClick={() => fileRef.current?.click()} disabled={busy} title="Upload nhanh dataset">＋</button>
+          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={profile?.pending_proposals ? "Xem xét proposals trước khi hỏi Agent…" : profile ? "Đặt câu hỏi về dataset của bạn…" : "Chọn dataset/profile để hỏi Agent…"} rows={1} disabled={Boolean(profile?.pending_proposals) || (busy && state !== "thinking")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+          <button className="send-trigger" disabled={!question.trim() || !profile || busy} aria-label="Gửi câu hỏi">➤</button>
         </form>
         {profile && <div className="composer-suggestions"><span className="composer-suggestions-label">Gợi ý câu hỏi</span><div className="starter-list">{starters.map((starter) => <button key={starter} onClick={() => void submitPrompt(starter)} disabled={busy || Boolean(profile.pending_proposals)}>{starter}<span>→</span></button>)}</div></div>}
         <div className="composer-hint"><span>Enter để gửi · Shift + Enter để xuống dòng</span><span>Dựa trên evidence · PII được bảo vệ</span></div>

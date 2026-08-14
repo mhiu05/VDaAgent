@@ -12,6 +12,9 @@ export const PERMISSIONS = {
   driftRun: "drift.run",
   qaProfileAsk: "qa.profile.ask",
   analysisRun: "analysis.run",
+  notebookRead: "notebook.read",
+  notebookWrite: "notebook.write",
+  notebookShare: "notebook.share",
   reportDraftWrite: "report.draft.write",
   reportSubmit: "report.submit",
   reportReview: "report.review",
@@ -22,6 +25,8 @@ export const PERMISSIONS = {
   workspaceMembersManage: "workspace.members.manage",
   workspaceSettingsManage: "workspace.settings.manage",
   workspaceLifecycleManage: "workspace.lifecycle.manage",
+  workspaceCreate: "workspace.create",
+  workspaceDelete: "workspace.delete",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

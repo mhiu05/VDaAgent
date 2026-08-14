@@ -12,7 +12,9 @@ import { PublicNavbar } from "@/components/public-navbar";
 const navigation = [
   { href: "/datasets", label: "Bộ dữ liệu", icon: "▦", permission: PERMISSIONS.datasetRead },
   { href: "/analyses", label: "Phân tích", icon: "A", permission: PERMISSIONS.analysisRun },
+  { href: "/notebooks", label: "Sổ tay phân tích", icon: "N", permission: PERMISSIONS.notebookRead },
   { href: "/compare", label: "So sánh drift", icon: "↔", permission: PERMISSIONS.driftRun },
+  { href: "/activity", label: "Hoạt động", icon: "◷", permission: PERMISSIONS.workspaceAuditRead },
 ] as const;
 
 function AppShellContent({ children }: { children: ReactNode }) {
@@ -34,6 +36,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }, [isAuthPage, isPublicPage, me, pathname, router]);
 
   useEffect(() => {
+    if (loading || isPublicPage || isAuthPage || me || isGuest || error) return;
+    const query = searchParams.toString();
+    const next = `${pathname}${query ? `?${query}` : ""}`;
+    router.replace(`/login?next=${encodeURIComponent(next)}`);
+  }, [error, isAuthPage, isGuest, isPublicPage, loading, me, pathname, router, searchParams]);
+
+  useEffect(() => {
     if (isPublicPage || isAuthPage) return;
     const refresh = () => setConversations(listConversations());
     refresh();
@@ -49,6 +58,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
     const conversation = createConversation();
     router.push(`/chat?conversation=${conversation.id}`);
     window.setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0);
+  }
+
+  async function changeWorkspace(nextWorkspaceId: string) {
+    await switchWorkspace(nextWorkspaceId);
+    // A chat is bound to the selected workspace. Return to the dashboard so
+    // the next page cannot briefly display a conversation from the old scope.
+    if (pathname.startsWith("/chat")) router.push("/dashboard");
   }
 
   function removeConversation(conversation: ChatConversation) {
@@ -89,7 +105,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
             <span className="current-role-dot" aria-hidden="true" />
             <span><small>Vai trò hiện tại</small><b>{me.workspace.role}</b></span>
           </div>
-          <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void switchWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
+          <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
+          <Link className="workspace-manage-link" href="/workspaces">Quản lý workspace →</Link>
         </section>}
         <section className="chat-history" aria-label="Lịch sử chat">
           <div className="sidebar-section-heading"><span>Lịch sử chat</span><button type="button" className="new-chat-button" onClick={startNewChat}>+ Chat mới</button></div>
@@ -107,8 +124,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
           <Link className={pathname.startsWith("/reports") ? "nav-link active" : "nav-link"} href="/reports"><span aria-hidden="true">▤</span>Báo cáo</Link>
           {navigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
             const active = (item.href === "/analyses" && pathname.startsWith("/analyses"))
+              || (item.href === "/notebooks" && pathname.startsWith("/notebooks"))
               || (item.href === "/datasets" && pathname.startsWith("/datasets"))
-              || (item.href === "/compare" && pathname.startsWith("/compare"));
+              || (item.href === "/compare" && pathname.startsWith("/compare"))
+              || (item.href === "/activity" && pathname.startsWith("/activity"));
             return <Link className={active ? "nav-link active" : "nav-link"} href={item.href} key={item.href}><span aria-hidden="true">{item.icon}</span>{item.label}</Link>;
           })}
         </nav>
@@ -124,6 +143,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   // A guest can switch roles without losing the public navbar; the workspace
   // beneath it is the only part that changes with the selected role.
   if (loading) return <main className="main-content workspace-auth-loading" aria-live="polite" aria-busy="true"><section className="workspace-auth-loading-card"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>Đang mở workspace…</b><p>Đang xác định phiên và quyền truy cập.</p></div></section></main>;
+  if (!me && !isGuest && !error) return <main className="main-content workspace-auth-loading" aria-live="polite"><section className="workspace-auth-loading-card"><div><b>Đang chuyển đến đăng nhập…</b><p>Vui lòng đăng nhập hoặc chọn một guest role để mở workspace.</p></div></section></main>;
   if (error && !me && !isPublicPage && !isAuthPage) return <main className="main-content workspace-auth-loading"><section className="workspace-auth-loading-card"><div><b>Không thể mở workspace</b><p>{error}</p><button className="button secondary" onClick={() => window.location.reload()}>Thử lại</button></div></section></main>;
 
   return isGuest ? <div className="guest-workspace"><PublicNavbar />{workspaceShell}</div> : workspaceShell;

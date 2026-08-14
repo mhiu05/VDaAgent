@@ -26,6 +26,8 @@ pandas>=2.2.0
 numpy>=1.26.0
 scipy>=1.14.0                # 6 kiểm định thống kê trong services/stats_tests.py
 
+charset-normalizer>=3.4.0,<4 # detect legacy CSV encodings before DuckDB reads them
+
 # --- Metadata DB ---
 sqlalchemy>=2.0.0
 alembic>=1.14.0                       # versioned PostgreSQL migrations

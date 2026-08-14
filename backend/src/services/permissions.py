@@ -24,6 +24,9 @@ STATS_RUN: Final = "stats.run"
 DRIFT_RUN: Final = "drift.run"
 QA_PROFILE_ASK: Final = "qa.profile.ask"
 ANALYSIS_RUN: Final = "analysis.run"
+NOTEBOOK_READ: Final = "notebook.read"
+NOTEBOOK_WRITE: Final = "notebook.write"
+NOTEBOOK_SHARE: Final = "notebook.share"
 REPORT_DRAFT_WRITE: Final = "report.draft.write"
 REPORT_SUBMIT: Final = "report.submit"
 REPORT_REVIEW: Final = "report.review"
@@ -35,11 +38,13 @@ WORKSPACE_MEMBERS_MANAGE: Final = "workspace.members.manage"
 WORKSPACE_SETTINGS_MANAGE: Final = "workspace.settings.manage"
 WORKSPACE_STORAGE_CONNECT: Final = "workspace.storage.connect"
 WORKSPACE_LIFECYCLE_MANAGE: Final = "workspace.lifecycle.manage"
+WORKSPACE_CREATE: Final = "workspace.create"
+WORKSPACE_DELETE: Final = "workspace.delete"
 AGENT_RUN_READ: Final = "agent.run.read"
 AGENT_TRACE_READ: Final = "agent.trace.read"
 AGENT_TRACE_DEBUG_READ: Final = "agent.trace.debug.read"
 
-_VIEWER = frozenset({REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT, QA_PUBLISHED_ASK})
+_VIEWER = frozenset({REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT, QA_PUBLISHED_ASK, NOTEBOOK_READ})
 _ANALYST = _VIEWER | {
     DATASET_READ,
     DATASET_UPLOAD,
@@ -50,8 +55,12 @@ _ANALYST = _VIEWER | {
     DRIFT_RUN,
     QA_PROFILE_ASK,
     ANALYSIS_RUN,
+    NOTEBOOK_WRITE,
+    NOTEBOOK_SHARE,
     REPORT_DRAFT_WRITE,
     REPORT_SUBMIT,
+    WORKSPACE_CREATE,
+    WORKSPACE_DELETE,
     WORKSPACE_STORAGE_CONNECT,
     AGENT_RUN_READ,
     AGENT_TRACE_READ,
@@ -105,6 +114,9 @@ __all__ = [
     "AGENT_TRACE_READ",
     "ALL_PERMISSIONS",
     "ANALYSIS_RUN",
+    "NOTEBOOK_READ",
+    "NOTEBOOK_SHARE",
+    "NOTEBOOK_WRITE",
     "DATASET_DELETE",
     "DATASET_READ",
     "DATASET_UPLOAD",
@@ -124,6 +136,8 @@ __all__ = [
     "ROLE_PERMISSIONS",
     "STATS_RUN",
     "WORKSPACE_ACTIVITY_READ",
+    "WORKSPACE_CREATE",
+    "WORKSPACE_DELETE",
     "WORKSPACE_AUDIT_READ",
     "WORKSPACE_LIFECYCLE_MANAGE",
     "WORKSPACE_MEMBERS_MANAGE",

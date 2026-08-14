@@ -29,19 +29,50 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 # --- Cô lập môi trường: phải chạy TRƯỚC khi import src.* -------------------- #
-_TMP = Path(tempfile.mkdtemp(prefix="p170_tests_"))
+# Keep every temporary artifact inside the repository. On Windows, the user's
+# default TEMP directory can be protected or contain non-ASCII segments that
+# pytest cannot create a working directory in. Setting both the environment and
+# tempfile cache before pytest creates its `tmp_path` fixtures makes local and
+# CI runs deterministic.
+_TMP_PARENT = ROOT / ".pytest_tmp"
+_TMP_PARENT.mkdir(parents=True, exist_ok=True)
+os.environ["TMP"] = str(_TMP_PARENT)
+os.environ["TEMP"] = str(_TMP_PARENT)
+tempfile.tempdir = str(_TMP_PARENT)
+_TMP = Path(tempfile.mkdtemp(prefix="p170_tests_", dir=_TMP_PARENT))
+_TEST_DATABASE_URL = os.environ.get(
+    "P170_TEST_DATABASE_URL",
+    "postgresql+psycopg://test:test@localhost:5432/test_db",
+).strip()
+if _TEST_DATABASE_URL.startswith("postgresql://"):
+    _TEST_DATABASE_URL = _TEST_DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+elif _TEST_DATABASE_URL.startswith("postgres://"):
+    _TEST_DATABASE_URL = _TEST_DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
 os.environ.update(
     {
         "APP_ENV": "test",
+        # Local tests use the explicit legacy bridge and never call Supabase.
+        # This must override a developer's production AUTH_MODE in .env.
+        "AUTH_MODE": "dual",
         # Không gọi LLM và không gửi trace đi đâu trong lúc test.
         "LANGCHAIN_TRACING_V2": "false",
         "LANGSMITH_TRACING": "false",
         "OPENAI_API_KEY": "",
         "LLM_API_KEY": "",
+        # Keep the integration suite deterministic and profile-scoped. The
+        # checked-in config enables external knowledge for staging, but tests
+        # must not query that optional corpus or treat it as profile evidence.
+        "RETRIEVAL_EXTERNAL_KNOWLEDGE_ENABLED": "false",
+        # Upload tests must stay local and deterministic; never require a
+        # developer's Google Drive or Supabase credentials.
+        "STORAGE_PROVIDER": "local",
         # Tests require an explicit PostgreSQL test database.
-        "DATABASE_URL": os.environ.get("P170_TEST_DATABASE_URL", ""),
+        "DATABASE_URL": _TEST_DATABASE_URL,
         "RETRIEVAL_INDEX_DIR": str(_TMP / "index"),
-        "SECURITY_AUDIT_LOG": str(_TMP / "audit.jsonl"),
+        # API audit assertions use the same workspace-scoped database store as
+        # the production activity endpoint. Unit tests for JSONL audit create
+        # an explicit Audit instance instead.
+        "SECURITY_AUDIT_LOG": "",
         "SECURITY_REQUIRE_API_TOKEN": "false",
         # Test suite có nhiều request nối tiếp trong một session; không để quota
         # production che khuất assertion nghiệp vụ của các endpoint cuối suite.
@@ -50,10 +81,10 @@ os.environ.update(
     }
 )
 
-import pandas as pd  # noqa: E402
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from src.main import app  # noqa: E402
+import pandas as pd
+import pytest
+from fastapi.testclient import TestClient
+from src.main import app
 
 
 @pytest.fixture(scope="session")

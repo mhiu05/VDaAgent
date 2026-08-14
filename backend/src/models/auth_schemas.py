@@ -35,6 +35,18 @@ class MembershipUpdate(BaseModel):
     status: Literal["active", "suspended", "removed"] | None = None
 
 
+class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("Tên workspace phải có ít nhất 2 ký tự.")
+        return value
+
+
 class ReportSectionInput(BaseModel):
     kind: Literal["narrative", "methodology", "findings", "limitations", "recommendations"]
     title: str | None = Field(default=None, max_length=255)
@@ -77,4 +89,5 @@ __all__ = [
     "ReportPublishInput",
     "ReportReviewInput",
     "SelfSignupProvision",
+    "WorkspaceCreate",
 ]

@@ -130,6 +130,8 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
     repo.update_profile_run(run_id, row_count=len(df), executed_query=query)
     get_audit().log(
         "ingest",
+        workspace_id=state.get("workspace_id"),
+        actor_user_id=state.get("requested_by"),
         profile_run_id=run_id,
         dataset_ref=dataset_ref,
         scan_mode=scan_mode,

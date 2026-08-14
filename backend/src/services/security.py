@@ -73,19 +73,23 @@ class Audit:
         with self._lock, self.path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
 
-    def tail(self, limit: int = 50) -> list[dict[str, Any]]:
-        """Đọc `limit` sự kiện gần nhất — phục vụ UI review async."""
+    def tail(self, limit: int = 50, *, workspace_id: str | None = None) -> list[dict[str, Any]]:
+        """Đọc sự kiện gần nhất, có thể lọc theo workspace."""
         if not self.path.exists():
             return []
         with self.path.open(encoding="utf-8") as fh:
-            lines = fh.readlines()[-limit:]
+            lines = fh.readlines()
         out: list[dict[str, Any]] = []
         for line in lines:
             try:
-                out.append(json.loads(line))
+                entry = json.loads(line)
+                if not isinstance(entry, dict):
+                    continue
+                if workspace_id is None or entry.get("workspace_id") == workspace_id:
+                    out.append(entry)
             except json.JSONDecodeError:
                 continue
-        return out
+        return out[-limit:]
 
 
 class DatabaseAudit:
@@ -105,10 +109,10 @@ class DatabaseAudit:
 
         get_repository(self.settings).save_audit_event(event, fields)
 
-    def tail(self, limit: int = 50) -> list[dict[str, Any]]:
+    def tail(self, limit: int = 50, *, workspace_id: str | None = None) -> list[dict[str, Any]]:
         from src.services.repository import get_repository
 
-        return get_repository(self.settings).tail_audit_events(limit)
+        return get_repository(self.settings).tail_audit_events(limit, workspace_id=workspace_id)
 
 
 class RateLimiter:

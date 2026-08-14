@@ -145,13 +145,16 @@ def load_dataset(
                 query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (reservoir)"
 
             df = con.execute(query).df()
+        except duckdb.Error as exc:
+            raise ValueError(
+                "Không thể đọc dữ liệu bảng. Với CSV/TSV, hãy kiểm tra dấu phân cách, header và encoding của file."
+            ) from exc
         finally:
             con.close()
 
     # Không lưu temporary path vào evidence. Dataset reference ổn định của
     # Supabase vẫn đủ để truy vết; lần đọc sau sẽ materialize file tạm mới.
-    if dataset_ref.startswith("supabase://"):
-        query = query.replace(str(path), dataset_ref)
+    query = query.replace(str(path), dataset_ref)
 
     truncated: list[str] = []
     if len(df.columns) > max_columns:

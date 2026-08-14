@@ -11,6 +11,7 @@ import type {
   UploadResult,
 } from "@/lib/types";
 import type { AnalysisExecution, AnalysisSession, QuerySpec } from "@/lib/analysis-types";
+import type { Notebook, NotebookCell, NotebookCellKind } from "@/lib/notebook-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
@@ -155,6 +156,57 @@ export function getDashboard<T>(): Promise<T> {
   return request<T>("/dashboard");
 }
 
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  status?: string;
+  created_by_user_id?: string;
+  is_project?: boolean;
+};
+
+export function listWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
+  return request<{ workspaces: WorkspaceSummary[] }>("/workspaces");
+}
+
+export function createWorkspace(name: string): Promise<WorkspaceSummary> {
+  return request<WorkspaceSummary>("/workspaces", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
+  return request<{ deleted: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function purgeWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
+  return request<{ deleted: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}/permanent`, {
+    method: "DELETE",
+  });
+}
+
+export type ActivityEntry = {
+  ts: string;
+  event: string;
+  workspace_id?: string | null;
+  actor_user_id?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  outcome?: string | null;
+  [key: string]: unknown;
+};
+
+/** Audit events are already scoped to the workspace selected in the API session. */
+export function listWorkspaceActivity(limit = 100): Promise<{ entries: ActivityEntry[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request<{ entries: ActivityEntry[] }>(`/audit?${params.toString()}`);
+}
+
 export type SelfSignupRole = "viewer" | "analyst" | "admin";
 
 export async function provisionSelfSignup(role: SelfSignupRole, accessToken: string): Promise<{
@@ -229,6 +281,14 @@ export function deleteReport(reportId: string): Promise<{ deleted: boolean; repo
 export function deleteDataset(datasetId: string): Promise<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }> {
   return request<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }>(`/datasets/${encodeURIComponent(datasetId)}`, {
     method: "DELETE",
+  });
+}
+
+export function setDatasetCollection(datasetIds: string[], collectionName: string): Promise<Dataset[]> {
+  return request<Dataset[]>("/datasets/collection", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_ids: datasetIds, collection_name: collectionName }),
   });
 }
 
@@ -455,4 +515,47 @@ export function runAnalysisQualityGate(sessionId: string): Promise<AnalysisSessi
 
 export function executeAnalysis(sessionId: string, contextId: string, query: QuerySpec): Promise<AnalysisExecution> {
   return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/executions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_context_version_id: contextId, query }) });
+}
+
+export function listNotebooks(signal?: AbortSignal, profileRunId?: string): Promise<Notebook[]> {
+  const query = profileRunId ? `?profile_run_id=${encodeURIComponent(profileRunId)}` : "";
+  return request<Notebook[]>(`/notebooks${query}`, { signal });
+}
+
+export function getNotebook(notebookId: string, signal?: AbortSignal): Promise<Notebook> {
+  return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}`, { signal });
+}
+
+export function createNotebook(payload: { profile_run_id: string; title: string; description?: string }): Promise<Notebook> {
+  return request<Notebook>("/notebooks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function updateNotebook(notebookId: string, payload: { title?: string; description?: string | null }): Promise<Notebook> {
+  return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function shareNotebook(notebookId: string, visibility: "private" | "workspace"): Promise<Notebook> {
+  return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}/share`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visibility }) });
+}
+
+export function archiveNotebook(notebookId: string): Promise<{ archived: boolean; notebook_id: string }> {
+  return request<{ archived: boolean; notebook_id: string }>(`/notebooks/${encodeURIComponent(notebookId)}`, { method: "DELETE" });
+}
+
+export function createNotebookCell(notebookId: string, payload: { kind: NotebookCellKind; source: string; title?: string }): Promise<NotebookCell> {
+  return request<NotebookCell>(`/notebooks/${encodeURIComponent(notebookId)}/cells`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function updateNotebookCell(notebookId: string, cellId: string, payload: { source?: string; title?: string | null; result?: NotebookCell["result"]; status?: string }): Promise<NotebookCell> {
+  return request<NotebookCell>(`/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cellId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function deleteNotebookCell(notebookId: string, cellId: string): Promise<{ deleted: boolean; cell_id: string }> {
+  return request<{ deleted: boolean; cell_id: string }>(`/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cellId)}`, { method: "DELETE" });
+}
+
+export async function downloadNotebook(notebookId: string): Promise<Blob> {
+  const response = await apiFetch(`/notebooks/${encodeURIComponent(notebookId)}/export`);
+  if (!response.ok) throw await readError(response);
+  return response.blob();
 }

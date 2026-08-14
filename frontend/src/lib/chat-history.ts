@@ -11,6 +11,9 @@ export type ChatMessage = {
 export type ChatSnapshot = {
   messages: ChatMessage[];
   profile: Profile | null;
+  /** Dataset/profile context selected from the current workspace. */
+  datasetId?: string | null;
+  profileRunId?: string | null;
   /** Legacy, retained solely to migrate existing browser snapshots. */
   sources?: AnswerSource[];
 };
@@ -84,7 +87,12 @@ export function createConversation(title = "Cuộc trò chuyện mới"): ChatCo
     hasUploadedData: false,
   };
   saveConversations([conversation, ...readConversations()]);
-  storage().setItem(snapshotKey(conversation.id), JSON.stringify({ messages: [], profile: null }));
+  storage().setItem(snapshotKey(conversation.id), JSON.stringify({
+    messages: [],
+    profile: null,
+    datasetId: null,
+    profileRunId: null,
+  }));
   return conversation;
 }
 
@@ -158,6 +166,8 @@ export function getConversationSnapshot(id: string): ChatSnapshot | null {
     if (!Array.isArray(parsed.messages)) return null;
     return {
       profile: parsed.profile || null,
+      datasetId: parsed.datasetId || parsed.profile?.dataset_id || null,
+      profileRunId: parsed.profileRunId || parsed.profile?.profile_run_id || null,
       // Snapshots from v1 held one conversation-wide source array. Associate it
       // with its last agent answer once, then all later saves use message scope.
       messages: (() => {

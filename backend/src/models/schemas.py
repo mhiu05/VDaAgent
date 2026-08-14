@@ -339,7 +339,33 @@ class DatasetOut(BaseModel):
     name: str
     source_type: str | None = None
     source_ref: str | None = None
+    collection_name: str | None = None
     last_profiled_at: datetime | None = None
+
+
+class DatasetCollectionUpdate(BaseModel):
+    """Logical group label shared by a batch of uploaded datasets."""
+
+    dataset_ids: list[str] = Field(min_length=1, max_length=100)
+    collection_name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("dataset_ids")
+    @classmethod
+    def _unique_dataset_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
+            raise ValueError("Danh sách dataset không hợp lệ.")
+        return normalized
+
+    @field_validator("collection_name")
+    @classmethod
+    def _normalize_collection_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Tên bộ dữ liệu không được để trống.")
+        if any(ord(char) < 32 for char in normalized):
+            raise ValueError("Tên bộ dữ liệu chứa ký tự điều khiển không hợp lệ.")
+        return normalized
 
 
 class UploadResponse(BaseModel):
@@ -404,6 +430,7 @@ __all__ = [
     "ColumnStatOut",
     "ConfirmRequest",
     "ConfirmResponse",
+    "DatasetCollectionUpdate",
     "DatasetOut",
     "DriftFinding",
     "DriftRequest",

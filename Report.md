@@ -1,5 +1,14 @@
 # Báo cáo cập nhật công việc
 Phạm Thế Đăng
+### Cập nhật bổ sung
+
+- Hoàn thiện luồng workspace: tạo, mở, lưu trữ/xóa workspace và phân quyền Analyst/Admin.
+- Upload được nhiều file hoặc cả thư mục; cho phép lưu tên chung cho một bộ dữ liệu.
+- Hoàn thiện kết nối Google Drive và xử lý trạng thái kết nối trên giao diện.
+- Cho phép profiling lại dataset đã lưu trực tiếp từ trang **Các profile run**, chọn Sample hoặc Full scan, không cần upload lại.
+- Bổ sung Sổ tay phân tích (Notebook) để lưu cell phân tích, chia sẻ trong workspace và xuất kết quả.
+- Hỗ trợ CSV UTF-16/Windows-1258; tự chuyển về UTF-8 trước khi profiling để tránh lỗi encoding.
+- Đã kiểm tra frontend bằng typecheck/lint và bổ sung test cho luồng đọc CSV encoding đặc biệt.
 ## Ngày 14/08/2026
 
 ### 1. Hoàn thiện luồng tạo và xuất báo cáo profile
@@ -79,3 +88,13 @@ Phạm Thế Đăng
 - `frontend/src/lib/chat-history.ts`
 - `frontend/src/app/globals.css`
 - `tests/test_api/test_routes.py`
+
+### Cập nhật bổ sung
+
+- Hoàn thiện luồng workspace: tạo, mở, lưu trữ/xóa workspace và phân quyền Analyst/Admin.
+- Upload được nhiều file hoặc cả thư mục; cho phép lưu tên chung cho một bộ dữ liệu.
+- Hoàn thiện kết nối Google Drive và xử lý trạng thái kết nối trên giao diện.
+- Cho phép profiling lại dataset đã lưu trực tiếp từ trang **Các profile run**, chọn Sample hoặc Full scan, không cần upload lại.
+- Bổ sung Sổ tay phân tích (Notebook) để lưu cell phân tích, chia sẻ trong workspace và xuất kết quả.
+- Hỗ trợ CSV UTF-16/Windows-1258; tự chuyển về UTF-8 trước khi profiling để tránh lỗi encoding.
+- Đã kiểm tra frontend bằng typecheck/lint và bổ sung test cho luồng đọc CSV encoding đặc biệt.

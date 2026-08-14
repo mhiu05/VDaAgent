@@ -17,6 +17,7 @@ from src.models.auth_schemas import (
     ReportPublishInput,
     ReportReviewInput,
     SelfSignupProvision,
+    WorkspaceCreate,
 )
 from src.services.auth import AuthContext
 from src.services.permissions import (
@@ -26,6 +27,8 @@ from src.services.permissions import (
     REPORT_PUBLISHED_READ,
     REPORT_REVIEW,
     REPORT_SUBMIT,
+    WORKSPACE_CREATE,
+    WORKSPACE_DELETE,
     WORKSPACE_MEMBERS_MANAGE,
     canonical_role,
     permissions_for_role,
@@ -52,11 +55,14 @@ def _workspace_items(repo: Any, user_id: str) -> list[dict[str, Any]]:
     for membership in repo.list_active_memberships_for_user(user_id):
         workspace = repo.get_workspace(str(membership["workspace_id"]))
         if workspace and workspace.get("status") == "active":
+            settings = workspace.get("settings") or {}
             items.append({
                 "id": workspace["id"],
                 "name": workspace["name"],
                 "slug": workspace["slug"],
                 "role": canonical_role(str(membership["role"])),
+                "created_by_user_id": workspace["created_by_user_id"],
+                "is_project": isinstance(settings, dict) and bool(settings.get("project_workspace")),
             })
     return items
 
@@ -115,6 +121,51 @@ async def list_my_workspaces(user: AuthContext = Depends(get_current_user)) -> d
     if user.is_guest:
         repo.ensure_guest_workspace(user.user_id, str(user.raw_claims.get("role", "analyst")))
     return {"workspaces": _workspace_items(repo, user.user_id)}
+
+
+@router.post("/workspaces", status_code=201)
+async def create_workspace(payload: WorkspaceCreate, context: RequestContext = Depends(require_permission(WORKSPACE_CREATE))) -> dict[str, Any]:
+    workspace = get_repository().create_workspace(context.user_id, payload.name, context.workspace.role)
+    _audit(context, "workspace_created", resource_type="workspace", resource_id=workspace["id"], name=workspace["name"])
+    return workspace
+
+
+@router.delete("/workspaces/{workspace_id}/permanent")
+async def purge_workspace(workspace_id: str, context: RequestContext = Depends(require_permission(WORKSPACE_DELETE))) -> dict[str, Any]:
+    """Permanently delete a project workspace and its owned resources."""
+    try:
+        deleted = get_repository().purge_workspace(workspace_id, context.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Không tìm thấy workspace đang hoạt động.")
+    # The workspace row no longer exists, so this audit event is deliberately
+    # global (workspace_id=NULL) to avoid violating the audit FK constraint.
+    get_audit().log(
+        "workspace_purged",
+        workspace_id=None,
+        actor_user_id=context.user_id,
+        resource_type="workspace",
+        resource_id=workspace_id,
+    )
+    return {"deleted": True, "workspace_id": workspace_id}
+
+
+@router.delete("/workspaces/{workspace_id}")
+async def delete_workspace(workspace_id: str, context: RequestContext = Depends(require_permission(WORKSPACE_DELETE))) -> dict[str, Any]:
+    """Archive a project workspace (soft delete) without destroying its data."""
+    try:
+        deleted = get_repository().delete_workspace(workspace_id, context.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Không tìm thấy workspace đang hoạt động.")
+    _audit(context, "workspace_archived", resource_type="workspace", resource_id=workspace_id)
+    return {"deleted": True, "workspace_id": workspace_id}
 
 
 @router.post("/onboarding/provision", status_code=201)

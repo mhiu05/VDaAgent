@@ -34,6 +34,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
+    or_,
     select,
 )
 from sqlalchemy.engine import Engine, make_url
@@ -148,6 +149,7 @@ datasets = Table(
     # local path; evidence uses the hash, not the mutable source reference.
     Column("content_sha256", String(64), nullable=True),
     Column("source_version", String(255), nullable=True),
+    Column("collection_name", String(255), nullable=True, index=True),
     Column(
         "workspace_id",
         String(36),
@@ -442,6 +444,43 @@ query_executions = Table(
     Column("duration_ms", Integer, nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
 )
+
+# Notebook LLM is a durable, bounded working document.  Cells store prompts,
+# markdown and sanitized Agent outputs; they never store raw dataset rows.
+notebooks = Table(
+    "notebooks",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False, index=True),
+    Column("profile_run_id", String(32), ForeignKey("profile_runs.id"), nullable=False, index=True),
+    Column("title", String(255), nullable=False),
+    Column("description", Text, nullable=True),
+    Column("visibility", String(16), nullable=False, default="private"),
+    Column("status", String(16), nullable=False, default="active"),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("shared_by_user_id", String(36), nullable=True),
+    Column("shared_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+Index("ix_notebooks_workspace_updated_at", notebooks.c.workspace_id, notebooks.c.updated_at)
+
+notebook_cells = Table(
+    "notebook_cells",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("notebook_id", String(32), ForeignKey("notebooks.id"), nullable=False, index=True),
+    Column("position", Integer, nullable=False),
+    Column("kind", String(16), nullable=False),  # markdown | prompt
+    Column("title", String(255), nullable=True),
+    Column("source", Text, nullable=False),
+    Column("result", JSON, nullable=True),
+    Column("status", String(16), nullable=False, default="draft"),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+Index("ix_notebook_cells_notebook_position", notebook_cells.c.notebook_id, notebook_cells.c.position)
 
 retrieval_documents = Table(
     "retrieval_documents",
@@ -923,6 +962,18 @@ class Repository:
             )
             conn.execute(
                 text(
+                    "ALTER TABLE datasets "
+                    "ADD COLUMN IF NOT EXISTS collection_name VARCHAR(255)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_datasets_collection_name "
+                    "ON datasets (collection_name)"
+                )
+            )
+            conn.execute(
+                text(
                     "ALTER TABLE profile_runs "
                     "ADD COLUMN IF NOT EXISTS source_content_sha256 VARCHAR(64)"
                 )
@@ -1016,6 +1067,7 @@ class Repository:
             "datasets": {"workspace_id": "VARCHAR(36)"},
             "profile_runs": {"workspace_id": "VARCHAR(36)"},
             "analysis_sessions": {"workspace_id": "VARCHAR(36)"},
+            "notebooks": {"workspace_id": "VARCHAR(36)"},
             "retrieval_documents": {"workspace_id": "VARCHAR(36)"},
             "audit_events": {
                 "workspace_id": "VARCHAR(36)",
@@ -1816,6 +1868,257 @@ class Repository:
             )
             return dict(row) if row else None
 
+    def create_workspace(self, user_id: str, name: str, role: str) -> dict[str, Any]:
+        """Create a project workspace owned by the current user."""
+        workspace_id = str(uuid.uuid4())
+        slug_base = "".join(char.lower() if char.isalnum() else "-" for char in name).strip("-")[:80]
+        slug = f"{slug_base or 'workspace'}-{workspace_id.replace('-', '')[:12]}"
+        now = _now()
+        with self.engine.begin() as conn:
+            profile = conn.execute(
+                select(user_profiles.c.user_id).where(user_profiles.c.user_id == user_id)
+            ).first()
+            if not profile:
+                conn.execute(
+                    user_profiles.insert().values(
+                        user_id=user_id, created_at=now, updated_at=now
+                    )
+                )
+            conn.execute(
+                workspaces.insert().values(
+                    id=workspace_id,
+                    name=name,
+                    slug=slug,
+                    created_by_user_id=user_id,
+                    status="active",
+                    settings={"project_workspace": True, "report_separation_of_duties": True},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            conn.execute(
+                workspace_memberships.insert().values(
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    role=role,
+                    status="active",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return {
+            "id": workspace_id,
+            "name": name,
+            "slug": slug,
+            "role": role,
+            "status": "active",
+            "created_by_user_id": user_id,
+            "is_project": True,
+        }
+
+    def delete_workspace(
+        self, workspace_id: str, actor_user_id: str
+    ) -> bool:
+        """Archive a project workspace without physically deleting its data."""
+        with self.engine.begin() as conn:
+            workspace = (
+                conn.execute(
+                    select(workspaces).where(workspaces.c.id == workspace_id)
+                )
+                .mappings()
+                .first()
+            )
+            if not workspace or workspace["status"] != "active":
+                return False
+            settings = workspace.get("settings") or {}
+            if not isinstance(settings, dict) or not settings.get("project_workspace"):
+                raise ValueError("Chỉ workspace dự án mới có thể xóa.")
+            target_membership = conn.execute(
+                select(workspace_memberships.c.role).where(
+                    workspace_memberships.c.workspace_id == workspace_id,
+                    workspace_memberships.c.user_id == actor_user_id,
+                    workspace_memberships.c.status == "active",
+                )
+            ).scalar_one_or_none()
+            if target_membership is None:
+                raise PermissionError("Bạn không có membership trong workspace này.")
+            target_role = str(target_membership)
+            if target_role not in {"admin", "analyst"}:
+                raise PermissionError("Chỉ Admin hoặc chủ workspace mới có thể xóa workspace này.")
+            if target_role != "admin" and workspace["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ chủ workspace mới có thể xóa workspace này.")
+            if target_role != "admin":
+                member_count = conn.execute(
+                    select(func.count())
+                    .select_from(workspace_memberships)
+                    .where(
+                        workspace_memberships.c.workspace_id == workspace_id,
+                        workspace_memberships.c.status == "active",
+                    )
+                ).scalar()
+                if int(member_count or 0) > 1:
+                    raise PermissionError("Workspace có thành viên khác; hãy nhờ Admin xử lý.")
+            now = _now()
+            conn.execute(
+                workspaces.update()
+                .where(workspaces.c.id == workspace_id)
+                .values(status="archived", updated_at=now)
+            )
+            conn.execute(
+                workspace_memberships.update()
+                .where(workspace_memberships.c.workspace_id == workspace_id)
+                .values(status="removed", updated_at=now)
+            )
+            return True
+
+    def purge_workspace(self, workspace_id: str, actor_user_id: str) -> bool:
+        """Permanently delete a project workspace and its owned resources.
+
+        Analysts may only purge a workspace they created while they are the
+        sole active member. Admins can purge a project workspace with active
+        membership. Storage objects are removed on a best-effort basis before
+        the metadata rows are deleted; an already-missing object must not block
+        the database cleanup.
+        """
+        with self.engine.begin() as conn:
+            workspace = (
+                conn.execute(
+                    select(workspaces).where(workspaces.c.id == workspace_id)
+                )
+                .mappings()
+                .first()
+            )
+            if not workspace or workspace["status"] != "active":
+                return False
+            settings = workspace.get("settings") or {}
+            if not isinstance(settings, dict) or not settings.get("project_workspace"):
+                raise ValueError("Chỉ workspace dự án mới có thể xóa.")
+
+            target_membership = conn.execute(
+                select(workspace_memberships.c.role).where(
+                    workspace_memberships.c.workspace_id == workspace_id,
+                    workspace_memberships.c.user_id == actor_user_id,
+                    workspace_memberships.c.status == "active",
+                )
+            ).scalar_one_or_none()
+            if target_membership is None:
+                raise PermissionError("Bạn không có membership trong workspace này.")
+            target_role = str(target_membership)
+            if target_role not in {"admin", "analyst"}:
+                raise PermissionError("Chỉ Admin hoặc chủ workspace mới có thể xóa workspace này.")
+            if target_role != "admin" and workspace["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ chủ workspace mới có thể xóa workspace này.")
+            if target_role != "admin":
+                member_count = conn.execute(
+                    select(func.count())
+                    .select_from(workspace_memberships)
+                    .where(
+                        workspace_memberships.c.workspace_id == workspace_id,
+                        workspace_memberships.c.status == "active",
+                    )
+                ).scalar()
+                if int(member_count or 0) > 1:
+                    raise PermissionError("Workspace có thành viên khác; hãy nhờ Admin xử lý.")
+
+            source_refs = [
+                row[0]
+                for row in conn.execute(
+                    select(datasets.c.source_ref).where(
+                        datasets.c.workspace_id == workspace_id
+                    )
+                ).all()
+            ]
+            for source_ref in source_refs:
+                try:
+                    from src.services.google_drive import (
+                        GoogleDriveStorage,
+                        is_google_drive_ref,
+                        parse_google_drive_ref,
+                    )
+                    from src.services.storage import (
+                        get_storage,
+                        is_supabase_ref,
+                        parse_supabase_ref,
+                    )
+
+                    if is_supabase_ref(str(source_ref)):
+                        bucket, object_path = parse_supabase_ref(str(source_ref))
+                        get_storage().remove(bucket, object_path)
+                    elif is_google_drive_ref(str(source_ref)):
+                        ref_workspace_id, file_id, _ = parse_google_drive_ref(
+                            str(source_ref)
+                        )
+                        if ref_workspace_id == workspace_id:
+                            GoogleDriveStorage(self.settings).remove(
+                                workspace_id, file_id
+                            )
+                    else:
+                        source_path = Path(str(source_ref))
+                        upload_root = self.settings.upload_path.resolve()
+                        source_path.resolve().relative_to(upload_root)
+                        source_path.unlink(missing_ok=True)
+                except Exception:  # noqa: BLE001, S110
+                    # Metadata cleanup must not be blocked by an already
+                    # missing object or a temporary Storage outage.
+                    pass
+
+            # Resolve all rows owned by this workspace before deleting any
+            # parent rows. This covers both directly scoped tables and child
+            # tables that only reference a dataset, profile, run, report, or
+            # notebook through a foreign key.
+            affected_ids: dict[str, set[Any]] = {
+                workspaces.name: {workspace_id}
+            }
+            for table in metadata.sorted_tables:
+                if table is workspaces:
+                    continue
+                predicates = []
+                if "workspace_id" in table.c:
+                    predicates.append(table.c.workspace_id == workspace_id)
+                for foreign_key in table.foreign_keys:
+                    parent_ids = affected_ids.get(foreign_key.column.table.name)
+                    if parent_ids:
+                        predicates.append(foreign_key.parent.in_(parent_ids))
+                primary_key = list(table.primary_key.columns)
+                if not predicates or len(primary_key) != 1:
+                    continue
+                condition = predicates[0] if len(predicates) == 1 else or_(*predicates)
+                values = conn.execute(
+                    select(primary_key[0]).where(condition)
+                ).scalars().all()
+                if values:
+                    affected_ids.setdefault(table.name, set()).update(values)
+
+            # Break the only self-reference before removing agent plans and
+            # clear the report pointer before removing report versions.
+            if "agent_plans" in metadata.tables:
+                conn.execute(
+                    agent_plans.update()
+                    .where(agent_plans.c.workspace_id == workspace_id)
+                    .values(superseded_by_plan_id=None)
+                )
+            if "reports" in metadata.tables and "current_published_version_id" in reports.c:
+                conn.execute(
+                    reports.update()
+                    .where(reports.c.workspace_id == workspace_id)
+                    .values(current_published_version_id=None)
+                )
+
+            for table in reversed(metadata.sorted_tables):
+                predicates = []
+                if table is workspaces:
+                    predicates.append(workspaces.c.id == workspace_id)
+                elif "workspace_id" in table.c:
+                    predicates.append(table.c.workspace_id == workspace_id)
+                for foreign_key in table.foreign_keys:
+                    parent_ids = affected_ids.get(foreign_key.column.table.name)
+                    if parent_ids:
+                        predicates.append(foreign_key.parent.in_(parent_ids))
+                if predicates:
+                    condition = predicates[0] if len(predicates) == 1 else or_(*predicates)
+                    conn.execute(table.delete().where(condition))
+            return True
+
     def list_active_memberships_for_user(self, user_id: str) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
             rows = conn.execute(
@@ -2157,6 +2460,40 @@ class Repository:
                 .order_by(datasets.c.created_at.desc())
             ).mappings()
             return [dict(r) for r in rows]
+
+    def set_dataset_collection(
+        self, dataset_ids: list[str], collection_name: str, *, workspace_id: str
+    ) -> list[dict[str, Any]] | None:
+        """Assign one logical collection name to an uploaded batch."""
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(datasets.c.id).where(
+                    datasets.c.id.in_(dataset_ids),
+                    datasets.c.workspace_id == workspace_id,
+                )
+            ).scalars().all()
+            if len(rows) != len(dataset_ids):
+                return None
+            conn.execute(
+                datasets.update()
+                .where(
+                    datasets.c.id.in_(dataset_ids),
+                    datasets.c.workspace_id == workspace_id,
+                )
+                .values(collection_name=collection_name)
+            )
+            updated = (
+                conn.execute(
+                    select(datasets).where(
+                        datasets.c.id.in_(dataset_ids),
+                        datasets.c.workspace_id == workspace_id,
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            by_id = {str(row["id"]): dict(row) for row in updated}
+            return [by_id[dataset_id] for dataset_id in dataset_ids]
 
     def delete_dataset(
         self, dataset_id: str, *, workspace_id: str
@@ -3545,6 +3882,8 @@ __all__ = [
     "column_stats",
     "get_repository",
     "metadata",
+    "notebook_cells",
+    "notebooks",
     "reports",
     "reset_repository",
     "workspace_memberships",

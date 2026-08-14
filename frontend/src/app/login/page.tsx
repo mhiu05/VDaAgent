@@ -7,7 +7,7 @@ import { PublicNavbar } from "@/components/public-navbar";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 
 function safeNext(value: string | null) {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/dashboard";
+  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/workspaces";
 }
 
 function LoginForm() {

@@ -157,7 +157,10 @@ def test_vector_qa_never_falls_back_to_another_profile_run(
 
     assert result["answer_sources"] == []
     assert len(fake.calls) == 1
-    assert fake.calls[0]["where"] == {"profile_run_id": "allowed"}
+    assert fake.calls[0]["where"] == {
+        "knowledge_type": "profile_report",
+        "profile_run_id": "allowed",
+    }
 
 
 def test_structured_qa_enforces_absolute_tool_budget(

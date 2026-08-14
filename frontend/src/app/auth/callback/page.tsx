@@ -40,7 +40,7 @@ function AuthCallbackContent() {
         ?? "analyst";
       try {
         await provisionSelfSignup(role, session.access_token);
-        if (!cancelled) window.location.assign("/dashboard");
+        if (!cancelled) window.location.assign("/workspaces");
       } catch (provisionError) {
         if (!cancelled) setMessage(provisionError instanceof Error ? provisionError.message : "Không thể tạo workspace cho tài khoản.");
       }
