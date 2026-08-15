@@ -36,7 +36,11 @@ jobs:
         run: |
           set -euo pipefail
           token_response="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange")"
-          federated_token="$(printf '%s' "$token_response" | node -e "const fs=require('fs'); process.stdout.write(JSON.parse(fs.readFileSync(0,'utf8')).value)")"
+          federated_token="$(printf '%s' "$token_response" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')"
+          if [ -z "$federated_token" ]; then
+            echo "Could not extract GitHub OIDC token response."
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/azure"
           docker pull "$AZURE_CLI_IMAGE"
           docker run --rm \
