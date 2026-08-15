@@ -7,7 +7,7 @@ from typing import Annotated, Callable
 
 from fastapi import Depends, Header, HTTPException, status
 from src.services.auth import AuthContext, authenticate_bearer
-from src.services.permissions import canonical_role, permissions_for_role
+from src.services.permissions import canonical_role, permissions_for_global_role, permissions_for_role
 from src.services.repository import get_repository
 
 
@@ -88,7 +88,7 @@ async def get_current_workspace(
     return WorkspaceContext(
         workspace_id=str(membership["workspace_id"]),
         role=role,
-        effective_permissions=permissions_for_role(role),
+        effective_permissions=permissions_for_role(role) | permissions_for_global_role(user.global_role),
     )
 
 

@@ -3,7 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { createAnalysis } from "@/lib/api";
-import { ErrorNotice, PageHeader } from "@/components/ui";
+import { ProfileRunPicker } from "@/components/profile-run-picker";
+import { ErrorNotice, Notice, PageHeader } from "@/components/ui";
 
 function NewAnalysisForm() {
   const router = useRouter();
@@ -37,6 +38,7 @@ function NewAnalysisForm() {
       />
 
       {error && <ErrorNotice error={error} />}
+      <Notice tone="info"><b>Cách dùng</b><p>Chọn một profile run hoàn tất, nêu mục tiêu nghiệp vụ rồi chọn Nhanh để kiểm tra một giả thuyết hoặc Chuyên sâu khi cần thực hiện đầy đủ context, quality gate và review.</p></Notice>
 
       <div className="new-analysis-layout">
         <form className="panel new-analysis-form" onSubmit={submit}>
@@ -52,19 +54,7 @@ function NewAnalysisForm() {
           <div className="new-analysis-form-content">
             <div className="new-analysis-fields">
               <div className="new-analysis-field">
-                <label className="new-analysis-label" htmlFor="profile-run-id">
-                  <span>Profile run ID <i>*</i></span>
-                  <small>Chọn một completed profile run để cố định source và version.</small>
-                </label>
-                <input
-                  id="profile-run-id"
-                  className="new-analysis-input"
-                  value={runId}
-                  onChange={(event) => setRunId(event.target.value)}
-                  required
-                  placeholder="Ví dụ: run_01HZX…"
-                  autoComplete="off"
-                />
+                <ProfileRunPicker id="analysis-profile-run" label="Phiên profiling" value={runId} onChange={setRunId} helpText="Chọn một phiên hoàn tất để cố định source và version." disabled={saving} />
               </div>
 
               <div className="new-analysis-field">
@@ -117,7 +107,7 @@ function NewAnalysisForm() {
 
             <div className="new-analysis-form-footer">
               <p><span aria-hidden="true">🔒</span> Raw rows và PII không được đưa vào phiên phân tích.</p>
-              <button className="button primary new-analysis-submit" disabled={saving}>
+              <button className="button primary new-analysis-submit" disabled={saving || !runId}>
                 {saving ? "Đang tạo…" : "Continue to context"}
                 {!saving && <span aria-hidden="true">→</span>}
               </button>

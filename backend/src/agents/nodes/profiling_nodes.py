@@ -596,8 +596,9 @@ def _risk_warnings(state: ProfilingState) -> list[str]:
     for proposal in state.get("pii_proposals") or []:
         if proposal.get("status") == "rejected":
             continue
+        pii_type = proposal.get("final_type") or proposal.get("pii_type")
         warnings.append(
-            f"Cột '{proposal['column_name']}' nghi là PII ({proposal.get('pii_type')}, "
+            f"Cột '{proposal['column_name']}' nghi là PII ({pii_type}, "
             f"confidence {proposal['confidence_score']:.0%}) — giá trị đã được ẩn khỏi báo cáo."
         )
 

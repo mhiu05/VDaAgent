@@ -8,7 +8,7 @@ import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { formatDate } from "@/lib/format";
 import { deleteReport, listPublishedReports } from "@/lib/api";
 
-type Report = { id: string; title: string; status: string; updated_at: string; created_by_user_id: string };
+type Report = { id: string; title: string; status: string; updated_at: string; created_by_user_id: string; workspace_id?: string };
 
 const statusLabels: Record<string, string> = {
   draft: "Bản nháp",
@@ -31,6 +31,10 @@ export default function ReportsPage() {
   });
   const items = reports.data?.reports ?? [];
   const canDeleteReport = can(me?.effective_permissions, PERMISSIONS.reportDraftWrite);
+  const canReadDatasets = can(me?.effective_permissions, PERMISSIONS.datasetRead);
+  const isViewer = me?.workspace.role === "viewer";
+  const isAdmin = me?.workspace.role === "admin";
+  const isGlobalAdmin = Boolean(me?.global_role);
 
   function removeReport(report: Report) {
     if (!window.confirm(`Xóa báo cáo "${report.title}"? Báo cáo sẽ bị xóa khỏi danh sách nộp duyệt.`)) return;
@@ -41,13 +45,13 @@ export default function ReportsPage() {
     <header className="reports-hero">
       <div>
         <p className="eyebrow">REPORT WORKSPACE</p>
-        <h1>Báo cáo</h1>
-        <p className="reports-hero-description">Tập trung các snapshot được tạo từ profile run hoàn tất. Mỗi báo cáo giữ lại nguồn, trạng thái review và bằng chứng để dễ dàng kiểm tra lại.</p>
+        <h1>{isGlobalAdmin || isAdmin ? "Báo cáo & phê duyệt" : "Báo cáo"}</h1>
+        <p className="reports-hero-description">{isViewer ? "Theo dõi và xuất các báo cáo đã được phê duyệt trong workspace hiện tại." : isAdmin ? "Kiểm tra báo cáo đang chờ duyệt, quyết định xuất bản và theo dõi trạng thái báo cáo của workspace." : "Tập trung các snapshot được tạo từ profile run hoàn tất. Mỗi báo cáo giữ lại nguồn, trạng thái review và bằng chứng để dễ dàng kiểm tra lại."}</p>
       </div>
       <div className="reports-hero-stat" aria-label={`${items.length} báo cáo`}>
         <span className="reports-hero-stat-icon" aria-hidden="true">▤</span>
         <strong>{items.length}</strong>
-        <small>báo cáo trong workspace</small>
+        <small>{isGlobalAdmin ? "báo cáo toàn hệ thống" : "báo cáo trong workspace"}</small>
       </div>
     </header>
 
@@ -62,9 +66,9 @@ export default function ReportsPage() {
       {items.length ? <div className="report-card-grid">{items.map((report) => <article className="report-card" key={report.id}>
         <div className="report-card-top"><span className="report-card-icon" aria-hidden="true">▤</span><span className={statusClass(report.status)}>{statusLabels[report.status] || report.status}</span></div>
         <Link className="report-card-title-link" href={`/reports/${report.id}`}><h2>{report.title}</h2></Link>
-        <div className="report-card-meta"><span>Profile snapshot</span><time dateTime={report.updated_at}>{formatDate(report.updated_at)}</time></div>
+        <div className="report-card-meta"><span>{isGlobalAdmin && report.workspace_id ? `Workspace ${report.workspace_id.slice(0, 8)}` : "Profile snapshot"}</span><time dateTime={report.updated_at}>{formatDate(report.updated_at)}</time></div>
         <div className="report-card-footer"><Link href={`/reports/${report.id}`}>Mở báo cáo <span aria-hidden="true">→</span></Link>{canDeleteReport && report.created_by_user_id === me?.user.id && report.status !== "published" && <button type="button" className="report-delete-button" onClick={() => removeReport(report)} disabled={deletion.isPending}>{deletion.isPending ? "Đang xóa…" : "Xóa báo cáo"}</button>}</div>
-      </article>)}</div> : <div className="reports-empty"><span className="reports-empty-icon" aria-hidden="true">✦</span><h3>Chưa có báo cáo</h3><p>Hoàn tất một profile run rồi chọn “Xuất báo cáo” để tạo snapshot tại đây.</p><Link className="button primary" href="/datasets">Mở bộ dữ liệu</Link></div>}
+      </article>)}</div> : <div className="reports-empty"><span className="reports-empty-icon" aria-hidden="true">✦</span><h3>Chưa có báo cáo</h3><p>{isViewer ? "Báo cáo sẽ xuất hiện ở đây sau khi Analyst tạo và Admin xuất bản." : isAdmin ? "Báo cáo đang chờ duyệt và đã xuất bản sẽ xuất hiện tại đây." : "Hoàn tất một profile run rồi chọn “Xuất báo cáo” để tạo snapshot tại đây."}</p>{canReadDatasets && !isAdmin && <Link className="button primary" href="/datasets">Mở bộ dữ liệu</Link>}</div>}
     </section>}
   </main>;
 }

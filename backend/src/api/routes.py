@@ -154,6 +154,7 @@ def _build_profile_response(
         "profile_run_id": run["id"],
         "dataset_id": run["dataset_id"],
         "dataset_name": dataset.get("name"),
+        "run_name": run.get("run_name"),
         "status": run["status"],
         "graph_thread_id": run.get("graph_thread_id"),
         "initial_question": run.get("initial_question"),
@@ -258,6 +259,7 @@ async def create_profile(
         else None,
         initial_question=request.question,
         workspace_id=context.workspace_id,
+        run_name=request.run_name,
     )
     repo.update_profile_run(
         run_id, workspace_id=context.workspace_id, graph_thread_id=f"profile:{run_id}"
@@ -652,9 +654,6 @@ async def confirm_proposals(
             action = "confirm"
 
     test_requests = [dict(item) for item in request.test_requests]
-    for item in request.decisions:
-        if item.decision == "edit" and not item.final_type:
-            raise HTTPException(status_code=422, detail="decision=edit cần final_type.")
     if action == "request_test":
         if not test_requests:
             raise HTTPException(
@@ -701,7 +700,20 @@ async def confirm_proposals(
                 detail=f"Run đang ở trạng thái {applied_result.get('status')}, không thể resume.",
             )
         if code == "edit_requires_final_type":
-            raise HTTPException(status_code=422, detail="decision=edit cần final_type.")
+            raise HTTPException(
+                status_code=422,
+                detail="Quyết định chỉnh sửa cần giá trị phân loại chính thức.",
+            )
+        if code == "edit_requires_note":
+            raise HTTPException(
+                status_code=422,
+                detail="Quyết định chỉnh sửa cần lý do review.",
+            )
+        if code == "edit_not_supported":
+            raise HTTPException(
+                status_code=422,
+                detail="Candidate key chỉ hỗ trợ xác nhận hoặc từ chối.",
+            )
         if code == "concurrent_review":
             raise HTTPException(
                 status_code=409, detail="Review khác đang resume run này."
@@ -722,6 +734,7 @@ async def confirm_proposals(
             proposal_id=item.proposal_id,
             decision=item.decision,
             confirmed_by_user_id=context.user_id,
+            final_type=item.final_type,
             note=item.note,
         )
     _audit(

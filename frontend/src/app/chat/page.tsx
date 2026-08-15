@@ -7,6 +7,7 @@ import { ApiError, createProfile, getProfile, listDatasets, listRuns, streamQues
 import type { AnswerSource, Profile } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
+import { profileRunOptionLabel } from "@/components/profile-run-picker";
 
 type AgentState = "ready" | "uploading" | "profiling" | "thinking" | "error";
 type ScanMode = "sample" | "full";
@@ -143,6 +144,7 @@ export default function ChatPage() {
   const activeConversationRef = useRef<string | null>(null);
   const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
   const runs = useQuery({ queryKey: ["chat-runs", selectedDatasetId], queryFn: () => listRuns(selectedDatasetId), enabled: Boolean(selectedDatasetId) });
+  const completedRuns = runs.data?.filter((run) => run.status === "completed") || [];
 
   function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null, savedProfileRunId?: string | null) {
     const profileRunId = savedProfile?.profile_run_id || savedProfileRunId;
@@ -260,7 +262,7 @@ export default function ChatPage() {
       const selected = await getProfile(runId);
       setProfile(selected);
       setSelectedDatasetId(selected.dataset_id);
-      addMessage("agent", `Đã chọn profile ${selected.version ? `v${selected.version}` : "mới nhất"} của ${selected.dataset_name || "dataset"}. Bạn có thể hỏi Agent dựa trên evidence đã tính.`, "VDaAgent");
+      addMessage("agent", `Đã chọn “${selected.run_name?.trim() || `Phiên bản v${selected.version ?? "—"}`}” của ${selected.dataset_name || "dataset"}. Bạn có thể hỏi Agent dựa trên evidence đã tính.`, "VDaAgent");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không thể mở profile đã chọn.");
       setProfile(null);
@@ -291,6 +293,7 @@ export default function ChatPage() {
       const result = await createProfile({
         ...(upload.dataset_id ? { dataset_id: upload.dataset_id } : { dataset_ref: upload.dataset_ref }),
         dataset_name: upload.suggested_name || upload.filename,
+        run_name: `${upload.suggested_name || upload.filename} · ${scanMode === "full" ? "Full scan" : "Sample scan"}`,
         scan_mode: scanMode,
         ...(scanMode === "sample" ? { sampling: { strategy: "reservoir", sample_size: 10_000, random_seed: 42 } } : {}),
       });
@@ -374,8 +377,8 @@ export default function ChatPage() {
     </header>}
     <div className="agent-layout">
       <section className="agent-chat-panel">
-        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Profile đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.dataset_name || "Dataset"}</span>}</div>
-        <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Profile run</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || runs.isPending || busy}><option value="">Chọn profile đã profiling…</option>{runs.data?.map((run) => <option value={run.id} key={run.id} disabled={run.status !== "completed"}>v{run.version || "—"} · {run.status} · {run.row_count?.toLocaleString() || "—"} dòng</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.data?.length && !runs.isPending ? "Dataset này chưa có profile run." : "Agent chỉ trả lời theo profile run bạn đã chọn."}</div></section>
+        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Nguồn đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.run_name?.trim() || `Phiên bản v${profile.version ?? "—"}`}</span>}</div>
+        <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Phiên profiling đã hoàn tất</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || !completedRuns.length || runs.isPending || busy}><option value="">Chọn theo tên phiên…</option>{completedRuns.map((run) => <option value={run.id} key={run.id}>{profileRunOptionLabel(run)}</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.isPending && !completedRuns.length ? "Dataset này chưa có profile run hoàn tất để hỏi Agent." : "Agent chỉ trả lời theo phiên profiling bạn đã chọn; ID được hệ thống xử lý ngầm."}</div></section>
         <div ref={messageListRef} className="agent-message-list" aria-live="polite">
           {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p>{message.text}</p>}</div></article>)}
           {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">VDaAgent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}

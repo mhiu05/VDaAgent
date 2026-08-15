@@ -18,7 +18,7 @@ const countMeta: Record<string, { label: string; description: string; icon: stri
 const roleCopy = {
   viewer: { eyebrow: "Viewer workspace", title: "Báo cáo đã xuất bản", description: "Theo dõi các báo cáo đã được công bố trong workspace." },
   analyst: { eyebrow: "Analyst workspace", title: "Sẵn sàng phân tích", description: "Bắt đầu bằng cách tải dữ liệu lên, sau đó profile, review và phân tích dựa trên evidence." },
-  admin: { eyebrow: "Admin workspace", title: "Tổng quan vận hành", description: "Theo dõi khối lượng dữ liệu, báo cáo và công việc cần review." },
+  admin: { eyebrow: "Admin workspace", title: "Quản trị workspace", description: "Quản lý thành viên, theo dõi báo cáo cần phê duyệt và kiểm tra hoạt động trong workspace." },
 } as const;
 
 export default function DashboardPage() {
@@ -34,11 +34,12 @@ export default function DashboardPage() {
   const data = dashboard.data;
   const copy = roleCopy[data.kind];
   const counts = Object.entries(data.counts ?? {});
+  const isAdmin = data.kind === "admin";
 
   return <main className="dashboard-page">
     <header className="dashboard-header">
       <div><p className="eyebrow">{copy.eyebrow}</p><h1>{copy.title}</h1><p>{copy.description}</p></div>
-      {can(me.effective_permissions, PERMISSIONS.datasetUpload) && <Link href="/datasets/new" className="button primary">Tải dữ liệu lên <span aria-hidden="true">→</span></Link>}
+      {isAdmin ? <div className="dashboard-admin-actions"><Link href="/workspaces/manage" className="button primary">Quản trị thành viên</Link><Link href="/workspaces" className="button secondary">Quản lý workspace</Link></div> : can(me.effective_permissions, PERMISSIONS.datasetUpload) && <Link href="/datasets/new" className="button primary">Tải dữ liệu lên <span aria-hidden="true">→</span></Link>}
     </header>
 
     {counts.length > 0 && <section aria-labelledby="workspace-overview"><div className="dashboard-section-heading"><div><p className="eyebrow">Tổng quan</p><h2 id="workspace-overview">Tiến độ workspace</h2></div><small>Cập nhật theo workspace hiện tại</small></div><dl className="dashboard-stats-grid">{counts.map(([key, value]) => {
@@ -46,6 +47,8 @@ export default function DashboardPage() {
       return <div className="dashboard-stat-card" key={key}><div className="dashboard-stat-icon" aria-hidden="true">{meta.icon}</div><div><dt>{meta.label}</dt><dd>{value}</dd><small>{meta.description}</small></div></div>;
     })}</dl></section>}
 
-    <section className="dashboard-reports panel"><div><p className="eyebrow">Báo cáo</p><h2>{data.kind === "viewer" ? "Báo cáo đã xuất bản" : "Báo cáo và review"}</h2></div>{data.reports?.length ? <ul>{data.reports.map((report) => <li key={report.id}><Link href={`/reports/${report.id}`}>{report.title}</Link><small>{report.status}</small></li>)}</ul> : <div className="dashboard-empty"><span aria-hidden="true">✦</span><div><b>Chưa có báo cáo phù hợp</b><p>{data.kind === "analyst" ? "Tải dataset đầu tiên để bắt đầu tạo evidence và báo cáo." : "Báo cáo sẽ xuất hiện tại đây khi có dữ liệu phù hợp."}</p></div></div>}</section>
+    {isAdmin && <section className="dashboard-reports panel" aria-labelledby="pending-review-title"><div><p className="eyebrow">PHÊ DUYỆT</p><h2 id="pending-review-title">Báo cáo cần xử lý</h2></div>{data.pending_review?.length ? <ul>{data.pending_review.map((report) => <li key={report.id}><Link href={`/reports/${report.id}`}>{report.title}</Link><small>Đang chờ duyệt</small></li>)}</ul> : <div className="dashboard-empty"><span aria-hidden="true">✓</span><div><b>Không có báo cáo chờ duyệt</b><p>Các báo cáo mới cần phê duyệt sẽ xuất hiện tại đây.</p></div></div>}</section>}
+
+    <section className="dashboard-reports panel"><div><p className="eyebrow">Báo cáo</p><h2>{data.kind === "viewer" ? "Báo cáo đã xuất bản" : isAdmin ? "Báo cáo trong workspace" : "Báo cáo và review"}</h2></div>{data.reports?.length ? <ul>{data.reports.map((report) => <li key={report.id}><Link href={`/reports/${report.id}`}>{report.title}</Link><small>{report.status}</small></li>)}</ul> : <div className="dashboard-empty"><span aria-hidden="true">✦</span><div><b>Chưa có báo cáo phù hợp</b><p>{data.kind === "analyst" ? "Tải dataset đầu tiên để bắt đầu tạo evidence và báo cáo." : "Báo cáo sẽ xuất hiện tại đây khi có dữ liệu phù hợp."}</p></div></div>}</section>
   </main>;
 }

@@ -651,7 +651,7 @@ function buildPdf(payload: ReportPayload): Uint8Array {
   return output;
 }
 
-async function getReport(runId: string, request: Request, sections?: string): Promise<ReportPayload> {
+async function getReport(runId: string, request: Request, sections?: string, reportId?: string | null): Promise<ReportPayload> {
   const configuredBase = (process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
   const bases = [configuredBase];
   // In local Windows/Node environments, localhost may resolve differently
@@ -665,12 +665,15 @@ async function getReport(runId: string, request: Request, sections?: string): Pr
   if (authorization) headers.Authorization = authorization;
   if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
   const query = sections ? `?sections=${encodeURIComponent(sections)}` : "";
+  const endpoint = reportId
+    ? `/reports/${encodeURIComponent(reportId)}/export-source${query}`
+    : `/profile/${encodeURIComponent(runId)}/report${query}`;
   let lastNetworkError: unknown = null;
   for (const base of [...new Set(bases)]) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
-      const response = await fetch(`${base}/profile/${encodeURIComponent(runId)}/report${query}`, {
+      const response = await fetch(`${base}${endpoint}`, {
         headers,
         cache: "no-store",
         signal: controller.signal,
@@ -694,8 +697,9 @@ async function getReport(runId: string, request: Request, sections?: string): Pr
 export async function GET(request: Request, context: { params: Promise<{ runId: string }> }) {
   try {
     const { runId } = await context.params;
-    const sections = new URL(request.url).searchParams.get("sections") || ALL_EXPORT_SECTIONS.join(",");
-    const payload = await getReport(runId, request, sections);
+    const params = new URL(request.url).searchParams;
+    const sections = params.get("sections") || ALL_EXPORT_SECTIONS.join(",");
+    const payload = await getReport(runId, request, sections, params.get("reportId"));
     return new Response(buildPdf(payload) as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",

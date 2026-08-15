@@ -24,6 +24,7 @@ export interface Dataset {
 export interface ProfileRunSummary {
   id: string;
   dataset_id: string;
+  run_name?: string | null;
   version?: number | null;
   status: RunStatus;
   scan_mode?: string | null;
@@ -73,12 +74,14 @@ export interface Proposal {
   status: "pending" | "confirmed" | "rejected" | "edited" | "auto_confirmed" | string;
   confirmed_by?: string | null;
   confirmed_at?: string | null;
+  review_note?: string | null;
 }
 
 export interface Profile {
   profile_run_id: string;
   dataset_id: string;
   dataset_name?: string | null;
+  run_name?: string | null;
   status: RunStatus;
   graph_thread_id?: string | null;
   initial_question?: string | null;

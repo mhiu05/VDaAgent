@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/components/auth-provider";
 import { confirmProposals, getProfile } from "@/lib/api";
 import { formatPercent, toTitle } from "@/lib/format";
 import { EmptyState, ErrorNotice, LoadingBlock, Notice, PageHeader, StatusBadge } from "@/components/ui";
@@ -11,72 +12,151 @@ import type { Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
 
 type Selection = { decision: ProposalDecisionType; finalType?: string; note?: string };
 
+const SEMANTIC_TYPES = ["identifier", "free-text", "datetime", "categorical", "continuous", "boolean"];
+const PII_TYPES = ["email", "phone", "national_id", "address", "full_name", "credit_card", "dob", "ip_address", "unknown"];
+
 function proposalLabel(proposal: Proposal) {
-  return proposal.column_name || proposal.columns?.join(", ") || "Dataset-level proposal";
+  return proposal.column_name || proposal.columns?.join(", ") || "Đề xuất cấp bộ dữ liệu";
+}
+
+function proposalValue(kind: ProposalKind, proposal: Proposal) {
+  return kind === "pii" ? proposal.pii_type || "unknown" : proposal.proposed_type || "Candidate key";
+}
+
+function finalValueOptions(kind: ProposalKind, proposal: Proposal) {
+  const initial = proposal.final_type || proposalValue(kind, proposal);
+  const values = kind === "semantic_type" ? SEMANTIC_TYPES : PII_TYPES;
+  return [...new Set([initial, ...values])];
 }
 
 export default function ReviewPage() {
   const { runId } = useParams<{ runId: string }>();
   const router = useRouter();
   const client = useQueryClient();
-  const [analyst, setAnalyst] = useState("analyst@local");
+  const { me, isGuest, guestRole } = useAuth();
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
-  const pending = useMemo(() => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals.filter((proposal) => proposal.status === "pending").map((proposal) => ({ proposal, kind: kind as ProposalKind }))), [profile.data]);
+  const pending = useMemo(
+    () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
+      .filter((proposal) => proposal.status === "pending")
+      .map((proposal) => ({ proposal, kind: kind as ProposalKind }))),
+    [profile.data],
+  );
+  const reviewerName = me?.user.email || (isGuest ? "Phiên dùng thử" : "Tài khoản đăng nhập hiện tại");
+  const reviewerRole = me?.workspace.role || guestRole || "analyst";
   const mutation = useMutation({
-    mutationFn: () => confirmProposals(runId, { resume: true, action: "confirm", decisions: pending.map(({ proposal, kind }) => { const selection = selections[proposal.id]!; return { kind, proposal_id: proposal.id, decision: selection.decision, ...(selection.finalType ? { final_type: selection.finalType } : {}), ...(selection.note ? { note: selection.note } : {}) }; }) }),
+    mutationFn: () => confirmProposals(runId, {
+      resume: true,
+      decisions: pending.map(({ proposal, kind }) => {
+        const selection = selections[proposal.id]!;
+        return {
+          kind,
+          proposal_id: proposal.id,
+          decision: selection.decision,
+          ...(selection.decision === "edit" && selection.finalType?.trim() ? { final_type: selection.finalType.trim() } : {}),
+          ...(selection.note?.trim() ? { note: selection.note.trim() } : {}),
+        };
+      }),
+    }),
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["profile", runId] });
       const returnTo = new URLSearchParams(window.location.search).get("returnTo");
       router.push(returnTo || `/profiles/${runId}`);
     },
   });
-  function setSelection(id: string, patch: Partial<Selection>) {
+
+  function chooseDecision(proposal: Proposal, kind: ProposalKind, decision: ProposalDecisionType) {
     setSelections((current) => {
-      const existing = current[id];
-      return { ...current, [id]: { ...existing, ...patch, decision: patch.decision ?? existing?.decision ?? "reject" } };
+      const existing = current[proposal.id];
+      const isEdit = decision === "edit";
+      return {
+        ...current,
+        [proposal.id]: {
+          decision,
+          ...(isEdit ? { finalType: existing?.finalType || proposal.final_type || proposalValue(kind, proposal) } : {}),
+          ...(decision === "edit" || decision === "reject" ? { note: existing?.note } : {}),
+        },
+      };
     });
   }
-  function setAll(decision: ProposalDecisionType) { setSelections(Object.fromEntries(pending.map(({ proposal }) => [proposal.id, { decision }]))); }
-  if (profile.isLoading) return <LoadingBlock label="Đang tải evidence review…" />;
+
+  function updateSelection(id: string, patch: Partial<Selection>) {
+    setSelections((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+  }
+
+  function setAll(decision: "confirm" | "reject") {
+    setSelections(Object.fromEntries(pending.map(({ proposal }) => [proposal.id, { decision }])));
+  }
+
+  const completeSelection = pending.length > 0
+    && pending.every(({ proposal }) => {
+      const selection = selections[proposal.id];
+      const finalType = selection?.finalType?.trim() || "";
+      const reviewNote = selection?.note?.trim() || "";
+      return Boolean(selection?.decision)
+        && (selection?.decision !== "edit" || Boolean(finalType && reviewNote.length >= 3));
+    });
+
+  if (profile.isLoading) return <LoadingBlock label="Đang tải đề xuất cần review…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
   if (!profile.data) return <EmptyState title="Không có profile" detail="Không thể bắt đầu review vì run không còn tồn tại." />;
+
   return <>
-    <PageHeader eyebrow={`HITL review · ${runId}`} title="Xác nhận metadata" description="Mỗi quyết định được ghi audit. Candidate key và PII không bao giờ được Agent tự xác nhận." action={<><Link className="button secondary" href={`/chat?profile=${runId}`}>Quay lại không gian Agent</Link><Link className="button secondary" href={`/profiles/${runId}`}>Quay lại báo cáo</Link></>} />
+    <PageHeader
+      eyebrow={`KIỂM DUYỆT METADATA · ${profile.data.run_name || `Phiên bản v${profile.data.version ?? "—"}`}`}
+      title="Xác nhận metadata"
+      description="Bạn quyết định metadata nào được dùng cho báo cáo và các bước phân tích sau đó."
+      action={<><Link className="button secondary" href={`/chat?profile=${runId}`}>Quay lại không gian Agent</Link><Link className="button secondary" href={`/profiles/${runId}`}>Quay lại báo cáo</Link></>}
+    />
     {mutation.isError && <ErrorNotice error={mutation.error} />}
     <Notice tone="info"><b>Trạng thái workflow</b><p><StatusBadge status={profile.data.status} /> {profile.data.status === "pending_review" ? "Đang chờ quyết định của Analyst." : profile.data.status === "resuming" ? "Đang tiếp tục checkpoint." : "Kết quả cuối đã được lưu."}</p>{profile.data.answer && <p><b>Câu trả lời:</b> {profile.data.answer}</p>}</Notice>
-    <Notice tone="warning"><b>{pending.length} đề xuất đang chờ quyết định.</b><p>Quyết định “edit” cần semantic type/final type. Nếu không chọn, proposal sẽ được reject có chủ đích.</p></Notice>
-    <section className="panel" style={{ marginBottom: 18 }}><div className="form-grid"><div className="field"><label htmlFor="analyst">Danh tính reviewer</label><input id="analyst" value={analyst} onChange={(event) => setAnalyst(event.target.value)} maxLength={255} /><small className="hint">Sẽ được backend ghi vào audit log.</small></div><div className="field"><label>Thao tác hàng loạt</label><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")}>Từ chối tất cả</button></div></div></div></section>
-      {pending.length === 0 ? (
-        <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
-      ) : (
-        <div className="grid" style={{ gap: 18 }}>
-          {(["candidate_key", "semantic_type", "pii"] as ProposalKind[]).map((kind) => {
-            const items = pending.filter((item) => item.kind === kind);
-            if (!items.length) return null;
-            return (
-              <section className="panel proposal-group" key={kind}>
-                <div className="panel-title"><h2>{toTitle(kind)}</h2><span className="chip">{items.length} pending</span></div>
-                {items.map(({ proposal }) => {
-                  const selection = selections[proposal.id];
-                  return (
-                    <article className="proposal-row pending" key={proposal.id}>
-                      <div><b>{proposalLabel(proposal)}</b><p>{proposal.proposed_type || proposal.pii_type || "Candidate"}</p>{proposal.semantic_description && <p>{proposal.semantic_description}</p>}<StatusBadge status={proposal.status} /></div>
-                      <div><p><span className="confidence">{formatPercent(proposal.confidence_score)}</span> confidence · {proposal.detection_method || "rule-based"}</p><p>{proposal.evidence}</p></div>
-                      <div className="decision-control">
-                        <select aria-label={`Quyết định cho ${proposalLabel(proposal)}`} value={selection?.decision || ""} onChange={(event) => setSelection(proposal.id, { decision: event.target.value as ProposalDecisionType })}>
-                          <option value="" disabled>Chọn quyết định…</option><option value="confirm">Xác nhận</option><option value="reject">Từ chối</option><option value="edit">Chỉnh sửa</option>
-                        </select>
-                        {selection?.decision === "edit" && <input aria-label={`Kiểu cuối cùng cho ${proposalLabel(proposal)}`} placeholder="Kiểu cuối cùng" value={selection.finalType || ""} onChange={(event) => setSelection(proposal.id, { finalType: event.target.value })} />}
-                      </div>
-                    </article>
-                  );
-                })}
-              </section>
-            );
-          })}
-        </div>
-      )}
-    {pending.length > 0 && <section className="panel" style={{ marginTop: 18 }}><div className="inline-actions"><button className="button primary" disabled={!analyst.trim() || mutation.isPending || Object.keys(selections).length !== pending.length || pending.some(({ proposal }) => selections[proposal.id]?.decision === "edit" && !selections[proposal.id]?.finalType?.trim())} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và resume…" : "Lưu quyết định & resume pipeline"}</button><span className="muted">{Object.keys(selections).length}/{pending.length} đã chọn; cần quyết định rõ từng đề xuất.</span></div></section>}
+    <Notice tone="warning"><b>{pending.length} đề xuất đang chờ quyết định.</b><p><b>Xác nhận</b> dùng đề xuất của Agent. <b>Từ chối</b> bỏ đề xuất. <b>Chỉnh sửa</b> chỉ áp dụng cho Semantic type và PII, cần chọn giá trị chính thức cùng lý do.</p></Notice>
+    <section className="panel review-context-panel">
+      <div className="reviewer-card">
+        <span className="reviewer-card-icon" aria-hidden="true">✓</span>
+        <div><small>REVIEWER ĐANG THỰC HIỆN</small><b>{reviewerName}</b><span>{toTitle(reviewerRole)} · Tự động ghi vào audit log</span></div>
+      </div>
+      <div className="review-bulk-actions"><small>THAO TÁC HÀNG LOẠT</small><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")}>Từ chối tất cả</button></div></div>
+    </section>
+    {pending.length === 0 ? (
+      <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
+    ) : (
+      <div className="grid" style={{ gap: 18 }}>
+        {(["candidate_key", "semantic_type", "pii"] as ProposalKind[]).map((kind) => {
+          const items = pending.filter((item) => item.kind === kind);
+          if (!items.length) return null;
+          const canEdit = kind !== "candidate_key";
+          return <section className="panel proposal-group" key={kind}>
+            <div className="panel-title"><div><h2>{toTitle(kind)}</h2><small>{canEdit ? "Có thể xác nhận, từ chối hoặc chỉnh phân loại." : "Xác nhận hoặc từ chối đây có phải khóa ứng viên."}</small></div><span className="chip">{items.length} chờ review</span></div>
+            {items.map(({ proposal }) => {
+              const selection = selections[proposal.id];
+              const editing = selection?.decision === "edit";
+              const rejecting = selection?.decision === "reject";
+              return <article className="proposal-row pending" key={proposal.id}>
+                <div><b>{proposalLabel(proposal)}</b><p>Agent đề xuất: <strong>{proposalValue(kind, proposal)}</strong></p>{proposal.semantic_description && <p>{proposal.semantic_description}</p>}<StatusBadge status={proposal.status} /></div>
+                <div><p><span className="confidence">{formatPercent(proposal.confidence_score)}</span> confidence · {proposal.detection_method || "rule-based"}</p><p>{proposal.evidence}</p></div>
+                <div className="decision-control">
+                  <label className="sr-only" htmlFor={`decision-${proposal.id}`}>Quyết định cho {proposalLabel(proposal)}</label>
+                  <select id={`decision-${proposal.id}`} value={selection?.decision || ""} onChange={(event) => chooseDecision(proposal, kind, event.target.value as ProposalDecisionType)}>
+                    <option value="" disabled>Chọn quyết định…</option><option value="confirm">Xác nhận đề xuất</option><option value="reject">Từ chối đề xuất</option>{canEdit && <option value="edit">Chỉnh sửa phân loại</option>}
+                  </select>
+                  {editing && <div className="review-edit-fields">
+                    <label htmlFor={`final-${proposal.id}`}>Giá trị chính thức</label>
+                    <select id={`final-${proposal.id}`} value={selection?.finalType || ""} onChange={(event) => updateSelection(proposal.id, { finalType: event.target.value })}>
+                      {finalValueOptions(kind, proposal).map((value) => <option value={value} key={value}>{value}</option>)}
+                    </select>
+                    <label htmlFor={`note-${proposal.id}`}>Lý do chỉnh sửa <span aria-hidden="true">*</span></label>
+                    <textarea id={`note-${proposal.id}`} value={selection?.note || ""} onChange={(event) => updateSelection(proposal.id, { note: event.target.value })} placeholder="Ví dụ: cột có định dạng ngày giờ nên không phải categorical." maxLength={1000} rows={3} />
+                    <small>Bản ghi sẽ lưu đề xuất của Agent, giá trị chính thức, reviewer và thời điểm xử lý.</small>
+                  </div>}
+                  {rejecting && <div className="review-edit-fields review-note-optional"><label htmlFor={`note-${proposal.id}`}>Lý do từ chối <em>(không bắt buộc)</em></label><textarea id={`note-${proposal.id}`} value={selection?.note || ""} onChange={(event) => updateSelection(proposal.id, { note: event.target.value })} placeholder="Ghi chú để người khác hiểu quyết định của bạn." maxLength={1000} rows={2} /></div>}
+                </div>
+              </article>;
+            })}
+          </section>;
+        })}
+      </div>
+    )}
+    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><button className="button primary" disabled={mutation.isPending || !completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tiếp tục pipeline…" : "Lưu quyết định & tiếp tục pipeline"}</button><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div></section>}
   </>;
 }

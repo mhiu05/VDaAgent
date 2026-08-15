@@ -27,6 +27,7 @@ export const PERMISSIONS = {
   workspaceLifecycleManage: "workspace.lifecycle.manage",
   workspaceCreate: "workspace.create",
   workspaceDelete: "workspace.delete",
+  accountDirectoryRead: "account.directory.read",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

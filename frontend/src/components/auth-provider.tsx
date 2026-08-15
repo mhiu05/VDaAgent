@@ -1,9 +1,9 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { getSupabaseBrowserClient } from "@/lib/auth/client";
+import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
 import { cleanupGuestSession, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
 import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
 import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
@@ -15,6 +15,7 @@ export type Me = {
   workspace: { id: string; role: string };
   effective_permissions: string[];
   workspaces: Workspace[];
+  global_role?: "global_admin" | "super_admin" | null;
 };
 
 type AuthValue = {
@@ -32,6 +33,14 @@ type AuthValue = {
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
+
+function isAuthRoute(pathname: string): boolean {
+  return pathname.startsWith("/login")
+    || pathname.startsWith("/signup")
+    || pathname.startsWith("/forgot-password")
+    || pathname.startsWith("/auth/")
+    || pathname.startsWith("/account/update-password");
+}
 
 function apiBase() {
   const configured = process.env.NEXT_PUBLIC_API_URL;
@@ -78,6 +87,7 @@ async function withTimeout<T>(promise: Promise<T>, milliseconds: number, message
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
@@ -128,12 +138,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const resetUnauthenticatedState = useCallback(() => {
+    setMe(null);
+    setAuthenticated(false);
+    setIsGuest(false);
+    setGuestRole(null);
+    workspaceIdRef.current = null;
+    setWorkspaceId(null);
+    setChatHistoryScope(null, null);
+  }, []);
+
   const load = useCallback((requestedWorkspace?: string | null, force = false, preferGuest = false, background = false) => {
     if (loadInFlight.current && !force) return loadInFlight.current;
 
     const sequence = ++loadSequence.current;
 
     const task = (async () => {
+      // Keep the auth boundary strict even when load() is triggered by an
+      // auth callback or a Fast Refresh cycle. Login and signup must never
+      // send an expired Supabase token to the protected session endpoint.
+      if (isAuthRoute(pathname)) {
+        if (sequence !== loadSequence.current) return false;
+        resetUnauthenticatedState();
+        setError(null);
+        setLoading(false);
+        return false;
+      }
       if (!background) {
         setLoading(true);
         setError(null);
@@ -163,18 +193,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // every protected page mounted underneath the shell to repeat it.
         if (!token) {
           if (sequence !== loadSequence.current) return false;
-          setMe(null);
-          setAuthenticated(false);
-          setIsGuest(false);
-          setGuestRole(null);
-          workspaceIdRef.current = null;
-          setWorkspaceId(null);
-          setChatHistoryScope(null, null);
+          resetUnauthenticatedState();
           setError(null);
           return false;
         }
         const headers = new Headers({ Accept: "application/json" });
-        headers.set("Authorization", `Bearer ${token}`);
+        let tokenForRequest = token;
+        headers.set("Authorization", `Bearer ${tokenForRequest}`);
         // Guest sessions have exactly one short-lived workspace. Avoid sending
         // a stale signed-in workspace id when a visitor starts a new trial.
         const saved = supabaseToken
@@ -188,7 +213,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!response.ok && response.status === 401 && supabaseToken) {
           const refreshed = await refresh();
           if (refreshed && refreshed !== supabaseToken) {
-            headers.set("Authorization", `Bearer ${refreshed}`);
+            tokenForRequest = refreshed;
+            headers.set("Authorization", `Bearer ${tokenForRequest}`);
             response = await fetchSessionResource(`${apiBase()}/session`, headers);
           }
         }
@@ -210,13 +236,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ? await withTimeout(client.auth.getSession(), 12_000, "Supabase không trả phiên đăng nhập trong 12 giây.")
             : { data: { session: null } };
           const role = requestedSignupRole(sessionData.session?.user.user_metadata?.requested_role);
-          await provisionSelfSignup(role, supabaseToken);
+          // `refreshSession()` can rotate the browser token while the
+          // workspace request is in flight. Provision with that current token
+          // instead of the original (possibly rejected) bearer value.
+          const tokenForProvision = sessionData.session?.access_token ?? tokenForRequest;
+          if (!tokenForProvision) throw new Error("Missing active access token.");
+          tokenForRequest = tokenForProvision;
+          headers.set("Authorization", `Bearer ${tokenForRequest}`);
+          await provisionSelfSignup(role, tokenForProvision);
           if (sequence !== loadSequence.current) return false;
           response = await fetchSessionResource(`${apiBase()}/session`, headers);
         }
         // A guest can change role while this request is in flight. Ignore the
         // old response instead of allowing it to replace the newer workspace.
         if (sequence !== loadSequence.current) return false;
+        if (!response.ok && response.status === 401) {
+          // A rejected bearer must not remain in browser storage. Keeping it
+          // would make every protected route bootstrap retry /session (and,
+          // for a new user, /onboarding/provision) with the same bad token.
+          if (supabaseToken) {
+            // Do not call Supabase logout here: an expired token can make the
+            // logout endpoint return another noisy 403. Local cleanup is
+            // sufficient and prevents the rejected bearer from being reused.
+            clearSupabaseLocalSession();
+          } else if (guestSession) {
+            clearGuestSession();
+          }
+          window.localStorage.removeItem("p170-workspace-id");
+          resetUnauthenticatedState();
+          setError(null);
+          if (supabaseToken) router.replace("/login?reason=session_expired");
+          return false;
+        }
         if (!response.ok) throw await readWorkspaceError(response);
         const payload = await response.json() as Me;
         const selected = payload.workspace.id;
@@ -235,11 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // transient network/auth refresh failure. The next API request can
         // still refresh the token through the shared auth transport.
         if (background && workspaceIdRef.current) return false;
-        setMe(null);
-        setAuthenticated(false);
-        workspaceIdRef.current = null;
-        setWorkspaceId(null);
-        setChatHistoryScope(null, null);
+        resetUnauthenticatedState();
         setError(reason instanceof Error ? reason.message : "Không thể khởi tạo phiên đăng nhập.");
         return false;
       } finally {
@@ -251,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (loadInFlight.current === task) loadInFlight.current = null;
     });
     return task;
-  }, [refresh, supabaseAccessToken]);
+  }, [pathname, refresh, resetUnauthenticatedState, router, supabaseAccessToken]);
 
   useEffect(() => {
     setApiAuthTransport({ accessToken, workspaceId: () => workspaceIdRef.current, refresh });
@@ -280,6 +327,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loading]);
 
   useEffect(() => {
+    // Auth pages must not bootstrap the protected workspace session. A stale
+    // Supabase token is common after expiry; calling /session here produces a
+    // misleading 401 while the user is simply trying to log in again. The
+    // effect runs again automatically after navigation to a workspace route.
+    if (isAuthRoute(pathname)) return;
     void load();
     const client = getSupabaseBrowserClient();
     if (!client) return;
@@ -291,7 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Supabase refreshes the access token when a background tab becomes
       // active. The API transport reads the fresh token on demand, so a token
       // refresh does not require rebuilding the workspace shell.
-      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") return;
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED" || isAuthRoute(pathname)) return;
       if (event === "SIGNED_OUT") {
         ++loadSequence.current;
         loadInFlight.current = null;
@@ -318,7 +370,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }, 0);
     });
     return () => data.subscription.unsubscribe();
-  }, [load]); // Session callback always reads fresh persisted workspace.
+  }, [load, pathname]); // Session callback always reads fresh persisted workspace.
 
   const switchWorkspace = useCallback(async (nextWorkspaceId: string) => {
     if (nextWorkspaceId === workspaceId) return;
@@ -369,11 +421,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // The page may look signed out while Supabase still holds an expired
     // token. Clear it regardless, otherwise that token can be chosen before
     // the new guest token and the backend returns 401.
-    try {
-      await getSupabaseBrowserClient()?.auth.signOut({ scope: "local" });
-    } catch {
-      // Local guest mode does not depend on revoking a remote Supabase token.
-    }
+    clearSupabaseLocalSession();
     if (switchSequence !== guestSwitchSequence.current) return;
     window.localStorage.removeItem("p170-workspace-id");
     startGuestSession(role);

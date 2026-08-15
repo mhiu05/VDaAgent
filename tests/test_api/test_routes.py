@@ -8,6 +8,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from src.config import get_settings
+from src.services.repository import get_repository
+
+
+def _analyst_headers(
+    client: TestClient, monkeypatch, session_id: str
+) -> dict[str, str]:
+    """Create an isolated Analyst workspace for role-boundary API tests."""
+    monkeypatch.setattr(get_settings(), "auth_allow_guest", True)
+    headers = {"Authorization": f"Bearer guest.{session_id}.analyst"}
+    session = client.get("/api/v1/session", headers=headers)
+    assert session.status_code == 200, session.text
+    return {
+        **headers,
+        "X-Workspace-Id": session.json()["workspace"]["id"],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -29,6 +45,25 @@ def test_status_reports_missing_config(client: TestClient) -> None:
     # Hai mặc định an toàn của hệ (eval C-01, C-02).
     assert body["mask_pii_in_answers"] is True
     assert body["allow_raw_export"] is False
+
+
+def test_guest_session_never_runs_ttl_cleanup_inline(client: TestClient, monkeypatch) -> None:
+    """A slow cleanup job must not make a new guest workspace unavailable."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "auth_allow_guest", True)
+    repository = get_repository()
+
+    def cleanup_must_not_run(_retention_hours: int) -> int:
+        raise AssertionError("Guest TTL cleanup must not run inside /session.")
+
+    monkeypatch.setattr(repository, "purge_expired_guest_workspaces", cleanup_must_not_run)
+    headers = {"Authorization": "Bearer guest.2c1a8d19-20c2-4560-a00c-4577b4469045.admin"}
+    response = client.get("/api/v1/session", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["workspace"]["role"] == "admin"
+    cleanup = client.delete("/api/v1/guest/session", headers=headers)
+    assert cleanup.status_code == 200, cleanup.text
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +194,61 @@ def test_confirm_edit_requires_final_type(client: TestClient, profile_run: dict)
         },
     )
     assert response.status_code == 422
+
+
+def test_confirm_edit_rejects_candidate_key(client: TestClient, profile_run: dict) -> None:
+    """Candidate key là quyết định có/không, không có final type để sửa."""
+    proposal = profile_run["proposals"]["candidate_key"][0]
+    response = client.patch(
+        f"/api/v1/profile/{profile_run['profile_run_id']}/confirm",
+        json={
+            "decisions": [
+                {
+                    "kind": "candidate_key",
+                    "proposal_id": proposal["id"],
+                    "decision": "edit",
+                    "final_type": "identifier",
+                    "note": "Đây không phải kiểu chỉnh sửa hợp lệ.",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 422
+    assert "Candidate key" in response.text
+
+
+def test_confirm_edit_pii_persists_final_value_and_review_note(
+    client: TestClient, sample_csv: Path
+) -> None:
+    """PII được chỉnh vẫn phải lưu phân loại cuối cùng và tiếp tục che dữ liệu."""
+    created = client.post(
+        "/api/v1/profile",
+        json={"dataset_ref": str(sample_csv), "dataset_name": "pii_review", "scan_mode": "full"},
+    ).json()
+    run_id = created["profile_run_id"]
+    proposal = created["proposals"]["pii"][0]
+    response = client.patch(
+        f"/api/v1/profile/{run_id}/confirm",
+        json={
+            "decisions": [
+                {
+                    "kind": "pii",
+                    "proposal_id": proposal["id"],
+                    "decision": "edit",
+                    "final_type": "email",
+                    "note": "Xác minh thủ công từ tên cột và định dạng giá trị.",
+                }
+            ],
+            "resume": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    updated = client.get(f"/api/v1/profile/{run_id}").json()
+    edited = next(item for item in updated["proposals"]["pii"] if item["id"] == proposal["id"])
+    assert edited["status"] == "edited"
+    assert edited["final_type"] == "email"
+    assert edited["review_note"].startswith("Xác minh thủ công")
+    assert edited["confirmed_by"]
 
 
 def test_confirm_applies_decisions_and_clears_pending(
@@ -583,35 +673,110 @@ def test_upload_rejects_empty_file(client: TestClient) -> None:
 # --------------------------------------------------------------------------- #
 # Dataset & audit
 # --------------------------------------------------------------------------- #
-def test_workspace_can_be_created_listed_and_archived(client: TestClient) -> None:
-    created = client.post("/api/v1/workspaces", json={"name": "Project Workspace QA"})
+def test_workspace_can_be_created_listed_and_archived(client: TestClient, monkeypatch) -> None:
+    # The default test principal is Admin. Admins govern existing workspaces
+    # and must not create project workspaces.
+    denied = client.post("/api/v1/workspaces", json={"name": "Admin Workspace QA"})
+    assert denied.status_code == 403, denied.text
+
+    headers = _analyst_headers(
+        client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f1"
+    )
+    created = client.post(
+        "/api/v1/workspaces", json={"name": "Project Workspace QA"}, headers=headers
+    )
     assert created.status_code == 201, created.text
     workspace = created.json()
     assert workspace["is_project"] is True
     assert workspace["name"] == "Project Workspace QA"
 
-    listed = client.get("/api/v1/workspaces")
+    listed = client.get("/api/v1/workspaces", headers=headers)
     assert listed.status_code == 200, listed.text
     assert any(item["id"] == workspace["id"] for item in listed.json()["workspaces"])
 
-    archived = client.delete(f"/api/v1/workspaces/{workspace['id']}")
+    archived = client.delete(f"/api/v1/workspaces/{workspace['id']}", headers=headers)
     assert archived.status_code == 200, archived.text
     assert archived.json() == {"deleted": True, "workspace_id": workspace["id"]}
-    assert not any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces").json()["workspaces"])
+    assert not any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces", headers=headers).json()["workspaces"])
+
+    archived_list = client.get("/api/v1/workspaces/archived", headers=headers)
+    assert archived_list.status_code == 200, archived_list.text
+    assert any(item["id"] == workspace["id"] for item in archived_list.json()["workspaces"])
+
+    restored = client.post(f"/api/v1/workspaces/{workspace['id']}/restore", headers=headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json() == {"restored": True, "workspace_id": workspace["id"]}
+    assert any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces", headers=headers).json()["workspaces"])
 
 
-def test_analyst_can_permanently_delete_owned_workspace(client: TestClient) -> None:
-    created = client.post("/api/v1/workspaces", json={"name": "Project Workspace Purge QA"})
+def test_analyst_can_permanently_delete_owned_workspace(client: TestClient, monkeypatch) -> None:
+    headers = _analyst_headers(
+        client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f2"
+    )
+    created = client.post(
+        "/api/v1/workspaces", json={"name": "Project Workspace Purge QA"}, headers=headers
+    )
     assert created.status_code == 201, created.text
     workspace = created.json()
 
-    purged = client.delete(f"/api/v1/workspaces/{workspace['id']}/permanent")
+    purged = client.delete(f"/api/v1/workspaces/{workspace['id']}/permanent", headers=headers)
     assert purged.status_code == 200, purged.text
     assert purged.json() == {"deleted": True, "workspace_id": workspace["id"]}
     assert not any(
         item["id"] == workspace["id"]
-        for item in client.get("/api/v1/workspaces").json()["workspaces"]
+        for item in client.get("/api/v1/workspaces", headers=headers).json()["workspaces"]
     )
+
+
+def test_admin_can_manage_members_and_pending_invitations(
+    client: TestClient, monkeypatch
+) -> None:
+    session = client.get("/api/v1/session")
+    assert session.status_code == 200, session.text
+    actor_id = session.json()["user"]["id"]
+
+    members = client.get("/api/v1/workspaces/current/members")
+    assert members.status_code == 200, members.text
+    assert any(item["user_id"] == actor_id for item in members.json()["members"])
+
+    get_repository().sync_user_profile(actor_id, "admin.directory@example.com")
+    accounts = client.get("/api/v1/accounts")
+    assert accounts.status_code == 200, accounts.text
+    assert any(
+        item["email"] == "admin.directory@example.com"
+        for item in accounts.json()["accounts"]
+    )
+
+    analyst_headers = _analyst_headers(
+        client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f3"
+    )
+    assert client.get("/api/v1/accounts", headers=analyst_headers).status_code == 403
+
+    no_change = client.patch(f"/api/v1/workspaces/current/members/{actor_id}", json={})
+    assert no_change.status_code == 422, no_change.text
+
+    remove_last_admin = client.patch(
+        f"/api/v1/workspaces/current/members/{actor_id}",
+        json={"status": "suspended"},
+    )
+    assert remove_last_admin.status_code == 409, remove_last_admin.text
+
+    invited = client.post(
+        "/api/v1/workspaces/current/invitations",
+        json={"email": "viewer.workspace@example.com", "role": "viewer"},
+    )
+    assert invited.status_code == 201, invited.text
+    invitation_id = invited.json()["id"]
+
+    invitations = client.get("/api/v1/workspaces/current/invitations")
+    assert invitations.status_code == 200, invitations.text
+    invitation = next(item for item in invitations.json()["invitations"] if item["id"] == invitation_id)
+    assert invitation["email"] == "viewer.workspace@example.com"
+    assert "token_hash" not in invitation
+
+    cancelled = client.delete(f"/api/v1/workspaces/current/invitations/{invitation_id}")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json() == {"cancelled": True}
 
 
 def test_list_datasets_and_runs(client: TestClient, profile_run: dict) -> None:
@@ -619,7 +784,9 @@ def test_list_datasets_and_runs(client: TestClient, profile_run: dict) -> None:
     assert any(d["id"] == profile_run["dataset_id"] for d in datasets)
 
     runs = client.get(f"/api/v1/datasets/{profile_run['dataset_id']}/runs").json()
-    assert any(r["id"] == profile_run["profile_run_id"] for r in runs)
+    run = next(r for r in runs if r["id"] == profile_run["profile_run_id"])
+    assert profile_run["run_name"] == "Kiểm tra dữ liệu gốc"
+    assert run["run_name"] == "Kiểm tra dữ liệu gốc"
 
 
 def test_runs_of_unknown_dataset_returns_404(client: TestClient) -> None:

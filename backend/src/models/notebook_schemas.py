@@ -25,10 +25,10 @@ class NotebookCreate(BaseModel):
 class NotebookUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=3, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
-
-
-class NotebookShare(BaseModel):
-    visibility: Literal["private", "workspace"]
+    visibility: Literal["private", "workspace"] | None = None
+    # DELETE archives a notebook. PATCH with `active` restores that resource
+    # without introducing an RPC-style `/restore` endpoint.
+    status: Literal["active"] | None = None
 
 
 class NotebookCellCreate(BaseModel):
@@ -73,6 +73,5 @@ __all__ = [
     "NotebookCellCreate",
     "NotebookCellUpdate",
     "NotebookCreate",
-    "NotebookShare",
     "NotebookUpdate",
 ]

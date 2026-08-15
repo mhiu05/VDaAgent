@@ -1,5 +1,11 @@
 # Báo cáo cập nhật công việc
 Phạm Thế Đăng
+# Cập nhật tiến độ ngày 15/08/2026
+
+- Hoàn thiện quyền nền tảng `global_admin/super_admin`; `lumvan54@gmail.com` có thể xem report trên mọi workspace từ backend.
+- Bổ sung luồng quản trị report: xem chi tiết, **Phê duyệt**, **Từ chối** và **Publish cho Viewer**.
+- Viewer chỉ nhìn thấy report sau khi report được publish; quyền được kiểm tra server-side, không bypass bằng frontend.
+- Cập nhật session, navigation và giao diện danh sách/chi tiết report; frontend typecheck và 9 bài test đã chạy đạt.
 ### Cập nhật bổ sung
 
 - Hoàn thiện luồng workspace: tạo, mở, lưu trữ/xóa workspace và phân quyền Analyst/Admin.
@@ -98,3 +104,9 @@ Phạm Thế Đăng
 - Bổ sung Sổ tay phân tích (Notebook) để lưu cell phân tích, chia sẻ trong workspace và xuất kết quả.
 - Hỗ trợ CSV UTF-16/Windows-1258; tự chuyển về UTF-8 trước khi profiling để tránh lỗi encoding.
 - Đã kiểm tra frontend bằng typecheck/lint và bổ sung test cho luồng đọc CSV encoding đặc biệt.
+# Cập nhật tiến độ ngày 15/08/2026
+
+- Hoàn thiện quyền nền tảng `global_admin/super_admin`; `lumvan54@gmail.com` có thể xem report trên mọi workspace từ backend.
+- Bổ sung luồng quản trị report: xem chi tiết, **Phê duyệt**, **Từ chối** và **Publish cho Viewer**.
+- Viewer chỉ nhìn thấy report sau khi report được publish; quyền được kiểm tra server-side, không bypass bằng frontend.
+- Cập nhật session, navigation và giao diện danh sách/chi tiết report; frontend typecheck và 9 bài test đã chạy đạt.

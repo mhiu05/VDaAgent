@@ -390,6 +390,12 @@ workspace tạm.
 API backend có prefix `/api/v1`; riêng PDF profile report đi qua Next.js proxy
 `/api/reports/profile/{runId}` để giữ cùng export section contract.
 
+API mới tuân theo REST: collection dùng danh từ số nhiều, resource con được lồng
+theo resource cha, `POST` tạo resource, `GET` đọc, `PATCH` cập nhật một phần và
+`DELETE` lưu trữ/xóa theo policy. Ví dụ Notebook dùng `PATCH /notebooks/{id}`
+cho đổi tên, visibility và khôi phục; không dùng endpoint lệnh `/share` hoặc
+`/restore`.
+
 ```text
 GET       /session, /me, /workspaces
 GET       /dashboard, /status, /audit
@@ -424,6 +430,12 @@ POST      /analysis-sessions/{id}/context-versions/{context_id}/approve
 POST      /analysis-sessions/{id}/quality-gate
 POST      /analysis-sessions/{id}/executions
 GET       /analysis-sessions/{id}/executions
+
+GET/POST  /notebooks
+GET/PATCH/DELETE /notebooks/{notebook_id}
+POST      /notebooks/{notebook_id}/cells
+PATCH/DELETE /notebooks/{notebook_id}/cells/{cell_id}
+GET       /notebooks/{notebook_id}/export
 
 GET/POST/PATCH /reports và /reports/{report_id}
 POST          /reports/{report_id}/submit|review|publish|archive
@@ -464,7 +476,16 @@ Health backend:
 Invoke-RestMethod http://localhost:8000/health
 ```
 
-Test cần PostgreSQL test database riêng. Không trỏ test vào database production.
+Test cần PostgreSQL test database riêng. Không trỏ test vào database development hoặc production.
+
+Trước khi chạy full backend suite, tạo database test và đặt DSN trong terminal hiện tại:
+
+```powershell
+$env:P170_TEST_DATABASE_URL = "postgresql+psycopg://p170_test:<password>@localhost:5432/p170_test"
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+`P170_TEST_DATABASE_URL` là bắt buộc để tránh test vô tình ghi vào database ứng dụng.
 
 ## Giới hạn hiện tại
 
@@ -488,3 +509,18 @@ Test cần PostgreSQL test database riêng. Không trỏ test vào database prod
 - [.env.example](.env.example)
 - [config.yaml](config.yaml)
 - [Makefile](Makefile)
+### Platform report administrators
+
+Workspace roles (`admin`, `analyst`, `viewer`) remain tenant-scoped. To grant
+an account read/review/publish access across all active workspaces, configure
+the backend only:
+
+```dotenv
+GLOBAL_ADMIN_EMAILS=lumvan54@gmail.com
+SUPER_ADMIN_USER_IDS=
+```
+
+`SUPER_ADMIN_USER_IDS` is preferred for production because it is tied to the
+immutable Supabase user id. These values are resolved after Supabase token
+verification; changing the frontend or sending `X-Workspace-Id` cannot bypass
+the workspace boundary.

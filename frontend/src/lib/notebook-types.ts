@@ -18,6 +18,8 @@ export interface Notebook {
   id: string;
   workspace_id: string;
   profile_run_id: string;
+  profile_run_name?: string | null;
+  profile_run_version?: number | null;
   title: string;
   description?: string | null;
   visibility: "private" | "workspace" | string;

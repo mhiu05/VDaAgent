@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ScanMode = Literal["full", "sample"]
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
@@ -42,6 +42,7 @@ class ProfileRequest(BaseModel):
         description="Đường dẫn file CSV/Parquet, hoặc tên bảng BigQuery.",
     )
     dataset_name: str | None = Field(default=None, max_length=255)
+    run_name: str | None = Field(default=None, max_length=255)
     scan_mode: ScanMode | None = Field(
         default=None, description="Bỏ trống để dùng mặc định trong config.yaml."
     )
@@ -60,6 +61,18 @@ class ProfileRequest(BaseModel):
         if any(ord(c) < 32 for c in v):
             raise ValueError("dataset_ref chứa ký tự điều khiển không hợp lệ.")
         return v.strip()
+
+    @field_validator("run_name")
+    @classmethod
+    def _normalize_run_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("Tên phiên profiling không được để trống.")
+        if any(ord(c) < 32 for c in normalized):
+            raise ValueError("Tên phiên profiling chứa ký tự điều khiển không hợp lệ.")
+        return normalized
 
 
 class ColumnStatOut(BaseModel):
@@ -106,12 +119,14 @@ class ProposalOut(BaseModel):
     status: ProposalStatus
     confirmed_by: str | None = None
     confirmed_at: datetime | None = None
+    review_note: str | None = None
 
 
 class ProfileResponse(BaseModel):
     profile_run_id: str
     dataset_id: str
     dataset_name: str | None = None
+    run_name: str | None = None
     status: str
     graph_thread_id: str | None = None
     initial_question: str | None = None
@@ -148,9 +163,33 @@ class ProposalDecision(BaseModel):
     proposal_id: str = Field(..., min_length=1)
     decision: Literal["confirm", "reject", "edit"]
     final_type: str | None = Field(
-        default=None, max_length=100, description="Bắt buộc khi decision='edit'."
+        default=None,
+        max_length=100,
+        description="Giá trị phân loại chính thức khi chỉnh semantic type hoặc PII.",
     )
     note: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("final_type", "note", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return value
+        cleaned = value.strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_edit_decision(self) -> "ProposalDecision":
+        if self.decision != "edit":
+            return self
+        if self.kind == "candidate_key":
+            raise ValueError(
+                "Candidate key chỉ hỗ trợ xác nhận hoặc từ chối, không có giá trị để chỉnh sửa."
+            )
+        if not self.final_type:
+            raise ValueError("Quyết định chỉnh sửa cần giá trị phân loại chính thức.")
+        if not self.note or len(self.note) < 3:
+            raise ValueError("Quyết định chỉnh sửa cần lý do gồm ít nhất 3 ký tự.")
+        return self
 
 
 class ConfirmRequest(BaseModel):
@@ -383,6 +422,7 @@ class ProfileRunSummary(BaseModel):
 
     id: str
     dataset_id: str
+    run_name: str | None = None
     version: int | None = None
     status: str
     scan_mode: str | None = None

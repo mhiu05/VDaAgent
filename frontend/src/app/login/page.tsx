@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
-import { getSupabaseBrowserClient } from "@/lib/auth/client";
+import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
 
 function safeNext(value: string | null) {
   return value && value.startsWith("/") && !value.startsWith("//") ? value : "/workspaces";
@@ -15,6 +15,12 @@ function LoginForm() {
   const params = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // A rejected/expired local session must not survive on the login screen
+    // and get picked up by the global auth provider during Fast Refresh.
+    clearSupabaseLocalSession();
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,6 +50,7 @@ function LoginForm() {
       </section>
       <section className="auth-card panel" aria-labelledby="login-title">
         <div className="auth-card-heading"><p className="eyebrow">VDaAgent account</p><h2 id="login-title">Đăng nhập</h2><p>Đăng nhập bằng email và mật khẩu Supabase của bạn.</p></div>
+        {params.get("reason") === "session_expired" && <div className="notice warning" role="status"><b>Phiên đăng nhập đã hết hạn</b><p>Hãy đăng nhập lại để tiếp tục làm việc với workspace.</p></div>}
         <form className="auth-form" onSubmit={submit}>
           <label htmlFor="login-email">Email<input id="login-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></label>
           <label htmlFor="login-password">Mật khẩu<input id="login-password" name="password" type="password" autoComplete="current-password" placeholder="Nhập mật khẩu" required /></label>

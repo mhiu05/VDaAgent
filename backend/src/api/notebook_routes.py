@@ -11,7 +11,6 @@ from src.models.notebook_schemas import (
     NotebookCellCreate,
     NotebookCellUpdate,
     NotebookCreate,
-    NotebookShare,
     NotebookUpdate,
 )
 from src.services.notebook_repository import get_notebook_repository
@@ -46,13 +45,17 @@ def _notebook_or_404(notebook_id: str, context: RequestContext) -> dict[str, Any
 @router.get("")
 async def list_notebooks(
     profile_run_id: str | None = Query(default=None),
+    status: str = Query(default="active"),
     context: RequestContext = Depends(require_permission(NOTEBOOK_READ)),
 ) -> list[dict[str, Any]]:
     get_rate_limiter().check(context.user_id)
+    if status not in {"active", "archived"}:
+        raise HTTPException(status_code=422, detail="status chỉ nhận active hoặc archived.")
     items = get_notebook_repository().list(
         workspace_id=context.workspace_id,
         actor_user_id=context.user_id,
         role=context.workspace.role,
+        status=status,
     )
     if profile_run_id:
         items = [item for item in items if item["profile_run_id"] == profile_run_id]
@@ -97,45 +100,76 @@ async def update_notebook(
     context: RequestContext = Depends(require_permission(NOTEBOOK_WRITE)),
 ) -> dict[str, Any]:
     get_rate_limiter().check(context.user_id)
+    changed_fields = payload.model_fields_set
+    if not changed_fields:
+        raise HTTPException(status_code=422, detail="Cần gửi ít nhất một trường cần cập nhật.")
+    repository = get_notebook_repository()
+
+    if payload.status == "active":
+        try:
+            restored = repository.restore(
+                notebook_id,
+                workspace_id=context.workspace_id,
+                actor_user_id=context.user_id,
+                role=context.workspace.role,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        if restored:
+            _audit(context, "notebook_restored", resource_type="notebook", resource_id=notebook_id)
+
     try:
-        item = get_notebook_repository().update(
+        item = repository.get(
             notebook_id,
             workspace_id=context.workspace_id,
             actor_user_id=context.user_id,
             role=context.workspace.role,
-            title=payload.title,
-            description=payload.description,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     if not item:
         raise HTTPException(status_code=404, detail="Không tìm thấy notebook.")
-    _audit(context, "notebook_updated", resource_type="notebook", resource_id=notebook_id)
-    return item
 
+    if "visibility" in changed_fields:
+        if NOTEBOOK_SHARE not in context.workspace.effective_permissions:
+            raise HTTPException(status_code=403, detail="Bạn không có quyền chia sẻ notebook.")
+        try:
+            item = repository.set_visibility(
+                notebook_id,
+                workspace_id=context.workspace_id,
+                actor_user_id=context.user_id,
+                role=context.workspace.role,
+                visibility=payload.visibility or "private",
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if not item:
+            raise HTTPException(status_code=404, detail="Không tìm thấy notebook.")
 
-@router.post("/{notebook_id}/share")
-async def share_notebook(
-    notebook_id: str,
-    payload: NotebookShare,
-    context: RequestContext = Depends(require_permission(NOTEBOOK_SHARE)),
-) -> dict[str, Any]:
-    get_rate_limiter().check(context.user_id)
-    try:
-        item = get_notebook_repository().set_visibility(
-            notebook_id,
-            workspace_id=context.workspace_id,
-            actor_user_id=context.user_id,
-            role=context.workspace.role,
-            visibility=payload.visibility,
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if not item:
-        raise HTTPException(status_code=404, detail="Không tìm thấy notebook.")
-    _audit(context, "notebook_shared", resource_type="notebook", resource_id=notebook_id, visibility=payload.visibility)
+    if {"title", "description"}.intersection(changed_fields):
+        try:
+            item = repository.update(
+                notebook_id,
+                workspace_id=context.workspace_id,
+                actor_user_id=context.user_id,
+                role=context.workspace.role,
+                title=payload.title if "title" in changed_fields else None,
+                description=payload.description if "description" in changed_fields else None,
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        if not item:
+            raise HTTPException(status_code=404, detail="Không tìm thấy notebook.")
+
+    _audit(
+        context,
+        "notebook_updated",
+        resource_type="notebook",
+        resource_id=notebook_id,
+        fields=sorted(changed_fields),
+    )
     return item
 
 

@@ -11,6 +11,7 @@ from src.services.repository import (
     Repository,
     notebook_cells,
     notebooks,
+    profile_runs,
     get_repository,
 )
 
@@ -36,6 +37,20 @@ class NotebookRepository:
     def _can_edit(item: dict[str, Any], actor_user_id: str, role: str) -> bool:
         return role == "admin" or item["created_by_user_id"] == actor_user_id
 
+    def _with_profile_label(
+        self, conn: Any, item: dict[str, Any], *, workspace_id: str
+    ) -> dict[str, Any]:
+        """Expose a friendly run label while keeping its ID internal to actions."""
+        run = conn.execute(
+            select(profile_runs.c.run_name, profile_runs.c.version).where(
+                profile_runs.c.id == item["profile_run_id"],
+                profile_runs.c.workspace_id == workspace_id,
+            )
+        ).mappings().first()
+        item["profile_run_name"] = run.get("run_name") if run else None
+        item["profile_run_version"] = run.get("version") if run else None
+        return item
+
     def _row(
         self,
         conn: Any,
@@ -54,7 +69,7 @@ class NotebookRepository:
         ).mappings().first()
         if not row:
             return None
-        item = dict(row)
+        item = self._with_profile_label(conn, dict(row), workspace_id=workspace_id)
         if actor_user_id is not None and not self._can_read(item, actor_user_id, role):
             return None
         item["cells"] = [
@@ -105,7 +120,11 @@ class NotebookRepository:
                     position=0,
                     kind="markdown",
                     title="Mục tiêu phân tích",
-                    source=f"Notebook được tạo từ profile run `{profile_run_id}`.",
+                    source=(
+                        description.strip()
+                        if description and description.strip()
+                        else "Ghi lại mục tiêu, giả thuyết và các phát hiện quan trọng của phiên phân tích này."
+                    ),
                     result=None,
                     status="draft",
                     created_by_user_id=actor_user_id,
@@ -122,20 +141,32 @@ class NotebookRepository:
             ) or notebook
 
     def list(
-        self, *, workspace_id: str, actor_user_id: str, role: str
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        role: str,
+        status: str = "active",
     ) -> list[dict[str, Any]]:
+        if status not in {"active", "archived"}:
+            raise ValueError("Trạng thái phiên phân tích không hợp lệ.")
         with self.engine.begin() as conn:
             statement = select(notebooks).where(
                 notebooks.c.workspace_id == workspace_id,
-                notebooks.c.status == "active",
+                notebooks.c.status == status,
             )
             if role != "admin":
-                statement = statement.where(
-                    (notebooks.c.visibility == "workspace")
-                    | (notebooks.c.created_by_user_id == actor_user_id)
-                )
+                if status == "archived":
+                    statement = statement.where(
+                        notebooks.c.created_by_user_id == actor_user_id
+                    )
+                else:
+                    statement = statement.where(
+                        (notebooks.c.visibility == "workspace")
+                        | (notebooks.c.created_by_user_id == actor_user_id)
+                    )
             return [
-                dict(row)
+                self._with_profile_label(conn, dict(row), workspace_id=workspace_id)
                 for row in conn.execute(
                     statement.order_by(notebooks.c.updated_at.desc())
                 ).mappings()
@@ -219,6 +250,30 @@ class NotebookRepository:
                 notebooks.update()
                 .where(notebooks.c.id == notebook_id)
                 .values(status="archived", updated_at=_now())
+            )
+            return bool(result.rowcount)
+
+    def restore(
+        self, notebook_id: str, *, workspace_id: str, actor_user_id: str, role: str
+    ) -> bool:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(notebooks).where(
+                    notebooks.c.id == notebook_id,
+                    notebooks.c.workspace_id == workspace_id,
+                    notebooks.c.status == "archived",
+                )
+            ).mappings().first()
+            if not row:
+                return False
+            if not self._can_edit(dict(row), actor_user_id, role):
+                raise PermissionError("Bạn không có quyền khôi phục phiên phân tích này.")
+            result = conn.execute(
+                notebooks.update()
+                .where(notebooks.c.id == notebook_id)
+                .where(notebooks.c.workspace_id == workspace_id)
+                .where(notebooks.c.status == "archived")
+                .values(status="active", updated_at=_now())
             )
             return bool(result.rowcount)
 

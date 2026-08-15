@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { formatStatus } from "@/lib/format";
 import type { RunStatus } from "@/lib/types";
 
@@ -41,4 +41,9 @@ export function LoadingBlock({ label = "Đang tải dữ liệu…" }: { label?:
 
 export function Notice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warning" | "success" }) {
   return <section className={`notice ${tone}`}>{children}</section>;
+}
+
+export function InfoTip({ children, label = "Thông tin" }: { children: ReactNode; label?: string }) {
+  const tooltipId = useId();
+  return <span className="info-tip"><button type="button" className="info-tip-trigger" aria-label={label} aria-describedby={tooltipId}>!</button><span id={tooltipId} role="tooltip" className="info-tip-content">{children}</span></span>;
 }

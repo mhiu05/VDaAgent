@@ -8,13 +8,24 @@ import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
 import { PublicNavbar } from "@/components/public-navbar";
+import { InfoTip } from "@/components/ui";
 
-const navigation = [
-  { href: "/datasets", label: "Bộ dữ liệu", icon: "▦", permission: PERMISSIONS.datasetRead },
-  { href: "/analyses", label: "Phân tích", icon: "A", permission: PERMISSIONS.analysisRun },
-  { href: "/notebooks", label: "Sổ tay phân tích", icon: "N", permission: PERMISSIONS.notebookRead },
-  { href: "/compare", label: "So sánh drift", icon: "↔", permission: PERMISSIONS.driftRun },
-  { href: "/activity", label: "Hoạt động", icon: "◷", permission: PERMISSIONS.workspaceAuditRead },
+const analystNavigation = [
+  { href: "/reports", label: "Thư viện báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
+  { href: "/datasets", label: "Bộ dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và mở báo cáo profile.", permission: PERMISSIONS.datasetRead },
+  { href: "/analyses", label: "Phân tích chuyên sâu", icon: "A", description: "Dành cho một mục tiêu nghiệp vụ rõ ràng; có context, quality gate và bước review.", permission: PERMISSIONS.analysisRun },
+  { href: "/notebooks", label: "Phiên phân tích", icon: "✦", description: "Lưu ghi chú, câu hỏi Agent và kết quả theo một profile run. Không thay thế Chat Agent.", permission: PERMISSIONS.notebookRead },
+  { href: "/compare", label: "So sánh phiên bản", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
+  { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
+] as const;
+
+const adminNavigation = [
+  { href: "/reports", label: "Báo cáo & phê duyệt", icon: "▤", description: "Kiểm tra, phê duyệt và xuất bản báo cáo trong workspace.", permission: PERMISSIONS.reportReview },
+  { href: "/activity", label: "Nhật ký hoạt động", icon: "◷", description: "Theo dõi các thao tác quan trọng để audit workspace.", permission: PERMISSIONS.workspaceAuditRead },
+] as const;
+
+const viewerNavigation = [
+  { href: "/reports", label: "Báo cáo đã xuất bản", icon: "▤", description: "Xem và xuất các báo cáo đã được phê duyệt.", permission: PERMISSIONS.reportPublishedRead },
 ] as const;
 
 function AppShellContent({ children }: { children: ReactNode }) {
@@ -28,6 +39,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
   const isPublicPage = isHome || isGuide;
+  const isAdmin = me?.workspace.role === "admin" || Boolean(me?.global_role);
+  const roleNavigation = isAdmin
+    ? adminNavigation
+    : me?.workspace.role === "viewer"
+      ? viewerNavigation
+      : analystNavigation;
 
   useEffect(() => {
     if (isPublicPage || isAuthPage) return;
@@ -98,7 +115,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
           <span className="brand-mark" aria-hidden="true">P</span>
           <span><b>Profile</b><small>Phân tích dữ liệu</small></span>
         </Link>
-        <Link className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/"><span aria-hidden="true">⌂</span>Trang chủ</Link>
+        <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard"><span aria-hidden="true">⌂</span>Trang chủ</Link>
         {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
           <span className="sidebar-workspace-label">Workspace của bạn</span>
           <div className="current-role" aria-label={`Vai trò hiện tại: ${me.workspace.role}`}>
@@ -107,8 +124,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
           </div>
           <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
           <Link className="workspace-manage-link" href="/workspaces">Quản lý workspace →</Link>
+          {can(me.effective_permissions, PERMISSIONS.workspaceMembersManage) && <Link className="workspace-admin-link" href="/workspaces/manage">Quản trị thành viên →</Link>}
         </section>}
-        <section className="chat-history" aria-label="Lịch sử chat">
+        {!isAdmin && can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && <section className="chat-history" aria-label="Lịch sử chat">
           <div className="sidebar-section-heading"><span>Lịch sử chat</span><button type="button" className="new-chat-button" onClick={startNewChat}>+ Chat mới</button></div>
           <div className="chat-history-list">
             {conversations.length === 0 && <p className="sidebar-empty">Chưa có cuộc trò chuyện</p>}
@@ -118,17 +136,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
             })}
           </div>
           <div className="chat-history-footer"><button type="button" className="history-button" onClick={() => setShowAllHistory(true)} disabled={!conversations.length}>Lịch sử</button></div>
-        </section>
-        <nav className="nav-list sidebar-navigation" aria-label="Điều hướng dữ liệu">
-          <span className="sidebar-section-label">Phân tích dữ liệu</span>
-          <Link className={pathname.startsWith("/reports") ? "nav-link active" : "nav-link"} href="/reports"><span aria-hidden="true">▤</span>Báo cáo</Link>
-          {navigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
-            const active = (item.href === "/analyses" && pathname.startsWith("/analyses"))
-              || (item.href === "/notebooks" && pathname.startsWith("/notebooks"))
-              || (item.href === "/datasets" && pathname.startsWith("/datasets"))
-              || (item.href === "/compare" && pathname.startsWith("/compare"))
-              || (item.href === "/activity" && pathname.startsWith("/activity"));
-            return <Link className={active ? "nav-link active" : "nav-link"} href={item.href} key={item.href}><span aria-hidden="true">{item.icon}</span>{item.label}</Link>;
+        </section>}
+        <nav className="nav-list sidebar-navigation" aria-label={isAdmin ? "Điều hướng quản trị" : "Điều hướng dữ liệu"}>
+          <span className="sidebar-section-label">{isAdmin ? "Quản trị workspace" : "Phân tích dữ liệu"}</span>
+          {roleNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span aria-hidden="true">{item.icon}</span>{item.label}</Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
           })}
         </nav>
         <div className="sidebar-footer">

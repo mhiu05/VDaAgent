@@ -54,12 +54,21 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _normalise_email(email: str | None) -> str | None:
+    """Keep an application-safe, canonical copy of the Auth email."""
+    if not email:
+        return None
+    normalised = email.strip().casefold()
+    return normalised or None
+
+
 # Workspace identity is held beside the domain metadata. Browser clients have
 # no grants to these tables; the API always applies a workspace predicate.
 user_profiles = Table(
     "user_profiles",
     metadata,
     Column("user_id", String(36), primary_key=True),
+    Column("email", String(320), nullable=True, index=True),
     Column("display_name", String(255), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
@@ -176,6 +185,7 @@ profile_runs = Table(
         index=True,
     ),
     Column("version", Integer, nullable=False),
+    Column("run_name", String(255), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("scan_mode", String(16), nullable=False),
     Column("sampling_strategy", String(32), nullable=True),
@@ -251,6 +261,7 @@ def _PROPOSAL_COLUMNS() -> list[Column]:
         Column("status", String(16), nullable=False, default="pending"),
         Column("confirmed_by", String(255), nullable=True),
         Column("confirmed_at", DateTime(timezone=True), nullable=True),
+        Column("review_note", Text, nullable=True),
         Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     ]
 
@@ -278,6 +289,7 @@ pii_proposals = Table(
     *_PROPOSAL_COLUMNS(),
     Column("column_name", String(255), nullable=False),
     Column("pii_type", String(64), nullable=True),
+    Column("final_type", String(64), nullable=True),  # Analyst phân loại lại PII
     Column(
         "detection_method", String(32), nullable=False
     ),  # heuristic|regex|NER|LLM|manual
@@ -929,6 +941,7 @@ class Repository:
         if self.settings.app_env != "production":
             metadata.create_all(engine)
             self._migrate_semantic_description()
+            self._migrate_review_proposal_columns()
             self._migrate_tool_v2_profile_columns()
             self._migrate_workflow_columns()
             self._migrate_authz_columns()
@@ -984,6 +997,12 @@ class Repository:
                     "ADD COLUMN IF NOT EXISTS source_version VARCHAR(255)"
                 )
             )
+            conn.execute(
+                text(
+                    "ALTER TABLE profile_runs "
+                    "ADD COLUMN IF NOT EXISTS run_name VARCHAR(255)"
+                )
+            )
 
     def _migrate_semantic_description(self) -> None:
         """Bổ sung cột mô tả cho các metadata DB đã tồn tại từ phiên bản trước."""
@@ -1000,6 +1019,30 @@ class Repository:
                         "ALTER TABLE semantic_type_proposals ADD COLUMN semantic_description VARCHAR(512)"
                     )
                 )
+
+    def _migrate_review_proposal_columns(self) -> None:
+        """Bổ sung dữ liệu quyết định review cho các DB local đã tồn tại."""
+        from sqlalchemy import inspect, text
+
+        additions = {
+            "candidate_key_proposals": {"review_note": "TEXT"},
+            "semantic_type_proposals": {"review_note": "TEXT"},
+            "pii_proposals": {"final_type": "VARCHAR(64)", "review_note": "TEXT"},
+        }
+        with self.engine.begin() as conn:
+            inspector = inspect(self.engine)
+            for table_name, columns_to_add in additions.items():
+                columns = {
+                    item["name"] for item in inspector.get_columns(table_name)
+                }
+                for column_name, sql_type in columns_to_add.items():
+                    if column_name not in columns:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table_name} "
+                                f"ADD COLUMN {column_name} {sql_type}"
+                            )
+                        )
 
     def _migrate_tool_v2_profile_columns(self) -> None:
         """Add aggregate Tool V2 artifacts to existing PostgreSQL databases."""
@@ -1575,6 +1618,42 @@ class Repository:
     def _legacy_workspace_id() -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, "p170:legacy-workspace"))
 
+    def _sync_user_profile(
+        self, conn: Any, user_id: str, email: str | None, now: datetime
+    ) -> None:
+        """Create a local identity record or refresh its canonical email."""
+        normalised_email = _normalise_email(email)
+        profile = (
+            conn.execute(
+                select(user_profiles.c.user_id, user_profiles.c.email).where(
+                    user_profiles.c.user_id == user_id
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not profile:
+            conn.execute(
+                user_profiles.insert().values(
+                    user_id=user_id,
+                    email=normalised_email,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            return
+        if normalised_email and profile["email"] != normalised_email:
+            conn.execute(
+                user_profiles.update()
+                .where(user_profiles.c.user_id == user_id)
+                .values(email=normalised_email, updated_at=now)
+            )
+
+    def sync_user_profile(self, user_id: str, email: str | None) -> None:
+        """Synchronise the signed-in user's public identity from Auth."""
+        with self.engine.begin() as conn:
+            self._sync_user_profile(conn, user_id, email, _now())
+
     def ensure_bootstrap_workspace(self, bootstrap_user_id: str) -> str:
         """Create the one deterministic legacy workspace/membership if needed."""
         workspace_id = self._legacy_workspace_id()
@@ -1596,17 +1675,7 @@ class Repository:
                         updated_at=now,
                     )
                 )
-            profile = conn.execute(
-                select(user_profiles.c.user_id).where(
-                    user_profiles.c.user_id == bootstrap_user_id
-                )
-            ).first()
-            if not profile:
-                conn.execute(
-                    user_profiles.insert().values(
-                        user_id=bootstrap_user_id, created_at=now, updated_at=now
-                    )
-                )
+            self._sync_user_profile(conn, bootstrap_user_id, None, now)
             membership = conn.execute(
                 select(workspace_memberships.c.user_id).where(
                     workspace_memberships.c.workspace_id == workspace_id,
@@ -1781,6 +1850,9 @@ class Repository:
             raise ValueError("Role self-signup không hợp lệ.")
         now = _now()
         with self.engine.begin() as conn:
+            # Do this before the idempotent early return so a returning user
+            # still has an email available to their workspace administrator.
+            self._sync_user_profile(conn, user_id, email, now)
             candidates = (
                 conn.execute(
                     select(
@@ -1830,17 +1902,6 @@ class Repository:
                     updated_at=now,
                 )
             )
-            profile = conn.execute(
-                select(user_profiles.c.user_id).where(
-                    user_profiles.c.user_id == user_id
-                )
-            ).first()
-            if not profile:
-                conn.execute(
-                    user_profiles.insert().values(
-                        user_id=user_id, created_at=now, updated_at=now
-                    )
-                )
             conn.execute(
                 workspace_memberships.insert().values(
                     workspace_id=workspace_id,
@@ -1875,15 +1936,7 @@ class Repository:
         slug = f"{slug_base or 'workspace'}-{workspace_id.replace('-', '')[:12]}"
         now = _now()
         with self.engine.begin() as conn:
-            profile = conn.execute(
-                select(user_profiles.c.user_id).where(user_profiles.c.user_id == user_id)
-            ).first()
-            if not profile:
-                conn.execute(
-                    user_profiles.insert().values(
-                        user_id=user_id, created_at=now, updated_at=now
-                    )
-                )
+            self._sync_user_profile(conn, user_id, None, now)
             conn.execute(
                 workspaces.insert().values(
                     id=workspace_id,
@@ -1919,7 +1972,12 @@ class Repository:
     def delete_workspace(
         self, workspace_id: str, actor_user_id: str
     ) -> bool:
-        """Archive a project workspace without physically deleting its data."""
+        """Archive a project workspace without physically deleting its data.
+
+        Memberships intentionally stay active while a workspace is archived.
+        This preserves the authorization trail and lets an authorized member
+        restore the workspace later without recreating access records.
+        """
         with self.engine.begin() as conn:
             workspace = (
                 conn.execute(
@@ -1958,16 +2016,61 @@ class Repository:
                 ).scalar()
                 if int(member_count or 0) > 1:
                     raise PermissionError("Workspace có thành viên khác; hãy nhờ Admin xử lý.")
+            actor_active_workspace_count = conn.execute(
+                select(func.count())
+                .select_from(
+                    workspaces.join(
+                        workspace_memberships,
+                        workspace_memberships.c.workspace_id == workspaces.c.id,
+                    )
+                )
+                .where(
+                    workspace_memberships.c.user_id == actor_user_id,
+                    workspace_memberships.c.status == "active",
+                    workspaces.c.status == "active",
+                )
+            ).scalar()
+            if int(actor_active_workspace_count or 0) <= 1:
+                raise ValueError(
+                    "Cannot archive the last active workspace. Create or open another workspace first."
+                )
             now = _now()
             conn.execute(
                 workspaces.update()
                 .where(workspaces.c.id == workspace_id)
                 .values(status="archived", updated_at=now)
             )
+            return True
+
+    def restore_workspace(self, workspace_id: str, actor_user_id: str) -> bool:
+        """Restore an archived project workspace for an authorized member."""
+        with self.engine.begin() as conn:
+            workspace = (
+                conn.execute(select(workspaces).where(workspaces.c.id == workspace_id))
+                .mappings()
+                .first()
+            )
+            if not workspace or workspace["status"] != "archived":
+                return False
+            settings = workspace.get("settings") or {}
+            if not isinstance(settings, dict) or not settings.get("project_workspace"):
+                raise ValueError("Chỉ workspace dự án mới có thể khôi phục.")
+            membership = conn.execute(
+                select(workspace_memberships.c.role).where(
+                    workspace_memberships.c.workspace_id == workspace_id,
+                    workspace_memberships.c.user_id == actor_user_id,
+                    workspace_memberships.c.status == "active",
+                )
+            ).scalar_one_or_none()
+            if membership is None:
+                raise PermissionError("Bạn không còn quyền khôi phục workspace này.")
+            role = str(membership)
+            if role != "admin" and workspace["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ Admin hoặc chủ workspace mới có thể khôi phục.")
             conn.execute(
-                workspace_memberships.update()
-                .where(workspace_memberships.c.workspace_id == workspace_id)
-                .values(status="removed", updated_at=now)
+                workspaces.update()
+                .where(workspaces.c.id == workspace_id)
+                .values(status="active", updated_at=_now())
             )
             return True
 
@@ -1988,7 +2091,7 @@ class Repository:
                 .mappings()
                 .first()
             )
-            if not workspace or workspace["status"] != "active":
+            if not workspace or workspace["status"] not in {"active", "archived"}:
                 return False
             settings = workspace.get("settings") or {}
             if not isinstance(settings, dict) or not settings.get("project_workspace"):
@@ -2131,6 +2234,43 @@ class Repository:
             ).mappings()
             return [dict(row) for row in rows]
 
+    def list_archived_workspaces_for_user(self, user_id: str) -> list[dict[str, Any]]:
+        """Return archived project workspaces where the user still has access.
+
+        Archived workspaces are not selectable for normal API requests, but
+        their active memberships remain so owners/Admins can restore or purge
+        them from the workspace library.
+        """
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(
+                    workspaces,
+                    workspace_memberships.c.role.label("membership_role"),
+                )
+                .join(
+                    workspace_memberships,
+                    workspace_memberships.c.workspace_id == workspaces.c.id,
+                )
+                .where(
+                    workspace_memberships.c.user_id == user_id,
+                    workspace_memberships.c.status == "active",
+                    workspaces.c.status == "archived",
+                )
+                .order_by(workspaces.c.updated_at.desc())
+            ).mappings().all()
+            return [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "slug": row["slug"],
+                    "role": row["membership_role"],
+                    "status": row["status"],
+                    "created_by_user_id": row["created_by_user_id"],
+                    "is_project": bool(isinstance(row.get("settings"), dict) and row["settings"].get("project_workspace")),
+                }
+                for row in rows
+            ]
+
     def get_membership(self, workspace_id: str, user_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
             row = (
@@ -2148,13 +2288,81 @@ class Repository:
     def list_memberships(self, workspace_id: str) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
             rows = conn.execute(
-                select(workspace_memberships)
+                select(
+                    workspace_memberships,
+                    user_profiles.c.email,
+                    user_profiles.c.display_name,
+                )
+                .select_from(
+                    workspace_memberships.outerjoin(
+                        user_profiles,
+                        workspace_memberships.c.user_id == user_profiles.c.user_id,
+                    )
+                )
                 .where(
                     workspace_memberships.c.workspace_id == workspace_id,
                 )
                 .order_by(workspace_memberships.c.created_at)
             ).mappings()
             return [dict(row) for row in rows]
+
+    def list_account_directory(self) -> list[dict[str, Any]]:
+        """Return the application account directory for authorised Admins.
+
+        This deliberately reads the application's identity projection instead
+        of exposing Supabase Auth tables through a browser-facing endpoint.
+        """
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(
+                    user_profiles.c.user_id,
+                    user_profiles.c.email,
+                    user_profiles.c.display_name,
+                    user_profiles.c.created_at,
+                    workspace_memberships.c.workspace_id,
+                    workspace_memberships.c.role,
+                    workspace_memberships.c.status,
+                    workspaces.c.name.label("workspace_name"),
+                    workspaces.c.slug.label("workspace_slug"),
+                    workspaces.c.status.label("workspace_status"),
+                )
+                .select_from(
+                    user_profiles.outerjoin(
+                        workspace_memberships,
+                        user_profiles.c.user_id == workspace_memberships.c.user_id,
+                    ).outerjoin(
+                        workspaces,
+                        workspace_memberships.c.workspace_id == workspaces.c.id,
+                    )
+                )
+                .order_by(user_profiles.c.created_at.desc(), workspaces.c.name)
+            ).mappings().all()
+
+        accounts: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            user_id = str(row["user_id"])
+            account = accounts.setdefault(
+                user_id,
+                {
+                    "user_id": user_id,
+                    "email": row["email"],
+                    "display_name": row["display_name"],
+                    "created_at": row["created_at"],
+                    "memberships": [],
+                },
+            )
+            if row["workspace_id"]:
+                account["memberships"].append(
+                    {
+                        "workspace_id": row["workspace_id"],
+                        "workspace_name": row["workspace_name"],
+                        "workspace_slug": row["workspace_slug"],
+                        "workspace_status": row["workspace_status"],
+                        "role": row["role"],
+                        "status": row["status"],
+                    }
+                )
+        return list(accounts.values())
 
     def save_membership(
         self, workspace_id: str, user_id: str, role: str, status: str = "active"
@@ -2232,6 +2440,54 @@ class Repository:
             conn.execute(workspace_invitations.insert().values(**invitation))
         return invitation, token
 
+    def list_invitations(self, workspace_id: str) -> list[dict[str, Any]]:
+        """List invitation metadata without exposing the stored token hash."""
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(workspace_invitations)
+                .where(workspace_invitations.c.workspace_id == workspace_id)
+                .order_by(workspace_invitations.c.created_at.desc())
+            ).mappings().all()
+            return [
+                {
+                    "id": row["id"],
+                    "email": row["normalized_email"],
+                    "role": row["role"],
+                    "expires_at": row["expires_at"],
+                    "invited_by_user_id": row["invited_by_user_id"],
+                    "accepted_by_user_id": row["accepted_by_user_id"],
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                }
+                for row in rows
+            ]
+
+    def cancel_invitation(self, workspace_id: str, invitation_id: str) -> bool:
+        """Cancel a pending workspace invitation; accepted invites are immutable."""
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                workspace_invitations.update()
+                .where(
+                    workspace_invitations.c.id == invitation_id,
+                    workspace_invitations.c.workspace_id == workspace_id,
+                    workspace_invitations.c.status == "pending",
+                )
+                .values(status="cancelled")
+            )
+            return bool(result.rowcount)
+
+    def count_active_admins(self, workspace_id: str) -> int:
+        with self.engine.begin() as conn:
+            return int(conn.execute(
+                select(func.count())
+                .select_from(workspace_memberships)
+                .where(
+                    workspace_memberships.c.workspace_id == workspace_id,
+                    workspace_memberships.c.role == "admin",
+                    workspace_memberships.c.status == "active",
+                )
+            ).scalar() or 0)
+
     def accept_invitation(
         self, token: str, user_id: str, email: str | None
     ) -> dict[str, Any] | None:
@@ -2252,6 +2508,7 @@ class Repository:
                 return None
             if email and str(invite["normalized_email"]) != email.casefold():
                 return None
+            self._sync_user_profile(conn, user_id, email, now)
             conn.execute(
                 workspace_memberships.insert().values(
                     workspace_id=invite["workspace_id"],
@@ -2569,6 +2826,7 @@ class Repository:
         graph_thread_id: str | None = None,
         initial_question: str | None = None,
         workspace_id: str | None = None,
+        run_name: str | None = None,
     ) -> str:
         with self.engine.begin() as conn:
             dataset_query = select(
@@ -2600,6 +2858,7 @@ class Repository:
                     source_content_sha256=dataset.get("content_sha256"),
                     source_version=dataset.get("source_version"),
                     version=version,
+                    run_name=run_name,
                     created_at=_now(),
                     scan_mode=scan_mode,
                     sampling_strategy=sampling_strategy,
@@ -2710,17 +2969,31 @@ class Repository:
                 decision = item.get("decision")
                 if decision not in status_map:
                     return {"ok": False, "code": "invalid_decision"}
-                if decision == "edit" and not item.get("final_type"):
-                    return {
-                        "ok": False,
-                        "code": "edit_requires_final_type",
-                        "proposal_id": item["proposal_id"],
-                    }
+                if decision == "edit":
+                    if item["kind"] == "candidate_key":
+                        return {
+                            "ok": False,
+                            "code": "edit_not_supported",
+                            "proposal_id": item["proposal_id"],
+                        }
+                    if not item.get("final_type"):
+                        return {
+                            "ok": False,
+                            "code": "edit_requires_final_type",
+                            "proposal_id": item["proposal_id"],
+                        }
+                    if not item.get("note"):
+                        return {
+                            "ok": False,
+                            "code": "edit_requires_note",
+                            "proposal_id": item["proposal_id"],
+                        }
                 table = PROPOSAL_TABLES[item["kind"]]
                 values: dict[str, Any] = {
                     "status": status_map[decision],
                     "confirmed_by": confirmed_by,
                     "confirmed_at": _now(),
+                    "review_note": item.get("note"),
                 }
                 if item.get("final_type") is not None and "final_type" in table.c:
                     values["final_type"] = item["final_type"]
@@ -2962,7 +3235,7 @@ class Repository:
                 select(pii_proposals.c.column_name).where(
                     pii_proposals.c.profile_run_id == run_id,
                     pii_proposals.c.status.in_(
-                        ["confirmed", "auto_confirmed", "pending"]
+                        ["confirmed", "edited", "auto_confirmed", "pending"]
                     ),
                 )
             )
@@ -3355,6 +3628,14 @@ class Repository:
             rows = conn.execute(query.order_by(reports.c.updated_at.desc())).mappings()
             return [dict(row) for row in rows]
 
+    def list_all_reports(self, *, published_only: bool = False) -> list[dict[str, Any]]:
+        """List reports across active workspaces for a platform administrator."""
+        with self.engine.begin() as conn:
+            query = select(reports).join(workspaces, workspaces.c.id == reports.c.workspace_id).where(workspaces.c.status == "active")
+            if published_only:
+                query = query.where(reports.c.status == "published")
+            return [dict(row) for row in conn.execute(query.order_by(reports.c.updated_at.desc())).mappings()]
+
     def get_report(
         self, report_id: str, workspace_id: str, *, published_only: bool = False
     ) -> dict[str, Any] | None:
@@ -3381,6 +3662,30 @@ class Repository:
             ).mappings()
             result["versions"] = [
                 self._report_version_payload(conn, dict(row)) for row in versions
+            ]
+            return result
+
+    def get_report_any_workspace(
+        self, report_id: str, *, published_only: bool = False
+    ) -> dict[str, Any] | None:
+        """Read a report without tenant scoping; callers must be global-authorized."""
+        with self.engine.begin() as conn:
+            query = select(reports).join(workspaces, workspaces.c.id == reports.c.workspace_id).where(
+                reports.c.id == report_id, workspaces.c.status == "active"
+            )
+            if published_only:
+                query = query.where(reports.c.status == "published")
+            report = conn.execute(query).mappings().first()
+            if not report:
+                return None
+            result = dict(report)
+            version_id = report.get("current_published_version_id") if published_only else None
+            version_query = select(report_versions).where(report_versions.c.report_id == report["id"])
+            if version_id:
+                version_query = version_query.where(report_versions.c.id == version_id)
+            result["versions"] = [
+                self._report_version_payload(conn, dict(row))
+                for row in conn.execute(version_query.order_by(report_versions.c.version.desc())).mappings()
             ]
             return result
 

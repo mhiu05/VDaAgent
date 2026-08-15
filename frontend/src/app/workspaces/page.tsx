@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ErrorNotice, LoadingBlock } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
-import { createWorkspace, deleteWorkspace, listWorkspaces, purgeWorkspace, type WorkspaceSummary } from "@/lib/api";
+import { createWorkspace, deleteWorkspace, listArchivedWorkspaces, listWorkspaces, purgeWorkspace, restoreWorkspace, type WorkspaceSummary } from "@/lib/api";
 import { useState, type FormEvent } from "react";
 
 const roleLabels: Record<string, string> = {
@@ -27,6 +27,11 @@ export default function WorkspacesPage() {
   const { me, workspaceId, switchWorkspace } = useAuth();
   const [name, setName] = useState("");
   const workspaces = useQuery({ queryKey: ["workspaces"], queryFn: listWorkspaces, enabled: Boolean(me) });
+  const archivedWorkspaces = useQuery({
+    queryKey: ["archived-workspaces"],
+    queryFn: listArchivedWorkspaces,
+    enabled: Boolean(me && can(me.effective_permissions, PERMISSIONS.workspaceDelete)),
+  });
   const creation = useMutation({
     mutationFn: createWorkspace,
     onSuccess: async (workspace) => {
@@ -38,23 +43,34 @@ export default function WorkspacesPage() {
   });
   const deletion = useMutation({
     mutationFn: deleteWorkspace,
-    onSuccess: async (_result, deletedId) => {
+    onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["workspaces"] });
-      if (deletedId === workspaceId) window.location.assign("/workspaces");
+      await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
     },
   });
   const purging = useMutation({
     mutationFn: purgeWorkspace,
-    onSuccess: async (_result, deletedId) => {
+    onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["workspaces"] });
-      if (deletedId === workspaceId) window.location.assign("/workspaces");
+      await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
+    },
+  });
+  const restoration = useMutation({
+    mutationFn: restoreWorkspace,
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["workspaces"] }),
+        client.invalidateQueries({ queryKey: ["archived-workspaces"] }),
+      ]);
     },
   });
 
-  const canCreate = can(me?.effective_permissions, PERMISSIONS.workspaceCreate);
+  const isAdmin = me?.workspace.role === "admin";
+  const canCreate = !isAdmin && can(me?.effective_permissions, PERMISSIONS.workspaceCreate);
   const canDelete = can(me?.effective_permissions, PERMISSIONS.workspaceDelete);
-  const workspaceActionBusy = deletion.isPending || purging.isPending;
+  const workspaceActionBusy = deletion.isPending || purging.isPending || restoration.isPending;
   const items = workspaces.data?.workspaces ?? [];
+  const archivedItems = archivedWorkspaces.data?.workspaces ?? [];
 
   function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,16 +79,42 @@ export default function WorkspacesPage() {
   }
 
   function removeWorkspace(workspace: WorkspaceSummary) {
+    if (workspace.id === workspaceId && items.length < 2) {
+      window.alert("Hãy tạo hoặc mở một workspace khác trước khi lưu trữ workspace hiện tại.");
+      return;
+    }
     if (!window.confirm(`Lưu trữ workspace "${workspace.name}"? Workspace sẽ được ẩn khỏi danh sách hoạt động nhưng dữ liệu vẫn được giữ lại.`)) return;
-    deletion.mutate(workspace.id);
+    deletion.mutate(workspace.id, {
+      onSuccess: async () => {
+        if (workspace.id === workspaceId) {
+          const next = items.find((item) => item.id !== workspace.id);
+          if (next) await switchWorkspace(next.id);
+        }
+      },
+    });
   }
 
   function permanentlyDeleteWorkspace(workspace: WorkspaceSummary) {
+    if (workspace.id === workspaceId && items.length < 2) {
+      window.alert("Hãy tạo hoặc mở một workspace khác trước khi xóa workspace hiện tại.");
+      return;
+    }
     const confirmation = window.prompt(
       `Xóa vĩnh viễn workspace "${workspace.name}" sẽ xóa toàn bộ dataset, profile, report và file đã upload.\n\nNhập XÓA để xác nhận:`,
     );
     if (confirmation !== "XÓA") return;
-    purging.mutate(workspace.id);
+    purging.mutate(workspace.id, {
+      onSuccess: async () => {
+        if (workspace.id === workspaceId) {
+          const next = items.find((item) => item.id !== workspace.id);
+          if (next) await switchWorkspace(next.id);
+        }
+      },
+    });
+  }
+
+  function restoreArchivedWorkspace(workspace: WorkspaceSummary) {
+    restoration.mutate(workspace.id);
   }
 
   async function openWorkspace(id: string) {
@@ -91,6 +133,7 @@ export default function WorkspacesPage() {
     {creation.isError && <ErrorNotice error={creation.error} retry={() => creation.reset()} />}
     {deletion.isError && <ErrorNotice error={deletion.error} retry={() => deletion.reset()} />}
     {purging.isError && <ErrorNotice error={purging.error} retry={() => purging.reset()} />}
+    {restoration.isError && <ErrorNotice error={restoration.error} retry={() => restoration.reset()} />}
 
     {canCreate && <section className="panel workspace-create-panel"><div><p className="eyebrow">PROJECT WORKSPACE</p><h2>Tạo workspace mới</h2><p className="muted">Upload dataset vào workspace này để dùng chung cho Profiling, Report và Agent.</p></div><form className="workspace-create-form" onSubmit={submitCreate}><label htmlFor="workspace-name">Tên workspace<input id="workspace-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ví dụ: Dự án IMDb" maxLength={255} /></label><button className="button primary" type="submit" disabled={creation.isPending || name.trim().length < 2}>{creation.isPending ? "Đang tạo…" : "Tạo workspace"}</button></form></section>}
 
@@ -106,7 +149,16 @@ export default function WorkspacesPage() {
       </article>;
     })}</section>}
 
+    {canDelete && !archivedWorkspaces.isPending && archivedItems.length > 0 && <section className="workspace-archive-library" aria-labelledby="archived-workspaces-title">
+      <div className="workspace-archive-heading"><div><p className="eyebrow">KHO LƯU TRỮ</p><h2 id="archived-workspaces-title">Workspace đã lưu trữ</h2><p className="muted">Dữ liệu vẫn được giữ nguyên. Admin hoặc chủ workspace có thể khôi phục khi cần.</p></div><span className="workspace-count">{archivedItems.length} mục</span></div>
+      <div className="workspace-grid">{archivedItems.map((workspace) => <article className="workspace-card archived" key={workspace.id}>
+        <div className="workspace-card-top"><span className="workspace-card-icon" aria-hidden="true">□</span><span className="workspace-role">Đã lưu trữ</span></div>
+        <h2>{workspace.name}</h2><p className="workspace-card-capabilities">Workspace tạm ngừng hoạt động; dataset và báo cáo chưa bị xóa.</p><p className="workspace-card-slug">/{workspace.slug}</p>
+        <div className="workspace-card-actions"><button className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} disabled={workspaceActionBusy}>{restoration.isPending ? "Đang khôi phục…" : "Khôi phục"}</button><button className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending ? "Đang xóa…" : "Xóa vĩnh viễn"}</button></div>
+      </article>)}</div>
+    </section>}
+
     {!workspaces.isPending && !workspaces.isError && items.length === 0 && <section className="empty-state"><span aria-hidden="true">✦</span><h2>Chưa có workspace</h2><p>Hãy tạo workspace để bắt đầu upload dataset và làm việc với Agent.</p></section>}
-    <p className="workspace-page-note"><Link href="/datasets">Mở bộ dữ liệu</Link> để upload dataset trong workspace đang chọn.</p>
+    {!isAdmin && can(me?.effective_permissions, PERMISSIONS.datasetRead) && <p className="workspace-page-note"><Link href="/datasets">Mở bộ dữ liệu</Link> để upload dataset trong workspace đang chọn.</p>}
   </main>;
 }

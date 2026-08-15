@@ -31,6 +31,9 @@ REPORT_DRAFT_WRITE: Final = "report.draft.write"
 REPORT_SUBMIT: Final = "report.submit"
 REPORT_REVIEW: Final = "report.review"
 REPORT_PUBLISH: Final = "report.publish"
+GLOBAL_REPORTS_READ: Final = "global.reports.read"
+GLOBAL_REPORTS_REVIEW: Final = "global.reports.review"
+GLOBAL_REPORTS_PUBLISH: Final = "global.reports.publish"
 REPORT_ARCHIVE: Final = "report.archive"
 WORKSPACE_ACTIVITY_READ: Final = "workspace.activity.read"
 WORKSPACE_AUDIT_READ: Final = "workspace.audit.read"
@@ -40,11 +43,15 @@ WORKSPACE_STORAGE_CONNECT: Final = "workspace.storage.connect"
 WORKSPACE_LIFECYCLE_MANAGE: Final = "workspace.lifecycle.manage"
 WORKSPACE_CREATE: Final = "workspace.create"
 WORKSPACE_DELETE: Final = "workspace.delete"
+ACCOUNT_DIRECTORY_READ: Final = "account.directory.read"
 AGENT_RUN_READ: Final = "agent.run.read"
 AGENT_TRACE_READ: Final = "agent.trace.read"
 AGENT_TRACE_DEBUG_READ: Final = "agent.trace.debug.read"
 
-_VIEWER = frozenset({REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT, QA_PUBLISHED_ASK, NOTEBOOK_READ})
+# Viewer is deliberately a report-consumer role.  Shared notebooks remain an
+# analyst/admin collaboration surface; exposing them to Viewer would conflict
+# with the "published reports only" boundary shown throughout the product.
+_VIEWER = frozenset({REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT})
 _ANALYST = _VIEWER | {
     DATASET_READ,
     DATASET_UPLOAD,
@@ -65,7 +72,9 @@ _ANALYST = _VIEWER | {
     AGENT_RUN_READ,
     AGENT_TRACE_READ,
 }
-_ADMIN_BASE = _ANALYST | {
+# Admin is a governance role, not a project-workspace creator. Analysts own
+# the working surface where a new project workspace is needed.
+_ADMIN_BASE = (_ANALYST - {WORKSPACE_CREATE}) | {
     DATASET_DELETE,
     REPORT_REVIEW,
     REPORT_PUBLISH,
@@ -73,6 +82,7 @@ _ADMIN_BASE = _ANALYST | {
     WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
     WORKSPACE_MEMBERS_MANAGE,
+    ACCOUNT_DIRECTORY_READ,
 }
 _ADMIN = _ADMIN_BASE | {
     WORKSPACE_SETTINGS_MANAGE,
@@ -87,11 +97,19 @@ ROLE_PERMISSIONS: Final[dict[WorkspaceRole, frozenset[str]]] = {
 }
 
 ALL_PERMISSIONS: Final[frozenset[str]] = frozenset().union(*ROLE_PERMISSIONS.values())
+GLOBAL_ROLE_PERMISSIONS: Final[dict[str, frozenset[str]]] = {
+    "global_admin": frozenset({GLOBAL_REPORTS_READ, GLOBAL_REPORTS_REVIEW, GLOBAL_REPORTS_PUBLISH, REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT, REPORT_REVIEW, REPORT_PUBLISH}),
+    "super_admin": frozenset({GLOBAL_REPORTS_READ, GLOBAL_REPORTS_REVIEW, GLOBAL_REPORTS_PUBLISH, REPORT_PUBLISHED_READ, REPORT_PUBLISHED_EXPORT, REPORT_REVIEW, REPORT_PUBLISH}),
+}
 
 
 def permissions_for_role(role: WorkspaceRole | str) -> frozenset[str]:
     """Return an immutable permission set and fail closed for unknown roles."""
     return ROLE_PERMISSIONS.get(canonical_role(role), frozenset())
+
+
+def permissions_for_global_role(role: str | None) -> frozenset[str]:
+    return GLOBAL_ROLE_PERMISSIONS.get(role or "", frozenset())
 
 
 def canonical_role(role: str) -> str:
@@ -109,18 +127,23 @@ def role_can_manage_target(actor_role: str, target_role: str) -> bool:
 
 
 __all__ = [
+    "ACCOUNT_DIRECTORY_READ",
     "AGENT_RUN_READ",
     "AGENT_TRACE_DEBUG_READ",
     "AGENT_TRACE_READ",
     "ALL_PERMISSIONS",
+    "GLOBAL_REPORTS_PUBLISH",
+    "GLOBAL_REPORTS_READ",
+    "GLOBAL_REPORTS_REVIEW",
+    "GLOBAL_ROLE_PERMISSIONS",
     "ANALYSIS_RUN",
-    "NOTEBOOK_READ",
-    "NOTEBOOK_SHARE",
-    "NOTEBOOK_WRITE",
     "DATASET_DELETE",
     "DATASET_READ",
     "DATASET_UPLOAD",
     "DRIFT_RUN",
+    "NOTEBOOK_READ",
+    "NOTEBOOK_SHARE",
+    "NOTEBOOK_WRITE",
     "PROFILE_READ",
     "PROFILE_REVIEW",
     "PROFILE_RUN",
@@ -136,9 +159,9 @@ __all__ = [
     "ROLE_PERMISSIONS",
     "STATS_RUN",
     "WORKSPACE_ACTIVITY_READ",
+    "WORKSPACE_AUDIT_READ",
     "WORKSPACE_CREATE",
     "WORKSPACE_DELETE",
-    "WORKSPACE_AUDIT_READ",
     "WORKSPACE_LIFECYCLE_MANAGE",
     "WORKSPACE_MEMBERS_MANAGE",
     "WORKSPACE_SETTINGS_MANAGE",
@@ -146,5 +169,6 @@ __all__ = [
     "WorkspaceRole",
     "canonical_role",
     "permissions_for_role",
+    "permissions_for_global_role",
     "role_can_manage_target",
 ]

@@ -21,6 +21,8 @@ import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = ROOT / "backend"
 # Ứng dụng đã tách sang backend/src. Giữ import `src.*` trong test để test
@@ -40,10 +42,17 @@ os.environ["TMP"] = str(_TMP_PARENT)
 os.environ["TEMP"] = str(_TMP_PARENT)
 tempfile.tempdir = str(_TMP_PARENT)
 _TMP = Path(tempfile.mkdtemp(prefix="p170_tests_", dir=_TMP_PARENT))
-_TEST_DATABASE_URL = os.environ.get(
-    "P170_TEST_DATABASE_URL",
-    "postgresql+psycopg://test:test@localhost:5432/test_db",
+_TEST_DATABASE_URL = (
+    os.environ.get("P170_TEST_DATABASE_URL")
+    or dotenv_values(ROOT / ".env").get("P170_TEST_DATABASE_URL")
+    or ""
 ).strip()
+if not _TEST_DATABASE_URL:
+    raise RuntimeError(
+        "P170_TEST_DATABASE_URL là bắt buộc khi chạy pytest. "
+        "Hãy trỏ biến này tới một PostgreSQL database RIÊNG cho test; "
+        "không dùng DATABASE_URL của ứng dụng hoặc production."
+    )
 if _TEST_DATABASE_URL.startswith("postgresql://"):
     _TEST_DATABASE_URL = _TEST_DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 elif _TEST_DATABASE_URL.startswith("postgres://"):
@@ -156,7 +165,12 @@ def profile_run(client: TestClient, sample_csv: Path) -> dict:
     """
     response = client.post(
         "/api/v1/profile",
-        json={"dataset_ref": str(sample_csv), "dataset_name": "users_test", "scan_mode": "full"},
+        json={
+            "dataset_ref": str(sample_csv),
+            "dataset_name": "users_test",
+            "run_name": "Kiểm tra dữ liệu gốc",
+            "scan_mode": "full",
+        },
     )
     assert response.status_code == 201, response.text
     return response.json()

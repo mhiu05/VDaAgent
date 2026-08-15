@@ -30,8 +30,8 @@ export default function NotebookPage() {
   const [busyCell, setBusyCell] = useState<string | null>(null);
   const [error, setError] = useState<Error | null>(null);
 
-  if (notebook.isLoading) return <LoadingBlock label="Đang mở notebook…" />;
-  if (notebook.isError || !notebook.data) return <ErrorNotice error={notebook.error || new Error("Không tìm thấy notebook.")} retry={() => notebook.refetch()} />;
+  if (notebook.isLoading) return <LoadingBlock label="Đang mở phiên phân tích…" />;
+  if (notebook.isError || !notebook.data) return <ErrorNotice error={notebook.error || new Error("Không tìm thấy phiên phân tích.")} retry={() => notebook.refetch()} />;
 
   const data = notebook.data;
   const cells = data.cells || [];
@@ -106,42 +106,42 @@ export default function NotebookPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `notebook-${data.id}.json`;
+      anchor.download = `phien-phan-tich-${data.id}.json`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (reason) {
-      setError(reason instanceof Error ? reason : new Error("Không thể xuất notebook."));
+      setError(reason instanceof Error ? reason : new Error("Không thể xuất phiên phân tích."));
     }
   }
 
   async function archive() {
-    if (!window.confirm("Lưu trữ notebook này?")) return;
+    if (!window.confirm("Lưu trữ phiên phân tích này? Phiên không bị xóa và có thể khôi phục trong Kho lưu trữ.")) return;
     try {
       await archiveNotebook(data.id);
       router.push("/notebooks");
     } catch (reason) {
-      setError(reason instanceof Error ? reason : new Error("Không thể lưu trữ notebook."));
+      setError(reason instanceof Error ? reason : new Error("Không thể lưu trữ phiên phân tích."));
     }
   }
 
   return <main className="notebook-page">
     <PageHeader
-      eyebrow={`Notebook LLM · Profile ${data.profile_run_id.slice(0, 12)}…`}
+      eyebrow={`PHIÊN PHÂN TÍCH · ${data.profile_run_name || `Phiên bản v${data.profile_run_version ?? "—"}`}`}
       title={data.title}
-      description={data.description || "Một tài liệu phân tích có thể lưu, chạy lại và chia sẻ trong workspace."}
-      action={<div className="inline-actions"><Link className="button secondary" href="/notebooks">← Danh sách notebook</Link><span className={`notebook-visibility ${data.visibility}`}>{data.visibility === "workspace" ? "Đã chia sẻ workspace" : "Riêng tư"}</span></div>}
+      description={data.description || "Lưu ghi chú và câu hỏi Agent có cấu trúc trên đúng nguồn profiling đã chọn."}
+      action={<div className="inline-actions"><Link className="button secondary" href="/notebooks">← Danh sách phiên</Link><span className={`notebook-visibility ${data.visibility}`}>{data.visibility === "workspace" ? "Đã chia sẻ workspace" : "Riêng tư"}</span></div>}
     />
     {error && <ErrorNotice error={error} />}
 
     <section className="panel notebook-toolbar">
-      <div><p className="eyebrow">Profile snapshot</p><b>{data.profile_run_id}</b><small>Cập nhật {formatDate(data.updated_at)} · Kết quả Agent được lưu theo từng cell</small></div>
-      <div className="inline-actions"><button className="button secondary" type="button" onClick={() => void toggleShare()}>{data.visibility === "workspace" ? "Thu hồi chia sẻ" : "Chia sẻ workspace"}</button><button className="button secondary" type="button" onClick={() => void exportJson()}>Xuất JSON</button><button className="button primary" type="button" onClick={() => window.print()}>In / lưu PDF</button><button className="button danger-outline" type="button" onClick={() => void archive()}>Lưu trữ</button></div>
+      <div><p className="eyebrow">NGUỒN PROFILING</p><b>{data.profile_run_name || `Phiên bản v${data.profile_run_version ?? "—"}`}</b><small>Cập nhật {formatDate(data.updated_at)} · Kết quả Agent được lưu theo từng cell. Chia sẻ chỉ cho thành viên workspace cùng xem hoặc bàn giao.</small></div>
+      <div className="inline-actions"><button className="button secondary" type="button" title="Cho phép thành viên trong workspace cùng xem phiên phân tích này" onClick={() => void toggleShare()}>{data.visibility === "workspace" ? "Thu hồi chia sẻ" : "Chia sẻ với workspace"}</button><button className="button secondary" type="button" onClick={() => void exportJson()}>Xuất JSON</button><button className="button primary" type="button" onClick={() => window.print()}>In / lưu PDF</button><button className="button danger-outline" type="button" onClick={() => void archive()}>Lưu trữ</button></div>
     </section>
 
     <section className="notebook-canvas">
-      <div className="notebook-canvas-heading"><div><p className="eyebrow">Cell-based analysis</p><h2>Dòng phân tích</h2><p>Markdown để ghi chú, Prompt để hỏi Agent trên đúng profile run đã chọn.</p></div><div className="inline-actions"><button className="button secondary" type="button" onClick={() => void addCell("markdown")}>+ Markdown</button><button className="button primary" type="button" onClick={() => void addCell("prompt")}>+ Prompt Agent</button></div></div>
+      <div className="notebook-canvas-heading"><div><p className="eyebrow">DÒNG PHÂN TÍCH</p><h2>Ghi chú và câu hỏi</h2><p>Ghi chú để lưu lập luận; Câu hỏi Agent để khai thác đúng phiên profiling đã chọn. Nội dung được lưu khi bạn rời khỏi ô.</p></div><div className="inline-actions"><button className="button secondary" type="button" onClick={() => void addCell("markdown")}>+ Ghi chú</button><button className="button primary" type="button" onClick={() => void addCell("prompt")}>+ Câu hỏi Agent</button></div></div>
       {!cells.length && <Notice tone="info">Thêm một cell Prompt Agent để bắt đầu.</Notice>}
       <div className="notebook-cell-list">
         {cells.map((cell, index) => <NotebookCellView key={cell.id} cell={cell} index={index} busy={busyCell === cell.id} onSave={saveCell} onRun={runPrompt} onDelete={removeCell} />)}
@@ -158,7 +158,7 @@ function NotebookCellView({ cell, index, busy, onSave, onRun, onDelete }: { cell
     <div className="notebook-cell-body">
       <div className="notebook-cell-header"><div><span className="notebook-cell-kind">{cell.kind === "prompt" ? "PROMPT AGENT" : "MARKDOWN"}</span><b>{cell.title || "Cell không tên"}</b></div><span className={`status status-${cell.status}`}>{cell.status === "completed" ? "Đã chạy" : cell.status === "running" ? "Đang chạy" : cell.status === "failed" ? "Lỗi" : "Bản nháp"}</span></div>
       <textarea className="notebook-cell-editor" value={source} onChange={(event) => setSource(event.target.value)} onBlur={() => void onSave(cell, source)} aria-label={`Nội dung cell ${index + 1}`} />
-      <div className="notebook-cell-actions"><button className="button ghost" type="button" onClick={() => void onSave(cell, source)}>Lưu cell</button>{cell.kind === "prompt" && <button className="button primary" type="button" disabled={busy} onClick={() => void onRun({ ...cell, source })}>{busy ? "Agent đang suy nghĩ…" : "Chạy Agent"}</button>}<button className="button danger-outline" type="button" onClick={() => void onDelete(cell)}>Xóa</button></div>
+      <div className="notebook-cell-actions"><button className="button ghost" type="button" onClick={() => void onSave(cell, source)}>Lưu ngay</button>{cell.kind === "prompt" && <button className="button primary" type="button" disabled={busy} onClick={() => void onRun({ ...cell, source })}>{busy ? "Agent đang suy nghĩ…" : "Chạy Agent"}</button>}<button className="button danger-outline" type="button" onClick={() => void onDelete(cell)}>Xóa</button></div>
       {result?.answer && <div className="notebook-cell-result"><div className="notebook-result-label">KẾT QUẢ AGENT</div><MarkdownContent text={result.answer} className="report report-markdown" />{result.sources?.length ? <small>{result.sources.length} nguồn evidence · chỉ gồm metadata/aggregate, không có raw rows</small> : null}</div>}
       {result?.error && <Notice tone="warning">{result.error}</Notice>}
     </div>

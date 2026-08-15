@@ -20,6 +20,7 @@ def test_notebook_lifecycle_persists_cells_shares_and_exports(
     notebook = created.json()
     assert notebook["visibility"] == "private"
     assert len(notebook["cells"]) == 1
+    assert notebook["cells"][0]["source"] == notebook["description"]
 
     cell = client.post(
         f"/api/v1/notebooks/{notebook['id']}/cells",
@@ -35,8 +36,8 @@ def test_notebook_lifecycle_persists_cells_shares_and_exports(
     assert updated.status_code == 200, updated.text
     assert updated.json()["result"]["answer"].startswith("Có")
 
-    shared = client.post(
-        f"/api/v1/notebooks/{notebook['id']}/share",
+    shared = client.patch(
+        f"/api/v1/notebooks/{notebook['id']}",
         json={"visibility": "workspace"},
     )
     assert shared.status_code == 200, shared.text
@@ -64,3 +65,13 @@ def test_notebook_lifecycle_persists_cells_shares_and_exports(
     archived = client.delete(f"/api/v1/notebooks/{notebook['id']}")
     assert archived.status_code == 200, archived.text
     assert client.get(f"/api/v1/notebooks/{notebook['id']}").status_code == 404
+
+    archived_items = client.get("/api/v1/notebooks?status=archived")
+    assert archived_items.status_code == 200, archived_items.text
+    assert any(item["id"] == notebook["id"] for item in archived_items.json())
+
+    restored = client.patch(f"/api/v1/notebooks/{notebook['id']}", json={"status": "active"})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["id"] == notebook["id"]
+    assert restored.json()["status"] == "active"
+    assert client.get(f"/api/v1/notebooks/{notebook['id']}").status_code == 200

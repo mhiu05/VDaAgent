@@ -30,6 +30,7 @@ class AuthContext:
     aal: str | None
     raw_claims: dict[str, Any]
     authentication_method: str = "supabase"
+    global_role: str | None = None
 
     @property
     def is_legacy(self) -> bool:
@@ -38,6 +39,10 @@ class AuthContext:
     @property
     def is_guest(self) -> bool:
         return self.authentication_method == "guest"
+
+    @property
+    def is_global_admin(self) -> bool:
+        return self.global_role in {"global_admin", "super_admin"}
 
 
 def _unauthorized(detail: str = "Thông tin xác thực không hợp lệ.") -> HTTPException:
@@ -169,6 +174,62 @@ class SupabaseJWTVerifier:
             session_id=claims.get("session_id") if isinstance(claims.get("session_id"), str) else None,
             aal=claims.get("aal") if isinstance(claims.get("aal"), str) else None,
             raw_claims=dict(claims),
+            global_role=self.settings.global_role_for(user_id, email if isinstance(email, str) else None),
+        )
+
+    def verify_with_auth_api(self, access_token: str) -> AuthContext:
+        """Verify a Supabase token through Auth when local JWKS cannot.
+
+        Supabase projects created with older signing-key settings can issue a
+        valid token that is not locally verifiable with the asymmetric JWKS
+        algorithms configured above. The Auth user endpoint is still an
+        authoritative token verifier, so use it only as a narrow fallback.
+        Invalid, expired, unconfirmed, or unreachable sessions remain denied.
+        """
+        if not self.settings.supabase_url:
+            raise JWTVerificationError("Thiếu SUPABASE_URL để xác thực phiên.")
+        api_key = self.settings.supabase_publishable_key or self.settings.supabase_backend_key
+        if not api_key:
+            raise JWTVerificationError("Thiếu Supabase API key để xác thực phiên.")
+        try:
+            response = httpx.get(
+                f"{self.settings.supabase_url.rstrip('/')}/auth/v1/user",
+                headers={
+                    "apikey": api_key,
+                    "Authorization": f"Bearer {access_token}",
+                },
+                timeout=self.settings.auth_jwks_timeout_seconds,
+            )
+        except httpx.RequestError as exc:
+            raise JWTVerificationError("Không thể kiểm tra phiên với Supabase Auth.") from exc
+        if response.status_code != 200:
+            raise JWTVerificationError("Access token Supabase không hợp lệ hoặc đã hết hạn.")
+        try:
+            user = response.json()
+        except ValueError as exc:
+            raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.") from exc
+        if not isinstance(user, dict):
+            raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.")
+        try:
+            user_id = str(uuid.UUID(str(user.get("id"))))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise JWTVerificationError("Supabase user id không phải UUID hợp lệ.") from exc
+        if self.settings.auth_require_email_confirmed and not user.get("email_confirmed_at"):
+            raise JWTVerificationError("Email của phiên đăng nhập chưa được xác nhận.")
+        email = user.get("email")
+        return AuthContext(
+            user_id=user_id,
+            email=email if isinstance(email, str) else None,
+            session_id=None,
+            aal=None,
+            raw_claims={
+                "sub": user_id,
+                "role": "authenticated",
+                "email": email,
+                "email_confirmed_at": user.get("email_confirmed_at"),
+            },
+            authentication_method="supabase",
+            global_role=self.settings.global_role_for(user_id, email if isinstance(email, str) else None),
         )
 
 
@@ -232,7 +293,13 @@ def authenticate_bearer(authorization: str | None, settings: Settings | None = N
         try:
             return get_jwt_verifier(current).verify(token)
         except JWTVerificationError as exc:
-            raise _unauthorized(str(exc)) from exc
+            # Keep local JWT/JWKS verification as the fast path. The Auth API
+            # fallback supports valid tokens from Supabase projects that use
+            # legacy or otherwise different signing-key configuration.
+            try:
+                return get_jwt_verifier(current).verify_with_auth_api(token)
+            except JWTVerificationError as remote_exc:
+                raise _unauthorized(str(remote_exc)) from exc
 
     # The dual bridge is intentionally convenient only in local/test.  A
     # production instance must present either a verified JWT or its temporary

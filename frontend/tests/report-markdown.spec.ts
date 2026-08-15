@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { useAnalystWorkspace } from "./workspace-fixture";
 
 test("renders agent report markdown without raw formatting markers", async ({ page }) => {
+  await useAnalystWorkspace(page);
   await page.route("**/api/v1/profile/run-ux-test", async (route) => {
     await route.fulfill({
       status: 200,

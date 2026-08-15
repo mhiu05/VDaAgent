@@ -87,10 +87,11 @@ async function authHeaders(headers?: HeadersInit): Promise<Headers> {
 
 async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   let response: Response;
+  const headers = await authHeaders(init.headers);
   try {
     response = await fetch(`${apiBase()}${path}`, {
       ...init,
-      headers: await authHeaders(init.headers),
+      headers,
       credentials: "include",
     });
   } catch (reason) {
@@ -102,8 +103,9 @@ async function apiFetch(path: string, init: RequestInit = {}, retried = false): 
     );
   }
   if (response.status === 401 && !retried && authTransport) {
+    const previousToken = headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? null;
     const refreshed = await authTransport.refresh();
-    if (refreshed) return apiFetch(path, init, true);
+    if (refreshed && refreshed !== previousToken) return apiFetch(path, init, true);
   }
   return response;
 }
@@ -128,6 +130,10 @@ export type GoogleDriveStatus = {
 
 export function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
   return request<GoogleDriveStatus>("/google-drive/status");
+}
+
+export function disconnectGoogleDrive(): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>("/google-drive/connection", { method: "DELETE" });
 }
 
 export async function connectGoogleDrive(targetWindow?: Window | null): Promise<void> {
@@ -170,6 +176,10 @@ export function listWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
   return request<{ workspaces: WorkspaceSummary[] }>("/workspaces");
 }
 
+export function listArchivedWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
+  return request<{ workspaces: WorkspaceSummary[] }>("/workspaces/archived");
+}
+
 export function createWorkspace(name: string): Promise<WorkspaceSummary> {
   return request<WorkspaceSummary>("/workspaces", {
     method: "POST",
@@ -186,6 +196,90 @@ export function deleteWorkspace(workspaceId: string): Promise<{ deleted: boolean
 
 export function purgeWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
   return request<{ deleted: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}/permanent`, {
+    method: "DELETE",
+  });
+}
+
+export function restoreWorkspace(workspaceId: string): Promise<{ restored: boolean; workspace_id: string }> {
+  return request<{ restored: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}/restore`, {
+    method: "POST",
+  });
+}
+
+export type WorkspaceRole = "admin" | "analyst" | "viewer";
+export type WorkspaceMemberStatus = "active" | "suspended" | "removed";
+
+export type WorkspaceMember = {
+  workspace_id: string;
+  user_id: string;
+  email?: string | null;
+  display_name?: string | null;
+  role: WorkspaceRole;
+  status: WorkspaceMemberStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceInvitation = {
+  id: string;
+  workspace_id?: string;
+  email: string;
+  role: WorkspaceRole;
+  status: "pending" | "accepted" | "cancelled" | string;
+  expires_at: string;
+  invited_by_user_id?: string;
+  accepted_by_user_id?: string | null;
+  created_at: string;
+};
+
+export function listWorkspaceMembers(): Promise<{ members: WorkspaceMember[] }> {
+  return request<{ members: WorkspaceMember[] }>("/workspaces/current/members");
+}
+
+export type AccountDirectoryEntry = {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  created_at: string;
+  memberships: Array<{
+    workspace_id: string;
+    workspace_name: string | null;
+    workspace_slug: string | null;
+    workspace_status: string | null;
+    role: WorkspaceRole;
+    status: WorkspaceMemberStatus;
+  }>;
+};
+
+export function listAccountDirectory(): Promise<{ accounts: AccountDirectoryEntry[] }> {
+  return request<{ accounts: AccountDirectoryEntry[] }>("/accounts");
+}
+
+export function updateWorkspaceMember(
+  userId: string,
+  payload: Partial<Pick<WorkspaceMember, "role" | "status">>,
+): Promise<WorkspaceMember> {
+  return request<WorkspaceMember>(`/workspaces/current/members/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listWorkspaceInvitations(): Promise<{ invitations: WorkspaceInvitation[] }> {
+  return request<{ invitations: WorkspaceInvitation[] }>("/workspaces/current/invitations");
+}
+
+export function inviteWorkspaceMember(payload: { email: string; role: WorkspaceRole }): Promise<WorkspaceInvitation> {
+  return request<WorkspaceInvitation>("/workspaces/current/invitations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelWorkspaceInvitation(invitationId: string): Promise<{ cancelled: boolean }> {
+  return request<{ cancelled: boolean }>(`/workspaces/current/invitations/${encodeURIComponent(invitationId)}`, {
     method: "DELETE",
   });
 }
@@ -264,6 +358,22 @@ export function getPublishedReport<T>(reportId: string): Promise<T> {
   return request<T>(`/reports/${encodeURIComponent(reportId)}`);
 }
 
+export function reviewReport<T = unknown>(reportId: string, payload: { decision: "approved" | "changes_requested" | "rejected"; comment?: string; admin_override?: boolean }): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function publishReport<T = unknown>(reportId: string, payload: { reason?: string; admin_override?: boolean } = {}): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createProfileReport<T = { id: string; status: string }>(runId: string): Promise<T> {
   return request<T>(`/profile/${encodeURIComponent(runId)}/report`, {
     method: "POST",
@@ -304,6 +414,7 @@ export function createProfile(payload: {
   dataset_id?: string;
   dataset_ref?: string;
   dataset_name?: string;
+  run_name?: string;
   scan_mode: "full" | "sample";
   sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number };
 }): Promise<Profile> {
@@ -368,17 +479,26 @@ export async function downloadExport(runId: string): Promise<Blob> {
 export type CombinedReportSection = "overview" | "technical_profile" | "quality" | "tests" | "drift" | "agent_summary" | "analysis";
 export const ALL_COMBINED_REPORT_SECTIONS: CombinedReportSection[] = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
 
-function reportSectionQuery(sections?: CombinedReportSection[]): string {
-  return sections?.length ? `?sections=${encodeURIComponent(sections.join(","))}` : "";
+function reportSectionQuery(sections?: CombinedReportSection[], reportId?: string): string {
+  const params = new URLSearchParams();
+  if (sections?.length) params.set("sections", sections.join(","));
+  if (reportId) params.set("reportId", reportId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
-export async function downloadCombinedReport(runId: string, sections?: CombinedReportSection[]): Promise<Blob> {
-  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}${reportSectionQuery(sections)}`, {
+export async function downloadCombinedReport(runId: string, sections?: CombinedReportSection[], reportId?: string): Promise<Blob> {
+  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}${reportSectionQuery(sections, reportId)}`, {
     headers: await authHeaders({ Accept: "application/pdf" }),
     credentials: "include",
   });
   if (!response.ok) throw await readError(response);
   return response.blob();
+}
+
+/** Export a published report. Viewer never receives direct profile access. */
+export function downloadPublishedReportPdf(runId: string, reportId: string): Promise<Blob> {
+  return downloadCombinedReport(runId, ALL_COMBINED_REPORT_SECTIONS, reportId);
 }
 
 export async function downloadCombinedJson(runId: string, sections?: CombinedReportSection[]): Promise<Blob> {
@@ -471,8 +591,9 @@ export async function uploadDataset(
     // XHR does not use apiFetch, so retry once after refreshing an expired
     // Supabase session just like the other API calls do.
     if (reason instanceof ApiError && reason.status === 401 && authTransport) {
+      const previousToken = await authTransport.accessToken();
       const refreshed = await authTransport.refresh();
-      if (refreshed) return uploadDatasetOnce(file, onProgress, signal, apiBase());
+      if (refreshed && refreshed !== previousToken) return uploadDatasetOnce(file, onProgress, signal, apiBase());
       throw new ApiError("PhiÃªn Ä‘Äƒng nháº­p Ä‘Ã£ háº¿t háº¡n. HÃ£y Ä‘Äƒng nháº­p láº¡i.", 401);
     }
     if (reason instanceof ApiError && reason.status === 0) {
@@ -517,8 +638,10 @@ export function executeAnalysis(sessionId: string, contextId: string, query: Que
   return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/executions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_context_version_id: contextId, query }) });
 }
 
-export function listNotebooks(signal?: AbortSignal, profileRunId?: string): Promise<Notebook[]> {
-  const query = profileRunId ? `?profile_run_id=${encodeURIComponent(profileRunId)}` : "";
+export function listNotebooks(signal?: AbortSignal, profileRunId?: string, status: "active" | "archived" = "active"): Promise<Notebook[]> {
+  const params = new URLSearchParams({ status });
+  if (profileRunId) params.set("profile_run_id", profileRunId);
+  const query = `?${params.toString()}`;
   return request<Notebook[]>(`/notebooks${query}`, { signal });
 }
 
@@ -530,16 +653,20 @@ export function createNotebook(payload: { profile_run_id: string; title: string;
   return request<Notebook>("/notebooks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
-export function updateNotebook(notebookId: string, payload: { title?: string; description?: string | null }): Promise<Notebook> {
+export function updateNotebook(notebookId: string, payload: { title?: string; description?: string | null; visibility?: "private" | "workspace"; status?: "active" }): Promise<Notebook> {
   return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
 export function shareNotebook(notebookId: string, visibility: "private" | "workspace"): Promise<Notebook> {
-  return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}/share`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visibility }) });
+  return updateNotebook(notebookId, { visibility });
 }
 
 export function archiveNotebook(notebookId: string): Promise<{ archived: boolean; notebook_id: string }> {
   return request<{ archived: boolean; notebook_id: string }>(`/notebooks/${encodeURIComponent(notebookId)}`, { method: "DELETE" });
+}
+
+export function restoreNotebook(notebookId: string): Promise<Notebook> {
+  return updateNotebook(notebookId, { status: "active" });
 }
 
 export function createNotebookCell(notebookId: string, payload: { kind: NotebookCellKind; source: string; title?: string }): Promise<NotebookCell> {
