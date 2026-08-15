@@ -14,7 +14,7 @@ COPY requirements.azure.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend ./backend
-COPY config.yaml alembic.ini ./
+COPY config.yaml ./
 
 EXPOSE 8000
 CMD ["python", "-m", "uvicorn", "src.main:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "8000"]
