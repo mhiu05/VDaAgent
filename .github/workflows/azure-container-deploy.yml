@@ -14,6 +14,7 @@ env:
   FRONTEND_APP: p170-web-08140019
   BACKEND_URL: https://p170-api-08140037.azurewebsites.net
   FRONTEND_URL: https://p170-web-08140019.azurewebsites.net
+  AZURE_CLI_IMAGE: mcr.microsoft.com/azure-cli:2.75.0
 
 jobs:
   build-and-deploy:
@@ -26,15 +27,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Azure login with OIDC
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          token_response="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange")"
+          federated_token="$(printf '%s' "$token_response" | node -e "const fs=require('fs'); process.stdout.write(JSON.parse(fs.readFileSync(0,'utf8')).value)")"
+          mkdir -p "$RUNNER_TEMP/azure"
+          docker pull "$AZURE_CLI_IMAGE"
+          docker run --rm \
+            -v "$RUNNER_TEMP/azure:/root/.azure" \
+            "$AZURE_CLI_IMAGE" \
+            az login \
+              --service-principal \
+              --username "$AZURE_CLIENT_ID" \
+              --tenant "$AZURE_TENANT_ID" \
+              --federated-token "$federated_token" \
+              --output none
+          docker run --rm \
+            -v "$RUNNER_TEMP/azure:/root/.azure" \
+            "$AZURE_CLI_IMAGE" \
+            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+          echo "AZURE_CONFIG_DIR_HOST=$RUNNER_TEMP/azure" >> "$GITHUB_ENV"
 
       - name: Log in to Azure Container Registry
-        run: az acr login --name "$ACR_NAME"
+        shell: bash
+        run: |
+          set -euo pipefail
+          acr_token="$(docker run --rm \
+            -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" \
+            "$AZURE_CLI_IMAGE" \
+            az acr login --name "$ACR_NAME" --expose-token --query accessToken -o tsv)"
+          printf '%s' "$acr_token" | docker login "$ACR_LOGIN_SERVER" \
+            --username 00000000-0000-0000-0000-000000000000 \
+            --password-stdin
 
       - name: Build and push backend image
         run: |
@@ -64,11 +94,13 @@ jobs:
 
       - name: Deploy backend container
         run: |
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp config container set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$BACKEND_APP" \
             --container-image-name "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
             --container-registry-url "https://$ACR_LOGIN_SERVER"
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp config appsettings set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$BACKEND_APP" \
@@ -77,11 +109,13 @@ jobs:
 
       - name: Deploy frontend container
         run: |
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp config container set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$FRONTEND_APP" \
             --container-image-name "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
             --container-registry-url "https://$ACR_LOGIN_SERVER"
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp config appsettings set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$FRONTEND_APP" \
@@ -92,5 +126,7 @@ jobs:
 
       - name: Restart apps
         run: |
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp restart --resource-group "$RESOURCE_GROUP" --name "$BACKEND_APP"
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp restart --resource-group "$RESOURCE_GROUP" --name "$FRONTEND_APP"
