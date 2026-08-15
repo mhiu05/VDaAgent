@@ -1,0 +1,121 @@
+# API key OpenAI đặt trong file .env với OPENAI_API_KEY=...
+# Biến môi trường có cùng tên sẽ được ưu tiên hơn các giá trị ở đây.
+
+app:
+  name: AI Data Profiling Agent
+  env: development
+  host: 0.0.0.0
+  port: 8000
+  log_level: INFO
+  data_dir: ./data
+
+cors:
+  origins: http://localhost:3000,http://127.0.0.1:3000
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0.2
+  max_tool_rounds: 6
+
+profiling:
+  default_scan_mode: sample
+  sample_size: 10000
+  sample_strategy: reservoir
+  random_seed: 42
+  top_k_values: 10
+  outlier_method: iqr
+  max_columns: 200
+
+hitl:
+  auto_confirm: true
+  confidence_threshold: 0.95
+  low_risk_types:
+    - semantic_type
+  max_deep_analysis: 5
+
+stats:
+  alpha: 0.05
+  fdr_method: benjamini_hochberg
+  max_tests_per_request: 20
+
+retrieval:
+  index_dir: ./data/index
+  top_k: 5
+  candidate_k: 20
+  embedding_provider: voyage
+  # Voyage uses document/query embeddings separately for retrieval.
+  embedding_model: voyage-3.5
+  # Used automatically when Voyage is unavailable or rate-limited.
+  local_fallback_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  rerank_model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  enable_rerank: false
+  # Enable after validating and importing data/knowledge_base in staging.
+  external_knowledge_enabled: true
+  profile_top_k: 1
+  knowledge_top_k: 4
+  max_chunks_per_source: 2
+  profile_context_chars: 12000
+  knowledge_context_chars: 12000
+
+security:
+  require_api_token: false
+  user_rate_per_minute: 30
+  max_upload_mb: 500
+  allow_raw_export: false
+  mask_pii_in_answers: true
+  # Empty -> append-only audit_events table in Supabase PostgreSQL.
+  audit_log: ""
+
+auth:
+  # dual is a short rollout bridge; production must set supabase.
+  mode: dual
+  allow_signup: false
+  require_email_confirmed: true
+  audience: authenticated
+  jwks_cache_ttl_seconds: 300
+
+guardrails:
+  # Trần cứng mỗi request, độc lập với số vòng hội thoại tool của LLM.
+  max_tool_calls_per_request: 10
+  # Giới hạn dữ liệu untrusted đưa vào model và kích thước output trả về.
+  max_context_chars: 24000
+  max_output_chars: 12000
+  # Mặc định audit chỉ lưu hash + độ dài câu hỏi, không lưu nội dung người dùng.
+  audit_question_content: false
+
+# Agent runtime v2 is additive. Keep every enforcement feature off until the
+# corresponding migration and deterministic eval gates have passed.
+agent:
+  trace_mode: "off"
+  verifier_mode: "off"
+  planner_enabled: false
+  jobs_enabled: false
+  workspace_memory_enabled: false
+  personal_memory_enabled: false
+  runtime_version: 2.0.0
+  trace_event_limit: 500
+
+database:
+  # Set DATABASE_URL in .env. PostgreSQL is required in every environment.
+  url: ""
+  checkpointer_url: ""
+
+storage_provider: supabase
+guest_storage_provider: supabase
+guest_max_upload_mb: 25
+guest_retention_hours: 24
+
+supabase:
+  url: ""
+  publishable_key: ""
+  secret_key: ""
+  # Temporary compatibility only. Prefer secret_key.
+  service_role_key: ""
+  storage_bucket: p170-dataset
+  storage_prefix: datasets
+  storage_timeout_seconds: 300
+  storage_resumable_threshold_mb: 6
+  storage_chunk_mb: 6
+  google_drive_chunk_mb: 8
+  google_drive_oauth_state_ttl_seconds: 600

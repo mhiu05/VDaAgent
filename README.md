@@ -1,201 +1,490 @@
-# 🤖 AI20K Agent Template
+# VDaAgent — Data Profiling & Analysis Workspace
 
-Template chính thức cho học viên **VinUni AI20K Build Phase** — cung cấp sẵn cấu trúc dự án, code mẫu, và hướng dẫn kỹ thuật chi tiết để xây dựng AI Agent đạt điểm cao (35+/50).
+VDaAgent là workspace giúp biến một dataset thành hồ sơ dữ liệu có thể kiểm tra,
+review và dùng cho phân tích có evidence.
 
-> 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+Nguyên tắc cốt lõi:
 
-## 🎯 Template này dùng để làm gì?
+- Compute engine tạo các con số deterministic; LLM chỉ diễn giải, retrieval và
+  hỗ trợ Q&A.
+- Metadata, proposal, quality issue, execution và audit được lưu theo workspace.
+- PII và raw row không được đưa vào report/export thông thường.
+- Mọi aggregate trong Analysis Workspace đều bounded, không nhận raw SQL từ
+  frontend hoặc Agent.
 
-Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent hoàn chỉnh — từ kiến trúc, code, test, đến deploy. Thay vì bắt đầu từ con số không, template này cung cấp:
+## Luồng sử dụng
 
-- **Cấu trúc thư mục chuẩn** — đã được thiết kế theo best practices (separation of concerns)
-- **Code mẫu** cho các phần cốt lõi: LangGraph agent, FastAPI API, config, schemas
-- **Docker + CI/CD sẵn** — Dockerfile multi-stage, GitHub Actions workflow
-- **Hướng dẫn kỹ thuật 10 chương** — từ clone template đến nộp bài Demo Day
-- **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
-- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
-
-## ⚡ Quick Start
-
-### Bước 1: Fork hoặc Clone
-
-```bash
-# Clone template
-git clone https://github.com/AI20K-Build-Cohort-2/starter-code-template.git team-YOUR_TEAM_NAME
-cd team-YOUR_TEAM_NAME
-
-# Xóa git history cũ và khởi tạo lại
-rm -rf .git
-git init
-git add .
-git commit -m "feat: khởi tạo dự án từ template"
+```text
+Chọn workspace hoặc guest trial
+        ↓
+Upload dataset → Profiling deterministic
+        ↓
+Review metadata proposals (semantic type / key / PII)
+        ↓
+Profile report
+   ┌────┼───────────────┬──────────────┐
+   ↓    ↓               ↓              ↓
+ Q&A  Kiểm định      Drift       Tạo Analysis
+                                      ↓
+                         Context → Quality gate
+                                      ↓
+                         Khám phá theo nhóm
+                                      ↓
+                            Aggregate evidence
 ```
 
-### Bước 2: Setup môi trường
+Một workflow thông thường:
+
+1. Mở workspace Analyst hoặc dùng guest Analyst để thử sản phẩm.
+2. Tải CSV, TSV, Parquet hoặc JSON.
+3. Chọn `sample` để khám phá nhanh hoặc `full` để quét toàn bộ source.
+4. Mở profile report và xử lý các proposal còn pending.
+5. Dùng report, Q&A, kiểm định thống kê hoặc drift.
+6. Nếu cần trả lời một câu hỏi nghiệp vụ, tạo Analysis Session từ profile đã
+   hoàn tất.
+7. Khai báo row grain, dimensions và measures; approve context để chạy quality
+   gate.
+8. Trong “Khám phá dữ liệu”, chọn cách so sánh nhóm, metric, filter và thứ tự
+   sắp xếp. Kết quả có execution ID và result hash.
+9. Xuất report PDF/JSON và chọn những mục cần đưa vào bản xuất.
+
+## Hai luồng truy cập
+
+### Chưa đăng nhập — guest trial
+
+Khi `AUTH_ALLOW_GUEST=true`, người dùng có thể chọn Viewer, Analyst hoặc Admin
+trên navbar và dùng workspace tạm mà không cần tạo tài khoản.
+
+- Guest được cấp token riêng cho browser session và workspace guest riêng.
+- Guest chỉ bắt đầu sau khi người dùng chủ động chọn một role; không tự tạo
+  workspace khi chỉ mở Trang chủ hoặc Hướng dẫn.
+- Quyền backend vẫn được kiểm tra theo role, giống luồng đăng nhập.
+- Dữ liệu guest không gắn với email hay workspace cá nhân.
+- Đổi role hoặc bấm `Kết thúc dùng thử` sẽ dọn session hiện tại theo kiểu
+  best-effort. Khi đóng tab, session trong browser biến mất; dữ liệu backend
+  còn lại được dọn theo retention nên không dùng guest trial cho dữ liệu
+  production hoặc dữ liệu cần lưu lâu dài.
+- Guest mode không dùng SQLite. Metadata vẫn đi qua PostgreSQL; storage dùng
+  provider đã cấu hình cho guest (`GUEST_STORAGE_PROVIDER`).
+
+### Đã đăng nhập
+
+Người dùng đăng nhập bằng Supabase Auth. Access token và workspace hiện tại được
+gửi tới backend trong `Authorization: Bearer` và `X-Workspace-Id`.
+
+- Dữ liệu, lịch sử, report draft và workspace membership được giữ lâu dài.
+- Role và capability được resolve lại ở backend cho từng request.
+- Viewer chủ yếu đọc report đã publish.
+- Analyst upload, profiling, review metadata, test, drift, Q&A và tạo Analysis.
+- Admin có thêm quản lý member, report workflow, audit và workspace settings.
+
+Trang chủ và Hướng dẫn chỉ là trang tổng quan; không gắn trạng thái role hiện tại.
+Role/workspace chỉ có ý nghĩa khi người dùng bước vào workspace.
+
+### Đăng ký, xác nhận email và callback
+
+Self-signup được bật bằng cả `AUTH_ALLOW_SIGNUP=true` ở backend và
+`NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true` ở frontend. Người dùng chọn role Viewer,
+Analyst hoặc Admin trên form đăng ký. Sau khi Supabase gửi email xác nhận:
+
+1. Người dùng mở link trong cùng browser/device đã đăng ký.
+2. `/auth/callback` lấy session PKCE do Supabase SSR client xử lý; ứng dụng
+   không exchange cùng một code lần thứ hai.
+3. Backend tạo hoặc trả về personal workspace và membership theo role đã chọn.
+4. Ứng dụng chuyển tới `/dashboard` sau khi provision thành công.
+
+Tài khoản Supabase đã được tạo trước đó hoặc tạo ngoài form `/signup` cũng được
+tự khôi phục: khi đăng nhập, nếu chưa có membership active, frontend gọi lại
+provision idempotent với role đã lưu (mặc định `analyst`) rồi tải lại workspace.
+Membership hiện có không bị thay đổi.
+
+Trang đăng ký có nút gửi lại email với cooldown 120 giây. Việc gửi mail vẫn
+chịu rate limit của Supabase; khi cần gửi nhiều email trong quá trình test,
+nên cấu hình SMTP riêng. Gmail có thể gộp các email xác nhận vào cùng một
+thread, vì vậy cần mở rộng thread hoặc kiểm tra Spam/Promotions.
+
+## Tính năng chính
+
+- Profiling deterministic: schema, dtype, missingness, cardinality, uniqueness,
+  duplicate, outlier, top values và correlation.
+- Human-in-the-loop review cho semantic type, candidate key và PII proposal.
+- Profile report có provenance, narrative summary và các metric đã kiểm chứng.
+- Q&A theo profile evidence; có thể mở rộng tới external knowledge base nếu được
+  cấu hình.
+- Statistical tests với alpha và multiple-testing correction.
+- Drift giữa hai profile run của cùng dataset.
+- Analysis Workspace với context, quality gate và bounded aggregate.
+- Exploration presets: so sánh nhóm, tìm nhóm dẫn đầu, tìm nhóm thấp nhất; có
+  filter và insight max/min/spread.
+- Export PDF hoặc JSON với checklist chọn từng nhóm nội dung, Chọn tất cả và Bỏ
+  chọn tất cả. PDF đánh số phân cấp như `1`, `7.1`, `7.1.1`.
+- Google Drive storage tùy chọn cho file lớn; Supabase vẫn là nguồn sự thật cho
+  Auth, workspace, permission, metadata và audit.
+
+## Kiến trúc
+
+```text
+Next.js :3000
+  ├─ Supabase SSR browser Auth / PKCE + guest transport
+  └─ HTTP JSON + SSE + X-Workspace-Id
+                    ↓
+FastAPI :8000/api/v1
+  ├─ JWT/JWKS + workspace membership + capability checks
+  ├─ LangGraph profiling và Q&A + agent runtime trace (opt-in)
+  ├─ DuckDB / pandas / NumPy / SciPy compute
+  ├─ PostgreSQL: metadata, checkpoint, retrieval, audit, agent-run provenance
+  └─ Storage adapter: Supabase Storage hoặc Google Drive
+```
+
+Các thư mục quan trọng:
+
+```text
+backend/src/api/                 FastAPI routes
+backend/src/agents/              LangGraph, runtime trace, prompts, read-only tools
+backend/src/services/            compute, storage, retrieval, auth, quality gate
+backend/src/models/              Pydantic contracts
+backend/migrations/              Alembic migrations
+frontend/src/app/                Next.js pages và API route cho PDF
+frontend/src/components/         app shell, navbar, auth và UI dùng chung
+frontend/src/lib/                API client, auth, types, SSE
+scripts/                         knowledge-base và auth migration utilities
+tests/                           backend/API/compute/security tests
+data/knowledge_base/             corpus retrieval local
+```
+
+## Yêu cầu
+
+- Python 3.11+
+- Node.js 20+
+- pnpm 9+
+- PostgreSQL (metadata, membership và LangGraph checkpoint; dùng Supabase
+  PostgreSQL cho production)
+- Git
+- LLM key tùy chọn về mặt compute; nếu thiếu, profiling/test/drift vẫn chạy,
+  nhưng narrative/Q&A có thể không hoạt động hoặc dùng fallback.
+
+## Agent runtime trace (rollout an toàn)
+
+Agent runtime v2 bổ sung provenance/trace cho **profiling** và **Q&A**. Đây là
+lớp quan sát bổ sung, không thay đổi deterministic compute hiện có và không mở
+quyền SQL, code, shell hay dynamic tool tự do. Mặc định mọi runtime record đều
+tắt:
+
+```env
+AGENT_TRACE_MODE=off
+AGENT_VERIFIER_MODE=off
+AGENT_PLANNER_ENABLED=false
+AGENT_JOBS_ENABLED=false
+```
+
+Sau khi áp migration và kiểm tra staging, đặt `AGENT_TRACE_MODE=shadow` để ghi
+trace đã redact trong khi workflow cũ vẫn là nguồn kết quả. `required` chỉ phù
+hợp khi database trace đã được giám sát: nếu không thể ghi trace, request sẽ
+fail closed. `off` không tạo `agent_run`.
+
+`POST /profile`, `POST /qa` và sự kiện `done` của `POST /qa/stream` trả thêm
+`agent_run_id` và `trace_summary` khi trace được bật; các trường này là additive
+nên client cũ có thể bỏ qua. Analyst/Admin có thể đọc run, timeline, evidence,
+plan projection và summary qua `/api/v1/agent-runs/{run_id}`. Viewer không có
+quyền generic trace API.
+
+Trace chỉ lưu reason code/tóm tắt ngắn, hash, phiên bản, thời lượng, metadata
+tool/model và aggregate evidence đã giới hạn. Nó không lưu raw prompt/message,
+chain-of-thought/scratchpad, raw row, secret, đường dẫn source hay giá trị PII.
+Dataset mới có content hash và source version để tái lập provenance; trace của
+nguồn cũ không có hash sẽ nêu limitation thay vì khẳng định source đã được pin.
+
+Các lớp dưới đây **chưa phát hành** và phải để nguyên như cấu hình mặc định:
+planner, verifier `enforce`, durable jobs, workspace memory và personal memory.
+Backend từ chối khởi động nếu bật planner/jobs/memory hoặc verifier `enforce`.
+Endpoint `/plan` hiện trả `{ "plan": null }` khi planner chưa được bật.
+
+Quy trình rollout khuyến nghị:
+
+1. Chạy `alembic upgrade head` và kiểm tra RLS/khả năng ghi PostgreSQL trên staging.
+2. Bật `AGENT_TRACE_MODE=shadow`, kiểm tra trace đã redact và không làm thay đổi kết quả profiling/Q&A.
+3. Chỉ cân nhắc `required` sau khi đã có giám sát lỗi ghi trace và quy trình xử lý sự cố.
+
+## Cài đặt local
+
+### Windows PowerShell
+
+Từ thư mục root:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+
+corepack enable
+cd frontend
+pnpm install
+cd ..
+```
+
+Mở `.env` và tối thiểu điền:
+
+```env
+APP_ENV=development
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres
+AUTH_MODE=dual
+AUTH_ALLOW_GUEST=true
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+```
+
+Nếu dùng Supabase Auth/Storage, điền thêm `SUPABASE_URL`,
+`SUPABASE_PUBLISHABLE_KEY` và `SUPABASE_SECRET_KEY`. Không đưa secret key vào
+`NEXT_PUBLIC_*`.
+
+Sau khi có database, áp migration trước request đầu tiên:
+
+```powershell
+$env:PYTHONPATH = "backend"
+alembic upgrade head
+```
+
+Local có thể dùng `AUTH_MODE=dual` trong giai đoạn chuyển đổi, nhưng deployment
+production phải dùng `AUTH_MODE=supabase`. `AUTH_ALLOW_GUEST` ở backend là
+quyết định quyền truy cập guest. Đặt `NEXT_PUBLIC_AUTH_ALLOW_GUEST` cùng giá trị
+khi build frontend để cấu hình triển khai nhất quán, nhưng backend vẫn là nơi
+chấp nhận hoặc từ chối guest token.
+
+Khởi động hai terminal:
+
+```powershell
+# Terminal 1
+.\.venv\Scripts\python.exe -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+```
+
+```powershell
+# Terminal 2
+cd frontend
+pnpm dev --port 3000
+```
+
+### macOS/Linux
 
 ```bash
-# Tạo virtual environment
 python3.11 -m venv .venv
 source .venv/bin/activate
-
-# Cài dependencies
-pip install -e ".[dev]"
-
-# Cấu hình API keys
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 cp .env.example .env
-# Mở .env và thêm OPENAI_API_KEY của bạn
-# Đồng thời cập nhật AI_LOG_API_KEY bằng key riêng từ link mời của BTC
-# (giá trị trong .env.example chỉ là placeholder)
+corepack enable
+cd frontend && pnpm install && cd ..
 ```
 
-### Bước 3: Cài AI Logging Hooks
+Chạy backend bằng `.venv/bin/python` và frontend bằng `pnpm dev --port 3000`.
 
-```bash
-# Linux / macOS / Git Bash
-bash scripts/setup_hooks.sh
+Sau khi khởi động:
 
-# Windows PowerShell
-# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
+- Frontend: <http://localhost:3000>
+- Health: <http://localhost:8000/health>
+- API docs: <http://localhost:8000/docs> khi `APP_ENV` không phải `production`
+- API prefix: <http://localhost:8000/api/v1>
+
+Có thể dùng shortcut trên Windows nếu đã cài Make:
+
+```text
+make install
+make dev
+make health
+make frontend-check
+make frontend-build
 ```
 
-Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
+## Cấu hình storage
 
-### Bước 4: Chạy server
+### Supabase Storage mặc định
 
-```bash
-# Chạy FastAPI backend
-uvicorn src.main:app --reload --port 8000
-
-# Mở Swagger UI
-# http://localhost:8000/docs
+```env
+STORAGE_PROVIDER=supabase
+SUPABASE_STORAGE_BUCKET=p170-dataset
+SUPABASE_STORAGE_PREFIX=datasets
+SUPABASE_STORAGE_TIMEOUT_SECONDS=300
+SUPABASE_STORAGE_RESUMABLE_THRESHOLD_MB=6
+SUPABASE_STORAGE_CHUNK_MB=6
 ```
 
-### Bước 5: Đọc hướng dẫn
+File lớn hơn ngưỡng resumable được upload theo chunk. Giới hạn ứng dụng mặc định
+là `SECURITY_MAX_UPLOAD_MB=500`, nhưng Supabase Free có giới hạn file thực tế
+50 MB. Nếu bucket/provider từ chối file lớn hơn giới hạn plan, cần dùng provider
+khác hoặc nâng plan.
 
-📖 Mở **[Technical Guidebook](https://phoenix.note.transformerlabs.ai/technical-book)** và làm theo từng chương.
+### Google Drive cho file lớn
 
-## 📁 Cấu trúc dự án
+Google Drive chỉ lưu binary source; Supabase vẫn lưu Auth, workspace, quyền,
+dataset metadata và audit.
 
-```
-├── src/
-│   ├── agents/           # 🧠 LangGraph Agent
-│   │   ├── graph.py      #    State graph (nodes + edges)
-│   │   ├── state.py      #    State schema (TypedDict)
-│   │   ├── nodes/        #    Node functions
-│   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
-├── tests/                # 🧪 pytest suite
-│   ├── test_agents/      #    Agent/graph tests
-│   └── test_api/         #    API endpoint tests
-├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
-│   ├── log_antigravity.py#    Antigravity IDE prompt scanner
-│   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
-│   ├── submit_log.py     #    Submit logs on git push
-│   └── setup_hooks.sh    #    One-time hook installer
-├── .claude/ .codex/ .cursor/ .gemini/  # Per-tool hook configs
-├── .agents/              # Antigravity rules + workflows
-├── .ai-log/              # 📊 AI usage logs (auto-generated)
-├── docs/
-│   ├── guide/            # 📖 Technical Guidebook (10 chapters)
-│   └── architecture_diagram.md
-├── eval/                 # 📊 Evaluation results
-├── presentation/         # 🎤 Demo Day slides
-├── .github/workflows/    # ⚡ CI/CD (GitHub Actions)
-├── .github/hooks/        # 🪝 Copilot hook config
-├── Dockerfile            # 🐳 Multi-stage build
-├── docker-compose.yml    # 🐙 Full stack orchestration
-└── README_boilerplate.md # 📝 README template cho đội của bạn
-```
+1. Tạo OAuth Web Client trong Google Cloud, bật Google Drive API.
+2. Thêm redirect URI chính xác:
+   `http://localhost:8000/api/v1/google-drive/callback`.
+3. Tạo folder private và lấy ID sau `/folders/` làm `GOOGLE_DRIVE_FOLDER_ID`.
+4. Tạo key mã hóa token:
 
-## 📚 Technical Guidebook — 10 Chương
+   ```powershell
+   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   ```
 
-| Chương | Nội dung | Thời gian |
-|---------|----------|-----------|
-| 1 | Lời mở đầu — Mục tiêu, cách sử dụng | 15 phút |
-| 2 | Khởi tạo dự án — Clone, setup, git workflow | 4 giờ |
-| 3 | Thiết kế kiến trúc — 3-tier, diagrams, ADR | 6 giờ |
-| 4 | **LangGraph Agent** — State, nodes, edges, tools, RAG | 8 giờ |
-| 5 | FastAPI — Routes, validation, error handling, streaming | 6 giờ |
-| 6 | Giao diện — Next.js + Streamlit quickstart | 6 giờ |
-| 7 | DevOps — Docker, CI/CD, deploy, logging | 6 giờ |
-| 8 | Kiểm thử — Unit test, integration test, RAGAS | 4 giờ |
-| 9 | Demo Day — 10 deliverables, checklist, tips | 2 giờ |
-| 10 | Tài nguyên — Khóa học, docs, BMAD method | tham khảo |
+5. Điền `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`,
+   `GOOGLE_DRIVE_FOLDER_ID`, `GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY` và:
 
-📖 **Đọc online:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+   ```env
+   STORAGE_PROVIDER=google_drive
+   ```
 
-## 📋 10 Deliverables cho Demo Day
+6. Restart backend, vào `/datasets/new`, chọn Kết nối Google Drive và hoàn tất
+   OAuth. Kết nối thuộc workspace; Analyst hoặc Admin có quyền upload có thể tự
+   kết nối, sau đó các thành viên trong workspace có thể upload.
 
-| # | Deliverable | File vị trí | Template có sẵn |
-|---|-------------|-------------|:---:|
-| 1 | Source Code | `src/` | ✅ |
-| 2 | README.md | `README_boilerplate.md` → copy thành `README.md` | ✅ |
-| 3 | Architecture Diagram | `docs/architecture_diagram.md` | ✅ |
-| 4 | AI Logs | LangSmith (3 env vars) + Auto AI Usage Logging | ✅ |
-| 5 | Live URL | Deploy lên Render/Vercel | ⚡ CI/CD sẵn |
-| 6 | Video Demo | `presentation/` | 📝 |
-| 7 | Pitch Deck | `presentation/` | 📝 |
-| 8 | Development Journal | `JOURNAL.md` | ✅ |
-| 9 | Worklog | `WORKLOG.md` | ✅ |
-| 10 | Evaluation Evidence | `eval/` | 📝 |
+Không commit OAuth client secret, refresh token, Fernet key, `.env` hoặc API key.
 
-## 🛠 Tech Stack
+## Role và capability
 
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| AI Agent | LangGraph + LangChain | Latest |
-| Backend | FastAPI + Uvicorn | 0.100+ |
-| LLM | OpenAI GPT-4o-mini | API |
-| Frontend | Next.js / Streamlit | 14+ / 1.30+ |
-| Database | SQLite (dev) / PostgreSQL (prod) | — |
-| DevOps | Docker + GitHub Actions | — |
-| Testing | pytest + pytest-asyncio | 8+ |
+| Role | Phạm vi chính |
+| --- | --- |
+| Viewer | Đọc và export report đã publish. |
+| Analyst | Viewer + upload, profiling, review metadata, test, drift, Q&A, Analysis, tự kết nối storage cho upload, report draft/submit và đọc agent run/trace trong workspace. |
+| Admin | Analyst + quản lý member, review/publish/archive report, audit, workspace settings và quyền trace debug. |
 
-## 📊 AI Usage Logging
+Frontend chỉ ẩn/hiện action để UX rõ hơn. Backend mới là nơi quyết định quyền.
+Thông thường: `401` là auth không hợp lệ, `403` là thiếu capability, `404` là
+resource không thuộc workspace, `409 workspace_required` là cần chọn workspace.
 
-Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
+## Route frontend chính
 
-| Tool | Cơ chế | Config |
-|------|--------|--------|
-| Claude Code | `.claude/settings.json` hooks | Tự động |
-| Cursor | `.cursor/hooks.json` | Tự động |
-| OpenAI Codex CLI | `.codex/hooks.json` | Tự động |
-| Gemini CLI | `.gemini/settings.json` | Tự động |
-| GitHub Copilot | `.github/hooks/hooks.json` | Tự động |
-| Antigravity IDE | Pre-push scan transcript | Tự động trên `git push` |
-
-Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`.
-
-**ChatGPT / web tools khác** — log thủ công:
-```bash
-bash scripts/_pyrun.sh scripts/log_manual.py --tool chatgpt --prompt "What you asked"
+```text
+/                         Trang chủ
+/guide                    Hướng dẫn
+/login                    Đăng nhập bằng Supabase
+/signup                   Đăng ký self-signup và gửi lại email xác nhận
+/forgot-password          Yêu cầu reset password
+/auth/callback             Xử lý callback PKCE và provision workspace
+/account/update-password  Đặt mật khẩu mới sau reset
+/dashboard                Dashboard theo role
+/datasets                 Dataset và profile runs
+/datasets/new             Upload và tạo profiling run
+/profiles/{runId}         Profile report
+/profiles/{runId}/review  Review proposal metadata
+/profiles/{runId}/analysis Kiểm định, drift và export
+/analyses                 Danh sách Analysis Session
+/analyses/new             Tạo Analysis Session
+/analyses/{sessionId}     Context, quality gate và exploration
+/chat                     Agent Q&A
+/reports                  Published report portal
+/compare                  So sánh profile/drift
+/api/reports/profile/...  Next.js PDF proxy cho profile report
 ```
 
-> ⚠️ Chạy `bash scripts/setup_hooks.sh` một lần sau khi clone để cài pre-push hook.
+Navbar ở Trang chủ, Đăng nhập và Đăng ký luôn cho phép chọn guest Viewer,
+Analyst hoặc Admin. Khi đổi role, frontend dọn guest session cũ theo kiểu
+best-effort, tải workspace mới và bỏ qua response của request role cũ đang
+chạy để không ghi đè role mới. Guest chỉ được tạo sau thao tác chọn role;
+nút `Kết thúc dùng thử` xóa session guest khỏi browser và yêu cầu backend dọn
+workspace tạm.
 
-## 📖 Đọc Technical Guidebook
+## API nhóm chính
 
-**Online (khuyến nghị):** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+API backend có prefix `/api/v1`; riêng PDF profile report đi qua Next.js proxy
+`/api/reports/profile/{runId}` để giữ cùng export section contract.
 
-Đăng nhập bằng GitHub (cùng account đã được BTC mời vào org `AI20K-Build-Cohort-2`)
-→ chọn tab **Technical Book** ở sidebar trái → đọc 10 chương + topic sections,
-có table of contents bên phải, hỗ trợ light/dark/cyberpunk theme.
+```text
+GET       /session, /me, /workspaces
+GET       /dashboard, /status, /audit
+POST      /onboarding/provision
+DELETE    /guest/session
+POST      /invitations/accept
+GET       /workspaces/current/members
+POST      /workspaces/current/invitations
+PATCH     /workspaces/current/members/{user_id}
+POST      /datasets/upload
+GET       /datasets
+DELETE    /datasets/{dataset_id}
+GET       /datasets/{dataset_id}/runs
+POST      /profile
+GET       /profile/{run_id}
+GET       /profile/{run_id}/export
+PATCH     /profile/{run_id}/confirm
+POST      /profile/{run_id}/test
+POST      /profile/{run_id}/drift
+GET       /profile/{run_id}/report
+POST      /qa và /qa/stream
 
-**Offline:** mọi chương đều ở thư mục `docs/guide/` trong template này — mở bằng
-bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
+GET       /agent-runs/{run_id}
+GET       /agent-runs/{run_id}/trace
+GET       /agent-runs/{run_id}/evidence
+GET       /agent-runs/{run_id}/plan
+GET       /agent-runs/{run_id}/trace-summary
 
-## 🔗 Liên kết
+POST      /analysis-sessions
+POST      /analysis-sessions/{id}/context-versions
+POST      /analysis-sessions/{id}/context-versions/{context_id}/approve
+POST      /analysis-sessions/{id}/quality-gate
+POST      /analysis-sessions/{id}/executions
+GET       /analysis-sessions/{id}/executions
 
-- 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Đặng Hải Lộc
+GET/POST/PATCH /reports và /reports/{report_id}
+POST          /reports/{report_id}/submit|review|publish|archive
 
-## 📄 License
+GET       /google-drive/status
+GET       /google-drive/connect
+DELETE    /google-drive/connection
+```
 
-MIT — Sử dụng tự do cho mục đích giáo dục.
+## Kiểm tra trước khi commit
+
+Từ root:
+
+```powershell
+python -m pytest -q
+```
+
+Kiểm tra nhanh riêng cho runtime trace (không cần khởi tạo fixture PostgreSQL
+tích hợp):
+
+```powershell
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python.exe -m pytest --confcutdir=tests/test_agents -q tests/test_agents/test_runtime_trace.py
+```
+
+Từ `frontend/`:
+
+```powershell
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+```
+
+Health backend:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/health
+```
+
+Test cần PostgreSQL test database riêng. Không trỏ test vào database production.
+
+## Giới hạn hiện tại
+
+- Một Analysis Session gắn với một profile run; chưa hỗ trợ join nhiều bảng.
+- Analysis không nhận arbitrary SQL, notebook hoặc cleaning recipe.
+- `deep` mode vẫn là workflow mở rộng; planner/approval nhiều bước chưa hoàn tất
+  như quick bounded analysis.
+- Agent runtime hiện chỉ có trace/provenance cho profiling và Q&A. Chưa có
+  planner thực thi, verifier enforce, approval workflow, durable queue/DLQ,
+  circuit breaker hay long-term memory.
+- Sample run phù hợp khám phá nhanh, không mặc định là số liệu exact.
+- Guest trial không phải cơ chế lưu trữ dài hạn.
+- Published report là snapshot; thay đổi lớn cần tạo draft/version theo workflow
+  report hiện có.
+
+## Tài liệu liên quan
+
+- [Technical summary](docs/summary.md)
+- [ADR agent runtime v2](docs/adr-agent-runtime-v2.md)
+- [Agent production-readiness implementation plan](docs/agent-production-readiness-implementation-plan.md)
+- [.env.example](.env.example)
+- [config.yaml](config.yaml)
+- [Makefile](Makefile)

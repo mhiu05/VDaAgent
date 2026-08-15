@@ -1,0 +1,106 @@
+import type { ReactNode } from "react";
+
+function renderInlineMarkdown(text: string): ReactNode {
+  const cleaned = text.replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
+  const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__)/g);
+
+  return tokens.map((token, tokenIndex) => {
+    const code = token.match(/^`(.+)`$/);
+    if (code) return <code key={`code-${tokenIndex}`}>{code[1]}</code>;
+
+    const bold = token.match(/^\*\*(.+)\*\*$|^__(.+)__$/);
+    if (bold) return <strong key={`strong-${tokenIndex}`}>{bold[1] || bold[2]}</strong>;
+
+    return token.replace(/^_(.+)_$/, "$1");
+  });
+}
+
+export function MarkdownContent({ text, className = "markdown-message" }: { text: string; className?: string }) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+  let inDetailSection = false;
+
+  while (index < lines.length) {
+    const rawLine = lines[index];
+    const indentation = rawLine.length - rawLine.trimStart().length;
+    const line = rawLine.trim();
+
+    if (!line) {
+      inDetailSection = false;
+      index += 1;
+      continue;
+    }
+
+    if (/^#{1,3}\s+/.test(line)) {
+      inDetailSection = false;
+      const heading = line.replace(/^#{1,3}\s*/, "");
+      blocks.push(<h3 key={`heading-${index}`}>{renderInlineMarkdown(heading)}</h3>);
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("|") && lines[index + 1]?.trim().startsWith("| ---")) {
+      const headers = line.split("|").slice(1, -1).map((cell) => cell.trim());
+      index += 2;
+      const rows: string[][] = [];
+      while (lines[index]?.trim().startsWith("|")) {
+        rows.push(lines[index].split("|").slice(1, -1).map((cell) => cell.trim()));
+        index += 1;
+      }
+      blocks.push(
+        <div className="report-markdown-table-wrap" key={`table-${index}`}>
+          <table>
+            <thead><tr>{headers.map((header) => <th key={header}>{renderInlineMarkdown(header)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(cell)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      const items: ReactNode[] = [];
+      let inListDetailSection = false;
+      while (lines[index]?.trim().startsWith("- ") || lines[index]?.trim().startsWith("* ")) {
+        const item = lines[index].trim().slice(2);
+        const isListSection = /^[^:]{1,80}:\s*$/.test(item);
+        const isListDetail = inListDetailSection && /^[^:]{1,80}:\s+\S+/.test(item);
+
+        if (isListSection) {
+          inListDetailSection = true;
+          items.push(<li className="report-markdown-list-section" key={`section-${index}`}>{renderInlineMarkdown(item.slice(0, -1))}</li>);
+        } else {
+          items.push(<li className={isListDetail ? "report-markdown-list-detail" : undefined} key={`item-${index}`}>{renderInlineMarkdown(item)}</li>);
+          if (!isListDetail) inListDetailSection = false;
+        }
+        index += 1;
+      }
+      blocks.push(<ul key={`list-${index}`}>{items}</ul>);
+      continue;
+    }
+
+    if (/^\d+[.)]\s+/.test(line)) {
+      blocks.push(<h3 className="report-markdown-numbered-heading" key={`numbered-${index}`}>{renderInlineMarkdown(line)}</h3>);
+      index += 1;
+      continue;
+    }
+
+    if (line.endsWith(":")) {
+      inDetailSection = true;
+      blocks.push(<h3 className="report-markdown-section" key={`section-${index}`}>{renderInlineMarkdown(line.slice(0, -1))}</h3>);
+      index += 1;
+      continue;
+    }
+
+    const isSectionDetail = inDetailSection && /^[^:]{1,80}:\s+\S+/.test(line);
+    blocks.push(
+      <p className={indentation > 0 || isSectionDetail ? "report-markdown-detail" : undefined} key={`paragraph-${index}`}>
+        {renderInlineMarkdown(line)}
+      </p>,
+    );
+    index += 1;
+  }
+
+  return <div className={className}>{blocks}</div>;
+}

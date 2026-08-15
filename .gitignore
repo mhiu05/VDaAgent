@@ -41,6 +41,7 @@ logs/
 htmlcov/
 .coverage
 coverage.xml
+.pytest_tmp/
 
 # Docker
 docker-compose.override.yml
@@ -48,8 +49,13 @@ docker-compose.override.yml
 # Node (frontend)
 node_modules/
 .next/
+.next-dev/
 out/
 .nuxt/
+.pnpm-store/
+test-results/
+playwright-report/
+*.tsbuildinfo
 
 # Build
 *.pyc
