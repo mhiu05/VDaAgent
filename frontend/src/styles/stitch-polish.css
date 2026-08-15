@@ -1427,6 +1427,29 @@ body {
   background: #eef6fc;
 }
 
+.chat-message .chat-message-content {
+  display: grid;
+  gap: 8px;
+}
+
+.chat-message .chat-message-content p,
+.chat-message .chat-message-content ul,
+.chat-message .chat-message-content pre {
+  margin: 0;
+}
+
+.chat-message .chat-message-content ul {
+  padding-left: 18px;
+}
+
+.chat-message.agent {
+  max-width: 98%;
+}
+
+.chat-message.user {
+  max-width: 86%;
+}
+
 input,
 select,
 textarea {

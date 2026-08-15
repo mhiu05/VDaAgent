@@ -27,6 +27,7 @@ export function DataWorkspaceView({
   runFullProfile,
   testConnection,
   listDbTables,
+  autoConfigureDbFromDocs,
   previewSelectedDbTables,
   profileSelectedDbTable,
   previewDbQuery,
@@ -52,6 +53,7 @@ export function DataWorkspaceView({
   userRules,
   columns,
   runSectionsProfile,
+  loading,
 }) {
   const hasSchemaPreview = Boolean(schemaPreviews?.length || schema?.length);
   const currentStep = hasSchemaPreview ? workspaceStep : "source";
@@ -122,10 +124,12 @@ export function DataWorkspaceView({
             previewSchema={previewSchema}
             testConnection={testConnection}
             listDbTables={listDbTables}
+            autoConfigureDbFromDocs={autoConfigureDbFromDocs}
             previewSelectedDbTables={previewSelectedDbTables}
             profileSelectedDbTable={profileSelectedDbTable}
             previewDbQuery={previewDbQuery}
             profileDbQuery={profileDbQuery}
+            loading={loading}
           />
         )}
         {currentStep === "dataset" && (
@@ -163,6 +167,7 @@ export function DataWorkspaceView({
             userRules={userRules}
             columns={columns}
             schema={schema}
+            schemaPreviews={schemaPreviews}
             dbProfileProgress={dbProfileProgress}
             runFullProfile={runFullProfile}
             profileSelectedDbTable={profileSelectedDbTable}

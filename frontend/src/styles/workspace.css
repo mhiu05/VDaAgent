@@ -1011,10 +1011,59 @@
   margin-top: 18px;
 }
 
+.agent-plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.agent-plan-header h3 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.agent-plan-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fabric-primary, #0078d4);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.plan-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--fabric-border, #e2e8f0);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--fabric-muted, #64748b);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.plan-status.attention {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.plan-status.confirmed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
 .agent-plan-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
-  gap: 18px;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(360px, 1.18fr);
+  gap: 16px;
 }
 
 .agent-plan-inputs,
@@ -1025,17 +1074,33 @@
 .agent-plan-inputs textarea {
   width: 100%;
   resize: vertical;
-  min-height: 112px;
+  min-height: 92px;
 }
 
 .compact-upload {
-  display: grid;
-  gap: 8px;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
   border: 1px dashed var(--fabric-border, #e2e8f0);
   border-radius: 8px;
   background: var(--fabric-surface-muted, #f8fafc);
   color: var(--fabric-muted, #64748b);
+  cursor: pointer;
+}
+
+.compact-upload span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fabric-text, #0f172a);
+  font-weight: 800;
+}
+
+.compact-upload small {
+  font-size: 12px;
+  text-align: right;
 }
 
 .plan-summary-row,
@@ -1054,13 +1119,13 @@
 
 .plan-item-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .plan-item-list article {
   border: 1px solid var(--fabric-border, #e2e8f0);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px 12px;
   background: #fff;
 }
 
@@ -1069,9 +1134,24 @@
   background: #fffbeb;
 }
 
-.plan-item-list p {
-  margin: 6px 0;
+.plan-item-list article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plan-item-list article > div span {
   color: var(--fabric-muted, #64748b);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plan-item-list p {
+  margin: 4px 0;
+  color: var(--fabric-muted, #64748b);
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .plan-item-list small {
@@ -1082,11 +1162,37 @@
 .plan-questions {
   display: grid;
   gap: 8px;
-  margin-top: 14px;
-  padding: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
   border-radius: 8px;
   background: #eff6ff;
   color: #1e3a8a;
+}
+
+.plan-questions strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-answer {
+  display: grid;
+  gap: 6px;
+  color: #1e3a8a;
+  font-weight: 650;
+}
+
+.plan-answer textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 54px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--fabric-text, #0f172a);
+  font: inherit;
+  font-weight: 500;
 }
 
 .settings-rule-list {

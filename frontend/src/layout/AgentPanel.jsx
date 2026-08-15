@@ -51,7 +51,6 @@ export function AgentPanel({
 
   async function submitChat(event) {
     event.preventDefault();
-    if (!selectedRunId) return;
     if (!askAgent) {
       await sendChat?.(event);
       return;
@@ -137,7 +136,7 @@ export function AgentPanel({
       <div className="chat-messages">
         {chatMessages.map((message, index) => (
           <div key={message.id || `${message.role}-${index}`} className={`chat-message ${message.role}`}>
-            {message.text}
+            <FormattedMessage text={message.text} />
           </div>
         ))}
       </div>
@@ -146,14 +145,99 @@ export function AgentPanel({
         <input
           value={chatInput}
           onChange={(event) => setChatInput(event.target.value)}
-          placeholder={selectedReport ? "Ask about this saved report..." : "Select a saved report first..."}
+          placeholder={selectedReport ? "Ask about this saved report..." : "Ask the agent..."}
         />
-        <button className="primary-button" type="submit" aria-label="Send message" disabled={loading || !selectedReport || !chatInput.trim()}>
+        <button className="primary-button" type="submit" aria-label="Send message" disabled={loading || !chatInput.trim()}>
           <MessageSquareText size={16} />
         </button>
       </form>
     </aside>
   );
+}
+
+function FormattedMessage({ text }) {
+  const blocks = parseMessageBlocks(String(text || ""));
+  return (
+    <div className="chat-message-content">
+      {blocks.map((block, index) => {
+        if (block.type === "code") {
+          return <pre key={index}><code>{block.text}</code></pre>;
+        }
+        if (block.type === "list") {
+          return (
+            <ul key={index}>
+              {block.items.map((item, itemIndex) => <li key={`${item}-${itemIndex}`}>{item}</li>)}
+            </ul>
+          );
+        }
+        return <p key={index}>{block.text}</p>;
+      })}
+    </div>
+  );
+}
+
+function parseMessageBlocks(text) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = [];
+  let code = [];
+  let inCode = false;
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push({ type: "paragraph", text: paragraph.join(" ").trim() });
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!list.length) return;
+    blocks.push({ type: "list", items: list });
+    list = [];
+  }
+
+  function flushCode() {
+    if (!code.length) return;
+    blocks.push({ type: "code", text: code.join("\n") });
+    code = [];
+  }
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("```")) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCode = true;
+      }
+      return;
+    }
+    if (inCode) {
+      code.push(line);
+      return;
+    }
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    const bullet = trimmed.match(/^[-*•]\s+(.+)$/) || trimmed.match(/^\d+[.)]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      list.push(bullet[1]);
+      return;
+    }
+    if (list.length) flushList();
+    paragraph.push(trimmed);
+  });
+
+  flushParagraph();
+  flushList();
+  flushCode();
+  return blocks.length ? blocks : [{ type: "paragraph", text }];
 }
 
 function toReportOption(report) {

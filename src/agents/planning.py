@@ -1,4 +1,4 @@
-"""User-scoped document intake and profiling plan generation.
+﻿"""User-scoped document intake and profiling plan generation.
 
 This MVP uses deterministic retrieval over extracted text so the product can
 support RAG-shaped workflows without adding a vector database dependency yet.
@@ -13,10 +13,14 @@ from pathlib import Path
 from uuid import uuid4
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
+import unicodedata
 
 from src.agents.persistence import AgentRepository, agent_repository
 from src.agents.pii import mask_text
 from src.models.schemas import (
+    DatabasePlanGenerateRequest,
+    DatabasePlanRecommendation,
+    DatabasePlanTableRecommendation,
     KnowledgeDocument,
     KnowledgeSearchResult,
     ProfilingPlan,
@@ -86,11 +90,66 @@ class PlanningStore:
             ))
         return sorted(ranked, key=lambda item: item.score, reverse=True)[:limit]
 
+    def recommend_database_plan(self, request: DatabasePlanGenerateRequest) -> DatabasePlanRecommendation:
+        documents = self.repository.get_knowledge_documents(request.user_id, request.document_ids)
+        context_text = "\n\n".join(document.extracted_text or document.summary for document in documents)
+        requirements = f"{request.custom_requirements}\n\n{context_text}"
+        terms = _keywords(requirements)
+        table_terms = [term for term in terms if len(term) >= 3]
+        recommendations: list[DatabasePlanTableRecommendation] = []
+
+        for table in request.tables:
+            schema_name = table.schema_name
+            table_name = table.table
+            haystack = f"{schema_name} {table_name}".lower()
+            matched = [term for term in table_terms if term in haystack]
+            score = float(len(matched))
+            if score <= 0:
+                score += _semantic_table_score(haystack, requirements.lower())
+            if score <= 0:
+                continue
+            reason = (
+                f"Matched requirement terms: {', '.join(matched[:8])}."
+                if matched
+                else "Table name is related to the requested analysis domain."
+            )
+            recommendations.append(DatabasePlanTableRecommendation(
+                schema_name=schema_name,
+                table_name=table_name,
+                score=score,
+                reason=reason,
+                matched_terms=matched[:12],
+            ))
+
+        recommendations.sort(key=lambda item: item.score, reverse=True)
+        selected = recommendations[:request.max_tables]
+        questions: list[str] = []
+        evidence: list[str] = []
+        if selected:
+            evidence.append(
+                "Selected tables from requirement document and available database object names."
+            )
+            questions.append(
+                "Confirm these tables before profiling, especially if the requirement mentions business concepts not visible in table names."
+            )
+        else:
+            questions.append(
+                "No table name matched the uploaded documents or custom requirements. Select tables manually or add table names to the requirement document."
+            )
+        return DatabasePlanRecommendation(
+            recommended_tables=selected,
+            questions=questions,
+            evidence=evidence,
+        )
+
     def generate_plan(self, request: ProfilingPlanGenerateRequest) -> ProfilingPlan:
         documents = self.repository.get_knowledge_documents(request.user_id, request.document_ids)
         context_text = "\n\n".join(document.extracted_text or document.summary for document in documents)
-        requirements = f"{request.custom_requirements}\n\n{context_text}".lower()
-        sections = set(request.selected_sections or ["schema", "columns", "findings"])
+        requirements = _normalize_text(f"{request.custom_requirements}\n\n{context_text}")
+        column_names = [column for column in request.columns if column]
+        normalized_columns = {column: _normalize_text(column) for column in column_names}
+        requested_sections = request.selected_sections or ["schema", "columns", "findings"]
+        sections = set(requested_sections)
         items: list[ProfilingPlanItem] = []
         questions: list[str] = []
 
@@ -107,28 +166,75 @@ class PlanningStore:
                 requires_confirmation=confirm,
             ))
 
-        add("schema", "Inspect schema and datatypes", "Every profiling run needs a trusted schema baseline.", "schema")
-        add("columns", "Compute column-level metrics", "Nulls, distincts, ranges, samples, and top values drive the report.", "columns")
-        add("findings", "Generate data quality findings", "Findings provide analyst-friendly issues and recommendations.", "findings")
+        section_items = {
+            "schema": ("schema", "Inspect schema", "Selected output includes schema and datatype validation."),
+            "columns": ("columns", "Compute column metrics", "Selected output includes nulls, distincts, ranges, samples, and top values."),
+            "findings": ("findings", "Generate findings", "Selected output includes analyst-facing data quality findings."),
+            "quality_summary": ("quality_summary", "Summarize quality", "Selected output includes aggregate warning and critical counts."),
+            "correlations": ("relationships", "Profile relationships", "Selected output includes numeric correlations and relationship candidates."),
+        }
+        for section in requested_sections:
+            definition = section_items.get(section)
+            if definition:
+                add(*definition, section=section)
 
-        if any(term in requirements for term in ["pii", "privacy", "email", "phone", "mask", "personal"]):
-            add("pii", "Detect and mask PII candidates", "Requirements mention privacy-sensitive data.", "findings", True)
-            questions.append("Which columns are allowed to be exposed unmasked in the report?")
-        if any(term in requirements for term in ["correlation", "relationship", "join", "foreign key", "primary key"]):
-            add("relationships", "Profile correlations and inferred relationships", "Requirements mention relationships or joins.", "correlations", True)
+        pii_column_terms = [
+            "email", "phone", "mobile", "tel", "name", "full_name", "customer_name",
+            "address", "dob", "birth", "ssn", "national", "identifier", "customer_id",
+            "user_id", "cccd", "cmnd", "passport",
+        ]
+        pii_columns = [
+            column for column in column_names
+            if any(term in normalized_columns[column] for term in pii_column_terms)
+        ]
+        pii_matches = _matched_terms(requirements, [
+            "pii", "privacy", "email", "phone", "mask", "personal", "sensitive",
+            "an", "che", "an danh", "du lieu ca nhan", "nhay cam", "sdt",
+            "so dien thoai", "cccd", "cmnd",
+        ])
+        if pii_matches or pii_columns:
+            evidence = (
+                f"Column names suggest possible PII: {', '.join(pii_columns[:8])}."
+                if pii_columns
+                else f"Requirements mention: {', '.join(pii_matches[:4])}."
+            )
+            add("pii", "Detect and mask PII candidates", evidence, "findings", True)
+            if pii_columns:
+                questions.append(f"Should these columns be masked in the report: {', '.join(pii_columns[:8])}?")
+            else:
+                questions.append("Which columns are allowed to be exposed unmasked in the report?")
+
+        relationship_matches = _matched_terms(requirements, [
+            "correlation", "relationship", "join", "foreign key", "primary key",
+            "lien he", "quan he", "khoa", "khoa chinh", "khoa ngoai",
+        ])
+        if relationship_matches:
+            add("relationships", "Profile correlations and inferred relationships", f"Requirements mention: {', '.join(relationship_matches[:4])}.", "correlations", True)
             questions.append("Which identifier or relationship candidates should be treated as trusted metadata?")
-        if any(term in requirements for term in ["outlier", "anomaly", "range", "invalid"]):
-            add("outliers", "Check outliers and invalid ranges", "Requirements mention anomalies or business ranges.", "columns", True)
+
+        outlier_matches = _matched_terms(requirements, [
+            "outlier", "anomaly", "range", "invalid", "ngoai le", "bat thuong", "khoang",
+        ])
+        if outlier_matches:
+            add("outliers", "Check outliers and invalid ranges", f"Requirements mention: {', '.join(outlier_matches[:4])}.", "columns", True)
             questions.append("What thresholds or accepted business ranges should be enforced?")
-        if any(term in requirements for term in ["missing", "null", "completeness", "required"]):
-            add("missingness", "Highlight missingness and required-field risks", "Requirements mention completeness or required fields.", "findings", True)
+
+        missing_matches = _matched_terms(requirements, [
+            "missing", "null", "completeness", "required", "thieu", "rong", "bat buoc",
+        ])
+        if missing_matches:
+            add("missingness", "Highlight missingness and required-field risks", f"Requirements mention: {', '.join(missing_matches[:4])}.", "findings", True)
             questions.append("Which columns are mandatory and what null threshold should become a warning?")
-        if any(term in requirements for term in ["statistical", "anova", "t-test", "chi-square", "spearman", "pearson"]):
-            add("stat_tests", "Recommend statistical tests after profiling", "Requirements mention analytical hypothesis testing.", None, True)
+
+        stat_matches = _matched_terms(requirements, [
+            "statistical", "anova", "t-test", "chi-square", "spearman", "pearson", "thong ke", "kiem dinh",
+        ])
+        if stat_matches:
+            add("stat_tests", "Recommend statistical tests after profiling", f"Requirements mention: {', '.join(stat_matches[:4])}.", None, True)
             questions.append("Which outcome and grouping columns should be used for statistical tests?")
 
         if request.custom_requirements.strip() and not questions:
-            questions.append("Confirm whether the custom requirement should become a reusable rule for future reports.")
+            questions.append("Which columns or thresholds should this custom requirement apply to?")
 
         now = _now()
         plan = ProfilingPlan(
@@ -152,6 +258,7 @@ class PlanningStore:
         plan.confirmed = True
         plan.updated_at = _now()
         confirmed = set(confirmed_items or [item.id for item in plan.items])
+        answer_text = _format_plan_answers(answers)
         for item in plan.items:
             if item.id not in confirmed or not item.requires_confirmation:
                 continue
@@ -162,7 +269,7 @@ class PlanningStore:
                 column=None,
                 rule_type=item.id,
                 description=item.label,
-                evidence=mask_text(answers.get(item.id, item.reason)),
+                evidence=mask_text(answers.get(item.id) or answer_text or item.reason),
                 created_at=_now(),
             ))
         return self.repository.save_profiling_plan(plan)
@@ -208,7 +315,42 @@ def _summarize_text(text: str, filename: str) -> str:
 
 
 def _keywords(query: str) -> list[str]:
-    return [word for word in "".join(char.lower() if char.isalnum() else " " for char in query).split() if len(word) >= 3]
+    normalized = _normalize_text(query)
+    return [word for word in "".join(char if char.isalnum() else " " for char in normalized).split() if len(word) >= 3]
+
+
+def _normalize_text(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    ascii_text = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return ascii_text.lower()
+
+
+def _matched_terms(text: str, terms: list[str]) -> list[str]:
+    return [term for term in terms if term in text]
+
+
+def _format_plan_answers(answers: dict[str, str]) -> str:
+    cleaned = [
+        f"{key}: {value.strip()}"
+        for key, value in (answers or {}).items()
+        if value and value.strip()
+    ]
+    return "; ".join(cleaned)
+
+
+def _semantic_table_score(table_name: str, requirements: str) -> float:
+    groups = {
+        "customer": ["customer", "client", "user", "buyer", "khach"],
+        "order": ["order", "purchase", "sale", "invoice", "don"],
+        "payment": ["payment", "transaction", "billing", "pay", "thanh", "toan"],
+        "product": ["product", "item", "sku", "category", "san", "hang"],
+        "region": ["region", "country", "city", "location", "area", "khu", "vuc", "vá»±c"],
+    }
+    score = 0.0
+    for table_terms in groups.values():
+        if any(term in table_name for term in table_terms) and any(term in requirements for term in table_terms):
+            score += 0.75
+    return score
 
 
 def _excerpt(text: str, terms: list[str]) -> str:

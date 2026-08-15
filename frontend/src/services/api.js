@@ -1,9 +1,21 @@
 export const DEFAULT_API_BASE = "http://localhost:8000/api/v1";
 
 export async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    throw new Error(`${error?.message || "Network request failed"} (${url})`);
+  }
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text };
+    }
+  }
   if (!response.ok) {
     const message = data?.detail || data?.message || `Request failed with ${response.status}`;
     throw new Error(typeof message === "string" ? message : JSON.stringify(message));

@@ -14,7 +14,7 @@ export function FindingsPanel({ findings, columns }) {
   )), [findings, severity, columnName, type]);
 
   return (
-    <section className="panel findings-panel">
+    <section className="panel report-section-card findings-panel">
       <div className="report-card-title split">
         <div>
           <h3>Findings</h3>

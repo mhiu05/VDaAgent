@@ -490,6 +490,9 @@ export default function App() {
 
   async function generateProfilingPlan() {
     const activePreview = explorerPreviews[safeSelectedSchemaIndex];
+    const activeColumns = activePreview?.columns?.length
+      ? activePreview.columns.map((column) => column.name).filter(Boolean)
+      : schema.map((column) => column.name).filter(Boolean);
     await runTask("Generating profiling plan", async () => {
       const plan = await requestJson(`${apiBase}/profiling/plans`, {
         method: "POST",
@@ -497,7 +500,7 @@ export default function App() {
         body: JSON.stringify({
           user_id: chatUserId,
           source_name: activePreview?.name || displayResult?.source?.name || null,
-          columns: schema.map((column) => column.name),
+          columns: activeColumns,
           selected_sections: selectedSections,
           custom_requirements: customRequirements,
           document_ids: knowledgeDocs.map((doc) => doc.id),
@@ -598,36 +601,46 @@ export default function App() {
       showToast("Select one CSV file first.", "warning");
       return;
     }
+    const staleFile = selectedFiles.find((file) => !isUploadableFile(file));
+    if (staleFile) {
+      showToast(`Please re-select ${staleFile.name || "the file"} before previewing. Browser file handles were refreshed.`, "warning");
+      setFiles([]);
+      return;
+    }
     await runTask("Previewing schema", async () => {
       const previews = [];
       for (const file of selectedFiles) {
-        if (file.name.toLowerCase().endsWith(".xlsx")) {
-          const form = fileForm(file, "file");
-          form.append("user_id", chatUserId);
-          const data = await requestJson(`${apiBase}/profile/excel`, { method: "POST", body: form });
-          (data.sources || []).forEach((source) => {
-            previews.push({
-              name: source.source?.name || source.source_name || file.name,
-              type: source.source?.type || "excel_sheet",
-              columns: source.columns || [],
+        try {
+          if (file.name.toLowerCase().endsWith(".xlsx")) {
+            const form = fileForm(file, "file");
+            form.append("user_id", chatUserId);
+            const data = await requestJson(`${apiBase}/profile/excel`, { method: "POST", body: form });
+            (data.sources || []).forEach((source) => {
+              previews.push({
+                name: source.source?.name || source.source_name || file.name,
+                type: source.source?.type || "excel_sheet",
+                columns: source.columns || [],
+              });
             });
-          });
-        } else {
-          const form = fileForm(file, "file");
-          form.append("user_id", chatUserId);
-          const data = await requestJson(`${apiBase}/profile/file/schema`, { method: "POST", body: form });
-          const previewForm = fileForm(file, "file");
-          previewForm.append("limit", String(effectivePreviewLimit));
-          previewForm.append("user_id", chatUserId);
-          const previewData = await requestJson(`${apiBase}/profile/file/preview`, { method: "POST", body: previewForm });
-          previews.push({
-            name: data.source_name || file.name,
-            type: data.source_type || "file",
-            rowCount: data.row_count,
-            columnCount: data.column_count,
-            columns: data.columns || [],
-            rows: previewData.rows || [],
-          });
+          } else {
+            const form = fileForm(file, "file");
+            form.append("user_id", chatUserId);
+            const data = await requestJson(`${apiBase}/profile/file/schema`, { method: "POST", body: form });
+            const previewForm = fileForm(file, "file");
+            previewForm.append("limit", String(effectivePreviewLimit));
+            previewForm.append("user_id", chatUserId);
+            const previewData = await requestJson(`${apiBase}/profile/file/preview`, { method: "POST", body: previewForm });
+            previews.push({
+              name: data.source_name || file.name,
+              type: data.source_type || "file",
+              rowCount: data.row_count,
+              columnCount: data.column_count,
+              columns: data.columns || [],
+              rows: previewData.rows || [],
+            });
+          }
+        } catch (error) {
+          throw new Error(`${file.name}: ${error.message || "Could not preview schema."}`);
         }
       }
       setSchemaPreviews(previews);
@@ -691,11 +704,7 @@ export default function App() {
     setSelectedTable({ schema_name: "", table_name: "" });
     await runTask("Listing tables", async () => {
       const connection = databaseConnectionFromForm(dbValues);
-      const data = await requestJson(`${apiBase}/profile/database/tables`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(connection),
-      });
+      const data = await fetchDbTables(connection);
       setTables(data.tables || []);
       setSelectedTables([]);
       setSelectedTable({ schema_name: "", table_name: "" });
@@ -703,53 +712,113 @@ export default function App() {
     });
   }
 
-  async function previewSelectedDbTables() {
+  async function fetchDbTables(connection) {
+    return requestJson(`${apiBase}/profile/database/tables`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(connection),
+    });
+  }
+
+  async function loadDbTablePreviews(tableSelections) {
+    const connection = databaseConnectionFromForm(dbValues);
+    const previews = [];
+    for (const table of tableSelections) {
+      const schemaData = await requestJson(`${apiBase}/profile/database/schema`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connection, ...table }),
+      });
+      const previewData = await requestJson(`${apiBase}/profile/database/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connection, ...table, limit: previewLimit }),
+      });
+      previews.push({
+        name: `${table.schema_name}.${table.table_name}`,
+        type: schemaData.source_type || dbValues.type,
+        rowCount: schemaData.row_count,
+        columnCount: schemaData.column_count,
+        columns: schemaData.columns || [],
+        rows: previewData.rows || [],
+      });
+    }
+    setSchemaPreviews(previews);
+    setSelectedSchemaIndex(0);
+    setResult(null);
+    setResultSources([]);
+    setSectionsResult(previews[0] ? {
+      source_name: previews[0].name,
+      source_type: previews[0].type,
+      requested_sections: ["schema"],
+      sections: { schema: previews[0].columns },
+      errors: [],
+    } : null);
+    setActiveView("workspace");
+    setWorkspaceStep("dataset");
+    return previews;
+  }
+
+  async function previewSelectedDbTables(tableOverride = null) {
     if (selectedConnector?.category === "Databases" && !selectedConnector.backendType) {
       showToast("This connector needs a backend adapter before previewing tables.", "warning");
       return;
     }
-    const tableSelections = selectedTables.length ? selectedTables : (selectedTable.table_name ? [selectedTable] : []);
+    const tableSelections = tableOverride || (selectedTables.length ? selectedTables : (selectedTable.table_name ? [selectedTable] : []));
     if (!tableSelections.length) {
       showToast("Select at least one database table first.", "warning");
       return;
     }
     await runTask("Previewing database table", async () => {
-      const connection = databaseConnectionFromForm(dbValues);
-      const previews = [];
-      for (const table of tableSelections) {
-        const schemaData = await requestJson(`${apiBase}/profile/database/schema`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ connection, ...table }),
-        });
-        const previewData = await requestJson(`${apiBase}/profile/database/preview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ connection, ...table, limit: previewLimit }),
-        });
-        previews.push({
-          name: `${table.schema_name}.${table.table_name}`,
-          type: schemaData.source_type || dbValues.type,
-          rowCount: schemaData.row_count,
-          columnCount: schemaData.column_count,
-          columns: schemaData.columns || [],
-          rows: previewData.rows || [],
-        });
-      }
-      setSchemaPreviews(previews);
-      setSelectedSchemaIndex(0);
-      setResult(null);
-      setResultSources([]);
-      setSectionsResult(previews[0] ? {
-        source_name: previews[0].name,
-        source_type: previews[0].type,
-        requested_sections: ["schema"],
-        sections: { schema: previews[0].columns },
-        errors: [],
-      } : null);
-      setActiveView("workspace");
-      setWorkspaceStep("dataset");
+      const previews = await loadDbTablePreviews(tableSelections);
       showToast(`Loaded preview for ${previews.length} table(s)`, "success");
+    });
+  }
+
+  async function autoConfigureDbFromDocs() {
+    if (selectedConnector?.category === "Databases" && !selectedConnector.backendType) {
+      showToast("This connector needs a backend adapter before Agent configuration.", "warning");
+      return;
+    }
+    if (!customRequirements.trim() && !knowledgeDocs.length) {
+      showToast("Add requirements or upload policy docs before asking Agent to choose database objects.", "warning");
+      return;
+    }
+    await runTask("Agent configuring database source", async () => {
+      const connection = databaseConnectionFromForm(dbValues);
+      let availableTables = tables;
+      if (!availableTables.length) {
+        const data = await fetchDbTables(connection);
+        availableTables = data.tables || [];
+        setTables(availableTables);
+      }
+      if (!availableTables.length) {
+        throw new Error("No database tables were found for Agent configuration.");
+      }
+      const recommendation = await requestJson(`${apiBase}/profiling/database-plan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: chatUserId,
+          tables: availableTables.map(toDatabasePlanTable),
+          custom_requirements: customRequirements,
+          document_ids: knowledgeDocs.map((doc) => doc.id),
+          max_tables: 3,
+        }),
+      });
+      const recommendedTables = (recommendation.recommended_tables || []).map((table) => ({
+        schema_name: table.schema_name,
+        table_name: table.table_name,
+      }));
+      if (!recommendedTables.length) {
+        showToast(recommendation.questions?.[0] || "Agent could not match any table from the uploaded docs.", "warning");
+        return;
+      }
+      setDbInputMode("table");
+      setSelectedTables(recommendedTables);
+      setSelectedTable(recommendedTables[0]);
+      const previews = await loadDbTablePreviews(recommendedTables);
+      showToast(`Agent selected and previewed ${previews.length} table(s)`, "success");
     });
   }
 
@@ -1128,6 +1197,7 @@ export default function App() {
             runFullProfile={runFullProfile}
             testConnection={testConnection}
             listDbTables={listDbTables}
+            autoConfigureDbFromDocs={autoConfigureDbFromDocs}
             previewSelectedDbTables={previewSelectedDbTables}
             profileSelectedDbTable={profileSelectedDbTable}
             previewDbQuery={previewDbQuery}
@@ -1153,6 +1223,7 @@ export default function App() {
             userRules={userRules}
             columns={columns}
             runSectionsProfile={runSectionsProfile}
+            loading={loading}
           />
         )}
         {activeView === "reports" && (
@@ -1489,6 +1560,22 @@ function isStaleConversationError(error) {
   );
 }
 
+function isUploadableFile(file) {
+  return Boolean(
+    file
+    && typeof file.name === "string"
+    && typeof file.size === "number"
+    && typeof file.arrayBuffer === "function"
+  );
+}
+
 function tableKey(table) {
   return `${table.schema_name || table.schema || ""}.${table.table_name || table.table || ""}`;
+}
+
+function toDatabasePlanTable(table) {
+  return {
+    schema: table.schema_name || table.schema || "",
+    table: table.table_name || table.table || "",
+  };
 }

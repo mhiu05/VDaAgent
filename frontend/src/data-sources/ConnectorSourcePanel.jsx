@@ -21,8 +21,10 @@ export function ConnectorSourcePanel({
   selectedTables,
   setSelectedTables,
   listDbTables,
+  autoConfigureDbFromDocs,
   previewSelectedDbTables,
   previewDbQuery,
+  loading,
 }) {
   const [searchText, setSearchText] = useState("");
   const visibleSources = useMemo(() => serverConnectors.filter((source) => {
@@ -53,6 +55,8 @@ export function ConnectorSourcePanel({
           tables={tables}
           connectionOk={connectionOk}
           listDbTables={listDbTables}
+          autoConfigureDbFromDocs={autoConfigureDbFromDocs}
+          loading={loading}
           previewDbQuery={previewDbQuery}
         />
       </div>
@@ -64,10 +68,13 @@ export function ConnectorSourcePanel({
             selectedTable={selectedTable}
             setSelectedTable={setSelectedTable}
             selectedTables={selectedTables}
-            setSelectedTables={setSelectedTables}
-          />
+          setSelectedTables={setSelectedTables}
+        />
           <div className="button-row align-right">
-            <button className="primary-button" disabled={!selectedCard.backendType} onClick={previewSelectedDbTables}>
+            <button className="secondary-button" disabled={!selectedCard.backendType || loading} onClick={autoConfigureDbFromDocs}>
+              Agent select from docs
+            </button>
+            <button className="primary-button" disabled={!selectedCard.backendType || loading} onClick={previewSelectedDbTables}>
               Preview selected table(s)
             </button>
           </div>
@@ -123,6 +130,8 @@ function ConnectorDetail({
   tables,
   connectionOk,
   listDbTables,
+  autoConfigureDbFromDocs,
+  loading,
   previewDbQuery,
 }) {
   return (
@@ -158,7 +167,15 @@ function ConnectorDetail({
       </div>
       {dbInputMode === "table" && (
         <div className="button-row">
-          <button className="primary-button" disabled={!selectedCard.backendType} onClick={listDbTables}>Connect and list tables</button>
+          <button className="primary-button" disabled={!selectedCard.backendType || loading} onClick={listDbTables}>Connect and list tables</button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={!selectedCard.backendType || !connectionOk || loading}
+            onClick={autoConfigureDbFromDocs}
+          >
+            Agent select from docs
+          </button>
         </div>
       )}
       {!selectedCard.backendType && (

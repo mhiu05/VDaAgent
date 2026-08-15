@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, ClipboardList, FileUp, HelpCircle, Sparkles } from "lucide-react";
 import { PanelTitle } from "../shared/components.jsx";
 import { sectionOptions } from "../utils/options.js";
 
@@ -22,12 +23,19 @@ export function ProfilingView({
   generateProfilingPlan,
   confirmProfilingPlan,
   userRules = [],
+  schemaPreviews = [],
 }) {
   const [samplingEnabled, setSamplingEnabled] = useState(false);
+  const [planAnswers, setPlanAnswers] = useState({});
   const fileCount = Array.from(files || []).length;
   const dbTableCount = selectedTables.length;
+  const totalPreviewColumns = schemaPreviews.reduce((total, preview) => total + (preview.columns?.length || 0), 0);
+  const configuredColumnCount = totalPreviewColumns || schema?.length || 0;
   const isDatabaseRun = dbTableCount > 0;
   const isQueryRun = dbInputMode === "query" && Boolean(dbQuery?.trim());
+  const needsAnswers = Boolean(profilingPlan?.clarification_questions?.length || profilingPlan?.items?.some((item) => item.requires_confirmation));
+  const planStatus = profilingPlan?.confirmed ? "Confirmed" : profilingPlan ? (needsAnswers ? "Needs answers" : "Draft") : "Not generated";
+  const planSections = profilingPlan?.selected_sections?.length ? profilingPlan.selected_sections : selectedSections;
   const sourceAside = isDatabaseRun
     ? `${dbTableCount} table(s)`
     : isQueryRun
@@ -37,6 +45,21 @@ export function ProfilingView({
       : "No dataset selected";
   const runLabel = isDatabaseRun ? "Profile selected table(s)" : isQueryRun ? "Profile query" : "Run full profile";
   const runAction = isDatabaseRun ? profileSelectedDbTable : isQueryRun ? profileDbQuery : runFullProfile;
+
+  useEffect(() => {
+    setPlanAnswers({});
+  }, [profilingPlan?.id]);
+
+  function updatePlanAnswer(key, value) {
+    setPlanAnswers((current) => ({ ...current, [key]: value }));
+  }
+
+  function confirmCurrentPlan() {
+    const answers = Object.fromEntries(
+      Object.entries(planAnswers).filter(([, value]) => String(value || "").trim()),
+    );
+    confirmProfilingPlan?.(answers);
+  }
 
   return (
     <>
@@ -86,12 +109,12 @@ export function ProfilingView({
             ? "Selected sections control what appears in the database profiling report."
             : isQueryRun
               ? "Selected sections control what appears in the query profiling report."
-            : "Selected columns in Dataset Explorer are used for preview and report filtering."}
+            : "Choose which report sections the full profile should compute."}
         </p>
       </section>
 
       <section className="panel">
-        <PanelTitle title="Run configuration" aside={`${schema?.length || 0} columns`} />
+        <PanelTitle title="Run configuration" aside={`${configuredColumnCount} columns`} />
         <div className="compact-config-grid">
           {["Basic statistics", "Null analysis", "Distinct analysis", "Pattern detection"].map((label) => (
             <label className="check-row" key={label} title={runOptionTooltip(label)}><input type="checkbox" defaultChecked /> {label}</label>
@@ -126,7 +149,16 @@ export function ProfilingView({
     </section>
 
     <section className="panel agent-plan-panel">
-      <PanelTitle title="Agent-assisted profiling plan" aside={profilingPlan?.confirmed ? "Confirmed" : "Review before running"} />
+      <div className="agent-plan-header">
+        <div>
+          <span className="agent-plan-kicker"><Sparkles size={14} /> Plan builder</span>
+          <h3>Agent-assisted profiling plan</h3>
+        </div>
+        <span className={`plan-status ${profilingPlan?.confirmed ? "confirmed" : needsAnswers ? "attention" : ""}`}>
+          {profilingPlan?.confirmed ? <CheckCircle2 size={14} /> : needsAnswers ? <AlertTriangle size={14} /> : <ClipboardList size={14} />}
+          {planStatus}
+        </span>
+      </div>
       <div className="agent-plan-grid">
         <div className="agent-plan-inputs">
           <label>
@@ -134,12 +166,13 @@ export function ProfilingView({
             <textarea
               value={customRequirements}
               onChange={(event) => setCustomRequirements(event.target.value)}
-              placeholder="Example: flag email as PII, check duplicate customer_id, include null threshold warnings, compare revenue by region..."
-              rows={5}
+              placeholder="Example: mask PII, warn when required columns are null, compare revenue by region..."
+              rows={4}
             />
           </label>
           <label className="agent-doc-upload compact-upload">
-            Upload requirements / policy docs
+            <span><FileUp size={16} /> Requirements / policy docs</span>
+            <small>{knowledgeDocs.length ? `${knowledgeDocs.length} document(s) attached` : "PDF, DOCX, TXT, MD, JSON, or CSV"}</small>
             <input
               type="file"
               multiple
@@ -152,9 +185,9 @@ export function ProfilingView({
           </label>
           <div className="button-row">
             <button className="secondary-button" type="button" onClick={generateProfilingPlan}>
-              Generate plan
+              Build plan
             </button>
-            <button className="primary-button" type="button" onClick={() => confirmProfilingPlan?.()}>
+            <button className="primary-button" type="button" disabled={!profilingPlan} onClick={confirmCurrentPlan}>
               Confirm plan
             </button>
           </div>
@@ -163,28 +196,44 @@ export function ProfilingView({
           {profilingPlan ? (
             <>
               <div className="plan-summary-row">
-                <strong>{profilingPlan.items?.length || 0} plan items</strong>
-                <span>{profilingPlan.selected_sections?.join(", ")}</span>
+                <strong>{profilingPlan.items?.length || 0} checks</strong>
+                <span>{planSections.join(", ")}</span>
               </div>
               <div className="plan-item-list">
                 {profilingPlan.items?.map((item) => (
                   <article key={item.id} className={item.requires_confirmation ? "needs-confirmation" : ""}>
-                    <strong>{item.label}</strong>
+                    <div>
+                      <strong>{item.label}</strong>
+                      {item.section ? <span>{item.section}</span> : null}
+                    </div>
                     <p>{item.reason}</p>
-                    {item.requires_confirmation ? <small>Requires analyst confirmation</small> : null}
+                    {item.requires_confirmation ? <small>Needs confirmation</small> : null}
                   </article>
                 ))}
               </div>
               {profilingPlan.clarification_questions?.length ? (
                 <div className="plan-questions">
-                  <strong>Questions to confirm</strong>
-                  {profilingPlan.clarification_questions.map((question) => <span key={question}>{question}</span>)}
+                  <strong><HelpCircle size={15} /> Questions before running</strong>
+                  {profilingPlan.clarification_questions.map((question, index) => {
+                    const key = `question:${index}`;
+                    return (
+                      <label key={question} className="plan-answer">
+                        <span>{question}</span>
+                        <textarea
+                          rows={2}
+                          value={planAnswers[key] || ""}
+                          onChange={(event) => updatePlanAnswer(key, event.target.value)}
+                          placeholder="Answer once here, then confirm the plan..."
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
               ) : null}
             </>
           ) : (
             <div className="empty-state compact">
-              Add custom requirements or upload docs, then generate a plan. The Agent will propose metrics and questions before profiling.
+              Add requirements or docs, then build a plan.
             </div>
           )}
           <div className="plan-context-strip">

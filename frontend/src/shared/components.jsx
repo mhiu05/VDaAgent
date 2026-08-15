@@ -66,10 +66,11 @@ export function EmptyTable({ columns, message }) {
 }
 
 export function Toast({ toast }) {
+  const message = toast.message || "Request failed. Please try again.";
   return (
     <div className={`toast ${toast.type}`}>
       {toast.type === "critical" ? <XCircle size={16} /> : <CheckCircle2 size={16} />}
-      {toast.message}
+      <span>{message}</span>
     </div>
   );
 }

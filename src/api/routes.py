@@ -13,7 +13,9 @@ from src.agents.graph import agent
 from src.agents.hitl import hitl_store
 from src.agents.persistence import agent_repository
 from src.agents.planning import planning_store
+from src.agents.planning_agent import ProfilingPlanToolCallingAgent
 from src.agents.pii import mask_text
+from src.agents.report_chat_agent import SavedReportToolCallingAgent
 from src.agents.tools.registry import TOOL_REGISTRY
 from src.agents.tracing import trace_store
 from src.models.schemas import (
@@ -27,6 +29,8 @@ from src.models.schemas import (
     ConversationCreateRequest,
     DatabaseConnectionConfig,
     DatabaseConnectionStatus,
+    DatabasePlanGenerateRequest,
+    DatabasePlanRecommendation,
     DatabasePreviewRequest,
     DatabasePreviewResult,
     DatabaseProfileSectionsRequest,
@@ -65,6 +69,8 @@ from src.models.schemas import (
 from src.profiling.service import ProfilingService
 
 router = APIRouter()
+saved_report_agent = SavedReportToolCallingAgent()
+planning_agent = ProfilingPlanToolCallingAgent()
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -111,21 +117,30 @@ async def chat(request: ChatRequest) -> ChatResponse:
         metadata={"conversation_id": conversation.id, "profile_run_id": request.run_id},
     )
     try:
-        saved_report_answer = (
-            _answer_saved_report_question(request.message, report_record)
-            if report_record is not None
-            else None
-        )
-        if saved_report_answer is not None:
-            response = saved_report_answer
-            analysis_summary = "Response generated from saved report metrics."
-        elif report_record is not None:
-            response = _saved_report_unknown_answer(request.message, report_record)
-            analysis_summary = "No supported saved-report evidence matched the question."
+        if report_record is not None:
+            report_agent_result = await saved_report_agent.answer(request.message, report_record)
+            response = report_agent_result.response
+            analysis_summary = report_agent_result.analysis
+            for tool_event in report_agent_result.used_tools:
+                trace_store.add_event(
+                    run.run_id,
+                    event_type="tool_call",
+                    component="agent_chat",
+                    tool_name=tool_event.tool_name,
+                    input_summary=tool_event.input_summary,
+                    output_summary=tool_event.output_summary,
+                    duration_ms=tool_event.duration_ms,
+                    metadata={"profile_run_id": request.run_id, **tool_event.metadata},
+                )
         else:
-            result = await agent.ainvoke({"query": request.message, "context": report_context})
-            response = mask_text(result.get("response", "") or "No response.")
-            analysis_summary = mask_text(result.get("analysis", ""))
+            general_answer = _answer_general_agent_question(request.message)
+            if general_answer is not None:
+                response = general_answer
+                analysis_summary = "Response generated without saved-report context."
+            else:
+                result = await agent.ainvoke({"query": request.message, "context": report_context})
+                response = mask_text(result.get("response", "") or "No response.")
+                analysis_summary = mask_text(result.get("analysis", ""))
         chat_store.add_message(conversation.id, "agent", response, run_id=run.run_id)
         duration_ms = int((perf_counter() - started) * 1000)
         trace_store.add_event(
@@ -215,19 +230,14 @@ def _build_report_chat_context(record: ProfileReportRecord) -> str:
     )
 
 
-def _answer_saved_report_question(question: str, record: ProfileReportRecord) -> str | None:
-    report = record.report
-    question_lower = question.lower()
+def _answer_general_agent_question(question: str) -> str | None:
     normalized_question = _normalize_question(question)
-    matched_columns = _find_columns_for_question(normalized_question, record)
-
     if normalized_question in {"hi", "hello", "hey", "chao", "xin chao"}:
         return (
-            f"Hi. I am using saved report '{record.source_name}' "
-            f"({report.dataset_summary.row_count:,} rows, {report.dataset_summary.column_count:,} columns). "
-            "Ask me about nulls, categorical distributions, schema, or findings."
+            "Hi. Select a saved report to ask evidence-backed questions about schema, nulls, "
+            "categorical distributions, findings, PII, or correlations. You can also upload a CSV "
+            "and preview its schema first."
         )
-
     if _has_any(
         normalized_question,
         [
@@ -242,240 +252,14 @@ def _answer_saved_report_question(question: str, record: ProfileReportRecord) ->
     ):
         return "\n".join(
             [
-                f"I can answer questions using saved report '{record.source_name}' only.",
-                "- Dataset size: rows, columns, source name, generated report summary.",
-                "- Column metrics: data type, null count, distinct count, min/max/average when available.",
-                "- Distributions: top values for categorical columns when the report stored them.",
-                "- Quality evidence: findings, warnings, critical issues, PII detections, HITL-related signals.",
-                "- Relationships: correlations when profiling generated them.",
-                "If the selected saved report does not contain the evidence, I will say that instead of inventing an answer.",
+                "I can help with the profiling workflow.",
+                "- Preview uploaded CSV schema and rows.",
+                "- Answer questions from a selected saved report.",
+                "- Summarize rows, columns, nulls, data types, findings, PII signals, and correlations when the report contains them.",
+                "- Explain what evidence is missing instead of inventing answers.",
             ]
         )
-
-    if _has_any(normalized_question, ["bao nhieu dong", "so dong", "row count", "rows"]):
-        return f"Saved report '{record.source_name}' has {report.dataset_summary.row_count:,} rows."
-
-    if _has_any(normalized_question, ["bao nhieu cot", "so cot", "column count", "columns count", "columns", "cot trong dataset"]):
-        return f"Saved report '{record.source_name}' has {report.dataset_summary.column_count:,} columns."
-
-    if _has_any(
-        normalized_question,
-        [
-            "tat ca thong tin",
-            "toan bo thong tin",
-            "full report",
-            "all information",
-            "everything",
-            "chi tiet report",
-            "thong tin ban biet",
-            "thong tin ve report",
-        ],
-    ):
-        return _format_full_report_answer(record)
-
-    if _has_any(normalized_question, ["tong quan", "overview", "summary", "tom tat", "bao cao", "dataset", "du lieu"]):
-        return "\n".join(
-            [
-                f"Saved report '{record.source_name}':",
-                f"- Rows: {report.dataset_summary.row_count:,}",
-                f"- Columns: {report.dataset_summary.column_count:,}",
-                f"- Warnings: {report.quality_summary.warning_count:,}",
-                f"- Critical findings: {report.quality_summary.critical_count:,}",
-                f"- Info findings: {report.quality_summary.info_count:,}",
-            ]
-        )
-
-    if _has_any(normalized_question, ["cardinality", "distinct", "distinct count", "do phan biet", "duy nhat"]):
-        selected_columns = matched_columns or sorted(
-            report.columns,
-            key=lambda column: column.distinct_count,
-            reverse=True,
-        )
-        lines = [f"Cardinality in saved report '{record.source_name}':"]
-        for column in selected_columns[:12]:
-            lines.append(
-                f"- {column.name}: {column.distinct_count:,} distinct "
-                f"({column.distinct_ratio:.1%} of rows), type={column.data_type}"
-            )
-        return "\n".join(lines)
-
-    null_columns = sorted(
-        [column for column in report.columns if column.null_count > 0],
-        key=lambda column: column.null_ratio,
-        reverse=True,
-    )
-    if _has_any(normalized_question, ["null", "missing", "thieu", "khuyet", "rong", "empty"]):
-        if not null_columns:
-            return (
-                f"Saved report '{record.source_name}' has {report.dataset_summary.row_count:,} rows "
-                f"and {report.dataset_summary.column_count:,} columns. No columns contain null values."
-            )
-        top_lines = [
-            f"- {column.name}: {column.null_count:,} nulls ({column.null_ratio:.1%})"
-            for column in null_columns[:8]
-        ]
-        return "\n".join(
-            [
-                f"Saved report '{record.source_name}' has {len(null_columns)} columns with null values.",
-                "Highest null ratios:",
-                *top_lines,
-            ]
-        )
-
-    category_keywords = [
-        "category",
-        "categorical",
-        "top value",
-        "top values",
-        "distribution",
-        "phan bo",
-        "danh muc",
-        "tan suat",
-        "value count",
-    ]
-    if _has_any(normalized_question, category_keywords):
-        categorical_columns = [
-            column
-            for column in (matched_columns or report.columns)
-            if _is_categorical_column(column, report.dataset_summary.row_count)
-        ]
-        if not categorical_columns:
-            return (
-                f"Saved report '{record.source_name}' does not include categorical top-value "
-                "distributions for the requested scope."
-            )
-        lines = [f"Categorical distributions in saved report '{record.source_name}':"]
-        for column in categorical_columns[:8]:
-            values = []
-            for item in column.top_values[:5]:
-                label = "<null>" if item.value is None else str(item.value)
-                values.append(f"{label}: {item.count:,} ({item.count / max(report.dataset_summary.row_count, 1):.1%})")
-            lines.append(
-                f"- {column.name} ({column.data_type}, distinct={column.distinct_count:,}): "
-                + "; ".join(values)
-            )
-        return "\n".join(lines)
-
-    findings_keywords = [
-        "finding",
-        "findings",
-        "warning",
-        "critical",
-        "issue",
-        "risk",
-        "loi",
-        "canh bao",
-        "van de",
-        "rui ro",
-    ]
-    if _has_any(normalized_question, findings_keywords):
-        finding_lines = [
-            f"- {finding.severity}: {finding.column or 'dataset'} - {finding.message}"
-            for finding in report.findings[:10]
-        ]
-        return "\n".join(
-            [
-                f"Findings in saved report '{record.source_name}':",
-                *(finding_lines or ["- No findings were returned."]),
-            ]
-        )
-
-    if _has_any(normalized_question, ["pii", "sensitive", "nhay cam", "du lieu ca nhan", "personal"]):
-        pii_columns = [
-            column for column in report.columns
-            if column.pii_detection
-        ]
-        if not pii_columns:
-            return f"Saved report '{record.source_name}' does not contain PII detections."
-        lines = [f"PII detections in saved report '{record.source_name}':"]
-        for column in pii_columns[:10]:
-            detections = "; ".join(
-                f"{item.pii_type} ({item.confidence:.0%})" for item in column.pii_detection
-            )
-            lines.append(f"- {column.name}: {detections}")
-        return "\n".join(lines)
-
-    if _has_any(normalized_question, ["correlation", "correlations", "tuong quan", "relationship", "lien he"]):
-        correlations = report.relationships.correlations
-        if not correlations:
-            return f"Saved report '{record.source_name}' does not contain correlation evidence."
-        lines = [f"Correlations in saved report '{record.source_name}':"]
-        for item in correlations[:10]:
-            lines.append(
-                f"- {item.left_column} vs {item.right_column}: {item.coefficient:.3f} ({item.strength})"
-            )
-        return "\n".join(lines)
-
-    schema_keywords = ["schema", "cot", "data type", "datatype", "kieu du lieu", "danh sach cot"]
-    if _has_any(normalized_question, schema_keywords) or matched_columns:
-        selected_columns = matched_columns or report.columns[:30]
-        column_lines = [_format_column_evidence(column) for column in selected_columns[:30]]
-        return "\n".join(
-            [
-                f"Schema summary for saved report '{record.source_name}':",
-                f"- Rows: {report.dataset_summary.row_count:,}",
-                f"- Columns: {report.dataset_summary.column_count:,}",
-                *column_lines,
-            ]
-        )
-
     return None
-
-
-def _saved_report_unknown_answer(question: str, record: ProfileReportRecord) -> str:
-    return (
-        f"I could not find evidence in saved report '{record.source_name}' to answer that. "
-        "This report contains dataset counts, column schema, null/distinct metrics, top values, "
-        "findings, PII detections, and correlations when they were generated."
-    )
-
-
-def _format_full_report_answer(record: ProfileReportRecord) -> str:
-    report = record.report
-    lines = [
-        f"Saved report '{record.source_name}'",
-        f"- Run ID: {record.run_id}",
-        f"- Source type: {record.source_type}",
-        f"- Rows: {report.dataset_summary.row_count:,}",
-        f"- Columns: {report.dataset_summary.column_count:,}",
-        f"- Findings: {report.quality_summary.critical_count} critical, "
-        f"{report.quality_summary.warning_count} warning, {report.quality_summary.info_count} info",
-    ]
-
-    null_columns = [column for column in report.columns if column.null_count > 0]
-    lines.append(
-        f"- Null coverage: {len(null_columns)} columns contain null values"
-        if null_columns
-        else "- Null coverage: no columns contain null values"
-    )
-
-    pii_columns = [column for column in report.columns if column.pii_detection]
-    lines.append(
-        f"- PII detections: {', '.join(column.name for column in pii_columns[:8])}"
-        if pii_columns
-        else "- PII detections: none stored in this report"
-    )
-
-    lines.append("")
-    lines.append("Column metrics:")
-    for column in report.columns[:40]:
-        lines.append(_format_column_evidence(column))
-    if len(report.columns) > 40:
-        lines.append(f"- ... {len(report.columns) - 40} more columns are stored in the report.")
-
-    if report.findings:
-        lines.append("")
-        lines.append("Findings:")
-        for finding in report.findings[:12]:
-            lines.append(f"- {finding.severity}: {finding.column or 'dataset'} - {finding.message}")
-
-    if report.relationships.correlations:
-        lines.append("")
-        lines.append("Correlations:")
-        for item in report.relationships.correlations[:10]:
-            lines.append(f"- {item.left_column} vs {item.right_column}: {item.coefficient:.3f} ({item.strength})")
-
-    return "\n".join(lines)
 
 
 def _normalize_question(value: str) -> str:
@@ -497,51 +281,18 @@ def _has_any(text: str, keywords: list[str]) -> bool:
     return False
 
 
-def _find_columns_for_question(normalized_question: str, record: ProfileReportRecord):
-    matches = []
-    padded_question = f" {normalized_question} "
-    for column in record.report.columns:
-        normalized_name = _normalize_question(column.name).replace("_", " ")
-        compact_name = normalized_name.replace(" ", "")
-        if (
-            f" {normalized_name} " in padded_question
-            or compact_name in normalized_question.replace(" ", "")
-        ):
-            matches.append(column)
-    return matches
-
-
-def _format_column_evidence(column) -> str:
-    parts = [
-        f"- {column.name}: {column.data_type}",
-        f"null={column.null_count:,} ({column.null_ratio:.1%})",
-        f"distinct={column.distinct_count:,}",
-    ]
-    if column.avg is not None:
-        parts.append(f"avg={column.avg:.3g}")
-    if column.min is not None:
-        parts.append(f"min={column.min}")
-    if column.max is not None:
-        parts.append(f"max={column.max}")
-    if column.top_values:
-        top_values = "; ".join(
-            f"{'<null>' if item.value is None else item.value}: {item.count:,}"
-            for item in column.top_values[:5]
+def _record_planning_tool_events(run_id: str, tool_events: list) -> None:
+    for tool_event in tool_events:
+        trace_store.add_event(
+            run_id,
+            event_type="tool_call",
+            component="planning_agent",
+            tool_name=tool_event.tool_name,
+            input_summary=tool_event.input_summary,
+            output_summary=tool_event.output_summary,
+            duration_ms=tool_event.duration_ms,
+            metadata=tool_event.metadata,
         )
-        parts.append(f"top values=[{top_values}]")
-    return ", ".join(parts)
-
-
-def _is_numeric_type(data_type: str) -> bool:
-    value = str(data_type or "").lower()
-    return any(token in value for token in ["int", "float", "double", "decimal", "numeric", "real"])
-
-
-def _is_categorical_column(column, row_count: int) -> bool:
-    if not column.top_values or _is_numeric_type(column.data_type):
-        return False
-    max_distinct = max(50, int(max(row_count, 1) * 0.2))
-    return column.distinct_count <= max_distinct
 
 
 @router.post("/conversations", response_model=Conversation)
@@ -644,7 +395,29 @@ async def search_knowledge_documents(
 @router.post("/profiling/plans", response_model=ProfilingPlan)
 async def generate_profiling_plan(request: ProfilingPlanGenerateRequest) -> ProfilingPlan:
     """Generate a structured profiling plan from user requirements and documents."""
-    return planning_store.generate_plan(request)
+    run = trace_store.start_run(request.source_name or "profiling_plan", "planning")
+    try:
+        result = await planning_agent.generate_plan(request)
+        _record_planning_tool_events(run.run_id, result.used_tools)
+        trace_store.finish_run(
+            run.run_id,
+            "completed",
+            {
+                "user_id": request.user_id,
+                "planning_mode": "llm_tool_calling" if result.used_llm else "deterministic_fallback",
+                "tool_calls": len(result.used_tools),
+                "plan_items": len(result.plan.items),
+                "clarification_questions": len(result.plan.clarification_questions),
+            },
+        )
+        return result.plan
+    except Exception as exc:
+        trace_store.finish_run(
+            run.run_id,
+            "failed",
+            {"user_id": request.user_id, "error": type(exc).__name__},
+        )
+        raise
 
 
 @router.post("/profiling/plans/{plan_id}/confirm", response_model=ProfilingPlan)
@@ -654,6 +427,34 @@ async def confirm_profiling_plan(plan_id: str, request: ProfilingPlanConfirmRequ
     if plan is None:
         raise HTTPException(status_code=404, detail="Profiling plan not found.")
     return plan
+
+
+@router.post("/profiling/database-plan", response_model=DatabasePlanRecommendation)
+async def recommend_database_plan(request: DatabasePlanGenerateRequest) -> DatabasePlanRecommendation:
+    """Recommend database tables from user requirements and uploaded documents."""
+    run = trace_store.start_run("database_plan", "planning")
+    try:
+        result = await planning_agent.recommend_database_plan(request)
+        _record_planning_tool_events(run.run_id, result.used_tools)
+        trace_store.finish_run(
+            run.run_id,
+            "completed",
+            {
+                "user_id": request.user_id,
+                "planning_mode": "llm_tool_calling" if result.used_llm else "deterministic_fallback",
+                "tool_calls": len(result.used_tools),
+                "recommended_tables": len(result.recommendation.recommended_tables),
+                "clarification_questions": len(result.recommendation.questions),
+            },
+        )
+        return result.recommendation
+    except Exception as exc:
+        trace_store.finish_run(
+            run.run_id,
+            "failed",
+            {"user_id": request.user_id, "error": type(exc).__name__},
+        )
+        raise
 
 
 @router.get("/users/{user_id}/rules", response_model=list[UserRule])

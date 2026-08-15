@@ -304,6 +304,28 @@ class DatabaseTablesResult(BaseModel):
     tables: list[DatabaseTableInfo] = Field(default_factory=list, description="Available tables")
 
 
+class DatabasePlanGenerateRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=128)
+    tables: list[DatabaseTableInfo] = Field(default_factory=list, description="Tables available from the connected database")
+    custom_requirements: str = Field(default="", max_length=5000, description="User-defined report requirements")
+    document_ids: list[str] = Field(default_factory=list, description="Optional uploaded requirement documents")
+    max_tables: int = Field(default=3, ge=1, le=10, description="Maximum number of tables to recommend")
+
+
+class DatabasePlanTableRecommendation(BaseModel):
+    schema_name: str = Field(..., description="Schema name")
+    table_name: str = Field(..., description="Table name")
+    score: float = Field(default=0, ge=0, description="Requirement match score")
+    reason: str = Field(default="", description="Why this table was selected")
+    matched_terms: list[str] = Field(default_factory=list, description="Terms matched from requirements/docs")
+
+
+class DatabasePlanRecommendation(BaseModel):
+    recommended_tables: list[DatabasePlanTableRecommendation] = Field(default_factory=list)
+    questions: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+
 class DatabasePreviewResult(BaseModel):
     source_type: str = Field(..., description="Database type")
     schema_name: str | None = Field(default=None, description="Schema name")

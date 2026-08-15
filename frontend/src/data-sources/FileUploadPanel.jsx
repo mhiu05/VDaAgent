@@ -15,8 +15,11 @@ export function FileUploadPanel({
   appendSelectedFiles,
   setFilesForFormat,
   previewSchema,
+  loading,
 }) {
   const isCsv = fileFormat === "csv";
+  const selectedCount = Array.from(files || []).length;
+  const isPreviewing = loading === "Previewing schema";
 
   return (
     <section className="panel upload-flow-panel">
@@ -55,7 +58,14 @@ export function FileUploadPanel({
       </label>
       <FileList files={files} onFilesChange={(nextFiles) => setFilesForFormat(fileFormat, nextFiles)} />
       <div className="button-row align-right">
-        <button className="primary-button" onClick={() => previewSchema()}>Preview schema</button>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!selectedCount || isPreviewing}
+          onClick={() => previewSchema()}
+        >
+          {isPreviewing ? "Previewing..." : "Preview schema"}
+        </button>
       </div>
     </section>
   );

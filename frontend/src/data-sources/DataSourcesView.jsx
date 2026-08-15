@@ -28,8 +28,10 @@ export function DataSourcesView(props) {
     setDbQuery,
     previewSchema,
     listDbTables,
+    autoConfigureDbFromDocs,
     previewSelectedDbTables,
     previewDbQuery,
+    loading,
   } = props;
 
   const [flowMode, setFlowMode] = useState("upload");
@@ -148,6 +150,7 @@ export function DataSourcesView(props) {
           appendSelectedFiles={appendSelectedFiles}
           setFilesForFormat={setFilesForFormat}
           previewSchema={previewSchema}
+          loading={loading}
         />
       )}
 
@@ -170,8 +173,10 @@ export function DataSourcesView(props) {
           selectedTables={selectedTables}
           setSelectedTables={setSelectedTables}
           listDbTables={listDbTables}
+          autoConfigureDbFromDocs={autoConfigureDbFromDocs}
           previewSelectedDbTables={previewSelectedDbTables}
           previewDbQuery={previewDbQuery}
+          loading={loading}
         />
       )}
     </section>
