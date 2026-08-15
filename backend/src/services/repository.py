@@ -817,7 +817,7 @@ Index(
     agent_trace_events.c.created_at,
 )
 
-# A published report is a stable viewer artifact.  It never points the viewer
+# A published report is a stable workspace artifact. It never points a member
 # at mutable profiling pages or an arbitrary aggregate query.
 reports = Table(
     "reports",
@@ -1136,8 +1136,8 @@ class Repository:
             # previous authz schema. Keep them aligned with production.
             conn.execute(
                 workspace_memberships.update()
-                .where(workspace_memberships.c.role == "owner")
-                .values(role="admin")
+                .where(workspace_memberships.c.role.in_(["owner", "admin", "viewer"]))
+                .values(role="analyst")
             )
 
     # --- Agent runtime -------------------------------------------------- #
@@ -1687,7 +1687,7 @@ class Repository:
                     workspace_memberships.insert().values(
                         workspace_id=workspace_id,
                         user_id=bootstrap_user_id,
-                        role="admin",
+                        role="analyst",
                         status="active",
                         created_at=now,
                         updated_at=now,
@@ -1697,8 +1697,8 @@ class Repository:
 
     def ensure_guest_workspace(self, guest_user_id: str, role: str) -> str:
         """Create the isolated, non-personal workspace used by one trial tab."""
-        if role not in {"admin", "analyst", "viewer"}:
-            raise ValueError("Guest role không hợp lệ.")
+        if role != "analyst":
+            raise ValueError("Chỉ hỗ trợ role Analyst.")
         workspace_id = str(
             uuid.uuid5(uuid.NAMESPACE_URL, f"p170:guest-workspace:{guest_user_id}")
         )
@@ -1846,12 +1846,12 @@ class Repository:
         self, user_id: str, email: str | None, role: str
     ) -> dict[str, Any]:
         """Create or return the personal workspace for a self-signing-up user."""
-        if role not in {"admin", "analyst", "viewer"}:
-            raise ValueError("Role self-signup không hợp lệ.")
+        if role != "analyst":
+            raise ValueError("Chỉ hỗ trợ role Analyst.")
         now = _now()
         with self.engine.begin() as conn:
             # Do this before the idempotent early return so a returning user
-            # still has an email available to their workspace administrator.
+            # still has an email available to workspace collaborators.
             self._sync_user_profile(conn, user_id, email, now)
             candidates = (
                 conn.execute(
@@ -2000,22 +2000,8 @@ class Repository:
             ).scalar_one_or_none()
             if target_membership is None:
                 raise PermissionError("Bạn không có membership trong workspace này.")
-            target_role = str(target_membership)
-            if target_role not in {"admin", "analyst"}:
-                raise PermissionError("Chỉ Admin hoặc chủ workspace mới có thể xóa workspace này.")
-            if target_role != "admin" and workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ chủ workspace mới có thể xóa workspace này.")
-            if target_role != "admin":
-                member_count = conn.execute(
-                    select(func.count())
-                    .select_from(workspace_memberships)
-                    .where(
-                        workspace_memberships.c.workspace_id == workspace_id,
-                        workspace_memberships.c.status == "active",
-                    )
-                ).scalar()
-                if int(member_count or 0) > 1:
-                    raise PermissionError("Workspace có thành viên khác; hãy nhờ Admin xử lý.")
+            if workspace["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ người tạo workspace mới có thể xóa workspace này.")
             actor_active_workspace_count = conn.execute(
                 select(func.count())
                 .select_from(
@@ -2064,9 +2050,8 @@ class Repository:
             ).scalar_one_or_none()
             if membership is None:
                 raise PermissionError("Bạn không còn quyền khôi phục workspace này.")
-            role = str(membership)
-            if role != "admin" and workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ Admin hoặc chủ workspace mới có thể khôi phục.")
+            if workspace["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ người tạo workspace mới có thể khôi phục workspace này.")
             conn.execute(
                 workspaces.update()
                 .where(workspaces.c.id == workspace_id)
@@ -2077,8 +2062,7 @@ class Repository:
     def purge_workspace(self, workspace_id: str, actor_user_id: str) -> bool:
         """Permanently delete a project workspace and its owned resources.
 
-        Analysts may only purge a workspace they created while they are the
-        sole active member. Admins can purge a project workspace with active
+        The workspace creator can purge a project workspace with active
         membership. Storage objects are removed on a best-effort basis before
         the metadata rows are deleted; an already-missing object must not block
         the database cleanup.
@@ -2106,22 +2090,8 @@ class Repository:
             ).scalar_one_or_none()
             if target_membership is None:
                 raise PermissionError("Bạn không có membership trong workspace này.")
-            target_role = str(target_membership)
-            if target_role not in {"admin", "analyst"}:
-                raise PermissionError("Chỉ Admin hoặc chủ workspace mới có thể xóa workspace này.")
-            if target_role != "admin" and workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ chủ workspace mới có thể xóa workspace này.")
-            if target_role != "admin":
-                member_count = conn.execute(
-                    select(func.count())
-                    .select_from(workspace_memberships)
-                    .where(
-                        workspace_memberships.c.workspace_id == workspace_id,
-                        workspace_memberships.c.status == "active",
-                    )
-                ).scalar()
-                if int(member_count or 0) > 1:
-                    raise PermissionError("Workspace có thành viên khác; hãy nhờ Admin xử lý.")
+            if workspace["created_by_user_id"] != actor_user_id:
+                raise PermissionError("Chỉ người tạo workspace mới có thể xóa workspace này.")
 
             source_refs = [
                 row[0]
@@ -2238,7 +2208,7 @@ class Repository:
         """Return archived project workspaces where the user still has access.
 
         Archived workspaces are not selectable for normal API requests, but
-        their active memberships remain so owners/Admins can restore or purge
+        their active memberships remain so the workspace creator can restore or purge
         them from the workspace library.
         """
         with self.engine.begin() as conn:
@@ -2305,64 +2275,6 @@ class Repository:
                 .order_by(workspace_memberships.c.created_at)
             ).mappings()
             return [dict(row) for row in rows]
-
-    def list_account_directory(self) -> list[dict[str, Any]]:
-        """Return the application account directory for authorised Admins.
-
-        This deliberately reads the application's identity projection instead
-        of exposing Supabase Auth tables through a browser-facing endpoint.
-        """
-        with self.engine.begin() as conn:
-            rows = conn.execute(
-                select(
-                    user_profiles.c.user_id,
-                    user_profiles.c.email,
-                    user_profiles.c.display_name,
-                    user_profiles.c.created_at,
-                    workspace_memberships.c.workspace_id,
-                    workspace_memberships.c.role,
-                    workspace_memberships.c.status,
-                    workspaces.c.name.label("workspace_name"),
-                    workspaces.c.slug.label("workspace_slug"),
-                    workspaces.c.status.label("workspace_status"),
-                )
-                .select_from(
-                    user_profiles.outerjoin(
-                        workspace_memberships,
-                        user_profiles.c.user_id == workspace_memberships.c.user_id,
-                    ).outerjoin(
-                        workspaces,
-                        workspace_memberships.c.workspace_id == workspaces.c.id,
-                    )
-                )
-                .order_by(user_profiles.c.created_at.desc(), workspaces.c.name)
-            ).mappings().all()
-
-        accounts: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            user_id = str(row["user_id"])
-            account = accounts.setdefault(
-                user_id,
-                {
-                    "user_id": user_id,
-                    "email": row["email"],
-                    "display_name": row["display_name"],
-                    "created_at": row["created_at"],
-                    "memberships": [],
-                },
-            )
-            if row["workspace_id"]:
-                account["memberships"].append(
-                    {
-                        "workspace_id": row["workspace_id"],
-                        "workspace_name": row["workspace_name"],
-                        "workspace_slug": row["workspace_slug"],
-                        "workspace_status": row["workspace_status"],
-                        "role": row["role"],
-                        "status": row["status"],
-                    }
-                )
-        return list(accounts.values())
 
     def save_membership(
         self, workspace_id: str, user_id: str, role: str, status: str = "active"
@@ -2476,18 +2388,6 @@ class Repository:
             )
             return bool(result.rowcount)
 
-    def count_active_admins(self, workspace_id: str) -> int:
-        with self.engine.begin() as conn:
-            return int(conn.execute(
-                select(func.count())
-                .select_from(workspace_memberships)
-                .where(
-                    workspace_memberships.c.workspace_id == workspace_id,
-                    workspace_memberships.c.role == "admin",
-                    workspace_memberships.c.status == "active",
-                )
-            ).scalar() or 0)
-
     def accept_invitation(
         self, token: str, user_id: str, email: str | None
     ) -> dict[str, Any] | None:
@@ -2509,11 +2409,12 @@ class Repository:
             if email and str(invite["normalized_email"]) != email.casefold():
                 return None
             self._sync_user_profile(conn, user_id, email, now)
+            invitation_role = "analyst"
             conn.execute(
                 workspace_memberships.insert().values(
                     workspace_id=invite["workspace_id"],
                     user_id=user_id,
-                    role=invite["role"],
+                    role=invitation_role,
                     status="active",
                     created_at=now,
                     updated_at=now,
@@ -3619,22 +3520,30 @@ class Repository:
         return payload
 
     def list_reports(
-        self, workspace_id: str, *, published_only: bool = False
+        self, workspace_id: str, *, published_only: bool = False, exclude_rejected: bool = False
     ) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
             query = select(reports).where(reports.c.workspace_id == workspace_id)
             if published_only:
                 query = query.where(reports.c.status == "published")
+            if exclude_rejected:
+                latest_version = (
+                    select(func.max(report_versions.c.version))
+                    .where(report_versions.c.report_id == reports.c.id)
+                    .correlate(reports)
+                    .scalar_subquery()
+                )
+                query = query.where(
+                    ~select(report_versions.c.id)
+                    .where(
+                        report_versions.c.report_id == reports.c.id,
+                        report_versions.c.version == latest_version,
+                        report_versions.c.status == "rejected",
+                    )
+                    .exists()
+                )
             rows = conn.execute(query.order_by(reports.c.updated_at.desc())).mappings()
             return [dict(row) for row in rows]
-
-    def list_all_reports(self, *, published_only: bool = False) -> list[dict[str, Any]]:
-        """List reports across active workspaces for a platform administrator."""
-        with self.engine.begin() as conn:
-            query = select(reports).join(workspaces, workspaces.c.id == reports.c.workspace_id).where(workspaces.c.status == "active")
-            if published_only:
-                query = query.where(reports.c.status == "published")
-            return [dict(row) for row in conn.execute(query.order_by(reports.c.updated_at.desc())).mappings()]
 
     def get_report(
         self, report_id: str, workspace_id: str, *, published_only: bool = False
@@ -3999,13 +3908,9 @@ class Repository:
         reviewer_user_id: str,
         decision: str,
         comment: str | None,
-        *,
-        allow_admin_override: bool = False,
     ) -> dict[str, Any] | None:
         if decision not in {"approved", "changes_requested", "rejected"}:
             raise ValueError("Review decision không hợp lệ.")
-        if allow_admin_override and not (comment or "").strip():
-            raise ValueError("Admin override cần lý do được audit.")
         now = _now()
         with self.engine.begin() as conn:
             report = (
@@ -4031,13 +3936,6 @@ class Repository:
             )
             if not version or version["status"] != "in_review":
                 raise ValueError("Report không ở trạng thái in_review.")
-            if (
-                version["created_by_user_id"] == reviewer_user_id
-                and not allow_admin_override
-            ):
-                raise PermissionError(
-                    "Không thể tự review report version do chính mình tạo."
-                )
             conn.execute(
                 report_reviews.insert().values(
                     id=_uuid(),
@@ -4071,11 +3969,8 @@ class Repository:
         workspace_id: str,
         actor_user_id: str,
         *,
-        allow_admin_override: bool = False,
         reason: str | None = None,
     ) -> dict[str, Any] | None:
-        if allow_admin_override and not (reason or "").strip():
-            raise ValueError("Admin override cần lý do được audit.")
         now = _now()
         with self.engine.begin() as conn:
             report = (
@@ -4099,15 +3994,8 @@ class Repository:
                 .mappings()
                 .first()
             )
-            if not version or version["status"] != "approved":
-                raise ValueError("Chỉ report version approved mới được publish.")
-            if (
-                version["created_by_user_id"] == actor_user_id
-                and not allow_admin_override
-            ):
-                raise PermissionError(
-                    "Không thể tự publish report version do chính mình tạo."
-                )
+            if not version or version["status"] not in {"draft", "in_review", "approved"}:
+                raise ValueError("Report version không ở trạng thái có thể xuất bản.")
             conn.execute(
                 report_versions.update()
                 .where(report_versions.c.id == version["id"])

@@ -1,7 +1,7 @@
 """Điểm vào FastAPI của agent profiling dữ liệu.
 
 Chạy dev:
-    uvicorn src.main:app --reload
+    .\\.venv\\Scripts\\python.exe -m uvicorn src.main:app --app-dir backend --reload --port 8000
 
 Lần khởi động đầu tiên, log sẽ liệt kê các biến môi trường còn thiếu để bạn
 biết cần điền gì vào `.env`. Agent vẫn khởi động được khi chưa có LLM key —

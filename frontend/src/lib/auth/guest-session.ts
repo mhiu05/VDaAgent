@@ -1,4 +1,4 @@
-export type GuestRole = "viewer" | "analyst" | "admin";
+export type GuestRole = "analyst";
 
 export type GuestSession = {
   id: string;
@@ -13,7 +13,7 @@ export function guestEnabled(): boolean {
 }
 
 function isRole(value: unknown): value is GuestRole {
-  return value === "viewer" || value === "analyst" || value === "admin";
+  return value === "analyst";
 }
 
 function parse(raw: string | null): GuestSession | null {

@@ -57,11 +57,11 @@ def test_guest_session_never_runs_ttl_cleanup_inline(client: TestClient, monkeyp
         raise AssertionError("Guest TTL cleanup must not run inside /session.")
 
     monkeypatch.setattr(repository, "purge_expired_guest_workspaces", cleanup_must_not_run)
-    headers = {"Authorization": "Bearer guest.2c1a8d19-20c2-4560-a00c-4577b4469045.admin"}
+    headers = {"Authorization": "Bearer guest.2c1a8d19-20c2-4560-a00c-4577b4469045.analyst"}
     response = client.get("/api/v1/session", headers=headers)
 
     assert response.status_code == 200, response.text
-    assert response.json()["workspace"]["role"] == "admin"
+    assert response.json()["workspace"]["role"] == "analyst"
     cleanup = client.delete("/api/v1/guest/session", headers=headers)
     assert cleanup.status_code == 200, cleanup.text
 
@@ -143,7 +143,7 @@ def test_completed_profile_can_create_report_workspace_entry(
     response = client.post(f"/api/v1/profile/{run_id}/report", json={})
     assert response.status_code == 201, response.text
     report = response.json()
-    assert report["status"] == "in_review"
+    assert report["status"] == "published"
     assert report["versions"]
     assert report["versions"][0]["sections"]
 
@@ -152,7 +152,7 @@ def test_completed_profile_can_create_report_workspace_entry(
     assert detail.json()["versions"][0]["scope"]["profile_run_id"] == run_id
 
 
-def test_report_author_can_delete_report_before_publish(
+def test_report_author_cannot_delete_published_report(
     client: TestClient, reviewed_profile_run: dict
 ) -> None:
     created = client.post(
@@ -162,9 +162,8 @@ def test_report_author_can_delete_report_before_publish(
     report_id = created.json()["id"]
 
     deleted = client.delete(f"/api/v1/reports/{report_id}")
-    assert deleted.status_code == 200, deleted.text
-    assert deleted.json() == {"deleted": True, "report_id": report_id}
-    assert client.get(f"/api/v1/reports/{report_id}").status_code == 404
+    assert deleted.status_code == 409, deleted.text
+    assert client.get(f"/api/v1/reports/{report_id}").status_code == 200
 
 
 # --------------------------------------------------------------------------- #
@@ -674,11 +673,6 @@ def test_upload_rejects_empty_file(client: TestClient) -> None:
 # Dataset & audit
 # --------------------------------------------------------------------------- #
 def test_workspace_can_be_created_listed_and_archived(client: TestClient, monkeypatch) -> None:
-    # The default test principal is Admin. Admins govern existing workspaces
-    # and must not create project workspaces.
-    denied = client.post("/api/v1/workspaces", json={"name": "Admin Workspace QA"})
-    assert denied.status_code == 403, denied.text
-
     headers = _analyst_headers(
         client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f1"
     )
@@ -728,7 +722,7 @@ def test_analyst_can_permanently_delete_owned_workspace(client: TestClient, monk
     )
 
 
-def test_admin_can_manage_members_and_pending_invitations(
+def test_analyst_can_manage_members_and_pending_invitations(
     client: TestClient, monkeypatch
 ) -> None:
     session = client.get("/api/v1/session")
@@ -739,31 +733,23 @@ def test_admin_can_manage_members_and_pending_invitations(
     assert members.status_code == 200, members.text
     assert any(item["user_id"] == actor_id for item in members.json()["members"])
 
-    get_repository().sync_user_profile(actor_id, "admin.directory@example.com")
-    accounts = client.get("/api/v1/accounts")
-    assert accounts.status_code == 200, accounts.text
-    assert any(
-        item["email"] == "admin.directory@example.com"
-        for item in accounts.json()["accounts"]
-    )
-
     analyst_headers = _analyst_headers(
         client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f3"
     )
-    assert client.get("/api/v1/accounts", headers=analyst_headers).status_code == 403
+    assert client.get("/api/v1/workspaces/current/members", headers=analyst_headers).status_code == 200
 
     no_change = client.patch(f"/api/v1/workspaces/current/members/{actor_id}", json={})
     assert no_change.status_code == 422, no_change.text
 
-    remove_last_admin = client.patch(
+    suspend_member = client.patch(
         f"/api/v1/workspaces/current/members/{actor_id}",
         json={"status": "suspended"},
     )
-    assert remove_last_admin.status_code == 409, remove_last_admin.text
+    assert suspend_member.status_code == 200, suspend_member.text
 
     invited = client.post(
         "/api/v1/workspaces/current/invitations",
-        json={"email": "viewer.workspace@example.com", "role": "viewer"},
+        json={"email": "analyst.workspace@example.com", "role": "analyst"},
     )
     assert invited.status_code == 201, invited.text
     invitation_id = invited.json()["id"]
@@ -771,7 +757,7 @@ def test_admin_can_manage_members_and_pending_invitations(
     invitations = client.get("/api/v1/workspaces/current/invitations")
     assert invitations.status_code == 200, invitations.text
     invitation = next(item for item in invitations.json()["invitations"] if item["id"] == invitation_id)
-    assert invitation["email"] == "viewer.workspace@example.com"
+    assert invitation["email"] == "analyst.workspace@example.com"
     assert "token_hash" not in invitation
 
     cancelled = client.delete(f"/api/v1/workspaces/current/invitations/{invitation_id}")

@@ -52,13 +52,13 @@ Một workflow thông thường:
 
 ### Chưa đăng nhập — guest trial
 
-Khi `AUTH_ALLOW_GUEST=true`, người dùng có thể chọn Viewer, Analyst hoặc Admin
-trên navbar và dùng workspace tạm mà không cần tạo tài khoản.
+Khi `AUTH_ALLOW_GUEST=true`, người dùng có thể chọn Analyst trên navbar và
+dùng workspace tạm mà không cần tạo tài khoản.
 
 - Guest được cấp token riêng cho browser session và workspace guest riêng.
-- Guest chỉ bắt đầu sau khi người dùng chủ động chọn một role; không tự tạo
+- Guest chỉ bắt đầu sau khi người dùng chủ động chọn Analyst; không tự tạo
   workspace khi chỉ mở Trang chủ hoặc Hướng dẫn.
-- Quyền backend vẫn được kiểm tra theo role, giống luồng đăng nhập.
+- Quyền backend vẫn được kiểm tra theo role Analyst, giống luồng đăng nhập.
 - Dữ liệu guest không gắn với email hay workspace cá nhân.
 - Đổi role hoặc bấm `Kết thúc dùng thử` sẽ dọn session hiện tại theo kiểu
   best-effort. Khi đóng tab, session trong browser biến mất; dữ liệu backend
@@ -74,9 +74,8 @@ gửi tới backend trong `Authorization: Bearer` và `X-Workspace-Id`.
 
 - Dữ liệu, lịch sử, report draft và workspace membership được giữ lâu dài.
 - Role và capability được resolve lại ở backend cho từng request.
-- Viewer chủ yếu đọc report đã publish.
-- Analyst upload, profiling, review metadata, test, drift, Q&A và tạo Analysis.
-- Admin có thêm quản lý member, report workflow, audit và workspace settings.
+- Analyst có đầy đủ quyền upload, profiling, review metadata, test, drift, Q&A,
+  Analysis, quản lý member, report workflow, audit và workspace settings.
 
 Trang chủ và Hướng dẫn chỉ là trang tổng quan; không gắn trạng thái role hiện tại.
 Role/workspace chỉ có ý nghĩa khi người dùng bước vào workspace.
@@ -84,8 +83,8 @@ Role/workspace chỉ có ý nghĩa khi người dùng bước vào workspace.
 ### Đăng ký, xác nhận email và callback
 
 Self-signup được bật bằng cả `AUTH_ALLOW_SIGNUP=true` ở backend và
-`NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true` ở frontend. Người dùng chọn role Viewer,
-Analyst hoặc Admin trên form đăng ký. Sau khi Supabase gửi email xác nhận:
+`NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true` ở frontend. Người dùng đăng ký với role
+Analyst cố định. Sau khi Supabase gửi email xác nhận:
 
 1. Người dùng mở link trong cùng browser/device đã đăng ký.
 2. `/auth/callback` lấy session PKCE do Supabase SSR client xử lý; ứng dụng
@@ -184,9 +183,8 @@ fail closed. `off` không tạo `agent_run`.
 
 `POST /profile`, `POST /qa` và sự kiện `done` của `POST /qa/stream` trả thêm
 `agent_run_id` và `trace_summary` khi trace được bật; các trường này là additive
-nên client cũ có thể bỏ qua. Analyst/Admin có thể đọc run, timeline, evidence,
-plan projection và summary qua `/api/v1/agent-runs/{run_id}`. Viewer không có
-quyền generic trace API.
+nên client cũ có thể bỏ qua. Analyst có thể đọc run, timeline, evidence, plan
+projection và summary qua `/api/v1/agent-runs/{run_id}`.
 
 Trace chỉ lưu reason code/tóm tắt ngắn, hash, phiên bản, thời lượng, metadata
 tool/model và aggregate evidence đã giới hạn. Nó không lưu raw prompt/message,
@@ -336,7 +334,7 @@ dataset metadata và audit.
    ```
 
 6. Restart backend, vào `/datasets/new`, chọn Kết nối Google Drive và hoàn tất
-   OAuth. Kết nối thuộc workspace; Analyst hoặc Admin có quyền upload có thể tự
+   OAuth. Kết nối thuộc workspace; Analyst có quyền upload có thể tự
    kết nối, sau đó các thành viên trong workspace có thể upload.
 
 Không commit OAuth client secret, refresh token, Fernet key, `.env` hoặc API key.
@@ -345,9 +343,7 @@ Không commit OAuth client secret, refresh token, Fernet key, `.env` hoặc API 
 
 | Role | Phạm vi chính |
 | --- | --- |
-| Viewer | Đọc và export report đã publish. |
-| Analyst | Viewer + upload, profiling, review metadata, test, drift, Q&A, Analysis, tự kết nối storage cho upload, report draft/submit và đọc agent run/trace trong workspace. |
-| Admin | Analyst + quản lý member, review/publish/archive report, audit, workspace settings và quyền trace debug. |
+| Analyst | Upload, profiling, review metadata, test, drift, Q&A, Analysis, quản lý member, review/publish/archive report, audit, workspace settings và đọc agent run/trace trong workspace. |
 
 Frontend chỉ ẩn/hiện action để UX rõ hơn. Backend mới là nơi quyết định quyền.
 Thông thường: `401` là auth không hợp lệ, `403` là thiếu capability, `404` là
@@ -363,7 +359,7 @@ resource không thuộc workspace, `409 workspace_required` là cần chọn wor
 /forgot-password          Yêu cầu reset password
 /auth/callback             Xử lý callback PKCE và provision workspace
 /account/update-password  Đặt mật khẩu mới sau reset
-/dashboard                Dashboard theo role
+/dashboard                Dashboard Analyst
 /datasets                 Dataset và profile runs
 /datasets/new             Upload và tạo profiling run
 /profiles/{runId}         Profile report
@@ -378,10 +374,8 @@ resource không thuộc workspace, `409 workspace_required` là cần chọn wor
 /api/reports/profile/...  Next.js PDF proxy cho profile report
 ```
 
-Navbar ở Trang chủ, Đăng nhập và Đăng ký luôn cho phép chọn guest Viewer,
-Analyst hoặc Admin. Khi đổi role, frontend dọn guest session cũ theo kiểu
-best-effort, tải workspace mới và bỏ qua response của request role cũ đang
-chạy để không ghi đè role mới. Guest chỉ được tạo sau thao tác chọn role;
+Navbar ở Trang chủ, Đăng nhập và Đăng ký luôn dùng guest Analyst. Guest chỉ
+được tạo sau thao tác chọn Analyst;
 nút `Kết thúc dùng thử` xóa session guest khỏi browser và yêu cầu backend dọn
 workspace tạm.
 
@@ -509,18 +503,8 @@ $env:P170_TEST_DATABASE_URL = "postgresql+psycopg://p170_test:<password>@localho
 - [.env.example](.env.example)
 - [config.yaml](config.yaml)
 - [Makefile](Makefile)
-### Platform report administrators
+### Workspace role
 
-Workspace roles (`admin`, `analyst`, `viewer`) remain tenant-scoped. To grant
-an account read/review/publish access across all active workspaces, configure
-the backend only:
-
-```dotenv
-GLOBAL_ADMIN_EMAILS=lumvan54@gmail.com
-SUPER_ADMIN_USER_IDS=
-```
-
-`SUPER_ADMIN_USER_IDS` is preferred for production because it is tied to the
-immutable Supabase user id. These values are resolved after Supabase token
-verification; changing the frontend or sending `X-Workspace-Id` cannot bypass
-the workspace boundary.
+Workspace chỉ sử dụng một role duy nhất là `analyst`. Role này có đầy đủ
+quyền upload, profiling, review metadata, phân tích, quản lý thành viên và
+xuất bản báo cáo trong workspace hiện tại.

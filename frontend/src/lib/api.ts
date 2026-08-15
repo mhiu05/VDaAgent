@@ -206,7 +206,7 @@ export function restoreWorkspace(workspaceId: string): Promise<{ restored: boole
   });
 }
 
-export type WorkspaceRole = "admin" | "analyst" | "viewer";
+export type WorkspaceRole = "analyst";
 export type WorkspaceMemberStatus = "active" | "suspended" | "removed";
 
 export type WorkspaceMember = {
@@ -234,25 +234,6 @@ export type WorkspaceInvitation = {
 
 export function listWorkspaceMembers(): Promise<{ members: WorkspaceMember[] }> {
   return request<{ members: WorkspaceMember[] }>("/workspaces/current/members");
-}
-
-export type AccountDirectoryEntry = {
-  user_id: string;
-  email: string | null;
-  display_name: string | null;
-  created_at: string;
-  memberships: Array<{
-    workspace_id: string;
-    workspace_name: string | null;
-    workspace_slug: string | null;
-    workspace_status: string | null;
-    role: WorkspaceRole;
-    status: WorkspaceMemberStatus;
-  }>;
-};
-
-export function listAccountDirectory(): Promise<{ accounts: AccountDirectoryEntry[] }> {
-  return request<{ accounts: AccountDirectoryEntry[] }>("/accounts");
 }
 
 export function updateWorkspaceMember(
@@ -301,7 +282,7 @@ export function listWorkspaceActivity(limit = 100): Promise<{ entries: ActivityE
   return request<{ entries: ActivityEntry[] }>(`/audit?${params.toString()}`);
 }
 
-export type SelfSignupRole = "viewer" | "analyst" | "admin";
+export type SelfSignupRole = "analyst";
 
 export async function provisionSelfSignup(role: SelfSignupRole, accessToken: string): Promise<{
   workspace_id: string;
@@ -358,7 +339,7 @@ export function getPublishedReport<T>(reportId: string): Promise<T> {
   return request<T>(`/reports/${encodeURIComponent(reportId)}`);
 }
 
-export function reviewReport<T = unknown>(reportId: string, payload: { decision: "approved" | "changes_requested" | "rejected"; comment?: string; admin_override?: boolean }): Promise<T> {
+export function reviewReport<T = unknown>(reportId: string, payload: { decision: "approved" | "changes_requested" | "rejected"; comment?: string }): Promise<T> {
   return request<T>(`/reports/${encodeURIComponent(reportId)}/review`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -366,7 +347,7 @@ export function reviewReport<T = unknown>(reportId: string, payload: { decision:
   });
 }
 
-export function publishReport<T = unknown>(reportId: string, payload: { reason?: string; admin_override?: boolean } = {}): Promise<T> {
+export function publishReport<T = unknown>(reportId: string, payload: { reason?: string } = {}): Promise<T> {
   return request<T>(`/reports/${encodeURIComponent(reportId)}/publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -496,7 +477,7 @@ export async function downloadCombinedReport(runId: string, sections?: CombinedR
   return response.blob();
 }
 
-/** Export a published report. Viewer never receives direct profile access. */
+/** Export a report through the bounded profile/report exporter. */
 export function downloadPublishedReportPdf(runId: string, reportId: string): Promise<Blob> {
   return downloadCombinedReport(runId, ALL_COMBINED_REPORT_SECTIONS, reportId);
 }

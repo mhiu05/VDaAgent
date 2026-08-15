@@ -1,50 +1,47 @@
-"""Permission contracts for workspace-scoped integrations."""
+"""Permission contract for the single Analyst workspace role."""
 
 from src.services.permissions import (
-    ACCOUNT_DIRECTORY_READ,
+    AGENT_TRACE_DEBUG_READ,
     NOTEBOOK_READ,
     QA_PUBLISHED_ASK,
+    REPORT_ARCHIVE,
+    REPORT_PUBLISH,
     REPORT_PUBLISHED_EXPORT,
     REPORT_PUBLISHED_READ,
+    REPORT_REVIEW,
     WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
     WORKSPACE_CREATE,
     WORKSPACE_DELETE,
+    WORKSPACE_MEMBERS_MANAGE,
     WORKSPACE_SETTINGS_MANAGE,
     WORKSPACE_STORAGE_CONNECT,
     permissions_for_role,
 )
 
 
-def test_analyst_can_connect_storage_but_cannot_manage_workspace_settings() -> None:
+def test_analyst_has_the_complete_workspace_flow() -> None:
     analyst = permissions_for_role("analyst")
-    assert WORKSPACE_STORAGE_CONNECT in analyst
-    assert WORKSPACE_CREATE in analyst
-    assert WORKSPACE_DELETE in analyst
-    assert WORKSPACE_SETTINGS_MANAGE not in analyst
+    expected = {
+        AGENT_TRACE_DEBUG_READ,
+        NOTEBOOK_READ,
+        QA_PUBLISHED_ASK,
+        REPORT_ARCHIVE,
+        REPORT_PUBLISH,
+        REPORT_PUBLISHED_EXPORT,
+        REPORT_PUBLISHED_READ,
+        REPORT_REVIEW,
+        WORKSPACE_ACTIVITY_READ,
+        WORKSPACE_AUDIT_READ,
+        WORKSPACE_CREATE,
+        WORKSPACE_DELETE,
+        WORKSPACE_MEMBERS_MANAGE,
+        WORKSPACE_SETTINGS_MANAGE,
+        WORKSPACE_STORAGE_CONNECT,
+    }
+    assert expected <= analyst
 
 
-def test_viewer_cannot_connect_storage() -> None:
-    viewer = permissions_for_role("viewer")
-    assert WORKSPACE_STORAGE_CONNECT not in viewer
-    assert NOTEBOOK_READ not in viewer
-    assert QA_PUBLISHED_ASK not in viewer
-    assert REPORT_PUBLISHED_READ in viewer
-    assert REPORT_PUBLISHED_EXPORT in viewer
-
-
-def test_workspace_roles_keep_admin_activity_boundary_explicitly() -> None:
-    analyst = permissions_for_role("analyst")
-    admin = permissions_for_role("admin")
-    viewer = permissions_for_role("viewer")
-
-    assert WORKSPACE_ACTIVITY_READ in admin
-    assert WORKSPACE_AUDIT_READ in admin
-    assert ACCOUNT_DIRECTORY_READ in admin
-    assert WORKSPACE_CREATE not in admin
-    assert ACCOUNT_DIRECTORY_READ not in analyst
-    assert ACCOUNT_DIRECTORY_READ not in viewer
-    assert WORKSPACE_ACTIVITY_READ not in analyst
-    assert WORKSPACE_AUDIT_READ not in analyst
-    assert WORKSPACE_ACTIVITY_READ not in viewer
-    assert WORKSPACE_AUDIT_READ not in viewer
+def test_removed_roles_fail_closed_and_are_not_supported_by_the_contract() -> None:
+    assert permissions_for_role("admin") == frozenset()
+    assert permissions_for_role("viewer") == frozenset()

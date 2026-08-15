@@ -141,7 +141,7 @@ class GoogleDriveStorage:
         connection = repository.get_google_drive_connection(workspace_id)
         if not connection:
             raise GoogleDriveConnectionRequiredError(
-                "Workspace chưa kết nối Google Drive. Admin cần kết nối trước."
+                "Workspace chưa kết nối Google Drive. Hãy kết nối Google Drive trước."
             )
         try:
             from google.oauth2.credentials import Credentials

@@ -21,22 +21,17 @@ from src.models.auth_schemas import (
 )
 from src.services.auth import AuthContext
 from src.services.permissions import (
-    ACCOUNT_DIRECTORY_READ,
     REPORT_ARCHIVE,
     REPORT_DRAFT_WRITE,
     REPORT_PUBLISH,
     REPORT_PUBLISHED_EXPORT,
     REPORT_PUBLISHED_READ,
     REPORT_REVIEW,
-    GLOBAL_REPORTS_PUBLISH,
-    GLOBAL_REPORTS_READ,
-    GLOBAL_REPORTS_REVIEW,
     REPORT_SUBMIT,
     WORKSPACE_CREATE,
     WORKSPACE_DELETE,
     WORKSPACE_MEMBERS_MANAGE,
     canonical_role,
-    permissions_for_global_role,
     permissions_for_role,
     role_can_manage_target,
 )
@@ -87,7 +82,7 @@ async def session(
         repo.ensure_guest_workspace(user.user_id, str(user.raw_claims.get("role", "analyst")))
     else:
         # Keep the application identity projection in sync with the verified
-        # Auth claim. Admin-facing account lists never query Auth directly.
+        # Auth claim.
         repo.sync_user_profile(user.user_id, user.email)
     if user.is_legacy:
         repo.ensure_bootstrap_workspace(user.user_id)
@@ -102,8 +97,7 @@ async def session(
     return {
         "user": {"id": user.user_id, "email": user.email},
         "workspace": {"id": selected["id"], "role": selected["role"]},
-        "global_role": user.global_role,
-        "effective_permissions": sorted(permissions_for_role(selected["role"]) | permissions_for_global_role(user.global_role)),
+        "effective_permissions": sorted(permissions_for_role(selected["role"])),
         "workspaces": workspaces,
     }
 
@@ -123,7 +117,6 @@ async def me(context: RequestContext = Depends(require_permission(REPORT_PUBLISH
     return {
         "user": {"id": context.user_id, "email": context.actor.email},
         "workspace": {"id": context.workspace_id, "role": context.workspace.role},
-        "global_role": context.actor.global_role,
         "effective_permissions": sorted(context.workspace.effective_permissions),
         "workspaces": workspaces,
     }
@@ -248,14 +241,6 @@ async def list_members(context: RequestContext = Depends(require_permission(WORK
     return {"members": get_repository().list_memberships(context.workspace_id)}
 
 
-@router.get("/accounts")
-async def list_account_directory(
-    context: RequestContext = Depends(require_permission(ACCOUNT_DIRECTORY_READ)),
-) -> dict[str, Any]:
-    """List known application accounts for the platform Admin surface."""
-    return {"accounts": get_repository().list_account_directory()}
-
-
 @router.get("/workspaces/current/invitations")
 async def list_invitations(context: RequestContext = Depends(require_permission(WORKSPACE_MEMBERS_MANAGE))) -> dict[str, Any]:
     return {"invitations": get_repository().list_invitations(context.workspace_id)}
@@ -266,8 +251,8 @@ async def invite_member(
     payload: InvitationCreate,
     context: RequestContext = Depends(require_permission(WORKSPACE_MEMBERS_MANAGE)),
 ) -> dict[str, Any]:
-    if not role_can_manage_target(context.workspace.role, payload.role):
-        raise HTTPException(status_code=403, detail="Role hiện tại không thể mời role mục tiêu.")
+    if payload.role != "analyst":
+        raise HTTPException(status_code=422, detail="Workspace chỉ hỗ trợ role Analyst.")
     invitation, _token = get_repository().create_invitation(
         context.workspace_id, payload.email, payload.role, context.user_id,
         expires_at=datetime.now(UTC) + timedelta(days=7),
@@ -299,14 +284,10 @@ async def update_member(
     if not target:
         raise HTTPException(status_code=404, detail="Không tìm thấy membership.")
     target_role = canonical_role(str(target["role"]))
-    next_role = payload.role or target_role
+    next_role = "analyst"
     next_status = payload.status or str(target["status"])
-    if not role_can_manage_target(context.workspace.role, target_role) or not role_can_manage_target(context.workspace.role, next_role):
+    if not role_can_manage_target(context.workspace.role, target_role):
         raise HTTPException(status_code=403, detail="Role hiện tại không thể thay đổi membership này.")
-    next_role = canonical_role(next_role)
-    removes_admin_access = target_role == "admin" and (next_role != "admin" or next_status != "active")
-    if removes_admin_access and repo.count_active_admins(context.workspace_id) <= 1:
-        raise HTTPException(status_code=409, detail="Workspace phải luôn còn ít nhất một Admin đang hoạt động.")
     membership = repo.save_membership(context.workspace_id, user_id, next_role, next_status)
     _audit(context, "membership_updated", resource_type="membership", resource_id=user_id, target_role=next_role, target_status=next_status)
     return membership
@@ -314,21 +295,16 @@ async def update_member(
 
 @router.get("/reports")
 async def list_published_reports(context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ))) -> dict[str, Any]:
-    # Viewers only see published snapshots. Analysts/Admins also need to see
-    # drafts and in-review reports they create from a completed profile run.
-    if context.actor.is_global_admin:
-        return {"reports": get_repository().list_all_reports()}
-    published_only = context.workspace.role == "viewer"
-    return {"reports": get_repository().list_reports(context.workspace_id, published_only=published_only)}
+    return {"reports": get_repository().list_reports(
+        context.workspace_id,
+        published_only=False,
+        exclude_rejected=True,
+    )}
 
 
 @router.get("/reports/{report_id}")
 async def get_published_report(report_id: str, context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ))) -> dict[str, Any]:
-    if context.actor.is_global_admin:
-        report = get_repository().get_report_any_workspace(report_id)
-    else:
-        published_only = context.workspace.role == "viewer"
-        report = get_repository().get_report(report_id, context.workspace_id, published_only=published_only)
+    report = get_repository().get_report(report_id, context.workspace_id, published_only=False)
     if not report:
         raise HTTPException(status_code=404, detail="Không tìm thấy report.")
     return report
@@ -342,13 +318,9 @@ async def get_published_report_export_source(
 ) -> dict[str, Any]:
     """Return the PII-safe detailed profile payload attached to a published report.
 
-    Viewer can export a report they are already allowed to read without being
-    granted broad access to the profile/dataset endpoints.  The payload is
-    generated by the same bounded exporter used for Analyst/Admin PDFs.
+    The payload is generated by the same bounded exporter used for PDF export.
     """
-    report = (get_repository().get_report_any_workspace(report_id)
-              if context.actor.is_global_admin
-              else get_repository().get_report(report_id, context.workspace_id, published_only=True))
+    report = get_repository().get_report(report_id, context.workspace_id, published_only=False)
     if not report:
         raise HTTPException(status_code=404, detail="Không tìm thấy báo cáo đã xuất bản.")
     versions = report.get("versions") or []
@@ -416,54 +388,49 @@ async def delete_report(report_id: str, context: RequestContext = Depends(requir
 @router.post("/reports/{report_id}/submit")
 async def submit_report(report_id: str, context: RequestContext = Depends(require_permission(REPORT_SUBMIT))) -> dict[str, Any]:
     try:
-        report = get_repository().submit_report(report_id, context.workspace_id, context.user_id)
+        # Keep the legacy endpoint for old clients, but publishing is now
+        # immediate for Analyst-owned reports and never waits for Admin.
+        report = get_repository().publish_report(
+            report_id,
+            context.workspace_id,
+            context.user_id,
+            reason="Tự động xuất bản report do Analyst tạo.",
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not report:
         raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_submitted", resource_type="report", resource_id=report_id)
+    _audit(context, "report_published", resource_type="report", resource_id=report_id)
     return report
 
 
 @router.post("/reports/{report_id}/review")
 async def review_report(report_id: str, payload: ReportReviewInput, context: RequestContext = Depends(require_permission(REPORT_REVIEW))) -> dict[str, Any]:
-    if payload.admin_override and context.workspace.role != "admin" and not context.actor.is_global_admin:
-        raise HTTPException(status_code=403, detail="Chỉ admin mới có thể override separation of duties.")
     try:
-        global_report = get_repository().get_report_any_workspace(report_id) if context.actor.is_global_admin else None
-        if context.actor.is_global_admin and not global_report:
-            raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-        workspace_id = str(global_report["workspace_id"]) if global_report else context.workspace_id
-        report = get_repository().review_report(report_id, workspace_id, context.user_id, payload.decision, payload.comment, allow_admin_override=payload.admin_override or context.actor.is_global_admin)
+        report = get_repository().review_report(report_id, context.workspace_id, context.user_id, payload.decision, payload.comment)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not report:
         raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, f"report_{payload.decision}", resource_type="report", resource_id=report_id, admin_override=payload.admin_override)
+    _audit(context, f"report_{payload.decision}", resource_type="report", resource_id=report_id)
     return report
 
 
 @router.post("/reports/{report_id}/publish")
 async def publish_report(report_id: str, payload: ReportPublishInput, context: RequestContext = Depends(require_permission(REPORT_PUBLISH))) -> dict[str, Any]:
-    if payload.admin_override and context.workspace.role != "admin" and not context.actor.is_global_admin:
-        raise HTTPException(status_code=403, detail="Chỉ admin mới có thể override separation of duties.")
     try:
-        global_report = get_repository().get_report_any_workspace(report_id) if context.actor.is_global_admin else None
-        if context.actor.is_global_admin and not global_report:
-            raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-        workspace_id = str(global_report["workspace_id"]) if global_report else context.workspace_id
-        report = get_repository().publish_report(report_id, workspace_id, context.user_id, allow_admin_override=payload.admin_override or context.actor.is_global_admin, reason=payload.reason or ("Global administrator approval" if context.actor.is_global_admin else None))
+        report = get_repository().publish_report(report_id, context.workspace_id, context.user_id, reason=payload.reason)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not report:
         raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_published", resource_type="report", resource_id=report_id, admin_override=payload.admin_override)
+    _audit(context, "report_published", resource_type="report", resource_id=report_id)
     return report
 
 
@@ -477,13 +444,8 @@ async def archive_report(report_id: str, context: RequestContext = Depends(requi
 
 @router.get("/dashboard")
 async def dashboard(context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ))) -> dict[str, Any]:
-    """Small role-discriminated read model; it intentionally excludes raw rows."""
+    """Small Analyst read model; it intentionally excludes raw rows."""
     repo = get_repository()
-    if context.actor.is_global_admin:
-        all_reports = repo.list_all_reports()
-        return {"kind": "global_admin", "reports": all_reports, "pending_review": [r for r in all_reports if r["status"] == "in_review"]}
-    if context.workspace.role == "viewer":
-        return {"kind": "viewer", "reports": repo.list_reports(context.workspace_id, published_only=True)}
     with repo.engine.begin() as conn:
         counts = {
             "datasets": int(conn.execute(select(func.count()).select_from(datasets).where(datasets.c.workspace_id == context.workspace_id)).scalar() or 0),
@@ -491,6 +453,5 @@ async def dashboard(context: RequestContext = Depends(require_permission(REPORT_
             "analyses": int(conn.execute(select(func.count()).select_from(analysis_sessions).where(analysis_sessions.c.workspace_id == context.workspace_id)).scalar() or 0),
             "reports": int(conn.execute(select(func.count()).select_from(reports).where(reports.c.workspace_id == context.workspace_id)).scalar() or 0),
         }
-    if context.workspace.role == "analyst":
-        return {"kind": "analyst", "counts": counts, "reports": repo.list_reports(context.workspace_id)}
-    return {"kind": "admin", "counts": counts, "reports": repo.list_reports(context.workspace_id), "pending_review": [r for r in repo.list_reports(context.workspace_id) if r["status"] == "in_review"]}
+    workspace_reports = repo.list_reports(context.workspace_id)
+    return {"kind": "analyst", "counts": counts, "reports": workspace_reports}

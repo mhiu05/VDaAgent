@@ -1,4 +1,4 @@
-"""Public contracts for workspace, report, and administration endpoints."""
+"""Public contracts for workspace, report, and Analyst endpoints."""
 
 from __future__ import annotations
 
@@ -6,16 +6,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-WorkspaceRole = Literal["admin", "analyst", "viewer"]
+WorkspaceRole = Literal["analyst"]
 
 
 class SelfSignupProvision(BaseModel):
-    role: WorkspaceRole
+    role: WorkspaceRole = "analyst"
 
 
 class InvitationCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
-    role: WorkspaceRole
+    role: WorkspaceRole = "analyst"
 
     @field_validator("email")
     @classmethod
@@ -73,11 +73,9 @@ class ReportCreate(BaseModel):
 class ReportReviewInput(BaseModel):
     decision: Literal["approved", "changes_requested", "rejected"]
     comment: str | None = Field(default=None, max_length=10_000)
-    admin_override: bool = False
 
 
 class ReportPublishInput(BaseModel):
-    admin_override: bool = False
     reason: str | None = Field(default=None, max_length=2_000)
 
 

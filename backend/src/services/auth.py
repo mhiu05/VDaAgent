@@ -30,7 +30,6 @@ class AuthContext:
     aal: str | None
     raw_claims: dict[str, Any]
     authentication_method: str = "supabase"
-    global_role: str | None = None
 
     @property
     def is_legacy(self) -> bool:
@@ -39,10 +38,6 @@ class AuthContext:
     @property
     def is_guest(self) -> bool:
         return self.authentication_method == "guest"
-
-    @property
-    def is_global_admin(self) -> bool:
-        return self.global_role in {"global_admin", "super_admin"}
 
 
 def _unauthorized(detail: str = "Thông tin xác thực không hợp lệ.") -> HTTPException:
@@ -174,7 +169,6 @@ class SupabaseJWTVerifier:
             session_id=claims.get("session_id") if isinstance(claims.get("session_id"), str) else None,
             aal=claims.get("aal") if isinstance(claims.get("aal"), str) else None,
             raw_claims=dict(claims),
-            global_role=self.settings.global_role_for(user_id, email if isinstance(email, str) else None),
         )
 
     def verify_with_auth_api(self, access_token: str) -> AuthContext:
@@ -229,7 +223,6 @@ class SupabaseJWTVerifier:
                 "email_confirmed_at": user.get("email_confirmed_at"),
             },
             authentication_method="supabase",
-            global_role=self.settings.global_role_for(user_id, email if isinstance(email, str) else None),
         )
 
 
@@ -263,7 +256,7 @@ def authenticate_bearer(authorization: str | None, settings: Settings | None = N
 
     if current.auth_allow_guest and token.startswith("guest."):
         parts = token.split(".")
-        if len(parts) == 3 and parts[1] and parts[2] in {"viewer", "analyst", "admin"}:
+        if len(parts) == 3 and parts[1] and parts[2] == "analyst":
             try:
                 guest_session_id = str(uuid.UUID(parts[1]))
             except ValueError:

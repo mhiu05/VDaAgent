@@ -6,14 +6,8 @@ import { PublicNavbar } from "@/components/public-navbar";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import type { SelfSignupRole } from "@/lib/api";
 
-const signupRoles: Array<{ value: SelfSignupRole; label: string; description: string }> = [
-  { value: "viewer", label: "Viewer", description: "Xem các báo cáo đã được công bố." },
-  { value: "analyst", label: "Analyst", description: "Phân tích dữ liệu và tạo báo cáo nháp." },
-  { value: "admin", label: "Admin", description: "Quản lý dữ liệu, thành viên và quy trình." },
-];
-
 export default function SignupPage() {
-  const [role, setRole] = useState<SelfSignupRole>("analyst");
+  const role: SelfSignupRole = "analyst";
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +27,7 @@ export default function SignupPage() {
     event.preventDefault();
     const formElement = event.currentTarget;
     if (!signupAllowed) {
-      setError("Đăng ký tài khoản đang tắt. Hãy liên hệ workspace admin để nhận lời mời.");
+      setError("Đăng ký tài khoản đang tắt. Hãy liên hệ workspace để nhận lời mời.");
       return;
     }
     const client = getSupabaseBrowserClient();
@@ -115,22 +109,13 @@ export default function SignupPage() {
         <div className="auth-trust-list"><span><b>Confirm your email</b><small>Liên kết xác nhận dùng callback an toàn</small></span><span><b>Choose your role</b><small>Role được áp dụng ngay cho workspace riêng</small></span><span><b>Keep data scoped</b><small>Dữ liệu luôn thuộc workspace phù hợp</small></span></div>
       </section>
       <section className="auth-card panel" aria-labelledby="signup-title">
-        <div className="auth-card-heading"><p className="eyebrow">VDaAgent account</p><h2 id="signup-title">Đăng ký</h2><p>Tạo tài khoản và chọn role khởi đầu của bạn.</p></div>
-        {!signupAllowed && <div className="notice info" role="status"><b>Đăng ký công khai đang tắt</b><p>Workspace hiện nhận thành viên qua invitation. Admin có thể bật <code>AUTH_ALLOW_SIGNUP=true</code> để mở signup.</p></div>}
+        <div className="auth-card-heading"><p className="eyebrow">VDaAgent account</p><h2 id="signup-title">Đăng ký Analyst</h2><p>Tạo tài khoản để bắt đầu phân tích trong workspace.</p></div>
+        {!signupAllowed && <div className="notice info" role="status"><b>Đăng ký công khai đang tắt</b><p>Workspace hiện nhận thành viên qua invitation. Có thể bật <code>AUTH_ALLOW_SIGNUP=true</code> để mở signup.</p></div>}
         <form className="auth-form" onSubmit={submit}>
           <label htmlFor="signup-email">Email<input id="signup-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></label>
           <label htmlFor="signup-password">Mật khẩu<input id="signup-password" name="password" type="password" autoComplete="new-password" minLength={8} placeholder="Tối thiểu 8 ký tự" required /></label>
           <label htmlFor="signup-confirm-password">Xác nhận mật khẩu<input id="signup-confirm-password" name="confirm-password" type="password" autoComplete="new-password" minLength={8} placeholder="Nhập lại mật khẩu" required /></label>
-          <fieldset className="signup-role-field">
-            <legend>Role đăng ký</legend>
-            <p>Role này chỉ áp dụng cho personal workspace mới của bạn.</p>
-            <div className="signup-role-options">
-              {signupRoles.map((item) => <label className={`signup-role-option${role === item.value ? " selected" : ""}`} key={item.value}>
-                <input type="radio" name="role" value={item.value} checked={role === item.value} onChange={() => setRole(item.value)} />
-                <span><b>{item.label}</b><small>{item.description}</small></span>
-              </label>)}
-            </div>
-          </fieldset>
+          <div className="notice info"><b>Role: Analyst</b><p>Tài khoản có đầy đủ quyền upload, profiling, phân tích và tạo báo cáo trong workspace.</p></div>
           <p className="auth-password-hint">Dùng mật khẩu dài, riêng biệt và không chia sẻ cho người khác.</p>
           {error && <div className="notice error" role="alert"><b>Không thể tạo tài khoản</b><p>{error}</p></div>}
           {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p>{registeredEmail && <div className="signup-resend"><button className="button secondary" type="button" onClick={() => void resendConfirmation()} disabled={resendBusy || resendCooldown > 0}>{resendBusy ? "Đang gửi lại…" : resendCooldown > 0 ? `Gửi lại sau ${Math.floor(resendCooldown / 60)}:${String(resendCooldown % 60).padStart(2, "0")}` : "Gửi lại email xác nhận"}</button><small>Gmail có thể gộp email mới vào thread cũ; hãy mở rộng thread để xem thư mới nhất.</small></div>}</div>}

@@ -51,7 +51,7 @@ export default function NotebooksPage() {
     <PageHeader
       eyebrow="PHÂN TÍCH CÓ LƯU VẾT"
       title={isArchive ? "Kho lưu trữ phiên phân tích" : "Phiên phân tích"}
-      description={isArchive ? "Các phiên đã lưu trữ chỉ hiển thị cho người tạo hoặc Admin và có thể khôi phục." : "Lưu mục tiêu, câu hỏi Agent và kết luận theo từng cell trên một phiên profiling. Chat Agent vẫn dành cho trao đổi nhanh."}
+      description={isArchive ? "Các phiên đã lưu trữ chỉ hiển thị cho người tạo và có thể khôi phục." : "Lưu mục tiêu, câu hỏi Agent và kết luận theo từng cell trên một phiên profiling. Chat Agent vẫn dành cho trao đổi nhanh."}
       action={<div className="analysis-library-tabs"><button type="button" className={`button ${!isArchive ? "primary" : "secondary"}`} onClick={() => setView("active")}>Đang làm</button><button type="button" className={`button ${isArchive ? "primary" : "secondary"}`} onClick={() => setView("archived")}>Kho lưu trữ</button></div>}
     />
 

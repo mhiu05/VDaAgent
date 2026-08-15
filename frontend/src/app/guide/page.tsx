@@ -5,10 +5,10 @@ import { PublicNavbar } from "@/components/public-navbar";
 type Step = { title: string; description: string; action?: string };
 
 const guestSteps: Step[] = [
-  { title: "Bật guest mode và chọn vai trò", description: "Từ Trang chủ hoặc Hướng dẫn, chọn Viewer, Analyst hoặc Admin trên navbar. Nếu không vào được workspace, kiểm tra AUTH_ALLOW_GUEST ở backend rồi khởi động lại frontend/backend.", action: "Trang chủ → chọn role" },
+  { title: "Bật guest mode Analyst", description: "Từ Trang chủ hoặc Hướng dẫn, chọn Analyst trên navbar. Nếu không vào được workspace, kiểm tra AUTH_ALLOW_GUEST ở backend rồi khởi động lại frontend/backend.", action: "Trang chủ → Analyst" },
   { title: "Mở guest workspace", description: "Ứng dụng tạo một token và workspace tạm cho browser session hiện tại. Bạn không cần email, mật khẩu hay tài khoản Supabase.", action: "Workspace dùng thử" },
-  { title: "Thử đúng tính năng của role", description: "Viewer đọc report; Analyst upload và chạy profiling/analysis; Admin thử member, report workflow và settings. Backend vẫn kiểm tra permission như luồng đăng nhập.", action: "Dashboard" },
-  { title: "Kết thúc phiên thử", description: "Đổi role hoặc bấm Kết thúc dùng thử khi không cần nữa. Token browser được xóa ngay; dữ liệu backend được dọn best-effort hoặc theo retention, nên không dùng cho dữ liệu production.", action: "Đổi role / Kết thúc dùng thử" },
+  { title: "Thử luồng phân tích", description: "Upload dữ liệu, chạy profiling, review metadata, tạo report và hỏi Agent. Backend vẫn kiểm tra permission như luồng đăng nhập.", action: "Dashboard" },
+  { title: "Kết thúc phiên thử", description: "Bấm Kết thúc dùng thử khi không cần nữa. Token browser được xóa ngay; dữ liệu backend được dọn best-effort hoặc theo retention, nên không dùng cho dữ liệu production.", action: "Kết thúc dùng thử" },
 ];
 
 const signedInSteps: Step[] = [
@@ -32,9 +32,7 @@ const analystFlow: Step[] = [
 ];
 
 const roleDetails = [
-  { role: "Viewer", title: "Đọc kết quả đã công bố", description: "Dành cho người cần theo dõi và chia sẻ kết quả an toàn.", items: ["Xem report đã publish trong workspace", "Hỏi đáp trên report được phép đọc", "Export report theo capability"] },
-  { role: "Analyst", title: "Tạo và kiểm tra evidence", description: "Dành cho người chuẩn bị dữ liệu, profiling và phân tích.", items: ["Toàn bộ quyền Viewer", "Upload, profile, review, test, drift và Q&A theo profile", "Tạo Analysis và report draft/submit"] },
-  { role: "Admin", title: "Quản trị workspace", description: "Dành cho người vận hành và phê duyệt kết quả.", items: ["Toàn bộ quyền Analyst", "Quản lý member và workspace settings", "Review/publish/archive report, audit và kết nối storage"] },
+  { role: "Analyst", title: "Tạo và kiểm tra evidence", description: "Một role duy nhất cho toàn bộ luồng dữ liệu trong workspace.", items: ["Upload dataset và chạy profile", "Review metadata, test, drift và hỏi Agent", "Tạo, review, xuất bản và export report"] },
 ];
 
 const troubleshooting = [
@@ -55,15 +53,15 @@ function RouteCard({ number, label, title, description, steps, note }: { number:
 
 export default function GuidePage() {
   return <div className="public-page guide-public-page"><PublicNavbar /><main className="guide-page">
-    <PageHeader eyebrow="Trung tâm hướng dẫn" title="Dùng VDaAgent đúng theo từng luồng" description="VDaAgent có hai cách sử dụng: guest trial để thử nhanh không cần tài khoản và workspace đăng nhập để lưu dữ liệu, cộng tác và vận hành lâu dài. Hãy chọn luồng phù hợp trước khi bắt đầu." action={<div className="inline-actions"><Link className="button primary" href="/">Chọn role dùng thử</Link><Link className="button secondary" href="/login">Đăng nhập</Link></div>} />
+    <PageHeader eyebrow="Trung tâm hướng dẫn" title="Dùng VDaAgent đúng theo từng luồng" description="VDaAgent có hai cách sử dụng: guest trial để thử nhanh không cần tài khoản và workspace đăng nhập để lưu dữ liệu, cộng tác và vận hành lâu dài. Cả hai đều dùng role Analyst." action={<div className="inline-actions"><Link className="button primary" href="/">Dùng thử Analyst</Link><Link className="button secondary" href="/login">Đăng nhập</Link></div>} />
 
     <div className="guide-overview"><span aria-hidden="true">✦</span><p><strong>Luồng chuẩn của Analyst:</strong> Upload → Profiling → Review proposal → Report/Q&A/Test/Drift → Analysis context → Quality gate → Exploration → Export evidence.</p></div>
 
-    <section className="guide-intro-panel panel"><div><p className="eyebrow">BẮT ĐẦU TỪ ĐÂU?</p><h2>Chọn mode và role trước</h2><p>Trang chủ và Hướng dẫn chỉ mang tính tổng quan. Để dùng thử, hãy chọn role trên navbar trước khi mở workspace; backend luôn kiểm tra quyền ở mỗi request.</p></div><div className="guide-quick-links"><Link href="/">Trang chủ / chọn role</Link><Link href="/signup">Đăng ký</Link><Link href="/login">Đăng nhập</Link></div></section>
+    <section className="guide-intro-panel panel"><div><p className="eyebrow">BẮT ĐẦU TỪ ĐÂU?</p><h2>Chọn mode Analyst trước</h2><p>Trang chủ và Hướng dẫn chỉ mang tính tổng quan. Để dùng thử, hãy chọn Analyst trên navbar trước khi mở workspace; backend luôn kiểm tra quyền ở mỗi request.</p></div><div className="guide-quick-links"><Link href="/">Trang chủ / Analyst</Link><Link href="/signup">Đăng ký</Link><Link href="/login">Đăng nhập</Link></div></section>
 
     <div className="guide-route-grid"><RouteCard number="01" label="Chưa đăng nhập · Guest trial" title="Thử sản phẩm không cần tài khoản" description="Dùng khi muốn xem giao diện, thử permission hoặc chạy demo với dữ liệu không quan trọng." steps={guestSteps} note="Guest không dùng SQLite và không đại diện cho tài khoản cá nhân. Metadata vẫn đi qua backend/PostgreSQL; file dùng provider guest được cấu hình. Workspace và file trial có thể bị cleanup, vì vậy không dùng cho dữ liệu production." /><RouteCard number="02" label="Đã đăng nhập · Workspace thật" title="Làm việc và lưu kết quả lâu dài" description="Dùng khi cần giữ dataset, lịch sử, report, membership, Google Drive connection hoặc cộng tác trong workspace." steps={signedInSteps} note="Supabase quản lý Auth; backend resolve membership và permission. Nếu có nhiều workspace, luôn kiểm tra workspace đang chọn trước khi đọc hoặc upload dữ liệu." /></div>
 
-    <section className="panel guide-section guide-analyst-flow"><div className="guide-section-heading"><span className="guide-section-number">03</span><div><p className="eyebrow">Luồng Analyst · Admin</p><h2>Từ dataset đến insight có thể kiểm tra</h2><p>Đi theo thứ tự này để tránh lỗi proposal pending, quality gate blocked hoặc kết quả không đủ context.</p></div></div><StepList steps={analystFlow} /></section>
+    <section className="panel guide-section guide-analyst-flow"><div className="guide-section-heading"><span className="guide-section-number">03</span><div><p className="eyebrow">LUỒNG ANALYST</p><h2>Từ dataset đến insight có thể kiểm tra</h2><p>Đi theo thứ tự này để tránh lỗi proposal pending, quality gate blocked hoặc kết quả không đủ context.</p></div></div><StepList steps={analystFlow} /></section>
 
     <section className="guide-role-section"><div className="guide-section-heading guide-section-heading-plain"><div><p className="eyebrow">QUYỀN THEO VAI TRÒ</p><h2>Role quyết định thao tác được phép</h2><p>Frontend chỉ ẩn/hiện button để dễ dùng; quyền cuối cùng luôn do FastAPI kiểm tra.</p></div></div><div className="guide-role-grid">{roleDetails.map((item) => <article className="panel guide-role-card" key={item.role}><span className="guide-role-badge">{item.role}</span><h3>{item.title}</h3><p>{item.description}</p><ul>{item.items.map((permission) => <li key={permission}><span aria-hidden="true">✓</span>{permission}</li>)}</ul></article>)}</div></section>
 

@@ -587,7 +587,12 @@ async def create_profile_report(
     repo = get_repository()
     try:
         report = repo.create_report(context.workspace_id, context.user_id, payload)
-        submitted = repo.submit_report(report["id"], context.workspace_id, context.user_id)
+        submitted = repo.publish_report(
+            report["id"],
+            context.workspace_id,
+            context.user_id,
+            reason="Tự động xuất bản report do Analyst tạo.",
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:

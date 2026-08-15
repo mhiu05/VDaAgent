@@ -6,7 +6,7 @@ import { Suspense } from "react";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import { provisionSelfSignup, type SelfSignupRole } from "@/lib/api";
 
-const validRoles: SelfSignupRole[] = ["viewer", "analyst", "admin"];
+const validRoles: SelfSignupRole[] = ["analyst"];
 
 function AuthCallbackContent() {
   const params = useSearchParams();

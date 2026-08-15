@@ -36,8 +36,7 @@ Phạm Thế Đăng
 
 ### 2. Hoàn thiện phân quyền và vòng đời report
 
-- Analyst/Admin có thể xem các report `draft` và `in_review` trong workspace.
-- Viewer chỉ xem được report đã `published`.
+- Analyst có thể xem và xử lý các report `draft`, `in_review` và `published` trong workspace.
 - Thêm API xóa report:
   - `DELETE /api/v1/reports/{report_id}`
 - Backend chỉ cho phép xóa khi:

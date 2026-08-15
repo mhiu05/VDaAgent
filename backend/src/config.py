@@ -21,9 +21,9 @@ from dotenv import load_dotenv
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# `src` is now hosted under `backend/src`, while the runtime config and data
-# volumes remain at repository root.  Keep the package usable from both
-# `src.main` (the compatibility import) and `backend.src.main`.
+# `src` is hosted under `backend/src`, while the runtime config and data
+# volumes remain at repository root. Run Uvicorn with `--app-dir backend`
+# so the existing absolute `src.*` imports resolve consistently.
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 _REPO_ROOT = _BACKEND_ROOT.parent
 PROJECT_ROOT = (
@@ -191,16 +191,6 @@ class Settings(BaseSettings):
     guest_max_upload_mb: int = Field(default=25, ge=1, le=100)
     guest_retention_hours: int = Field(default=24, ge=1, le=168)
     auth_require_email_confirmed: bool = True
-    # Platform-level roles are deliberately configuration-driven. They are
-    # never accepted as workspace membership roles or from client payloads.
-    global_admin_emails: str = Field(
-        default="",
-        validation_alias=AliasChoices("GLOBAL_ADMIN_EMAILS", "global_admin_emails"),
-    )
-    super_admin_user_ids: str = Field(
-        default="",
-        validation_alias=AliasChoices("SUPER_ADMIN_USER_IDS", "super_admin_user_ids"),
-    )
     auth_issuer: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -405,18 +395,6 @@ class Settings(BaseSettings):
     def supabase_backend_key(self) -> str:
         """Backend-only key; the legacy service-role fallback is temporary."""
         return self.supabase_secret_key or self.supabase_service_role_key
-
-    @staticmethod
-    def _csv_set(value: str) -> set[str]:
-        return {item.strip().casefold() for item in value.split(",") if item.strip()}
-
-    def global_role_for(self, user_id: str, email: str | None) -> str | None:
-        """Resolve a platform role server-side; unknown users remain unprivileged."""
-        if user_id.casefold() in self._csv_set(self.super_admin_user_ids):
-            return "super_admin"
-        if email and email.casefold() in self._csv_set(self.global_admin_emails):
-            return "global_admin"
-        return None
 
     def _resolve(self, value: str) -> Path:
         """Đường dẫn tương đối tính từ gốc project, không phụ thuộc cwd."""

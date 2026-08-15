@@ -87,7 +87,7 @@ export default function ActivityPage() {
   const entries = activity.data?.entries ?? [];
 
   if (me && !can(me.effective_permissions, PERMISSIONS.workspaceAuditRead)) {
-    return <main className="page activity-page"><EmptyState title="Không có quyền truy cập" detail="Chỉ Admin mới có thể xem activity log của workspace." /></main>;
+    return <main className="page activity-page"><EmptyState title="Không có quyền truy cập" detail="Bạn không có quyền xem activity log của workspace." /></main>;
   }
 
   return <main className="page activity-page">
@@ -99,6 +99,6 @@ export default function ActivityPage() {
     />
     {activity.isPending && <LoadingBlock label="Đang tải activity log…" />}
     {activity.isError && <ErrorNotice error={activity.error} retry={() => activity.refetch()} />}
-    {!activity.isPending && !activity.isError && (entries.length ? <section className="activity-list" aria-label="Activity log">{entries.map((entry, index) => <ActivityItem entry={entry} key={`${entry.ts}-${entry.event}-${index}`} />)}</section> : <EmptyState title="Chưa có hoạt động" detail="Các thao tác upload, profiling, báo cáo và quản trị workspace sẽ xuất hiện ở đây." />)}
+    {!activity.isPending && !activity.isError && (entries.length ? <section className="activity-list" aria-label="Activity log">{entries.map((entry, index) => <ActivityItem entry={entry} key={`${entry.ts}-${entry.event}-${index}`} />)}</section> : <EmptyState title="Chưa có hoạt động" detail="Các thao tác upload, profiling, báo cáo và phân tích workspace sẽ xuất hiện ở đây." />)}
   </main>;
 }

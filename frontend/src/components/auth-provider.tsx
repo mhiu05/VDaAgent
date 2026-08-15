@@ -15,7 +15,6 @@ export type Me = {
   workspace: { id: string; role: string };
   effective_permissions: string[];
   workspaces: Workspace[];
-  global_role?: "global_admin" | "super_admin" | null;
 };
 
 type AuthValue = {
@@ -89,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
+  const pathnameRef = useRef(pathname);
   const [me, setMe] = useState<Me | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
@@ -157,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Keep the auth boundary strict even when load() is triggered by an
       // auth callback or a Fast Refresh cycle. Login and signup must never
       // send an expired Supabase token to the protected session endpoint.
-      if (isAuthRoute(pathname)) {
+      if (isAuthRoute(pathnameRef.current)) {
         if (sequence !== loadSequence.current) return false;
         resetUnauthenticatedState();
         setError(null);
@@ -298,7 +298,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (loadInFlight.current === task) loadInFlight.current = null;
     });
     return task;
-  }, [pathname, refresh, resetUnauthenticatedState, router, supabaseAccessToken]);
+  }, [refresh, resetUnauthenticatedState, router, supabaseAccessToken]);
+
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     setApiAuthTransport({ accessToken, workspaceId: () => workspaceIdRef.current, refresh });
@@ -331,10 +335,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Supabase token is common after expiry; calling /session here produces a
     // misleading 401 while the user is simply trying to log in again. The
     // effect runs again automatically after navigation to a workspace route.
-    if (isAuthRoute(pathname)) return;
+    const authRoute = isAuthRoute(pathname);
+    if (authRoute) return;
     void load();
+    const heartbeat = window.setInterval(() => {
+      if (workspaceIdRef.current) void load(workspaceIdRef.current, false, false, true);
+    }, 60_000);
     const client = getSupabaseBrowserClient();
-    if (!client) return;
+    if (!client) return () => window.clearInterval(heartbeat);
     // Supabase invokes this callback while its internal auth lock is held.
     // Calling getSession() synchronously through load() from inside the
     // callback can deadlock guest mode (the client exists, but there is no
@@ -343,7 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Supabase refreshes the access token when a background tab becomes
       // active. The API transport reads the fresh token on demand, so a token
       // refresh does not require rebuilding the workspace shell.
-      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED" || isAuthRoute(pathname)) return;
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED" || isAuthRoute(pathnameRef.current)) return;
       if (event === "SIGNED_OUT") {
         ++loadSequence.current;
         loadInFlight.current = null;
@@ -369,8 +377,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         );
       }, 0);
     });
-    return () => data.subscription.unsubscribe();
-  }, [load, pathname]); // Session callback always reads fresh persisted workspace.
+    return () => {
+      window.clearInterval(heartbeat);
+      data.subscription.unsubscribe();
+    };
+  }, [load, isAuthRoute(pathname)]); // Re-bootstrap only when crossing the auth/workspace boundary.
 
   const switchWorkspace = useCallback(async (nextWorkspaceId: string) => {
     if (nextWorkspaceId === workspaceId) return;

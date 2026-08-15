@@ -33,7 +33,7 @@ export default function ReviewPage() {
   const { runId } = useParams<{ runId: string }>();
   const router = useRouter();
   const client = useQueryClient();
-  const { me, isGuest, guestRole } = useAuth();
+  const { me, isGuest } = useAuth();
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
   const pending = useMemo(
@@ -43,7 +43,7 @@ export default function ReviewPage() {
     [profile.data],
   );
   const reviewerName = me?.user.email || (isGuest ? "Phiên dùng thử" : "Tài khoản đăng nhập hiện tại");
-  const reviewerRole = me?.workspace.role || guestRole || "analyst";
+  const reviewerRole = "analyst";
   const mutation = useMutation({
     mutationFn: () => confirmProposals(runId, {
       resume: true,

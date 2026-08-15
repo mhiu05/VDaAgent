@@ -31,11 +31,11 @@ class NotebookRepository:
 
     @staticmethod
     def _can_read(item: dict[str, Any], actor_user_id: str, role: str) -> bool:
-        return role == "admin" or item["created_by_user_id"] == actor_user_id or item["visibility"] == "workspace"
+        return item["created_by_user_id"] == actor_user_id or item["visibility"] == "workspace"
 
     @staticmethod
     def _can_edit(item: dict[str, Any], actor_user_id: str, role: str) -> bool:
-        return role == "admin" or item["created_by_user_id"] == actor_user_id
+        return item["created_by_user_id"] == actor_user_id or item["visibility"] == "workspace"
 
     def _with_profile_label(
         self, conn: Any, item: dict[str, Any], *, workspace_id: str
@@ -58,7 +58,7 @@ class NotebookRepository:
         *,
         workspace_id: str,
         actor_user_id: str | None = None,
-        role: str = "viewer",
+        role: str = "analyst",
     ) -> dict[str, Any] | None:
         row = conn.execute(
             select(notebooks).where(
@@ -155,16 +155,15 @@ class NotebookRepository:
                 notebooks.c.workspace_id == workspace_id,
                 notebooks.c.status == status,
             )
-            if role != "admin":
-                if status == "archived":
-                    statement = statement.where(
-                        notebooks.c.created_by_user_id == actor_user_id
-                    )
-                else:
-                    statement = statement.where(
-                        (notebooks.c.visibility == "workspace")
-                        | (notebooks.c.created_by_user_id == actor_user_id)
-                    )
+            if status == "archived":
+                statement = statement.where(
+                    notebooks.c.created_by_user_id == actor_user_id
+                )
+            else:
+                statement = statement.where(
+                    (notebooks.c.visibility == "workspace")
+                    | (notebooks.c.created_by_user_id == actor_user_id)
+                )
             return [
                 self._with_profile_label(conn, dict(row), workspace_id=workspace_id)
                 for row in conn.execute(
@@ -224,7 +223,7 @@ class NotebookRepository:
             if not item:
                 return None
             if not self._can_edit(item, actor_user_id, role):
-                raise PermissionError("Chỉ người tạo hoặc Admin mới có thể chia sẻ notebook.")
+                raise PermissionError("Chỉ người tạo notebook mới có thể chia sẻ notebook.")
             conn.execute(
                 notebooks.update()
                 .where(notebooks.c.id == notebook_id)

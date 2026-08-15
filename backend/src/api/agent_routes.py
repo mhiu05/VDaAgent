@@ -1,6 +1,6 @@
 """Tenant-scoped, public-safe execution trace API.
 
-These generic endpoints are intentionally unavailable to Viewer. Published
+These generic endpoints are scoped to the active Analyst workspace. Published
 reports will use a narrower provenance projection in a later rollout.
 """
 

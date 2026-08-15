@@ -6,11 +6,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import type { GuestRole } from "@/lib/auth/guest-session";
 
-const trialRoles: Array<{ value: GuestRole; label: string }> = [
-  { value: "viewer", label: "Viewer" },
-  { value: "analyst", label: "Analyst" },
-  { value: "admin", label: "Admin" },
-];
+const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Analyst" };
 
 export function PublicNavbar() {
   const pathname = usePathname();
@@ -59,12 +55,11 @@ export function PublicNavbar() {
       {showRoleGroup && <>
         <span className="public-nav-separator" aria-hidden="true">|</span>
         <div className="public-nav-group public-nav-roles" aria-label={showTrialRoles ? "Choose a trial role" : "Signed-in role"}>
-          {showTrialRoles ? trialRoles.map((role) => <button
-            className={guestRole === role.value && !isOverviewPage ? "active" : ""}
+          {showTrialRoles ? <button
+            className={guestRole === trialRole.value && !isOverviewPage ? "active" : ""}
             type="button"
-            key={role.value}
-            onClick={() => void enterGuestRole(role.value)}
-          >{role.label}</button>) : currentRole ? <span className="public-nav-current-role">{currentRole}</span> : null}
+            onClick={() => void enterGuestRole(trialRole.value)}
+          >{trialRole.label}</button> : currentRole ? <span className="public-nav-current-role">{currentRole}</span> : null}
         </div>
       </>}
       <span className="public-nav-separator" aria-hidden="true">|</span>

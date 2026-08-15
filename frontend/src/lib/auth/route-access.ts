@@ -3,7 +3,6 @@ import { PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 export const routeAccess: Array<{ prefix: string; permission: Permission }> = [
   { prefix: "/workspaces/manage", permission: PERMISSIONS.workspaceMembersManage },
   { prefix: "/workspaces", permission: PERMISSIONS.reportPublishedRead },
-  { prefix: "/admin", permission: PERMISSIONS.workspaceActivityRead },
   { prefix: "/activity", permission: PERMISSIONS.workspaceAuditRead },
   { prefix: "/settings", permission: PERMISSIONS.workspaceSettingsManage },
   { prefix: "/chat", permission: PERMISSIONS.qaProfileAsk },
