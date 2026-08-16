@@ -77,6 +77,9 @@ os.environ.update(
         "STORAGE_PROVIDER": "local",
         # Tests require an explicit PostgreSQL test database.
         "DATABASE_URL": _TEST_DATABASE_URL,
+        # LangGraph's PostgreSQL checkpointer must never fall back to the
+        # production Supabase DSN while the integration suite is running.
+        "DATABASE_CHECKPOINTER_URL": _TEST_DATABASE_URL,
         "RETRIEVAL_INDEX_DIR": str(_TMP / "index"),
         # API audit assertions use the same workspace-scoped database store as
         # the production activity endpoint. Unit tests for JSONL audit create

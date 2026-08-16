@@ -498,6 +498,7 @@ $env:P170_TEST_DATABASE_URL = "postgresql+psycopg://p170_test:<password>@localho
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
+- [Gate G2 manual evaluation evidence](docs/g2-eval-evidence.md)
 - [ADR agent runtime v2](docs/adr-agent-runtime-v2.md)
 - [Agent production-readiness implementation plan](docs/agent-production-readiness-implementation-plan.md)
 - [.env.example](.env.example)

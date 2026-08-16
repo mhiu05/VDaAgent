@@ -736,33 +736,50 @@ def test_analyst_can_manage_members_and_pending_invitations(
     analyst_headers = _analyst_headers(
         client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f3"
     )
+    analyst_session = client.get("/api/v1/session", headers=analyst_headers)
+    assert analyst_session.status_code == 200, analyst_session.text
+    analyst_id = analyst_session.json()["user"]["id"]
     assert client.get("/api/v1/workspaces/current/members", headers=analyst_headers).status_code == 200
 
-    no_change = client.patch(f"/api/v1/workspaces/current/members/{actor_id}", json={})
-    assert no_change.status_code == 422, no_change.text
-
-    suspend_member = client.patch(
-        f"/api/v1/workspaces/current/members/{actor_id}",
-        json={"status": "suspended"},
+    no_change = client.patch(
+        f"/api/v1/workspaces/current/members/{analyst_id}",
+        json={},
+        headers=analyst_headers,
     )
-    assert suspend_member.status_code == 200, suspend_member.text
+    assert no_change.status_code == 422, no_change.text
 
     invited = client.post(
         "/api/v1/workspaces/current/invitations",
         json={"email": "analyst.workspace@example.com", "role": "analyst"},
+        headers=analyst_headers,
     )
     assert invited.status_code == 201, invited.text
     invitation_id = invited.json()["id"]
 
-    invitations = client.get("/api/v1/workspaces/current/invitations")
+    invitations = client.get("/api/v1/workspaces/current/invitations", headers=analyst_headers)
     assert invitations.status_code == 200, invitations.text
     invitation = next(item for item in invitations.json()["invitations"] if item["id"] == invitation_id)
     assert invitation["email"] == "analyst.workspace@example.com"
     assert "token_hash" not in invitation
 
-    cancelled = client.delete(f"/api/v1/workspaces/current/invitations/{invitation_id}")
+    cancelled = client.delete(
+        f"/api/v1/workspaces/current/invitations/{invitation_id}",
+        headers=analyst_headers,
+    )
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json() == {"cancelled": True}
+
+    suspend_member = client.patch(
+        f"/api/v1/workspaces/current/members/{analyst_id}",
+        json={"status": "suspended"},
+        headers=analyst_headers,
+    )
+    assert suspend_member.status_code == 200, suspend_member.text
+    # The workspace header is now rejected as not found after suspension so
+    # the API does not reveal membership details to an inactive user.
+    assert client.get(
+        "/api/v1/workspaces/current/members", headers=analyst_headers
+    ).status_code == 404
 
 
 def test_list_datasets_and_runs(client: TestClient, profile_run: dict) -> None:
