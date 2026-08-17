@@ -135,7 +135,11 @@ FastAPI :8000/api/v1
   └─ Storage adapter: Supabase Storage hoặc Google Drive
 ```
 
+Chi tiết component architecture và data flow: [ARCHITECTURE.md](ARCHITECTURE.md).
+
 Các thư mục quan trọng:
+
+### Project structure
 
 ```text
 backend/src/api/                 FastAPI routes
