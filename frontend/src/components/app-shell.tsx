@@ -69,12 +69,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
   ) : null;
   const guestWorkspacePanel = isGuest ? (
     <section className="sidebar-workspace sidebar-guest-workspace" aria-label="Workspace khách hiện tại">
-      <span className="sidebar-workspace-label">Workspace hiện tại</span>
-      <div className="current-role">
-        <span className="current-role-dot" aria-hidden="true" />
-        <span><small>Vai trò</small><b>{guestRole ? `${guestRole.charAt(0).toUpperCase()}${guestRole.slice(1)}` : "Analyst"}</b></span>
-      </div>
-      <span className="workspace-demo-hint">Phiên dùng thử · dữ liệu mẫu</span>
+      <span className="sidebar-workspace-label sidebar-text">Workspace hiện tại</span>
+      <span className="workspace-demo-hint sidebar-text">Phiên dùng thử · dữ liệu mẫu</span>
     </section>
   ) : null;
 
@@ -144,45 +140,52 @@ function AppShellContent({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
         <div className="sidebar-top">
-        <Link href="/" className="brand" aria-label="VDaAgent Data Profile">
-          <span className="brand-mark brand-mark-mascot" aria-hidden="true"><img src="/img/profile-data-mascot.png" alt="" /></span>
-          <span><b>Profile</b><small>Phân tích dữ liệu</small></span>
-        </Link>
-        {accountPanel}
-        <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard"><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>Trang chủ</Link>
-        {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
-          <span className="sidebar-workspace-label">Workspace của bạn</span>
-          <div className="current-role" aria-label={`Vai trò hiện tại: ${me.workspace.role}`}>
-            <span className="current-role-dot" aria-hidden="true" />
-            <span><small>Vai trò hiện tại</small><b>{me.workspace.role}</b></span>
-          </div>
-          <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>{me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name} · {workspace.role}</option>)}</select>
-          <Link className="workspace-manage-link" href="/workspaces">Quản lý Workspace →</Link>
-        </section>}
-        {guestWorkspacePanel}
+          {/* Nút Quay lại trang chủ thay thế brand mascot */}
+          <Link href="/" className="sidebar-back-home" aria-label="Quay lại trang chủ">
+            <span className="sidebar-icon sidebar-back-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>
+              </svg>
+            </span>
+            <span className="sidebar-back-label">Quay lại trang chủ</span>
+          </Link>
+          <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard">
+            <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
+            <span className="sidebar-link-label">Trang chủ</span>
+          </Link>
+          {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
+            <span className="sidebar-workspace-label sidebar-text">Workspace của bạn</span>
+            <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>
+              {me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}
+            </select>
+            <Link className="workspace-manage-link sidebar-text" href="/workspaces">Quản lý Workspace →</Link>
+          </section>}
+          {guestWorkspacePanel}
         </div>
         <div className="sidebar-scroll">
-        {can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && <section className="chat-history" aria-label="Lịch sử chat">
-          <div className="sidebar-section-heading"><span>Lịch sử chat</span><button type="button" className="new-chat-button" onClick={startNewChat}>+ Chat mới</button></div>
-          <div className="chat-history-list">
-            {conversations.length === 0 && <p className="sidebar-empty">Chưa có cuộc trò chuyện</p>}
-            {conversations.slice(0, 5).map((conversation) => {
-              const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
-              return <div className={active ? "chat-history-row active" : "chat-history-row"} key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0)}>{conversation.title}</Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>;
+          {can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && <section className="chat-history" aria-label="Lịch sử chat">
+            <div className="sidebar-section-heading"><span className="sidebar-text">Lịch sử chat</span><button type="button" className="new-chat-button sidebar-text" onClick={startNewChat}>+ Chat mới</button></div>
+            <div className="chat-history-list">
+              {conversations.length === 0 && <p className="sidebar-empty sidebar-text">Chưa có cuộc trò chuyện</p>}
+              {conversations.slice(0, 5).map((conversation) => {
+                const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
+                return <div className={active ? "chat-history-row active" : "chat-history-row"} key={conversation.id}><Link className="chat-history-item sidebar-text" href={`/chat?conversation=${conversation.id}`} onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0)}>{conversation.title}</Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>;
+              })}
+            </div>
+            <div className="chat-history-footer"><button type="button" className="history-button sidebar-text" onClick={() => setShowAllHistory(true)} disabled={!conversations.length}>Lịch sử</button></div>
+          </section>}
+          <nav className="nav-list sidebar-navigation" aria-label="Điều hướng phân tích dữ liệu">
+            <span className="sidebar-section-label sidebar-text">Phân tích dữ liệu</span>
+            {roleNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
             })}
+          </nav>
+          <div className="sidebar-footer">
+            {authenticated && me && <button type="button" className="sidebar-signout" onClick={() => void signOut()}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="logout" /></span><span className="sidebar-link-label">Đăng xuất</span></button>}
           </div>
-          <div className="chat-history-footer"><button type="button" className="history-button" onClick={() => setShowAllHistory(true)} disabled={!conversations.length}>Lịch sử</button></div>
-        </section>}
-        <nav className="nav-list sidebar-navigation" aria-label="Điều hướng phân tích dữ liệu">
-          <span className="sidebar-section-label">Phân tích dữ liệu</span>
-          {roleNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span>{item.label}</Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
-          })}
-        </nav>
-        <div className="sidebar-footer">
-          {authenticated && me && <button type="button" className="sidebar-signout" onClick={() => void signOut()}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="logout" /></span>Đăng xuất</button>}
-        </div>
+          {/* Account panel ở cuối cùng */}
+          {accountPanel}
         </div>
       </aside>
       {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><div className="history-modal-header-actions"><button type="button" className="history-clear-button" onClick={removeAllConversations}>Xóa tất cả</button><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div></div><div className="history-modal-list">{conversations.map((conversation) => <div className="history-modal-row" key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>)}</div></section></div>}

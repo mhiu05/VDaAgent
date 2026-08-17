@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diagnose Data Quality"
+  short_description: "Review deterministic quality evidence"
+  default_prompt: "Use $diagnose-data-quality to review quality evidence for a profile run."

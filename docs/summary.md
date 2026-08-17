@@ -31,7 +31,7 @@ Browser / Next.js :3000
                          ↓
 FastAPI :8000/api/v1
   ├─ authentication, membership, capability checks
-  ├─ profiling LangGraph và Q&A LangGraph
+  ├─ profiling LangGraph, Q&A LangGraph và native skill registry
   ├─ runtime trace/provenance (opt-in, redact trước khi persist)
   ├─ DuckDB/pandas/NumPy/SciPy compute
   ├─ repository PostgreSQL + agent-run lifecycle
@@ -45,7 +45,9 @@ Backend mount các router tại `/api/v1`:
 - `authz_routes.py`: session, workspace, dashboard và report workflow.
 - `google_drive_routes.py`: OAuth connection/status.
 - `agent_routes.py`: tenant-scoped run, trace, evidence, plan projection và
-  trace summary cho Analyst/Admin.
+  trace summary.
+- `skill_routes.py`: catalog native skill và inspect các read-only tool bundle.
+- `notebook_routes.py`: notebook CRUD, cells, sharing và export.
 
 Startup tạo/reuse metadata repository và kiểm tra cấu hình. Production yêu cầu PostgreSQL kết nối được, Supabase Auth và storage provider hợp lệ. `/docs` và `/redoc` bị tắt khi `APP_ENV=production`.
 
@@ -77,7 +79,7 @@ actor/is_guest
 Guest token có dạng `guest.<session_uuid>.<role>`. Backend map token vào user ID deterministic và tạo guest workspace riêng. Guest vẫn đi qua capability guard, nhưng không có email hay Supabase account.
 
 Guest storage được cấu hình bằng `GUEST_STORAGE_PROVIDER`. Guest chỉ được tạo
-sau khi visitor chọn Viewer, Analyst hoặc Admin. Đổi role hoặc bấm `Kết thúc
+sau khi visitor chọn Analyst. Đổi role hoặc bấm `Kết thúc
 dùng thử` sẽ yêu cầu cleanup best-effort qua:
 
 ```text
@@ -93,11 +95,21 @@ dành cho dữ liệu cần giữ lâu dài.
 
 Catalog tập trung tại `backend/src/services/permissions.py`.
 
-| Role | Capability điển hình |
+Workspace chỉ có một role duy nhất là **`analyst`**. Các role legacy (`owner`,
+`admin`, `viewer`) được chuẩn hóa thành `analyst` ở trust boundary. Role này sở
+hữu toàn bộ tập capability:
+
+| Capability nhóm | Ví dụ |
 | --- | --- |
-| Viewer | `report.published.read`, `report.published.export` |
-| Analyst | dataset upload/read, profile run/read/review, test, drift, analysis, Q&A, self-service storage connect, report draft/submit, `agent.run.read`, `agent.trace.read` |
-| Admin | Analyst + dataset delete, member management, report review/publish/archive, audit, workspace settings, `agent.trace.debug.read` |
+| Dataset | `dataset.read`, `dataset.upload`, `dataset.delete` |
+| Profiling | `profile.run`, `profile.read`, `profile.review` |
+| Stats / Drift | `stats.run`, `drift.run` |
+| Q&A | `qa.profile.ask`, `qa.published.ask` |
+| Analysis | `analysis.run` |
+| Notebook | `notebook.read`, `notebook.write`, `notebook.share` |
+| Report | `report.draft.write`, `report.submit`, `report.review`, `report.publish`, `report.archive`, `report.published.read`, `report.published.export` |
+| Workspace | `workspace.members.manage`, `workspace.settings.manage`, `workspace.storage.connect`, `workspace.audit.read`, `workspace.activity.read`, `workspace.lifecycle.manage`, `workspace.create`, `workspace.delete` |
+| Agent | `agent.run.read`, `agent.trace.read`, `agent.trace.debug.read` |
 
 Frontend có thể ẩn button, nhưng không phải security boundary. Backend trả `401` cho auth failure, `403` cho thiếu permission, `404` cho resource ngoài tenant và `409 workspace_required` khi cần chọn workspace.
 
@@ -138,11 +150,12 @@ workspace mới.
 Các router hiện được mount dưới `/api/v1`:
 
 ```text
-routes.py          datasets, profiling, reports source, tests, drift, Q&A, audit, status
-analysis_routes.py analysis sessions, context versions, quality gate, executions
-authz_routes.py    session, workspaces, dashboard, onboarding, invitations, report workflow
-agent_routes.py    tenant-scoped agent run, trace, evidence, plan và summary
+routes.py              datasets, profiling, reports source, tests, drift, Q&A, audit, status
+analysis_routes.py     analysis sessions, context versions, quality gate, executions
+authz_routes.py        session, workspaces, dashboard, onboarding, invitations, report workflow
+agent_routes.py        tenant-scoped agent run, trace, evidence, plan và summary
 google_drive_routes.py status, OAuth connect/callback và disconnect
+notebook_routes.py     notebook CRUD, cells, sharing và export
 ```
 
 Các route nghiệp vụ dùng `RequestContext`/permission guard phù hợp; route auth
@@ -183,6 +196,27 @@ Repository luôn nhận workspace scope khi đọc resource. Không tin `workspa
 Compute tạo schema/dtype, row count, null percentage, cardinality, uniqueness, duplicate, outlier, numeric summary, top values, date summary, correlation và risk warnings. Dataset upload mới đồng thời tính SHA-256 của binary source và lưu source version; hash này được mang sang profile run. Local path không được trả ra public API. Dataset/profile cũ chưa có content hash phải được xem là provenance chưa được pin hoàn toàn.
 
 LangGraph hỗ trợ orchestration, resume/checkpoint và narrative. Nếu LLM không có key, compute/profile vẫn có thể chạy; narrative sẽ dùng fallback dạng bảng hoặc được bỏ qua tùy workflow.
+
+## 5.1. Trạng thái skill và boundary tích hợp
+
+Native skill registry hiện có tại `backend/src/agents/skills/registry.py`; agent
+không dùng DB-GPT `SkillManager`/`SkillLoader`. Năm skill có version, permission
+và execution mode rõ ràng: `profile-dataset`, `diagnose-data-quality`,
+`compare-profile-drift`, `answer-business-question`, `generate-report`.
+
+`SKILL.md` là playbook ngắn; registry là authority cho tool allowlist. Catalog
+được đọc qua `GET /api/v1/agent-skills` hoặc `GET /api/v1/agent-skills/{name}`.
+Hai skill read-only chạy được qua
+`POST /api/v1/agent-skills/{skill_name}/inspect`; endpoint kiểm tra
+`profile_run_id` thuộc workspace trước khi gọi read-only tool dispatcher. Các
+skill tạo side effect trả về API workflow đã phân quyền, không được chạy qua
+inspect endpoint. Q&A chọn playbook bằng deterministic routing và đưa guidance
+vào cả prompt structured lẫn retrieval; guardrail, capability, trace và tool
+budget vẫn giữ nguyên boundary hiện hữu. `get_profile_readiness` bổ sung trạng
+thái evidence-ready nhưng không thay Analysis Workspace quality gate.
+
+Không cho model tự đăng ký skill/tool mới lúc runtime, tự đọc source file hay tự
+tính lại metric. Contract đầy đủ: [agent_skills.md](agent_skills.md).
 
 ## 6. Proposal review và PII
 
@@ -458,21 +492,28 @@ Route chính:
 
 ```text
 /                             public home và guest role selector
-/guide                         hướng dẫn public
-/login                         Supabase login
-/signup                        self-signup, role selector và resend confirmation
-/forgot-password               yêu cầu reset password
-/auth/callback                 PKCE callback và self-signup provisioning
-/account/update-password       đặt password mới sau reset
-/dashboard                     role dashboard
-/datasets/new                  upload + profile run
-/profiles/{runId}              profile report
-/profiles/{runId}/review       proposal review
-/profiles/{runId}/analysis     test, drift, export
-/analyses/new                  create Analysis Session
-/analyses/{sessionId}          context, quality gate, exploration
-/chat                          Q&A Agent
-/reports/{reportId}            published report
+/guide                        hướng dẫn public
+/login                        Supabase login
+/signup                       self-signup, role selector và resend confirmation
+/forgot-password              yêu cầu reset password
+/auth/callback                PKCE callback và self-signup provisioning
+/account/update-password      đặt password mới sau reset
+/dashboard                    dashboard Analyst
+/datasets/new                 upload + profile run
+/profiles/{runId}             profile report
+/profiles/{runId}/review      proposal review
+/profiles/{runId}/analysis    test, drift, export
+/analyses/new                 create Analysis Session
+/analyses/{sessionId}         context, quality gate, exploration
+/notebooks                    danh sách notebooks
+/notebooks/{notebookId}       chi tiết notebook và cells
+/workspaces                   workspace management
+/workspaces/manage            quản lý thành viên và settings
+/activity                     workspace activity log
+/compare                      so sánh profile/drift
+/chat                         Q&A Agent
+/reports                      published report portal
+/reports/{reportId}           published report
 ```
 
 Navbar public dùng role buttons ở home/auth pages; visitor cần chọn một role
@@ -532,9 +573,10 @@ Khi điều tra lỗi “Failed to fetch”, kiểm tra theo thứ tự:
 - Chưa hỗ trợ join nhiều bảng hoặc semantic layer dùng chung cho một Analysis Session.
 - Không có arbitrary SQL, notebook, source cleaning hay rollback.
 - Deep analysis mới ở mức workflow mở rộng; planner nhiều bước và insight bank chưa phải contract hoàn chỉnh.
-- Agent runtime mới phát hành trace/provenance cho profiling và Q&A. Chưa có
-  planner thực thi, verifier enforce, approval workflow, durable queue/DLQ,
-  circuit breaker, skill registry hoặc long-term memory.
+- Agent runtime mới phát hành trace/provenance cho profiling và Q&A. Native
+  skill registry chỉ phát hành playbook + bounded tool bindings; chưa có planner
+  thực thi tự do, verifier enforce, approval workflow, durable
+  queue/DLQ, circuit breaker hoặc long-term memory.
 - Sample run không mặc định là exact population metric.
 - Đóng tab chỉ xóa guest token ở browser; cleanup workspace/file ở backend phụ
   thuộc retention nếu request cleanup best-effort chưa hoàn tất.

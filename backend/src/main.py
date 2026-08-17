@@ -24,6 +24,7 @@ from src.api.authz_routes import router as authz_router
 from src.api.google_drive_routes import router as google_drive_router
 from src.api.notebook_routes import router as notebook_router
 from src.api.routes import router
+from src.api.skill_routes import router as skill_router
 from src.config import get_settings
 from src.models.schemas import HealthResponse
 
@@ -146,6 +147,7 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
+app.include_router(skill_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
 app.include_router(google_drive_router, prefix="/api/v1")

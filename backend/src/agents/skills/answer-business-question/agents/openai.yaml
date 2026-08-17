@@ -1,0 +1,4 @@
+interface:
+  display_name: "Answer Business Question"
+  short_description: "Answer from bounded profile evidence"
+  default_prompt: "Use $answer-business-question to answer a question from profile evidence."

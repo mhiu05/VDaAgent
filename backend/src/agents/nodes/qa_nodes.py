@@ -25,6 +25,7 @@ from src.agents.prompts import (
     QA_VECTOR_PROMPT,
 )
 from src.agents.runtime.trace import invoke_model, record_retrieval_call
+from src.agents.skills.registry import select_skill_for_question, skill_guidance
 from src.agents.state import ProfilingState
 from src.agents.tools.registry import STRUCTURED_TOOLS, run_tool
 from src.config import get_settings
@@ -322,6 +323,7 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
     return {
         "question": question,
         "question_type": question_type,
+        "selected_skill": select_skill_for_question(question),
         "qa_context": {
             "mentioned_columns": mentioned,
             "columns_available": columns[:50],
@@ -442,7 +444,14 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         }
 
     messages: list[Any] = [
-        {"role": "system", "content": BASE_RULES + "\n\n" + QA_STRUCTURED_PROMPT},
+        {
+            "role": "system",
+            "content": BASE_RULES
+            + "\n\n"
+            + QA_STRUCTURED_PROMPT
+            + "\n\nNative skill playbook:\n"
+            + skill_guidance(state.get("selected_skill")),
+        },
     ]
     history = _conversation_context(state)
     if history:
@@ -714,7 +723,14 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         response = invoke_model(
             llm,
             [
-                {"role": "system", "content": BASE_RULES + "\n\n" + QA_VECTOR_PROMPT},
+                {
+                    "role": "system",
+                    "content": BASE_RULES
+                    + "\n\n"
+                    + QA_VECTOR_PROMPT
+                    + "\n\nNative skill playbook:\n"
+                    + skill_guidance(state.get("selected_skill")),
+                },
                 {
                     "role": "user",
                     "content": json.dumps(

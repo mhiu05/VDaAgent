@@ -39,9 +39,9 @@ Một workflow thông thường:
 2. Tải CSV, TSV, Parquet hoặc JSON.
 3. Chọn `sample` để khám phá nhanh hoặc `full` để quét toàn bộ source.
 4. Mở profile report và xử lý các proposal còn pending.
-5. Dùng report, Q&A, kiểm định thống kê hoặc drift.
-6. Nếu cần trả lời một câu hỏi nghiệp vụ, tạo Analysis Session từ profile đã
-   hoàn tất.
+5. Dùng Q&A, kiểm định thống kê hoặc drift trực tiếp trên profile đã hoàn tất.
+6. Nếu cần khám phá aggregate theo nhóm để trả lời câu hỏi nghiệp vụ, tạo
+   Analysis Session từ profile đó.
 7. Khai báo row grain, dimensions và measures; approve context để chạy quality
    gate.
 8. Trong “Khám phá dữ liệu”, chọn cách so sánh nhóm, metric, filter và thứ tự
@@ -110,11 +110,14 @@ thread, vì vậy cần mở rộng thread hoặc kiểm tra Spam/Promotions.
 - Profile report có provenance, narrative summary và các metric đã kiểm chứng.
 - Q&A theo profile evidence; có thể mở rộng tới external knowledge base nếu được
   cấu hình.
+- Native skill registry: playbook versioned cho profiling, quality diagnosis,
+  drift, Q&A và report; tool binding luôn bounded và tenant-scoped.
 - Statistical tests với alpha và multiple-testing correction.
 - Drift giữa hai profile run của cùng dataset.
 - Analysis Workspace với context, quality gate và bounded aggregate.
 - Exploration presets: so sánh nhóm, tìm nhóm dẫn đầu, tìm nhóm thấp nhất; có
   filter và insight max/min/spread.
+- Notebook LLM: tạo, chỉnh sửa và chia sẻ notebook có nhiều cell; export markdown/JSON.
 - Export PDF hoặc JSON với checklist chọn từng nhóm nội dung, Chọn tất cả và Bỏ
   chọn tất cả. PDF đánh số phân cấp như `1`, `7.1`, `7.1.1`.
 - Google Drive storage tùy chọn cho file lớn; Supabase vẫn là nguồn sự thật cho
@@ -129,7 +132,7 @@ Next.js :3000
                     ↓
 FastAPI :8000/api/v1
   ├─ JWT/JWKS + workspace membership + capability checks
-  ├─ LangGraph profiling và Q&A + agent runtime trace (opt-in)
+  ├─ LangGraph profiling/Q&A + native skill registry + runtime trace (opt-in)
   ├─ DuckDB / pandas / NumPy / SciPy compute
   ├─ PostgreSQL: metadata, checkpoint, retrieval, audit, agent-run provenance
   └─ Storage adapter: Supabase Storage hoặc Google Drive
@@ -143,7 +146,8 @@ Các thư mục quan trọng:
 
 ```text
 backend/src/api/                 FastAPI routes
-backend/src/agents/              LangGraph, runtime trace, prompts, read-only tools
+backend/src/agents/              LangGraph, runtime trace, prompts và read-only tools
+backend/src/agents/skills/       Native SKILL.md playbooks, registry và bounded bindings
 backend/src/services/            compute, storage, retrieval, auth, quality gate
 backend/src/models/              Pydantic contracts
 backend/migrations/              Alembic migrations
@@ -154,6 +158,20 @@ scripts/                         knowledge-base và auth migration utilities
 tests/                           backend/API/compute/security tests
 data/knowledge_base/             corpus retrieval local
 ```
+
+### Trạng thái skill của agent
+
+Agent không dùng DB-GPT SkillManager/SkillLoader. Native registry tại
+`backend/src/agents/skills/registry.py` đăng ký 5 playbook versioned:
+`profile-dataset`, `diagnose-data-quality`, `compare-profile-drift`,
+`answer-business-question` và `generate-report`.
+
+Skill là playbook; tool là thao tác có contract. Registry bind tool names theo
+allowlist và route workflow có side effect về API đã phân quyền. Hai skill
+read-only có catalog/inspect API dưới `/api/v1/agent-skills`; mỗi inspect kiểm
+tra workspace scope trước khi gọi tool. Q&A chọn playbook bằng routing
+deterministic nhưng guardrail, capability và bounded tool registry vẫn là
+authority. Xem [docs/agent_skills.md](docs/agent_skills.md).
 
 ## Yêu cầu
 
@@ -347,7 +365,10 @@ Không commit OAuth client secret, refresh token, Fernet key, `.env` hoặc API 
 
 | Role | Phạm vi chính |
 | --- | --- |
-| Analyst | Upload, profiling, review metadata, test, drift, Q&A, Analysis, quản lý member, review/publish/archive report, audit, workspace settings và đọc agent run/trace trong workspace. |
+| Analyst | Upload, profiling, review metadata, test, drift, Q&A, Analysis, notebook read/write/share, quản lý member, review/publish/archive report, audit, workspace settings và đọc agent run/trace trong workspace. |
+
+Workspace chỉ có một role `analyst`. Các role legacy (`owner`, `admin`, `viewer`)
+được chuẩn hóa thành `analyst` ở trust boundary.
 
 Frontend chỉ ẩn/hiện action để UX rõ hơn. Backend mới là nơi quyết định quyền.
 Thông thường: `401` là auth không hợp lệ, `403` là thiếu capability, `404` là
@@ -366,15 +387,22 @@ resource không thuộc workspace, `409 workspace_required` là cần chọn wor
 /dashboard                Dashboard Analyst
 /datasets                 Dataset và profile runs
 /datasets/new             Upload và tạo profiling run
+/datasets/{datasetId}/runs Các phiên profiling của một dataset
 /profiles/{runId}         Profile report
 /profiles/{runId}/review  Review proposal metadata
 /profiles/{runId}/analysis Kiểm định, drift và export
 /analyses                 Danh sách Analysis Session
 /analyses/new             Tạo Analysis Session
 /analyses/{sessionId}     Context, quality gate và exploration
+/notebooks                Danh sách notebooks
+/notebooks/{notebookId}   Chi tiết notebook và cells
+/workspaces               Workspace management
+/workspaces/manage        Quản lý thành viên và settings
+/activity                 Workspace activity log
+/compare                  So sánh profile/drift
 /chat                     Agent Q&A
 /reports                  Published report portal
-/compare                  So sánh profile/drift
+/reports/{reportId}       Published report
 /api/reports/profile/...  Next.js PDF proxy cho profile report
 ```
 
@@ -405,6 +433,7 @@ POST      /workspaces/current/invitations
 PATCH     /workspaces/current/members/{user_id}
 POST      /datasets/upload
 GET       /datasets
+PATCH     /datasets/collection
 DELETE    /datasets/{dataset_id}
 GET       /datasets/{dataset_id}/runs
 POST      /profile
@@ -413,8 +442,12 @@ GET       /profile/{run_id}/export
 PATCH     /profile/{run_id}/confirm
 POST      /profile/{run_id}/test
 POST      /profile/{run_id}/drift
-GET       /profile/{run_id}/report
+GET/POST  /profile/{run_id}/report
 POST      /qa và /qa/stream
+
+GET       /agent-skills
+GET       /agent-skills/{skill_name}
+POST      /agent-skills/{skill_name}/inspect
 
 GET       /agent-runs/{run_id}
 GET       /agent-runs/{run_id}/trace
@@ -422,11 +455,13 @@ GET       /agent-runs/{run_id}/evidence
 GET       /agent-runs/{run_id}/plan
 GET       /agent-runs/{run_id}/trace-summary
 
-POST      /analysis-sessions
+GET/POST  /analysis-sessions
+GET       /analysis-sessions/{id}
 POST      /analysis-sessions/{id}/context-versions
 POST      /analysis-sessions/{id}/context-versions/{context_id}/approve
 POST      /analysis-sessions/{id}/quality-gate
-POST      /analysis-sessions/{id}/executions
+POST      /analysis-sessions/{id}/quality-issues/{issue_id}/acknowledge
+GET/POST  /analysis-sessions/{id}/executions
 GET       /analysis-sessions/{id}/executions
 
 GET/POST  /notebooks
@@ -435,12 +470,15 @@ POST      /notebooks/{notebook_id}/cells
 PATCH/DELETE /notebooks/{notebook_id}/cells/{cell_id}
 GET       /notebooks/{notebook_id}/export
 
-GET/POST/PATCH /reports và /reports/{report_id}
-POST          /reports/{report_id}/submit|review|publish|archive
+GET/POST  /reports
+GET/PATCH/DELETE /reports/{report_id}
+POST      /reports/{report_id}/submit|review|publish|archive
+GET       /reports/{report_id}/export-source
 
 GET       /google-drive/status
 GET       /google-drive/connect
 DELETE    /google-drive/connection
+
 ```
 
 ## Kiểm tra trước khi commit
@@ -502,6 +540,7 @@ $env:P170_TEST_DATABASE_URL = "postgresql+psycopg://p170_test:<password>@localho
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
+- [Native agent skills](docs/agent_skills.md)
 - [Gate G2 manual evaluation evidence](docs/g2-eval-evidence.md)
 - [ADR agent runtime v2](docs/adr-agent-runtime-v2.md)
 - [Agent production-readiness implementation plan](docs/agent-production-readiness-implementation-plan.md)
