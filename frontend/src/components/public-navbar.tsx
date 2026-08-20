@@ -43,26 +43,29 @@ export function PublicNavbar() {
   }
 
   return <header className={`public-navbar${useGuestNavbar ? " guest-navbar" : ""}`}>
-    <Link href="/" className="public-brand" aria-label="VDaAgent Trang chủ">
-      <img src="/img/logo.png" className="public-brand-mark" alt="Logo" style={{ width: 42, height: 42, objectFit: 'contain', background: 'transparent' }} />
-      <span><b style={{ fontSize: '1.25rem' }}>VDaAgent</b></span>
-    </Link>
-    <nav className="public-nav" aria-label="Public navigation">
-      <div className="public-nav-group">
-        <Link className={pathname === "/" ? "active" : ""} href="/">Trang chủ</Link>
-        <Link className={pathname.startsWith("/guide") ? "active" : ""} href="/guide">Hướng dẫn</Link>
-      </div>
-      {showRoleGroup && <>
-        <span className="public-nav-separator" aria-hidden="true">|</span>
-        <div className="public-nav-group public-nav-roles" aria-label={showTrialRoles ? "Choose a trial role" : "Signed-in role"}>
-          {showTrialRoles ? <button
-            className={guestRole === trialRole.value && !isOverviewPage ? "active" : ""}
-            type="button"
-            onClick={() => void enterGuestRole(trialRole.value)}
-          >{trialRole.label}</button> : currentRole ? <span className="public-nav-current-role">{currentRole}</span> : null}
+    <div className="public-navbar-left" style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+      <Link href="/" className="public-brand" aria-label="VDaAgent Trang chủ">
+        <img src="/img/logo.png" className="public-brand-mark" alt="Logo" style={{ width: 42, height: 42, objectFit: 'contain', background: 'transparent' }} />
+        <span><b style={{ fontSize: '1.25rem' }}>VDaAgent</b></span>
+      </Link>
+      <nav className="public-nav" style={{ marginLeft: 0 }}>
+        <div className="public-nav-group">
+          <Link className={pathname === "/" ? "active" : ""} href="/">Trang chủ</Link>
+          <Link className={pathname.startsWith("/guide") ? "active" : ""} href="/guide">Hướng dẫn sử dụng</Link>
         </div>
-      </>}
-      <span className="public-nav-separator" aria-hidden="true">|</span>
+        {showRoleGroup && <>
+          <span className="public-nav-separator" aria-hidden="true">|</span>
+          <div className="public-nav-group public-nav-roles" aria-label={showTrialRoles ? "Choose a trial role" : "Signed-in role"}>
+            {showTrialRoles ? <button
+              className={guestRole === trialRole.value && !isOverviewPage ? "active" : ""}
+              type="button"
+              onClick={() => void enterGuestRole(trialRole.value)}
+            >Dùng thử Analyst</button> : currentRole ? <span className="public-nav-current-role">{currentRole}</span> : null}
+          </div>
+        </>}
+      </nav>
+    </div>
+    <nav className="public-nav" aria-label="Public navigation actions">
       <div className="public-nav-group public-nav-actions">
         <button type="button" className="public-theme-toggle" onClick={toggleTheme} aria-label={theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} aria-pressed={theme === "dark"}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><small>{theme === "dark" ? "Sáng" : "Tối"}</small></button>
         {authenticated ? <>

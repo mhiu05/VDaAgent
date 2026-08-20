@@ -579,6 +579,10 @@ Index(
     notebook_cells.c.notebook_id,
     notebook_cells.c.position,
 )
+# Notebook persistence is retired. Excluding these historical declarations
+# from active metadata prevents local bootstrap from recreating the tables.
+metadata.remove(notebook_cells)
+metadata.remove(notebooks)
 
 retrieval_documents = Table(
     "retrieval_documents",

@@ -45,7 +45,6 @@ from src.services.report_draft_repository import (
     get_report_draft_repository,
 )
 from src.services.repository import (
-    analysis_sessions,
     datasets,
     get_repository,
     profile_runs,
@@ -116,6 +115,13 @@ async def session(
         repo.ensure_bootstrap_workspace(user.user_id)
 
     workspaces = _workspace_items(repo, user.user_id)
+    if not workspaces and not user.is_guest and get_settings().auth_allow_signup:
+        # A first sign-in used to require a second browser round trip to
+        # /onboarding/provision. Provisioning here reuses the request that has
+        # already verified the Supabase session, so a new account receives its
+        # personal workspace before the frontend bootstrap watchdog can fire.
+        repo.provision_self_signup_workspace(user.user_id, user.email, "analyst")
+        workspaces = _workspace_items(repo, user.user_id)
     if not workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -585,6 +591,11 @@ async def get_published_report_export_source(
     from src.api.routes import _report_profile
 
     payload = _report_profile(run_id, str(report["workspace_id"]), sections)
+    snapshot = get_report_draft_repository().latest_snapshot(
+        report_id, context.workspace_id
+    )
+    if snapshot:
+        payload["report_snapshot"] = snapshot
     _audit(
         context,
         "report_exported",
@@ -886,14 +897,6 @@ async def dashboard(
                     select(func.count())
                     .select_from(profile_runs)
                     .where(profile_runs.c.workspace_id == context.workspace_id)
-                ).scalar()
-                or 0
-            ),
-            "analyses": int(
-                conn.execute(
-                    select(func.count())
-                    .select_from(analysis_sessions)
-                    .where(analysis_sessions.c.workspace_id == context.workspace_id)
                 ).scalar()
                 or 0
             ),

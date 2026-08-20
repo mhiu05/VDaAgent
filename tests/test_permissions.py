@@ -2,7 +2,6 @@
 
 from src.services.permissions import (
     AGENT_TRACE_DEBUG_READ,
-    NOTEBOOK_READ,
     QA_PUBLISHED_ASK,
     REPORT_ARCHIVE,
     REPORT_PUBLISH,
@@ -24,7 +23,6 @@ def test_analyst_has_the_complete_workspace_flow() -> None:
     analyst = permissions_for_role("analyst")
     expected = {
         AGENT_TRACE_DEBUG_READ,
-        NOTEBOOK_READ,
         QA_PUBLISHED_ASK,
         REPORT_ARCHIVE,
         REPORT_PUBLISH,

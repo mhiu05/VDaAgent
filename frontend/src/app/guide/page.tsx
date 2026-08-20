@@ -117,7 +117,7 @@ const evidenceWorkflows: GuideWorkflow[] = [
       { title: "Chọn phép tổng hợp", purpose: "Xác định câu hỏi định lượng cần trả lời.", action: "Chọn Aggregate: count, count distinct, sum, mean hoặc median. Với phép khác count, chọn Measure.", result: "Dòng tóm tắt truy vấn cập nhật và nút Chạy preview mở khi cấu hình hợp lệ." },
       { title: "Chia nhóm và lọc", purpose: "So sánh kết quả theo phân khúc thay vì chỉ xem tổng toàn bảng.", action: "Chọn Group by; nếu cần, chọn Filter column và nhập Filter value.", result: "Truy vấn vẫn bị giới hạn tối đa 50 nhóm và chỉ dùng dimension/measure an toàn trong semantic context." },
       { title: "Chạy Preview", purpose: "Kiểm tra nhanh cấu hình trước khi tạo evidence chính thức.", action: "Nhấn Chạy preview; khi request lâu có thể nhấn Hủy request.", result: "Màn hình hiện Preview result gồm biểu đồ, bảng dữ liệu, limitations, execution ID, result hash và thời gian chạy." },
-      { title: "Thử lại hoặc xác nhận kết quả", purpose: "Điều chỉnh truy vấn hoặc promote kết quả đúng thành Official.", action: "Nhấn Nhân bản preview để chạy lại; khi hài lòng nhấn Xác nhận kết quả.", result: "Backend chạy quality gate và promote/re-run trên nguồn được pin. Kết quả chuyển thành Official nếu không bị blocked.", note: "Nếu blocked, đọc issue/limitation, hoàn tất review metadata hoặc sửa context rồi chạy lại." },
+      { title: "Điều chỉnh hoặc xác nhận kết quả", purpose: "Thử một truy vấn khác hoặc chuyển kết quả đúng thành Official.", action: "Sửa Aggregate, Group by hoặc Filter ở panel bên trái rồi nhấn Chạy preview. Khi hài lòng, nhấn Chạy kết quả chính thức.", result: "Backend chạy quality gate và chạy lại trên nguồn được pin. Kết quả chuyển thành Official nếu không bị blocked.", note: "Nếu blocked, đọc issue/limitation, hoàn tất review metadata hoặc sửa context rồi chạy lại." },
       { title: "Giải thích bằng Agent", purpose: "Yêu cầu Agent diễn giải đúng execution đang xem.", action: "Nhấn Giải thích trên kết quả.", result: "Command Center chuyển sang tab Hỏi Agent và bind execution ID/result hash vào câu hỏi tiếp theo." },
       { title: "Ghim vào báo cáo", purpose: "Đưa aggregate evidence đã xác nhận vào Report Draft.", action: "Trên Official result, nhấn Pin vào báo cáo.", result: "Nhãn Đã ghim vào Report Draft xuất hiện; Preview không thể ghim." },
     ],
@@ -148,7 +148,7 @@ const evidenceWorkflows: GuideWorkflow[] = [
       { title: "Xử lý draft stale", purpose: "Ngăn xuất evidence đã lệch context, theme hoặc source.", action: "Nếu thấy cảnh báo Draft đã stale, quay lại Explorer, chạy lại và pin lại evidence theo lý do được liệt kê.", result: "Khi không còn stale reason, nút Tạo snapshot được mở." },
       { title: "Tạo snapshot", purpose: "Đóng băng nội dung và hash của bản báo cáo hiện tại.", action: "Nhấn Tạo snapshot.", result: "Màn hình hiện Snapshot hash và mở nút Xuất PDF." },
       { title: "Xuất từ Report Draft", purpose: "Tạo PDF theo snapshot đã đóng băng.", action: "Nhấn Xuất PDF.", result: "Trình duyệt tải file PDF; dữ liệu raw row và PII không được phép sẽ không xuất hiện." },
-      { title: "Xuất báo cáo kỹ thuật theo checklist", purpose: "Chọn chính xác nhóm profile/test/drift/Agent/Analysis cần đưa vào PDF hoặc JSON.", action: "Từ profile mở Kiểm định, drift & xuất → Chọn tất cả/Bỏ chọn tất cả hoặc tick từng mục → chọn PDF/JSON → nhấn Xuất [định dạng] · N mục.", result: "Trình duyệt tải file có đúng các section đã chọn và provenance tương ứng." },
+      { title: "Xuất báo cáo từ Command Center", purpose: "Tạo PDF từ Report Draft đã có evidence.", action: "Từ profile, mở tab Báo cáo → tạo snapshot → nhấn Xuất PDF.", result: "Trình duyệt tải file từ snapshot đã tạo." },
       { title: "Mở Thư viện báo cáo", purpose: "Xem lại snapshot đã tạo trong workspace.", action: "Sidebar → Thư viện báo cáo → Mở báo cáo. Có thể nhấn Xuất PDF đầy đủ trong trang chi tiết.", result: "Trang hiển thị summary, section, visualization và mục lục; draft do chính bạn tạo có thể có nút Xóa báo cáo." },
     ],
     outcome: "Bạn có bản snapshot/export chỉ chứa nội dung đã chọn và có thể truy nguyên nguồn.",
@@ -160,7 +160,7 @@ const governanceWorkflows: GuideWorkflow[] = [
   {
     id: "test-drift", number: "10", label: "KIỂM ĐỊNH & DRIFT", title: "Chạy kiểm định thống kê và so sánh phiên bản",
     summary: "Backend tính test, p-value correction và drift severity; frontend chỉ trình bày aggregate evidence.",
-    entry: "Từ profile completed, mở Kiểm định, drift & xuất; hoặc dùng So sánh phiên bản ở sidebar.",
+    entry: "Dùng So sánh phiên bản ở sidebar để chọn hai profile run cùng dataset.",
     steps: [
       { title: "Chạy kiểm định thống kê", purpose: "Kiểm tra giả thuyết trên các cột phù hợp.", action: "Chọn Test → nhập Alpha → chọn đúng số cột được yêu cầu → nhấn Chạy kiểm định.", result: "Bảng hiện test statistic, p-value adjusted, kết luận và interpretation. Multiple-testing correction được thực hiện ở backend." },
       { title: "Chọn baseline drift trong profile", purpose: "Đo mức thay đổi giữa hai lần profile của cùng dataset.", action: "Ở phần So sánh drift, chọn Phiên baseline rồi nhấn Kiểm tra drift.", result: "Notice và bảng findings hiển thị cột, loại drift, severity, metric/PSI và chi tiết." },
@@ -181,19 +181,6 @@ const governanceWorkflows: GuideWorkflow[] = [
     ],
     outcome: "Bạn biết nơi kiểm tra audit và nhận diện rõ các thao tác không thể hoàn tác.",
     links: [{ href: "/activity", label: "Hoạt động workspace" }],
-  },
-  {
-    id: "legacy", number: "12", label: "LUỒNG TƯƠNG THÍCH", title: "Analysis Session và Notebook legacy",
-    summary: "Hai luồng này vẫn mở được bằng URL để đọc dữ liệu cũ hoặc rollback, nhưng không còn nằm trong điều hướng chính. Với công việc mới, ưu tiên bốn tab Command Center.",
-    entry: "Chỉ dùng khi đã có link cũ hoặc cần tiếp tục một phiên legacy.",
-    steps: [
-      { title: "Tạo Analysis Session legacy", purpose: "Khai báo business goal và semantic context đầy đủ cho một profile run.", action: "Mở /analyses/new → chọn profile completed → nhập Business goal → chọn Nhanh/Chuyên sâu → Continue to context.", result: "Một session mới mở với các phần Context, Quality gate và Khám phá dữ liệu." },
-      { title: "Duyệt Context và Quality gate", purpose: "Xác định row grain, dimensions, measures rồi kiểm tra điều kiện chạy aggregate.", action: "Điền context → lưu/duyệt context → chạy quality gate; đọc và acknowledge issue khi được phép.", result: "Gate trả passed, warning hoặc blocked. Chỉ passed/warning mới cho tiếp tục exploration." },
-      { title: "Khám phá trong Analysis Session", purpose: "Trả lời câu hỏi theo nhóm bằng contract bounded aggregate.", action: "Chọn preset, Nhóm theo, Metric, Cột metric, Sắp xếp và bộ lọc → nhấn Trả lời câu hỏi.", result: "Trang hiện nhóm dẫn đầu/thấp nhất, khoảng cách max-min và bảng aggregate; không có raw rows." },
-      { title: "Tiếp tục Notebook legacy", purpose: "Giữ ghi chú và prompt Agent theo cell cho tài liệu cũ.", action: "Mở /notebooks → tạo/mở phiên → thêm Ghi chú hoặc Câu hỏi Agent → Lưu ngay/Chạy Agent; có thể chia sẻ workspace, xuất JSON, in PDF hoặc lưu trữ.", result: "Cell và kết quả được lưu theo profile run; phiên lưu trữ có thể khôi phục trong Kho lưu trữ." },
-    ],
-    outcome: "Dữ liệu legacy vẫn truy cập được mà không nhầm đây là luồng tạo mới ưu tiên.",
-    links: [{ href: "/analyses", label: "Analysis legacy" }, { href: "/notebooks", label: "Notebook legacy" }],
   },
 ];
 

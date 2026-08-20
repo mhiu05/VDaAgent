@@ -595,6 +595,22 @@ def test_qa_stream_emits_done_without_error(
     assert "error" not in events
 
 
+def test_qa_profile_metric_persists_verified_evidence(
+    client: TestClient, reviewed_profile_run: dict
+) -> None:
+    response = client.post(
+        "/api/v1/qa",
+        json={
+            "question": "Dữ liệu có bao nhiêu hàng?",
+            "profile_run_id": reviewed_profile_run["profile_run_id"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["agent_run_id"]
+    assert body["evidence_status"] == "verified"
+
+
 # --------------------------------------------------------------------------- #
 # Upload
 # --------------------------------------------------------------------------- #

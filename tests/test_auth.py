@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 
+from src.api import authz_routes
 from src.config import Settings
-from src.services.auth import JWTVerificationError, SupabaseJWTVerifier
+from src.services.auth import AuthContext, JWTVerificationError, SupabaseJWTVerifier
 
 
 def _verifier() -> SupabaseJWTVerifier:
@@ -72,3 +75,56 @@ def test_email_confirmation_fails_closed_on_auth_request_error(
 
     with pytest.raises(JWTVerificationError, match="Không thể kiểm tra"):
         _verifier()._email_is_confirmed("access-token")
+
+
+def test_session_provisions_personal_workspace_for_new_confirmed_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Repository:
+        provisioned: tuple[str, str | None, str] | None = None
+
+        def sync_user_profile(self, user_id: str, email: str | None) -> None:
+            return None
+
+        def provision_self_signup_workspace(
+            self, user_id: str, email: str | None, role: str
+        ) -> None:
+            self.provisioned = (user_id, email, role)
+
+    repository = Repository()
+    workspace = {
+        "id": "workspace-1",
+        "name": "Workspace của new-user",
+        "slug": "personal-workspace-1",
+        "role": "analyst",
+    }
+    calls = 0
+
+    def workspace_items(_repository: Repository, _user_id: str) -> list[dict[str, str]]:
+        nonlocal calls
+        calls += 1
+        return [] if calls == 1 else [workspace]
+
+    monkeypatch.setattr(authz_routes, "get_repository", lambda: repository)
+    monkeypatch.setattr(authz_routes, "_workspace_items", workspace_items)
+    monkeypatch.setattr(authz_routes.get_settings(), "auth_allow_signup", True)
+
+    response = asyncio.run(
+        authz_routes.session(
+            AuthContext(
+                user_id="00000000-0000-0000-0000-000000000123",
+                email="new-user@example.com",
+                session_id="session-1",
+                aal="aal1",
+                raw_claims={"role": "authenticated"},
+            ),
+            workspace_header=None,
+        )
+    )
+
+    assert repository.provisioned == (
+        "00000000-0000-0000-0000-000000000123",
+        "new-user@example.com",
+        "analyst",
+    )
+    assert response["workspace"] == {"id": "workspace-1", "role": "analyst"}

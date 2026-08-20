@@ -26,9 +26,9 @@ function accountInitials(email: string | null) {
 }
 
 const analystNavigation = [
-  { href: "/reports", label: "Thư viện báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
-  { href: "/datasets", label: "Bộ dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và mở báo cáo profile.", permission: PERMISSIONS.datasetRead },
-  { href: "/compare", label: "So sánh phiên bản", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
+  { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
+  { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và mở báo cáo profile.", permission: PERMISSIONS.datasetRead },
+  { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
   { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
 ] as const;
 
@@ -137,13 +137,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
       <aside className="sidebar" aria-label="Điều hướng chính">
         <div className="sidebar-top">
           {/* Nút Trang chủ Analyst thay thế brand mascot */}
-          <Link href="/" className="sidebar-back-home" aria-label="Trang chủ Analyst">
-            <span className="sidebar-icon sidebar-back-icon" aria-hidden="true">
+          <Link href="/" className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ Analyst">
+            <span className="sidebar-icon" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" />
               </svg>
             </span>
-            <span className="sidebar-back-label">Trang chủ Analyst</span>
+            <span className="sidebar-link-label">Trang chủ Analyst</span>
           </Link>
           <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard">
             <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>

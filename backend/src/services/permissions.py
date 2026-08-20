@@ -24,9 +24,6 @@ STATS_RUN: Final = "stats.run"
 DRIFT_RUN: Final = "drift.run"
 QA_PROFILE_ASK: Final = "qa.profile.ask"
 ANALYSIS_RUN: Final = "analysis.run"
-NOTEBOOK_READ: Final = "notebook.read"
-NOTEBOOK_WRITE: Final = "notebook.write"
-NOTEBOOK_SHARE: Final = "notebook.share"
 REPORT_DRAFT_WRITE: Final = "report.draft.write"
 REPORT_SUBMIT: Final = "report.submit"
 REPORT_REVIEW: Final = "report.review"
@@ -61,9 +58,6 @@ _ANALYST = frozenset({
     QA_PROFILE_ASK,
     QA_PUBLISHED_ASK,
     ANALYSIS_RUN,
-    NOTEBOOK_READ,
-    NOTEBOOK_WRITE,
-    NOTEBOOK_SHARE,
     REPORT_DRAFT_WRITE,
     REPORT_SUBMIT,
     REPORT_REVIEW,
@@ -114,9 +108,6 @@ __all__ = [
     "DATASET_READ",
     "DATASET_UPLOAD",
     "DRIFT_RUN",
-    "NOTEBOOK_READ",
-    "NOTEBOOK_SHARE",
-    "NOTEBOOK_WRITE",
     "PROFILE_READ",
     "PROFILE_REVIEW",
     "PROFILE_RUN",

@@ -102,6 +102,23 @@ async def _execute_bounded(**kwargs: Any) -> dict[str, Any]:
             timeout=timeout,
         )
     except TimeoutError as exc:
+        # ``wait_for`` also propagates a TimeoutError raised by the worker
+        # itself (for example an intermittent Google Drive download timeout).
+        # Only cancel and label this as an Explorer timeout when our own
+        # bounded wait actually expired and the worker is still running.
+        if task.done():
+            try:
+                return task.result()
+            except AnalysisQueryError:
+                raise
+            except Exception as worker_exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "explorer_source_unavailable: unable to prepare the "
+                        "dataset source; retry the preview"
+                    ),
+                ) from worker_exc
         control.cancel()
         # Give DuckDB a short opportunity to acknowledge interrupt without
         # holding the HTTP response open behind a non-cooperative worker.
@@ -153,6 +170,11 @@ async def ensure_explorer_session(
             creator=context.user_id,
             workspace_id=context.workspace_id,
         )
+    else:
+        # list_sessions intentionally returns only session rows. Hydrate the
+        # selected quick session before deciding whether it needs a context;
+        # otherwise every Preview would create a new context version.
+        session = _session_or_404(str(session["id"]), context)
     if not session.get("context"):
         analyses.add_context(
             session["id"], _quick_context(run_id, context.workspace_id)
@@ -168,16 +190,17 @@ async def ensure_explorer_session(
     return session
 
 
-@router.post("/{session_id}/previews", status_code=201)
+@profile_router.post("/{run_id}/explorer/previews", status_code=201)
 async def execute_preview(
-    session_id: str,
+    run_id: str,
     payload: PreviewCreate,
     idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
     context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
 ) -> dict[str, Any]:
     _require_command_center()
     get_rate_limiter().check(context.user_id)
-    session = _session_or_404(session_id, context)
+    session = await ensure_explorer_session(run_id, context)
+    session_id = session["id"]
     source = session.get("source") or {}
     run_id = source.get("profile_run_id")
     run = (
@@ -246,9 +269,9 @@ async def execute_preview(
     }
 
 
-@router.post("/{session_id}/previews/{preview_id}/promote", status_code=201)
+@profile_router.post("/{run_id}/explorer/previews/{preview_id}/promote", status_code=201)
 async def promote_preview(
-    session_id: str,
+    run_id: str,
     preview_id: str,
     payload: PreviewPromote,
     idempotency_header: str | None = Header(default=None, alias="Idempotency-Key"),
@@ -257,13 +280,12 @@ async def promote_preview(
     _require_command_center()
     get_rate_limiter().check(context.user_id)
     analyses = get_analysis_repository()
-    session = _session_or_404(session_id, context)
     preview = analyses.get_execution(preview_id, workspace_id=context.workspace_id)
-    if (
-        not preview
-        or preview.get("session_id") != session_id
-        or preview.get("execution_kind") != "preview"
-    ):
+    if not preview or preview.get("execution_kind") != "preview":
+        raise HTTPException(status_code=404, detail="Preview execution was not found.")
+    session_id = str(preview["session_id"])
+    session = _session_or_404(session_id, context)
+    if (session.get("source") or {}).get("profile_run_id") != run_id:
         raise HTTPException(status_code=404, detail="Preview execution was not found.")
     if preview.get("expires_at") and preview["expires_at"] < datetime.now(UTC):
         raise HTTPException(
@@ -271,9 +293,12 @@ async def promote_preview(
             detail="preview_expired: run a new preview before promotion",
         )
     semantic_context = session.get("context")
+    preview_context_id = preview.get("context_version_id")
     if (
         not semantic_context
-        or semantic_context["id"] != payload.expected_context_version_id
+        or not preview_context_id
+        or semantic_context["id"] != preview_context_id
+        or payload.expected_context_version_id != preview_context_id
     ):
         raise HTTPException(
             status_code=409,

@@ -166,9 +166,9 @@ class AnalysisEngine:
                     )
                 rows = connection.execute(sql, params).fetchall()
                 names = [item[0] for item in connection.description]
-        except (duckdb.Error, FileNotFoundError, ValueError) as exc:
+        except (duckdb.Error, FileNotFoundError, OSError, TimeoutError, ValueError) as exc:
             raise AnalysisQueryError(
-                "Không thể thực thi query an toàn trên source."
+                "Không thể tải nguồn dữ liệu để chạy Preview. Hãy thử lại sau khi kiểm tra kết nối nguồn lưu trữ."
             ) from exc
         finally:
             if control:
