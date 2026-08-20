@@ -8,6 +8,7 @@ import { formatNumber, formatPercent, toTitle } from "@/lib/format";
 import { MarkdownContent } from "@/components/markdown";
 import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, Metric, Notice, PageHeader, StatusBadge } from "@/components/ui";
 import type { ColumnStat } from "@/lib/types";
+import { CommandCenterShell } from "@/components/command-center/command-center-shell";
 
 type TopValueRow = { value: string; count: number | null; note: string | null };
 
@@ -131,7 +132,7 @@ function provenanceScanCopy(scanMode?: string | null, approximate?: boolean) {
   return { label: "Chưa xác định", detail: "Chưa ghi nhận cách quét dữ liệu." };
 }
 
-export default function ProfilePage() {
+function ProfileOverview() {
   const { runId } = useParams<{ runId: string }>();
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
@@ -147,6 +148,15 @@ export default function ProfilePage() {
   const scanCopy = provenanceScanCopy(data.scan_mode, data.is_approximate);
   const reviewComplete = data.pending_proposals === 0;
   const runComplete = data.status === "completed";
+  const tocItems = [
+    { id: "summary_metrics", title: "Số liệu tổng quan" },
+    { id: "risk_provenance", title: "Rủi ro & Nguồn" },
+    ...(data.narrative_report ? [{ id: "narrative_report", title: "Tóm tắt agent" }] : []),
+    { id: "column_profiles", title: "Hồ sơ cột" },
+    { id: "metric_charts", title: "Biểu đồ cột" },
+    { id: "distribution_correlation", title: "Phân phối & Tương quan" },
+  ];
+
   return <>
     <PageHeader eyebrow={`Profile run · ${data.run_name || `Phiên bản v${data.version ?? "—"}`}`} title={data.dataset_name || "Báo cáo profile"} description="Các số liệu đến trực tiếp từ compute engine. Evidence proposal được giữ riêng để analyst review." />
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}
@@ -166,8 +176,8 @@ export default function ProfilePage() {
         <div className="inline-actions"><StatusBadge status={data.status} /></div>
       </>}
     </section>
-    <section className="grid four"><Metric label="Số dòng" value={formatNumber(data.row_count)} approximate={data.is_approximate} detail={data.is_approximate ? "Ước lượng từ sample" : "Compute đầy đủ"} /><Metric label="Số cột" value={formatNumber(data.column_count)} detail={`${pii.length} tín hiệu PII`} /><Metric label="Đề xuất chờ review" value={formatNumber(data.pending_proposals)} detail="PII/key không tự xác nhận" /><Metric label="Quasi-identifiers" value={formatNumber(data.quasi_identifiers.length)} detail={data.quasi_identifiers.slice(0, 2).join(", ") || "Không phát hiện"} /></section>
-    <div className="grid two" style={{ marginTop: 18 }}>
+    <section id="summary_metrics" className="grid four"><Metric label="Số dòng" value={formatNumber(data.row_count)} approximate={data.is_approximate} detail={data.is_approximate ? "Ước lượng từ sample" : "Compute đầy đủ"} /><Metric label="Số cột" value={formatNumber(data.column_count)} detail={`${pii.length} tín hiệu PII`} /><Metric label="Đề xuất chờ review" value={formatNumber(data.pending_proposals)} detail="PII/key không tự xác nhận" /><Metric label="Quasi-identifiers" value={formatNumber(data.quasi_identifiers.length)} detail={data.quasi_identifiers.slice(0, 2).join(", ") || "Không phát hiện"} /></section>
+    <div id="risk_provenance" className="grid two" style={{ marginTop: 18 }}>
       <section className="panel"><div className="panel-title"><h2>Rủi ro & privacy</h2><span className="chip pii">Đã bảo vệ PII</span></div>{data.risk_warnings.length ? <ul className="warning-list">{data.risk_warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <p className="muted">Không có cảnh báo rủi ro từ pipeline.</p>}<div className="chip-list" style={{ marginTop: 14 }}>{pii.map((proposal) => <span className="chip pii" key={proposal.id}>{proposal.column_name || proposal.columns?.join(", ")}: {proposal.pii_type || proposal.proposed_type || "PII candidate"}</span>)}</div></section>
       <section className="panel provenance-panel">
         <div className="panel-title"><div><h2>Nguồn & cách tạo báo cáo</h2><small>Thông tin để hiểu kết quả đến từ đâu</small></div><span className={`provenance-state ${runComplete ? "complete" : "pending"}`}>{runComplete ? "Đã hoàn tất" : "Đang xử lý"}</span></div>
@@ -187,9 +197,36 @@ export default function ProfilePage() {
         {data.executed_query && <details className="provenance-technical"><summary>Xem thông tin kỹ thuật để tái lập</summary><p>{scanCopy.detail} Query nội bộ đã được lưu để backend có thể nạp lại đúng nguồn khi cần.</p><code>{data.executed_query}</code></details>}
       </section>
     </div>
-    {data.narrative_report && <section className="panel" style={{ marginTop: 18 }}><div className="panel-title"><h2>Tóm tắt agent</h2><small>Chỉ diễn giải metric đã kiểm chứng</small></div><MarkdownContent text={data.narrative_report} className="report report-markdown" /></section>}
-    <section className="panel" style={{ marginTop: 18 }}><div className="panel-title"><div><h2>Hồ sơ cột</h2><small>Top values bị ẩn với cột PII.</small></div><span className="chip">{columns.length} cột</span></div><div className="table-wrap"><table><thead><tr><th>Cột</th><th>Kiểu</th><th>Null</th><th>Cardinality</th><th>Uniqueness</th><th>Tóm tắt số</th><th>Giá trị phổ biến</th></tr></thead><tbody>{columns.map((stat) => <tr key={stat.column_name}><td><b>{stat.column_name}</b>{stat.pii_masked && <><br /><span className="chip pii">Đã ẩn PII</span></>}</td><td>{stat.dtype || "—"}</td><td>{formatPercent(stat.null_pct)}<br /><small>{formatNumber(stat.null_count)} null</small></td><td>{formatNumber(stat.cardinality)}</td><td>{formatPercent(stat.uniqueness_ratio)}</td><td>{stat.mean !== null && stat.mean !== undefined ? <div className="metric-summary"><span>mean: <b>{formatNumber(stat.mean)}</b></span><span>min: <b>{formatNumber(stat.min_value)}</b></span><span>max: <b>{formatNumber(stat.max_value)}</b></span><span>outliers: <b>{formatNumber(stat.outlier_count)}</b></span></div> : <div className="metric-summary"><span>min length: <b>{formatNumber(stat.min_length)}</b></span><span>max length: <b>{formatNumber(stat.max_length)}</b></span></div>}</td><td><TopValues stat={stat} /></td></tr>)}</tbody></table></div></section>
-    <div className="grid two" style={{ marginTop: 18 }}><MetricChart title="Tỷ lệ null theo cột" columns={columns} metric="null_pct" warning /><MetricChart title="Tỷ lệ unique theo cột" columns={columns} metric="uniqueness_ratio" ratio /></div>
-    <div className="grid two" style={{ marginTop: 18 }}><section className="panel"><div className="panel-title"><h2>Phân phối</h2><small>Top-k non-PII · tỷ lệ trên toàn bộ dòng</small></div>{columns.filter((stat) => !stat.pii_masked).slice(0, 3).map((stat) => <div className="distribution-column" key={stat.column_name}><h3>{stat.column_name}</h3><Distribution stat={stat} totalRows={data.row_count} /></div>)}</section><section className="panel"><div className="panel-title"><h2>Tương quan</h2><small>Pearson r · các cột số</small></div><CorrelationPanel matrix={data.correlation_matrix} /></section></div>
+    {data.narrative_report && <section id="narrative_report" className="panel" style={{ marginTop: 18 }}><div className="panel-title"><h2>Tóm tắt agent</h2><small>Chỉ diễn giải metric đã kiểm chứng</small></div><MarkdownContent text={data.narrative_report} className="report report-markdown" /></section>}
+    <section id="column_profiles" className="panel" style={{ marginTop: 18 }}><div className="panel-title"><div><h2>Hồ sơ cột</h2><small>Top values bị ẩn với cột PII.</small></div><span className="chip">{columns.length} cột</span></div><div className="table-wrap"><table><thead><tr><th>Cột</th><th>Kiểu</th><th>Null</th><th>Cardinality</th><th>Uniqueness</th><th>Tóm tắt số</th><th>Giá trị phổ biến</th></tr></thead><tbody>{columns.map((stat) => <tr key={stat.column_name}><td><b>{stat.column_name}</b>{stat.pii_masked && <><br /><span className="chip pii">Đã ẩn PII</span></>}</td><td>{stat.dtype || "—"}</td><td>{formatPercent(stat.null_pct)}<br /><small>{formatNumber(stat.null_count)} null</small></td><td>{formatNumber(stat.cardinality)}</td><td>{formatPercent(stat.uniqueness_ratio)}</td><td>{stat.mean !== null && stat.mean !== undefined ? <div className="metric-summary"><span>mean: <b>{formatNumber(stat.mean)}</b></span><span>min: <b>{formatNumber(stat.min_value)}</b></span><span>max: <b>{formatNumber(stat.max_value)}</b></span><span>outliers: <b>{formatNumber(stat.outlier_count)}</b></span></div> : <div className="metric-summary"><span>min length: <b>{formatNumber(stat.min_length)}</b></span><span>max length: <b>{formatNumber(stat.max_length)}</b></span></div>}</td><td><TopValues stat={stat} /></td></tr>)}</tbody></table></div></section>
+    <div id="metric_charts" className="grid two" style={{ marginTop: 18 }}><MetricChart title="Tỷ lệ null theo cột" columns={columns} metric="null_pct" warning /><MetricChart title="Tỷ lệ unique theo cột" columns={columns} metric="uniqueness_ratio" ratio /></div>
+    <div id="distribution_correlation" className="grid two" style={{ marginTop: 18 }}><section className="panel"><div className="panel-title"><h2>Phân phối</h2><small>Top-k non-PII · tỷ lệ trên toàn bộ dòng</small></div>{columns.filter((stat) => !stat.pii_masked).slice(0, 3).map((stat) => <div className="distribution-column" key={stat.column_name}><h3>{stat.column_name}</h3><Distribution stat={stat} totalRows={data.row_count} /></div>)}</section><section className="panel"><div className="panel-title"><h2>Tương quan</h2><small>Pearson r · các cột số</small></div><CorrelationPanel matrix={data.correlation_matrix} /></section></div>
+    
+    {tocItems.length > 0 && (
+      <aside className="report-toc-sidebar">
+        <div className="report-toc-container">
+          <h3 className="report-toc-title">Nội dung</h3>
+          <ul className="report-toc-list">
+            {tocItems.map(item => (
+              <li key={item.id}>
+                <a href={`#${item.id}`} onClick={(e) => {
+                  e.preventDefault();
+                  document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth" });
+                }}>
+                  <span>{item.title}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
+    )}
   </>;
+}
+
+export default function ProfilePage() {
+  if (process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true") {
+    return <CommandCenterShell overview={<ProfileOverview />} />;
+  }
+  return <ProfileOverview />;
 }

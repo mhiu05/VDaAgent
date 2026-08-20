@@ -34,16 +34,45 @@ export default function ReportPage() {
   if (report.isPending) return <main className="page"><p>Đang tải report…</p></main>;
   if (report.isError || !report.data) return <main className="page"><p role="alert">{report.error?.message ?? "Không tìm thấy report."}</p></main>;
   const version = report.data.versions[0]; const profileRunId = version?.scope?.profile_run_id;
-  return <main className="page report-detail-page">
-    <div className="report-detail-toolbar">
-      <Link className="button secondary" href="/reports">← Danh sách báo cáo</Link>
-      {report.data.status && <span className="chip">{statusLabels[report.data.status] || report.data.status}</span>}
-      {profileRunId && <button type="button" className="button primary" onClick={() => void exportFullPdf(profileRunId)} disabled={exporting}>{exporting ? "Đang tạo PDF…" : "Xuất PDF đầy đủ"}</button>}
-    </div>
-    {exportError !== null && <ErrorNotice error={exportError} />}
-    <h1 className="report-detail-title">{report.data.title}</h1>
-    {version?.executive_summary && <section className="panel report-detail-section"><h2>Tóm tắt điều hành</h2><MarkdownContent text={version.executive_summary} className="report report-markdown" /></section>}
-    {version?.sections.map((section) => <section className="panel report-detail-section" key={section.id}><h2>{section.title || section.kind}</h2><MarkdownContent text={section.content_json.text || "—"} className="report report-markdown" /></section>)}
-    {version?.visualizations.map((visualization) => <section className="panel report-detail-section" key={visualization.id}><h2>{visualization.title || visualization.chart_type}</h2><pre>{JSON.stringify(visualization.result_snapshot, null, 2)}</pre></section>)}
-  </main>;
+  const tocItems: Array<{ id: string; title: string }> = [];
+  if (version?.executive_summary) tocItems.push({ id: "executive_summary", title: "Tóm tắt điều hành" });
+  version?.sections.forEach((section) => tocItems.push({ id: `section-${section.id}`, title: section.title || section.kind }));
+  version?.visualizations.forEach((viz) => tocItems.push({ id: `viz-${viz.id}`, title: viz.title || viz.chart_type }));
+
+  return (
+    <>
+      <main className="page report-detail-page">
+        <div className="report-detail-toolbar">
+          <Link className="button secondary" href="/reports">← Danh sách báo cáo</Link>
+          {report.data.status && <span className="chip">{statusLabels[report.data.status] || report.data.status}</span>}
+          {profileRunId && <button type="button" className="button primary" onClick={() => void exportFullPdf(profileRunId)} disabled={exporting}>{exporting ? "Đang tạo PDF…" : "Xuất PDF đầy đủ"}</button>}
+        </div>
+        {exportError !== null && <ErrorNotice error={exportError} />}
+        <h1 className="report-detail-title">{report.data.title}</h1>
+        {version?.executive_summary && <section id="executive_summary" className="panel report-detail-section"><h2>Tóm tắt điều hành</h2><MarkdownContent text={version.executive_summary} className="report report-markdown" /></section>}
+        {version?.sections.map((section) => <section id={`section-${section.id}`} className="panel report-detail-section" key={section.id}><h2>{section.title || section.kind}</h2><MarkdownContent text={section.content_json.text || "—"} className="report report-markdown" /></section>)}
+        {version?.visualizations.map((visualization) => <section id={`viz-${visualization.id}`} className="panel report-detail-section" key={visualization.id}><h2>{visualization.title || visualization.chart_type}</h2><pre>{JSON.stringify(visualization.result_snapshot, null, 2)}</pre></section>)}
+      </main>
+      
+      {tocItems.length > 0 && (
+        <aside className="report-toc-sidebar">
+          <div className="report-toc-container">
+            <h3 className="report-toc-title">Nội dung</h3>
+            <ul className="report-toc-list">
+              {tocItems.map(item => (
+                <li key={item.id}>
+                  <a href={`#${item.id}`} onClick={(e) => {
+                    e.preventDefault();
+                    document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth" });
+                  }}>
+                    <span>{item.title}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
+      )}
+    </>
+  );
 }

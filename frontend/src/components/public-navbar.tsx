@@ -44,8 +44,8 @@ export function PublicNavbar() {
 
   return <header className={`public-navbar${useGuestNavbar ? " guest-navbar" : ""}`}>
     <Link href="/" className="public-brand" aria-label="VDaAgent Trang chủ">
-      <span className="public-brand-mark" aria-hidden="true">P</span>
-      <span><b>Profile</b><small>Data intelligence</small></span>
+      <img src="/img/logo.png" className="public-brand-mark" alt="Logo" style={{ width: 42, height: 42, objectFit: 'contain', background: 'transparent' }} />
+      <span><b style={{ fontSize: '1.25rem' }}>VDaAgent</b></span>
     </Link>
     <nav className="public-nav" aria-label="Public navigation">
       <div className="public-nav-group">

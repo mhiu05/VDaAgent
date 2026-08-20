@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compare Profile Drift"
+  short_description: "Review persisted profile drift evidence"
+  default_prompt: "Use $compare-profile-drift to inspect drift between compatible profile runs."

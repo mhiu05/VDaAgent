@@ -13,6 +13,34 @@ from src.agents.tools.common import (
     ok,
     page,
 )
+from src.services.repository import get_repository
+
+
+@tool
+def get_profile_readiness() -> dict[str, Any]:
+    """Return deterministic readiness before quality, Q&A, or report workflows."""
+    run_id, run = active_run("get_profile_readiness")
+    if not run:
+        return error(
+            "get_profile_readiness", "not_found", "Active profile run was not found."
+        )
+    pending = sum(
+        len(rows)
+        for rows in get_repository().get_proposals(run_id, status="pending").values()
+    )
+    return ok(
+        "get_profile_readiness",
+        run_id,
+        run,
+        {
+            "profile_status": run.get("status"),
+            "pending_proposal_count": pending,
+            "ready_for_evidence_workflows": run.get("status") == "completed"
+            and pending == 0,
+        },
+        artifact="profile_runs",
+        limitations=["Readiness does not replace the Analysis Workspace quality gate."],
+    )
 
 
 @tool
@@ -161,6 +189,7 @@ def get_duplicate_analysis() -> dict[str, Any]:
 
 
 DATA_QUALITY_TOOLS = [
+    get_profile_readiness,
     list_quality_issues,
     get_missingness_patterns,
     get_duplicate_analysis,
@@ -170,5 +199,6 @@ __all__ = [
     "DATA_QUALITY_TOOLS",
     "get_duplicate_analysis",
     "get_missingness_patterns",
+    "get_profile_readiness",
     "list_quality_issues",
 ]

@@ -26,7 +26,7 @@ function ProductPreview() {
     <div className="home-product-window">
       <div className="home-window-top"><span className="home-window-dots"><i /><i /><i /></span><span>VDaAgent / profile-run-042</span><b>● Live evidence</b></div>
       <div className="home-window-body">
-        <aside className="home-window-sidebar"><span className="home-window-logo">P</span><i /><i /><i /><i /><small>v1.4</small></aside>
+        <aside className="home-window-sidebar"><img src="/img/logo.png" className="home-window-logo" alt="Logo" style={{ width: 32, height: 32, objectFit: 'contain', background: 'transparent' }} /><i /><i /><i /><i /><small>v1.4</small></aside>
         <div className="home-window-content">
           <div className="home-window-heading"><div><small>DATASET PROFILE</small><h3>orders_2025.csv</h3></div><span className="home-window-status">completed</span></div>
           <div className="home-mini-metrics"><span><small>Rows</small><b>84,270</b><em>+12.4%</em></span><span><small>Columns</small><b>18</b><em>stable</em></span><span><small>Quality</small><b>92.8</b><em>good</em></span></div>

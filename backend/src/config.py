@@ -246,6 +246,15 @@ class Settings(BaseSettings):
     agent_runtime_version: str = "2.0.0"
     agent_trace_event_limit: int = Field(default=500, ge=1, le=2_000)
 
+    # --- UX Command Center rollout ---------------------------------------
+    # The backend flag is independent from the frontend flag: a browser must
+    # never reach the additive API before the backend contract is enabled.
+    ux_command_center_enabled: bool = False
+    ux_preview_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    ux_preview_row_budget: int = Field(default=50_000, ge=1_000, le=5_000_000)
+    ux_preview_result_limit: int = Field(default=50, ge=1, le=50)
+    ux_official_result_limit: int = Field(default=500, ge=1, le=500)
+
     # --- Supabase / database (ADR-009) ------------------------------------
     # The backend connects directly to Supabase PostgreSQL; the service-role
     # key is backend-only and must never be exposed to Next.js.

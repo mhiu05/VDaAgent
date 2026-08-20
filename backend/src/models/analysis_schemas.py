@@ -42,8 +42,6 @@ class ContextCreate(BaseModel):
 class ContextApprove(BaseModel):
     """Empty body: approver attribution comes from the verified JWT."""
 
-    pass
-
 
 class QualityAcknowledge(BaseModel):
     resolution_note: str = Field(min_length=3, max_length=1000)
@@ -69,6 +67,16 @@ class QuerySpec(BaseModel):
 class ExecutionCreate(BaseModel):
     query: QuerySpec
     expected_context_version_id: str = Field(min_length=1)
+
+
+class PreviewCreate(BaseModel):
+    query: QuerySpec
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class PreviewPromote(BaseModel):
+    expected_context_version_id: str = Field(min_length=1)
+    idempotency_key: str | None = Field(default=None, max_length=255)
 
 
 class AnalysisOut(BaseModel):

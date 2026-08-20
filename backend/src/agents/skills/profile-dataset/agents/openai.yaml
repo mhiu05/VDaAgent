@@ -1,0 +1,4 @@
+interface:
+  display_name: "Profile Dataset"
+  short_description: "Run a deterministic dataset profile"
+  default_prompt: "Use $profile-dataset to prepare and run a deterministic dataset profile."

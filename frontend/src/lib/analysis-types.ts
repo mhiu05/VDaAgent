@@ -25,4 +25,4 @@ export interface AnalysisSession {
   source?: { profile_run_id: string; dataset_id: string; alias: string }; context?: AnalysisContext; quality_gate?: QualityGate; created_at?: string;
 }
 export interface QuerySpec { aggregate: "count" | "count_distinct" | "sum" | "mean" | "median"; column?: string; dimensions: string[]; filters: Array<{ column: string; operator: string; value?: unknown }>; limit: number; sort?: "asc" | "desc"; }
-export interface AnalysisExecution { id: string; query_spec: QuerySpec; result: { data: Array<Record<string, unknown>>; columns: string[]; row_count: number }; result_hash: string; limitations: string[]; is_approximate: boolean; duration_ms?: number; created_at?: string; }
+export interface AnalysisExecution { id: string; context_version_id?: string; query_spec: QuerySpec; result: { data: Array<Record<string, unknown>>; columns: string[]; row_count: number }; result_hash: string; limitations: string[]; is_approximate: boolean; execution_kind?: 'preview' | 'official'; status?: string; query_summary?: string; duration_ms?: number; created_at?: string; expires_at?: string | null; }

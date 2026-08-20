@@ -180,11 +180,34 @@ export function listArchivedWorkspaces(): Promise<{ workspaces: WorkspaceSummary
   return request<{ workspaces: WorkspaceSummary[] }>("/workspaces/archived");
 }
 
-export function createWorkspace(name: string): Promise<WorkspaceSummary> {
+export type WorkspaceContextInput = { domain?: string; primary_goal?: string; target_audience?: string };
+export type WorkspaceThemeInput = { primary_color?: string; secondary_color?: string; tone?: "concise" | "professional" | "friendly"; default_language?: "vi" | "en" };
+export type WorkspaceConfiguration = {
+  context: (WorkspaceContextInput & { id: string; version: number; status: string }) | null;
+  theme: (WorkspaceThemeInput & { id: string; version: number; status: string }) | null;
+};
+
+export function createWorkspace(input: string | { name: string; context?: WorkspaceContextInput; theme?: WorkspaceThemeInput }): Promise<WorkspaceSummary> {
+  const payload = typeof input === "string" ? { name: input } : input;
   return request<WorkspaceSummary>("/workspaces", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkspaceConfiguration(): Promise<WorkspaceConfiguration> {
+  return request<WorkspaceConfiguration>("/workspaces/current/configuration");
+}
+
+export function updateWorkspaceConfiguration(payload: {
+  context?: WorkspaceContextInput;
+  theme?: WorkspaceThemeInput;
+  expected_context_version?: number;
+  expected_theme_version?: number;
+}): Promise<WorkspaceConfiguration> {
+  return request<WorkspaceConfiguration>("/workspaces/current/configuration", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
   });
 }
 
@@ -497,7 +520,13 @@ export function askQuestion(payload: { question: string; profile_run_id?: string
 }
 
 export async function streamQuestion(
-  payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[] },
+  payload: {
+    question: string;
+    profile_run_id?: string;
+    history?: QAHistoryMessage[];
+    analysis_execution_id?: string;
+    workspace_context_version_id?: string;
+  },
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -617,6 +646,80 @@ export function runAnalysisQualityGate(sessionId: string): Promise<AnalysisSessi
 
 export function executeAnalysis(sessionId: string, contextId: string, query: QuerySpec): Promise<AnalysisExecution> {
   return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/executions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_context_version_id: contextId, query }) });
+}
+
+export function ensureExplorerSession(runId: string): Promise<AnalysisSession> {
+  return request<AnalysisSession>(`/profile/${encodeURIComponent(runId)}/explorer/session`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+  });
+}
+
+export function previewExplorer(sessionId: string, query: QuerySpec, signal?: AbortSignal): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/previews`, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ query }),
+  });
+}
+
+export function promoteExplorerPreview(sessionId: string, previewId: string, contextId: string, signal?: AbortSignal): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/previews/${encodeURIComponent(previewId)}/promote`, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ expected_context_version_id: contextId }),
+  });
+}
+
+export type ReportDraftItem = {
+  id: string; item_type: "chart" | "note" | string; position: number; title?: string | null; note?: string | null;
+  query_execution_id?: string | null; query_spec?: QuerySpec | null; result_hash?: string | null;
+  content_json?: { result?: AnalysisExecution["result"] } | null; limitations?: string[] | null;
+};
+export type ReportDraft = { id: string; title: string; profile_run_id: string; status: "empty" | "draft" | "stale" | "snapshot" | string; draft_version: number; version_id: string; items: ReportDraftItem[]; stale_reasons: string[]; snapshot_hash?: string | null };
+
+export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
+}
+
+export function pinChartToReport(reportId: string, executionId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items`, {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ item_type: "chart", query_execution_id: executionId }),
+  });
+}
+
+export function pinAgentAnswerToReport(
+  reportId: string,
+  agentRunId: string,
+  title: string,
+  content: string,
+): Promise<ReportDraft> {
+  return request<ReportDraft>('/reports/' + encodeURIComponent(reportId) + '/items', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify({ item_type: 'agent_answer', agent_run_id: agentRunId, title, content: { answer: content } }),
+  });
+}
+
+export function reorderReportDraft(reportId: string, itemIds: string[], expectedDraftVersion: number): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/reorder`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: itemIds, expected_draft_version: expectedDraftVersion }),
+  });
+}
+
+export function updateReportDraftItem(reportId: string, itemId: string, payload: { title?: string; note?: string }): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+}
+
+export function unpinReportDraftItem(reportId: string, itemId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+}
+
+export function snapshotReportDraft(reportId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/snapshots`, { method: "POST" });
 }
 
 export function listNotebooks(signal?: AbortSignal, profileRunId?: string, status: "active" | "archived" = "active"): Promise<Notebook[]> {

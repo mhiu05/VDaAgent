@@ -79,6 +79,7 @@ class ProfilingState(TypedDict, total=False):
     question_type: QuestionType | None
     # Ngữ cảnh router thu được: cột được nhắc tên, danh sách cột khả dụng.
     qa_context: dict[str, Any]
+    selected_skill: str | None
     answer: str
     answer_sources: list[dict[str, Any]]
 

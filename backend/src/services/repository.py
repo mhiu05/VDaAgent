@@ -87,6 +87,55 @@ workspaces = Table(
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
 )
 
+workspace_context_versions = Table(
+    "workspace_context_versions",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column(
+        "workspace_id",
+        String(36),
+        ForeignKey("workspaces.id"),
+        nullable=False,
+        index=True,
+    ),
+    Column("version", Integer, nullable=False),
+    Column("domain", String(120), nullable=True),
+    Column("primary_goal", Text, nullable=True),
+    Column("target_audience", String(120), nullable=True),
+    Column("status", String(16), nullable=False, default="active"),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    UniqueConstraint(
+        "workspace_id",
+        "version",
+        name="uq_workspace_context_versions_workspace_version",
+    ),
+)
+
+workspace_theme_versions = Table(
+    "workspace_theme_versions",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column(
+        "workspace_id",
+        String(36),
+        ForeignKey("workspaces.id"),
+        nullable=False,
+        index=True,
+    ),
+    Column("version", Integer, nullable=False),
+    Column("primary_color", String(7), nullable=False, default="#315EFB"),
+    Column("secondary_color", String(7), nullable=False, default="#0F9D91"),
+    Column("tone", String(32), nullable=False, default="professional"),
+    Column("default_language", String(8), nullable=False, default="vi"),
+    Column("status", String(16), nullable=False, default="active"),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    UniqueConstraint(
+        "workspace_id", "version", name="uq_workspace_theme_versions_workspace_version"
+    ),
+)
+
 workspace_memberships = Table(
     "workspace_memberships",
     metadata,
@@ -454,6 +503,17 @@ query_executions = Table(
     Column("is_approximate", Boolean, nullable=False, default=False),
     Column("limitations", JSON, nullable=True),
     Column("duration_ms", Integer, nullable=True),
+    Column("execution_kind", String(16), nullable=False, default="official"),
+    Column("status", String(16), nullable=False, default="ready"),
+    Column(
+        "quality_gate_run_id",
+        String(32),
+        ForeignKey("quality_gate_runs.id"),
+        nullable=True,
+    ),
+    Column("requested_by_user_id", String(36), nullable=True),
+    Column("expires_at", DateTime(timezone=True), nullable=True, index=True),
+    Column("idempotency_key", String(255), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
 )
 
@@ -463,8 +523,20 @@ notebooks = Table(
     "notebooks",
     metadata,
     Column("id", String(32), primary_key=True),
-    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False, index=True),
-    Column("profile_run_id", String(32), ForeignKey("profile_runs.id"), nullable=False, index=True),
+    Column(
+        "workspace_id",
+        String(36),
+        ForeignKey("workspaces.id"),
+        nullable=False,
+        index=True,
+    ),
+    Column(
+        "profile_run_id",
+        String(32),
+        ForeignKey("profile_runs.id"),
+        nullable=False,
+        index=True,
+    ),
     Column("title", String(255), nullable=False),
     Column("description", Text, nullable=True),
     Column("visibility", String(16), nullable=False, default="private"),
@@ -475,13 +547,23 @@ notebooks = Table(
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
 )
-Index("ix_notebooks_workspace_updated_at", notebooks.c.workspace_id, notebooks.c.updated_at)
+Index(
+    "ix_notebooks_workspace_updated_at",
+    notebooks.c.workspace_id,
+    notebooks.c.updated_at,
+)
 
 notebook_cells = Table(
     "notebook_cells",
     metadata,
     Column("id", String(32), primary_key=True),
-    Column("notebook_id", String(32), ForeignKey("notebooks.id"), nullable=False, index=True),
+    Column(
+        "notebook_id",
+        String(32),
+        ForeignKey("notebooks.id"),
+        nullable=False,
+        index=True,
+    ),
     Column("position", Integer, nullable=False),
     Column("kind", String(16), nullable=False),  # markdown | prompt
     Column("title", String(255), nullable=True),
@@ -492,7 +574,11 @@ notebook_cells = Table(
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
 )
-Index("ix_notebook_cells_notebook_position", notebook_cells.c.notebook_id, notebook_cells.c.position)
+Index(
+    "ix_notebook_cells_notebook_position",
+    notebook_cells.c.notebook_id,
+    notebook_cells.c.position,
+)
 
 retrieval_documents = Table(
     "retrieval_documents",
@@ -834,6 +920,13 @@ reports = Table(
     Column("slug", String(160), nullable=False),
     Column("status", String(24), nullable=False, default="draft"),
     Column("created_by_user_id", String(36), nullable=False),
+    Column(
+        "profile_run_id",
+        String(32),
+        ForeignKey("profile_runs.id"),
+        nullable=True,
+        index=True,
+    ),
     Column("current_published_version_id", String(32), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
@@ -851,6 +944,20 @@ report_versions = Table(
     Column("executive_summary", Text, nullable=True),
     Column("scope", JSON, nullable=True),
     Column("time_range", JSON, nullable=True),
+    Column(
+        "workspace_context_version_id",
+        String(32),
+        ForeignKey("workspace_context_versions.id"),
+        nullable=True,
+    ),
+    Column(
+        "workspace_theme_version_id",
+        String(32),
+        ForeignKey("workspace_theme_versions.id"),
+        nullable=True,
+    ),
+    Column("snapshot_hash", String(64), nullable=True),
+    Column("snapshot_at", DateTime(timezone=True), nullable=True),
     Column("submitted_by_user_id", String(36), nullable=True),
     Column("submitted_at", DateTime(timezone=True), nullable=True),
     Column("reviewed_by_user_id", String(36), nullable=True),
@@ -876,6 +983,71 @@ report_sections = Table(
     Column("kind", String(32), nullable=False),
     Column("title", String(255), nullable=True),
     Column("content_json", JSON, nullable=False),
+)
+
+report_items = Table(
+    "report_items",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column(
+        "report_version_id",
+        String(32),
+        ForeignKey("report_versions.id"),
+        nullable=False,
+        index=True,
+    ),
+    Column("item_type", String(32), nullable=False),
+    Column("position", Integer, nullable=False),
+    Column(
+        "profile_run_id",
+        String(32),
+        ForeignKey("profile_runs.id"),
+        nullable=True,
+        index=True,
+    ),
+    Column(
+        "context_version_id",
+        String(32),
+        ForeignKey("semantic_context_versions.id"),
+        nullable=True,
+        index=True,
+    ),
+    Column(
+        "query_execution_id",
+        String(32),
+        ForeignKey("query_executions.id"),
+        nullable=True,
+        index=True,
+    ),
+    Column(
+        "agent_run_id",
+        String(32),
+        ForeignKey("agent_runs.id"),
+        nullable=True,
+        index=True,
+    ),
+    Column("title", String(255), nullable=True),
+    Column("note", Text, nullable=True),
+    Column("content_json", JSON, nullable=True),
+    Column("query_spec", JSON, nullable=True),
+    Column("result_hash", String(64), nullable=True),
+    Column("quality_status", String(32), nullable=True),
+    Column("limitations", JSON, nullable=True),
+    Column("export_policy", JSON, nullable=True),
+    Column("idempotency_key", String(255), nullable=True),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+    UniqueConstraint(
+        "report_version_id",
+        "idempotency_key",
+        name="uq_report_items_version_idempotency",
+    ),
+)
+Index(
+    "ix_report_items_version_position",
+    report_items.c.report_version_id,
+    report_items.c.position,
 )
 
 report_visualizations = Table(
@@ -1032,9 +1204,7 @@ class Repository:
         with self.engine.begin() as conn:
             inspector = inspect(self.engine)
             for table_name, columns_to_add in additions.items():
-                columns = {
-                    item["name"] for item in inspector.get_columns(table_name)
-                }
+                columns = {item["name"] for item in inspector.get_columns(table_name)}
                 for column_name, sql_type in columns_to_add.items():
                     if column_name not in columns:
                         conn.execute(
@@ -1932,7 +2102,9 @@ class Repository:
     def create_workspace(self, user_id: str, name: str, role: str) -> dict[str, Any]:
         """Create a project workspace owned by the current user."""
         workspace_id = str(uuid.uuid4())
-        slug_base = "".join(char.lower() if char.isalnum() else "-" for char in name).strip("-")[:80]
+        slug_base = "".join(
+            char.lower() if char.isalnum() else "-" for char in name
+        ).strip("-")[:80]
         slug = f"{slug_base or 'workspace'}-{workspace_id.replace('-', '')[:12]}"
         now = _now()
         with self.engine.begin() as conn:
@@ -1944,7 +2116,10 @@ class Repository:
                     slug=slug,
                     created_by_user_id=user_id,
                     status="active",
-                    settings={"project_workspace": True, "report_separation_of_duties": True},
+                    settings={
+                        "project_workspace": True,
+                        "report_separation_of_duties": True,
+                    },
                     created_at=now,
                     updated_at=now,
                 )
@@ -1969,9 +2144,7 @@ class Repository:
             "is_project": True,
         }
 
-    def delete_workspace(
-        self, workspace_id: str, actor_user_id: str
-    ) -> bool:
+    def delete_workspace(self, workspace_id: str, actor_user_id: str) -> bool:
         """Archive a project workspace without physically deleting its data.
 
         Memberships intentionally stay active while a workspace is archived.
@@ -1980,9 +2153,7 @@ class Repository:
         """
         with self.engine.begin() as conn:
             workspace = (
-                conn.execute(
-                    select(workspaces).where(workspaces.c.id == workspace_id)
-                )
+                conn.execute(select(workspaces).where(workspaces.c.id == workspace_id))
                 .mappings()
                 .first()
             )
@@ -2001,7 +2172,9 @@ class Repository:
             if target_membership is None:
                 raise PermissionError("Bạn không có membership trong workspace này.")
             if workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ người tạo workspace mới có thể xóa workspace này.")
+                raise PermissionError(
+                    "Chỉ người tạo workspace mới có thể xóa workspace này."
+                )
             actor_active_workspace_count = conn.execute(
                 select(func.count())
                 .select_from(
@@ -2051,7 +2224,9 @@ class Repository:
             if membership is None:
                 raise PermissionError("Bạn không còn quyền khôi phục workspace này.")
             if workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ người tạo workspace mới có thể khôi phục workspace này.")
+                raise PermissionError(
+                    "Chỉ người tạo workspace mới có thể khôi phục workspace này."
+                )
             conn.execute(
                 workspaces.update()
                 .where(workspaces.c.id == workspace_id)
@@ -2069,9 +2244,7 @@ class Repository:
         """
         with self.engine.begin() as conn:
             workspace = (
-                conn.execute(
-                    select(workspaces).where(workspaces.c.id == workspace_id)
-                )
+                conn.execute(select(workspaces).where(workspaces.c.id == workspace_id))
                 .mappings()
                 .first()
             )
@@ -2091,7 +2264,9 @@ class Repository:
             if target_membership is None:
                 raise PermissionError("Bạn không có membership trong workspace này.")
             if workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ người tạo workspace mới có thể xóa workspace này.")
+                raise PermissionError(
+                    "Chỉ người tạo workspace mới có thể xóa workspace này."
+                )
 
             source_refs = [
                 row[0]
@@ -2139,9 +2314,7 @@ class Repository:
             # parent rows. This covers both directly scoped tables and child
             # tables that only reference a dataset, profile, run, report, or
             # notebook through a foreign key.
-            affected_ids: dict[str, set[Any]] = {
-                workspaces.name: {workspace_id}
-            }
+            affected_ids: dict[str, set[Any]] = {workspaces.name: {workspace_id}}
             for table in metadata.sorted_tables:
                 if table is workspaces:
                     continue
@@ -2156,9 +2329,11 @@ class Repository:
                 if not predicates or len(primary_key) != 1:
                     continue
                 condition = predicates[0] if len(predicates) == 1 else or_(*predicates)
-                values = conn.execute(
-                    select(primary_key[0]).where(condition)
-                ).scalars().all()
+                values = (
+                    conn.execute(select(primary_key[0]).where(condition))
+                    .scalars()
+                    .all()
+                )
                 if values:
                     affected_ids.setdefault(table.name, set()).update(values)
 
@@ -2170,7 +2345,10 @@ class Repository:
                     .where(agent_plans.c.workspace_id == workspace_id)
                     .values(superseded_by_plan_id=None)
                 )
-            if "reports" in metadata.tables and "current_published_version_id" in reports.c:
+            if (
+                "reports" in metadata.tables
+                and "current_published_version_id" in reports.c
+            ):
                 conn.execute(
                     reports.update()
                     .where(reports.c.workspace_id == workspace_id)
@@ -2188,7 +2366,9 @@ class Repository:
                     if parent_ids:
                         predicates.append(foreign_key.parent.in_(parent_ids))
                 if predicates:
-                    condition = predicates[0] if len(predicates) == 1 else or_(*predicates)
+                    condition = (
+                        predicates[0] if len(predicates) == 1 else or_(*predicates)
+                    )
                     conn.execute(table.delete().where(condition))
             return True
 
@@ -2212,22 +2392,26 @@ class Repository:
         them from the workspace library.
         """
         with self.engine.begin() as conn:
-            rows = conn.execute(
-                select(
-                    workspaces,
-                    workspace_memberships.c.role.label("membership_role"),
+            rows = (
+                conn.execute(
+                    select(
+                        workspaces,
+                        workspace_memberships.c.role.label("membership_role"),
+                    )
+                    .join(
+                        workspace_memberships,
+                        workspace_memberships.c.workspace_id == workspaces.c.id,
+                    )
+                    .where(
+                        workspace_memberships.c.user_id == user_id,
+                        workspace_memberships.c.status == "active",
+                        workspaces.c.status == "archived",
+                    )
+                    .order_by(workspaces.c.updated_at.desc())
                 )
-                .join(
-                    workspace_memberships,
-                    workspace_memberships.c.workspace_id == workspaces.c.id,
-                )
-                .where(
-                    workspace_memberships.c.user_id == user_id,
-                    workspace_memberships.c.status == "active",
-                    workspaces.c.status == "archived",
-                )
-                .order_by(workspaces.c.updated_at.desc())
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 {
                     "id": row["id"],
@@ -2236,7 +2420,10 @@ class Repository:
                     "role": row["membership_role"],
                     "status": row["status"],
                     "created_by_user_id": row["created_by_user_id"],
-                    "is_project": bool(isinstance(row.get("settings"), dict) and row["settings"].get("project_workspace")),
+                    "is_project": bool(
+                        isinstance(row.get("settings"), dict)
+                        and row["settings"].get("project_workspace")
+                    ),
                 }
                 for row in rows
             ]
@@ -2355,11 +2542,15 @@ class Repository:
     def list_invitations(self, workspace_id: str) -> list[dict[str, Any]]:
         """List invitation metadata without exposing the stored token hash."""
         with self.engine.begin() as conn:
-            rows = conn.execute(
-                select(workspace_invitations)
-                .where(workspace_invitations.c.workspace_id == workspace_id)
-                .order_by(workspace_invitations.c.created_at.desc())
-            ).mappings().all()
+            rows = (
+                conn.execute(
+                    select(workspace_invitations)
+                    .where(workspace_invitations.c.workspace_id == workspace_id)
+                    .order_by(workspace_invitations.c.created_at.desc())
+                )
+                .mappings()
+                .all()
+            )
             return [
                 {
                     "id": row["id"],
@@ -2624,12 +2815,16 @@ class Repository:
     ) -> list[dict[str, Any]] | None:
         """Assign one logical collection name to an uploaded batch."""
         with self.engine.begin() as conn:
-            rows = conn.execute(
-                select(datasets.c.id).where(
-                    datasets.c.id.in_(dataset_ids),
-                    datasets.c.workspace_id == workspace_id,
+            rows = (
+                conn.execute(
+                    select(datasets.c.id).where(
+                        datasets.c.id.in_(dataset_ids),
+                        datasets.c.workspace_id == workspace_id,
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if len(rows) != len(dataset_ids):
                 return None
             conn.execute(
@@ -3520,7 +3715,11 @@ class Repository:
         return payload
 
     def list_reports(
-        self, workspace_id: str, *, published_only: bool = False, exclude_rejected: bool = False
+        self,
+        workspace_id: str,
+        *,
+        published_only: bool = False,
+        exclude_rejected: bool = False,
     ) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
             query = select(reports).where(reports.c.workspace_id == workspace_id)
@@ -3579,8 +3778,10 @@ class Repository:
     ) -> dict[str, Any] | None:
         """Read a report without tenant scoping; callers must be global-authorized."""
         with self.engine.begin() as conn:
-            query = select(reports).join(workspaces, workspaces.c.id == reports.c.workspace_id).where(
-                reports.c.id == report_id, workspaces.c.status == "active"
+            query = (
+                select(reports)
+                .join(workspaces, workspaces.c.id == reports.c.workspace_id)
+                .where(reports.c.id == report_id, workspaces.c.status == "active")
             )
             if published_only:
                 query = query.where(reports.c.status == "published")
@@ -3588,13 +3789,19 @@ class Repository:
             if not report:
                 return None
             result = dict(report)
-            version_id = report.get("current_published_version_id") if published_only else None
-            version_query = select(report_versions).where(report_versions.c.report_id == report["id"])
+            version_id = (
+                report.get("current_published_version_id") if published_only else None
+            )
+            version_query = select(report_versions).where(
+                report_versions.c.report_id == report["id"]
+            )
             if version_id:
                 version_query = version_query.where(report_versions.c.id == version_id)
             result["versions"] = [
                 self._report_version_payload(conn, dict(row))
-                for row in conn.execute(version_query.order_by(report_versions.c.version.desc())).mappings()
+                for row in conn.execute(
+                    version_query.order_by(report_versions.c.version.desc())
+                ).mappings()
             ]
             return result
 
@@ -3819,13 +4026,16 @@ class Repository:
 
             versions = list(
                 conn.execute(
-                    select(report_versions.c.id, report_versions.c.status)
-                    .where(report_versions.c.report_id == report_id)
+                    select(report_versions.c.id, report_versions.c.status).where(
+                        report_versions.c.report_id == report_id
+                    )
                 ).mappings()
             )
             if not versions:
                 raise ValueError("Report không có version hợp lệ để xóa.")
-            if any(version["status"] in {"approved", "published"} for version in versions):
+            if any(
+                version["status"] in {"approved", "published"} for version in versions
+            ):
                 raise ValueError("Report đã qua bước duyệt, không thể xóa.")
 
             version_ids = [version["id"] for version in versions]
@@ -3994,7 +4204,11 @@ class Repository:
                 .mappings()
                 .first()
             )
-            if not version or version["status"] not in {"draft", "in_review", "approved"}:
+            if not version or version["status"] not in {
+                "draft",
+                "in_review",
+                "approved",
+            }:
                 raise ValueError("Report version không ở trạng thái có thể xuất bản.")
             conn.execute(
                 report_versions.update()
@@ -4077,8 +4291,12 @@ __all__ = [
     "metadata",
     "notebook_cells",
     "notebooks",
+    "query_executions",
+    "report_items",
     "reports",
     "reset_repository",
     "workspace_memberships",
+    "workspace_context_versions",
+    "workspace_theme_versions",
     "workspaces",
 ]
