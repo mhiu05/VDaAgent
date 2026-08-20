@@ -12,12 +12,10 @@ import { InfoTip } from "@/components/ui";
 
 function SidebarIcon({ name }: { name: string }) {
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
-  if (name === "home") return <svg {...common}><path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" /></svg>;
+  if (name === "home") return <svg {...common}><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>;
   if (name === "logout") return <svg {...common}><path d="M10 5H5v14h5" /><path d="m14 8 4 4-4 4" /><path d="M18 12H9" /></svg>;
   if (name === "/reports") return <svg {...common}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>;
   if (name === "/datasets") return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /><path d="M7 4v16M17 4v16" /></svg>;
-  if (name === "/analyses") return <svg {...common}><path d="M5 19V9M12 19V5M19 19v-7" /><path d="M3 19h18" /></svg>;
-  if (name === "/notebooks") return <svg {...common}><path d="M6 4h12v16H6z" /><path d="M9 8h6M9 12h6M9 16h4" /><path d="M4 6h2M4 10h2M4 14h2M4 18h2" /></svg>;
   if (name === "/compare") return <svg {...common}><path d="M7 7h11" /><path d="m15 3 4 4-4 4" /><path d="M17 17H6" /><path d="m9 13-4 4 4 4" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg>;
 }
@@ -30,8 +28,6 @@ function accountInitials(email: string | null) {
 const analystNavigation = [
   { href: "/reports", label: "Thư viện báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
   { href: "/datasets", label: "Bộ dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và mở báo cáo profile.", permission: PERMISSIONS.datasetRead },
-  { href: "/analyses", label: "Phân tích chuyên sâu", icon: "A", description: "Dành cho một mục tiêu nghiệp vụ rõ ràng; có context, quality gate và bước review.", permission: PERMISSIONS.analysisRun },
-  { href: "/notebooks", label: "Phiên phân tích", icon: "✦", description: "Lưu ghi chú, câu hỏi Agent và kết quả theo một profile run. Không thay thế Chat Agent.", permission: PERMISSIONS.notebookRead },
   { href: "/compare", label: "So sánh phiên bản", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
   { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
 ] as const;
@@ -140,18 +136,18 @@ function AppShellContent({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
         <div className="sidebar-top">
-          {/* Nút Quay lại trang chủ thay thế brand mascot */}
-          <Link href="/" className="sidebar-back-home" aria-label="Quay lại trang chủ">
+          {/* Nút Trang chủ Analyst thay thế brand mascot */}
+          <Link href="/" className="sidebar-back-home" aria-label="Trang chủ Analyst">
             <span className="sidebar-icon sidebar-back-icon" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/><path d="M9 20v-6h6v6"/>
+                <path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" />
               </svg>
             </span>
-            <span className="sidebar-back-label">Quay lại trang chủ</span>
+            <span className="sidebar-back-label">Trang chủ Analyst</span>
           </Link>
           <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard">
             <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
-            <span className="sidebar-link-label">Trang chủ</span>
+            <span className="sidebar-link-label">Trang chủ workspace</span>
           </Link>
           {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
             <span className="sidebar-workspace-label sidebar-text">Workspace của bạn</span>

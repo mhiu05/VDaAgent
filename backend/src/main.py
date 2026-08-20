@@ -19,7 +19,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from src.api.agent_routes import router as agent_router
-from src.api.analysis_routes import router as analysis_router
+from src.api.analysis_routes import (
+    profile_router as command_center_router,
+    router as analysis_router,
+)
 from src.api.authz_routes import router as authz_router
 from src.api.google_drive_routes import router as google_drive_router
 from src.api.notebook_routes import router as notebook_router
@@ -149,6 +152,7 @@ app.include_router(router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 app.include_router(skill_router, prefix="/api/v1")
 app.include_router(analysis_router, prefix="/api/v1")
+app.include_router(command_center_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
 app.include_router(google_drive_router, prefix="/api/v1")
 app.include_router(notebook_router, prefix="/api/v1")

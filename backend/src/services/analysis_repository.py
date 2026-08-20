@@ -33,7 +33,12 @@ class AnalysisRepository:
         self.engine = repository.engine
 
     def create_session(
-        self, payload: dict[str, Any], *, profile_run_id: str, creator: str, workspace_id: str
+        self,
+        payload: dict[str, Any],
+        *,
+        profile_run_id: str,
+        creator: str,
+        workspace_id: str,
     ) -> dict[str, Any]:
         run = self.repository.get_profile_run(profile_run_id, workspace_id=workspace_id)
         if not run:
@@ -74,16 +79,18 @@ class AnalysisRepository:
             )
         return self.get_session(session_id, workspace_id=workspace_id) or session
 
-    def get_session(self, session_id: str, *, workspace_id: str | None = None) -> dict[str, Any] | None:
+    def get_session(
+        self, session_id: str, *, workspace_id: str | None = None
+    ) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
-            statement = select(analysis_sessions).where(analysis_sessions.c.id == session_id)
-            if workspace_id is not None:
-                statement = statement.where(analysis_sessions.c.workspace_id == workspace_id)
-            session = (
-                conn.execute(statement)
-                .mappings()
-                .first()
+            statement = select(analysis_sessions).where(
+                analysis_sessions.c.id == session_id
             )
+            if workspace_id is not None:
+                statement = statement.where(
+                    analysis_sessions.c.workspace_id == workspace_id
+                )
+            session = conn.execute(statement).mappings().first()
             if not session:
                 return None
             result = dict(session)
@@ -131,7 +138,9 @@ class AnalysisRepository:
                 result["quality_gate"] = current_gate
             return result
 
-    def list_sessions(self, profile_run_id: str | None = None, *, workspace_id: str | None = None) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, profile_run_id: str | None = None, *, workspace_id: str | None = None
+    ) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
             statement = select(analysis_sessions)
             if profile_run_id:
@@ -140,7 +149,9 @@ class AnalysisRepository:
                     analysis_sources.c.session_id == analysis_sessions.c.id,
                 ).where(analysis_sources.c.profile_run_id == profile_run_id)
             if workspace_id is not None:
-                statement = statement.where(analysis_sessions.c.workspace_id == workspace_id)
+                statement = statement.where(
+                    analysis_sessions.c.workspace_id == workspace_id
+                )
             sessions = conn.execute(
                 statement.order_by(analysis_sessions.c.updated_at.desc())
             ).mappings()
@@ -275,6 +286,12 @@ class AnalysisRepository:
         approximate: bool,
         limitations: list[str],
         duration_ms: int,
+        execution_kind: str = "official",
+        status: str = "ready",
+        quality_gate_run_id: str | None = None,
+        requested_by_user_id: str | None = None,
+        expires_at: datetime | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         item = {
             "id": _id(),
@@ -286,6 +303,12 @@ class AnalysisRepository:
             "is_approximate": approximate,
             "limitations": limitations,
             "duration_ms": duration_ms,
+            "execution_kind": execution_kind,
+            "status": status,
+            "quality_gate_run_id": quality_gate_run_id,
+            "requested_by_user_id": requested_by_user_id,
+            "expires_at": expires_at,
+            "idempotency_key": idempotency_key,
             "created_at": _now(),
         }
         with self.engine.begin() as conn:
@@ -296,6 +319,43 @@ class AnalysisRepository:
                 .values(status="insight_review", updated_at=_now())
             )
         return item
+
+    def find_execution_by_idempotency(
+        self, session_id: str, idempotency_key: str | None
+    ) -> dict[str, Any] | None:
+        if not idempotency_key:
+            return None
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(query_executions).where(
+                        query_executions.c.session_id == session_id,
+                        query_executions.c.idempotency_key == idempotency_key,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            return dict(row) if row else None
+
+    def get_execution(
+        self, execution_id: str, *, workspace_id: str | None = None
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            statement = (
+                select(query_executions, analysis_sessions.c.workspace_id)
+                .join(
+                    analysis_sessions,
+                    analysis_sessions.c.id == query_executions.c.session_id,
+                )
+                .where(query_executions.c.id == execution_id)
+            )
+            if workspace_id is not None:
+                statement = statement.where(
+                    analysis_sessions.c.workspace_id == workspace_id
+                )
+            row = conn.execute(statement).mappings().first()
+            return dict(row) if row else None
 
     def executions(self, session_id: str) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:

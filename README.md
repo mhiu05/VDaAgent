@@ -1,4 +1,4 @@
-# VDaAgent — Data Profiling & Analysis Workspace
+# VDaAgent — Data Profiling & Evidence Workspace
 
 VDaAgent là workspace giúp biến một dataset thành hồ sơ dữ liệu có thể kiểm tra,
 review và dùng cho phân tích có evidence.
@@ -21,32 +21,25 @@ Upload dataset → Profiling deterministic
         ↓
 Review metadata proposals (semantic type / key / PII)
         ↓
-Profile report
-   ┌────┼───────────────┬──────────────┐
-   ↓    ↓               ↓              ↓
- Q&A  Kiểm định      Drift       Tạo Analysis
-                                      ↓
-                         Context → Quality gate
-                                      ↓
-                         Khám phá theo nhóm
-                                      ↓
-                            Aggregate evidence
+Profile Run Command Center
+   ┌───────────┬────────────┬────────────┐
+   ↓           ↓            ↓            ↓
+Tổng quan   Khám phá     Hỏi Agent    Báo cáo
+              ↓            ↓            ↓
+       Preview / Official  Evidence   Draft / export
 ```
 
 Một workflow thông thường:
 
 1. Mở workspace Analyst hoặc dùng guest Analyst để thử sản phẩm.
-2. Tải CSV, TSV, Parquet hoặc JSON.
-3. Chọn `sample` để khám phá nhanh hoặc `full` để quét toàn bộ source.
-4. Mở profile report và xử lý các proposal còn pending.
-5. Dùng Q&A, kiểm định thống kê hoặc drift trực tiếp trên profile đã hoàn tất.
-6. Nếu cần khám phá aggregate theo nhóm để trả lời câu hỏi nghiệp vụ, tạo
-   Analysis Session từ profile đó.
-7. Khai báo row grain, dimensions và measures; approve context để chạy quality
-   gate.
-8. Trong “Khám phá dữ liệu”, chọn cách so sánh nhóm, metric, filter và thứ tự
-   sắp xếp. Kết quả có execution ID và result hash.
-9. Xuất report PDF/JSON và chọn những mục cần đưa vào bản xuất.
+2. Tải CSV, TSV, Parquet hoặc JSON và chọn `sample` hoặc `full`.
+3. Mở profile report, review các proposal metadata còn pending.
+4. Làm việc trong **Profile Run Command Center**: xem Tổng quan, Khám phá dữ liệu theo nhóm, hỏi Agent trên evidence và quản lý Báo cáo.
+5. Trong tab Khám phá, chạy Preview để kiểm tra nhanh; khi cần dùng làm evidence, Promote thành Official rồi Pin vào Report Draft.
+6. Dùng kiểm định thống kê, drift hoặc export từ profile run khi phù hợp.
+7. Xuất PDF/JSON theo các section đã chọn.
+
+`/analyses` và `/notebooks` vẫn tồn tại để mở dữ liệu legacy trong thời gian chuyển đổi, nhưng không còn xuất hiện trong left sidebar hoặc là luồng tạo mới ưu tiên.
 
 ## Hai luồng truy cập
 
@@ -60,8 +53,8 @@ dùng workspace tạm mà không cần tạo tài khoản.
   workspace khi chỉ mở Trang chủ hoặc Hướng dẫn.
 - Quyền backend vẫn được kiểm tra theo role Analyst, giống luồng đăng nhập.
 - Dữ liệu guest không gắn với email hay workspace cá nhân.
-- Đổi role hoặc bấm `Kết thúc dùng thử` sẽ dọn session hiện tại theo kiểu
-  best-effort. Khi đóng tab, session trong browser biến mất; dữ liệu backend
+- Bấm `Kết thúc dùng thử` sẽ dọn session hiện tại theo kiểu best-effort. Khi
+  đóng tab, session trong browser biến mất; dữ liệu backend
   còn lại được dọn theo retention nên không dùng guest trial cho dữ liệu
   production hoặc dữ liệu cần lưu lâu dài.
 - Guest mode không dùng SQLite. Metadata vẫn đi qua PostgreSQL; storage dùng
@@ -69,14 +62,11 @@ dùng workspace tạm mà không cần tạo tài khoản.
 
 ### Đã đăng nhập
 
-Người dùng đăng nhập bằng Supabase Auth. Access token và workspace hiện tại được
-gửi tới backend trong `Authorization: Bearer` và `X-Workspace-Id`.
+Người dùng đăng nhập bằng Supabase Auth. Access token và workspace hiện tại được gửi tới backend trong `Authorization: Bearer` và `X-Workspace-Id`.
 
 - Dữ liệu, lịch sử, report draft và workspace membership được giữ lâu dài.
 - Role và capability được resolve lại ở backend cho từng request.
-- Analyst có đầy đủ quyền upload, profiling, review metadata, test, drift, Q&A,
-  Analysis, quản lý member, report workflow, audit và workspace settings.
-
+- Analyst có quyền upload, profiling, review metadata, test, drift, Q&A, Command Center, report workflow, audit và workspace settings. API/route Analysis và Notebook legacy vẫn tồn tại trong compatibility window nhưng không còn nằm trên điều hướng chính.
 Trang chủ và Hướng dẫn chỉ là trang tổng quan; không gắn trạng thái role hiện tại.
 Role/workspace chỉ có ý nghĩa khi người dùng bước vào workspace.
 
@@ -89,12 +79,12 @@ Analyst cố định. Sau khi Supabase gửi email xác nhận:
 1. Người dùng mở link trong cùng browser/device đã đăng ký.
 2. `/auth/callback` lấy session PKCE do Supabase SSR client xử lý; ứng dụng
    không exchange cùng một code lần thứ hai.
-3. Backend tạo hoặc trả về personal workspace và membership theo role đã chọn.
+3. Backend tạo hoặc trả về personal workspace và membership Analyst.
 4. Ứng dụng chuyển tới `/dashboard` sau khi provision thành công.
 
 Tài khoản Supabase đã được tạo trước đó hoặc tạo ngoài form `/signup` cũng được
 tự khôi phục: khi đăng nhập, nếu chưa có membership active, frontend gọi lại
-provision idempotent với role đã lưu (mặc định `analyst`) rồi tải lại workspace.
+provision idempotent với role Analyst rồi tải lại workspace.
 Membership hiện có không bị thay đổi.
 
 Trang đăng ký có nút gửi lại email với cooldown 120 giây. Việc gửi mail vẫn
@@ -104,24 +94,17 @@ thread, vì vậy cần mở rộng thread hoặc kiểm tra Spam/Promotions.
 
 ## Tính năng chính
 
-- Profiling deterministic: schema, dtype, missingness, cardinality, uniqueness,
-  duplicate, outlier, top values và correlation.
+- Profiling deterministic: schema, dtype, missingness, cardinality, uniqueness, duplicate, outlier, top values và correlation.
 - Human-in-the-loop review cho semantic type, candidate key và PII proposal.
 - Profile report có provenance, narrative summary và các metric đã kiểm chứng.
-- Q&A theo profile evidence; có thể mở rộng tới external knowledge base nếu được
-  cấu hình.
-- Native skill registry: playbook versioned cho profiling, quality diagnosis,
-  drift, Q&A và report; tool binding luôn bounded và tenant-scoped.
-- Statistical tests với alpha và multiple-testing correction.
-- Drift giữa hai profile run của cùng dataset.
-- Analysis Workspace với context, quality gate và bounded aggregate.
-- Exploration presets: so sánh nhóm, tìm nhóm dẫn đầu, tìm nhóm thấp nhất; có
-  filter và insight max/min/spread.
-- Notebook LLM: tạo, chỉnh sửa và chia sẻ notebook có nhiều cell; export markdown/JSON.
-- Export PDF hoặc JSON với checklist chọn từng nhóm nội dung, Chọn tất cả và Bỏ
-  chọn tất cả. PDF đánh số phân cấp như `1`, `7.1`, `7.1.1`.
-- Google Drive storage tùy chọn cho file lớn; Supabase vẫn là nguồn sự thật cho
-  Auth, workspace, permission, metadata và audit.
+- **Profile Run Command Center** tập trung bốn tab Tổng quan, Khám phá, Hỏi Agent và Báo cáo vào đúng profile run.
+- Explorer dùng bounded aggregate, Preview/Official, preset so sánh nhóm và Pin evidence vào Report Draft.
+- Q&A theo profile evidence; có thể mở rộng tới external knowledge base nếu được cấu hình.
+- Statistical tests với alpha và multiple-testing correction; drift giữa hai profile run cùng dataset.
+- Workspace tạo mới có preset Business, Marketing, IT và Education để điền sẵn context/theme; người dùng vẫn có thể chỉnh sửa trước khi tạo.
+- Export PDF hoặc JSON với checklist section, draft/snapshot và provenance.
+- Google Drive storage tùy chọn cho file lớn; Supabase vẫn là nguồn sự thật cho Auth, workspace, permission, metadata và audit.
+- Native skill registry cung cấp playbook versioned cho profiling, quality diagnosis, drift, Q&A và report; tool binding luôn bounded và tenant-scoped.
 
 ## Kiến trúc
 
@@ -171,7 +154,8 @@ allowlist và route workflow có side effect về API đã phân quyền. Hai sk
 read-only có catalog/inspect API dưới `/api/v1/agent-skills`; mỗi inspect kiểm
 tra workspace scope trước khi gọi tool. Q&A chọn playbook bằng routing
 deterministic nhưng guardrail, capability và bounded tool registry vẫn là
-authority. Xem [docs/agent_skills.md](docs/agent_skills.md).
+authority. Contract nguồn nằm trong từng `SKILL.md` dưới
+`backend/src/agents/skills/` và registry tương ứng.
 
 ## Yêu cầu
 
@@ -365,7 +349,7 @@ Không commit OAuth client secret, refresh token, Fernet key, `.env` hoặc API 
 
 | Role | Phạm vi chính |
 | --- | --- |
-| Analyst | Upload, profiling, review metadata, test, drift, Q&A, Analysis, notebook read/write/share, quản lý member, review/publish/archive report, audit, workspace settings và đọc agent run/trace trong workspace. |
+| Analyst | Upload, profiling, review metadata, test, drift, Command Center (Khám phá, Hỏi Agent, Báo cáo), quản lý member, review/publish/archive report, audit, workspace settings và đọc agent run/trace trong workspace. API Analysis/Notebook legacy vẫn được giữ trong compatibility window. |
 
 Workspace chỉ có một role `analyst`. Các role legacy (`owner`, `admin`, `viewer`)
 được chuẩn hóa thành `analyst` ở trust boundary.
@@ -377,39 +361,39 @@ resource không thuộc workspace, `409 workspace_required` là cần chọn wor
 ## Route frontend chính
 
 ```text
-/                         Trang chủ
-/guide                    Hướng dẫn
-/login                    Đăng nhập bằng Supabase
-/signup                   Đăng ký self-signup và gửi lại email xác nhận
-/forgot-password          Yêu cầu reset password
-/auth/callback             Xử lý callback PKCE và provision workspace
-/account/update-password  Đặt mật khẩu mới sau reset
-/dashboard                Dashboard Analyst
-/datasets                 Dataset và profile runs
-/datasets/new             Upload và tạo profiling run
-/datasets/{datasetId}/runs Các phiên profiling của một dataset
-/profiles/{runId}         Profile report
-/profiles/{runId}/review  Review proposal metadata
-/profiles/{runId}/analysis Kiểm định, drift và export
-/analyses                 Danh sách Analysis Session
-/analyses/new             Tạo Analysis Session
-/analyses/{sessionId}     Context, quality gate và exploration
-/notebooks                Danh sách notebooks
-/notebooks/{notebookId}   Chi tiết notebook và cells
-/workspaces               Workspace management
-/workspaces/manage        Quản lý thành viên và settings
-/activity                 Workspace activity log
-/compare                  So sánh profile/drift
-/chat                     Agent Q&A
-/reports                  Published report portal
-/reports/{reportId}       Published report
-/api/reports/profile/...  Next.js PDF proxy cho profile report
+/                             Trang chủ
+/guide                        Hướng dẫn
+/login                        Đăng nhập Supabase
+/signup                       Đăng ký Analyst và gửi lại email xác nhận
+/forgot-password              Yêu cầu reset password
+/auth/callback                Callback PKCE và provision workspace
+/account/update-password      Đặt mật khẩu mới sau reset
+/dashboard                    Dashboard Analyst
+/datasets                     Dataset và profile runs
+/datasets/new                 Upload và tạo profiling run
+/datasets/{datasetId}/runs    Lịch sử profile của dataset
+/profiles/{runId}             Profile Run Command Center khi feature flag bật
+/profiles/{runId}/review      Review proposal metadata
+/profiles/{runId}/analysis    Kiểm định, drift và export
+/reports                      Thư viện report draft/snapshot/published
+/reports/{reportId}           Chi tiết report/version và xuất PDF
+/workspaces                   Tạo/chọn workspace với preset context/theme
+/workspaces/manage            Quản lý thành viên và lời mời
+/settings                     Chỉnh Workspace Context & Theme
+/activity                     Workspace activity log
+/compare                      So sánh profile/drift
+/chat                         Agent Q&A
+/analyses                     Legacy Analysis Session, không hiển thị ở left sidebar
+/analyses/new                 Legacy create route
+/analyses/{sessionId}         Legacy context, quality gate và exploration
+/notebooks                    Legacy notebook library, không hiển thị ở left sidebar
+/notebooks/{notebookId}       Legacy notebook detail/cells
+/api/reports/profile/...      Next.js PDF proxy cho profile report
 ```
 
-Navbar ở Trang chủ, Đăng nhập và Đăng ký luôn dùng guest Analyst. Guest chỉ
-được tạo sau thao tác chọn Analyst;
-nút `Kết thúc dùng thử` xóa session guest khỏi browser và yêu cầu backend dọn
-workspace tạm.
+Public navbar chỉ hiển thị một lựa chọn dùng thử là Analyst. Guest chỉ được tạo
+sau khi người dùng chủ động chọn Analyst; nút `Kết thúc dùng thử` xóa token
+guest khỏi browser và yêu cầu backend dọn workspace tạm theo kiểu best-effort.
 
 ## API nhóm chính
 
@@ -423,14 +407,20 @@ cho đổi tên, visibility và khôi phục; không dùng endpoint lệnh `/sha
 `/restore`.
 
 ```text
-GET       /session, /me, /workspaces
+GET       /session, /me
+GET/POST  /workspaces
+GET       /workspaces/archived
+DELETE    /workspaces/{workspace_id}
+POST      /workspaces/{workspace_id}/restore
+DELETE    /workspaces/{workspace_id}/permanent
 GET       /dashboard, /status, /audit
 POST      /onboarding/provision
 DELETE    /guest/session
 POST      /invitations/accept
 GET       /workspaces/current/members
-POST      /workspaces/current/invitations
+GET/POST  /workspaces/current/invitations
 PATCH     /workspaces/current/members/{user_id}
+DELETE    /workspaces/current/invitations/{invitation_id}
 POST      /datasets/upload
 GET       /datasets
 PATCH     /datasets/collection
@@ -462,7 +452,6 @@ POST      /analysis-sessions/{id}/context-versions/{context_id}/approve
 POST      /analysis-sessions/{id}/quality-gate
 POST      /analysis-sessions/{id}/quality-issues/{issue_id}/acknowledge
 GET/POST  /analysis-sessions/{id}/executions
-GET       /analysis-sessions/{id}/executions
 
 GET/POST  /notebooks
 GET/PATCH/DELETE /notebooks/{notebook_id}
@@ -477,17 +466,12 @@ GET       /reports/{report_id}/export-source
 
 GET       /google-drive/status
 GET       /google-drive/connect
+GET       /google-drive/callback
 DELETE    /google-drive/connection
 
 ```
 
 ## Kiểm tra trước khi commit
-
-Từ root:
-
-```powershell
-python -m pytest -q
-```
 
 Kiểm tra nhanh riêng cho runtime trace (không cần khởi tạo fixture PostgreSQL
 tích hợp):
@@ -504,6 +488,7 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
 Health backend:
@@ -519,6 +504,7 @@ Trước khi chạy full backend suite, tạo database test và đặt DSN trong
 ```powershell
 $env:P170_TEST_DATABASE_URL = "postgresql+psycopg://p170_test:<password>@localhost:5432/p170_test"
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check backend tests
 ```
 
 `P170_TEST_DATABASE_URL` là bắt buộc để tránh test vô tình ghi vào database ứng dụng.
@@ -526,29 +512,29 @@ $env:P170_TEST_DATABASE_URL = "postgresql+psycopg://p170_test:<password>@localho
 ## Giới hạn hiện tại
 
 - Một Analysis Session gắn với một profile run; chưa hỗ trợ join nhiều bảng.
-- Analysis không nhận arbitrary SQL, notebook hoặc cleaning recipe.
+- Analysis không nhận arbitrary SQL, raw-row query hoặc cleaning recipe;
+  Notebook là một artifact riêng, không phải execution engine.
 - `deep` mode vẫn là workflow mở rộng; planner/approval nhiều bước chưa hoàn tất
   như quick bounded analysis.
 - Agent runtime hiện chỉ có trace/provenance cho profiling và Q&A. Chưa có
   planner thực thi, verifier enforce, approval workflow, durable queue/DLQ,
   circuit breaker hay long-term memory.
 - Sample run phù hợp khám phá nhanh, không mặc định là số liệu exact.
+- `AnalysisEngine` hiện materialize immutable source để aggregate nhưng vẫn kế
+  dùng sampling thật cho Preview; Official đọc full pinned source và có provenance
+  riêng. Preview không thể Pin trực tiếp.
 - Guest trial không phải cơ chế lưu trữ dài hạn.
 - Published report là snapshot; thay đổi lớn cần tạo draft/version theo workflow
   report hiện có.
+- Legacy Analysis Session và Notebook vẫn có page/API riêng trong compatibility
+  window; navigation chính ẩn chúng khi Command Center flag được bật.
 
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
-- [Native agent skills](docs/agent_skills.md)
-- [Gate G2 manual evaluation evidence](docs/g2-eval-evidence.md)
-- [ADR agent runtime v2](docs/adr-agent-runtime-v2.md)
-- [Agent production-readiness implementation plan](docs/agent-production-readiness-implementation-plan.md)
+- [Architecture](ARCHITECTURE.md)
+- [UX architecture proposal](docs/ux_architecture_proposal.md)
+- [UX architecture implementation plan](docs/ux-architecture-implementation-plan.md)
 - [.env.example](.env.example)
 - [config.yaml](config.yaml)
 - [Makefile](Makefile)
-### Workspace role
-
-Workspace chỉ sử dụng một role duy nhất là `analyst`. Role này có đầy đủ
-quyền upload, profiling, review metadata, phân tích, quản lý thành viên và
-xuất bản báo cáo trong workspace hiện tại.

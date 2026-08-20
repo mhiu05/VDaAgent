@@ -8,6 +8,7 @@ import { formatNumber, formatPercent, toTitle } from "@/lib/format";
 import { MarkdownContent } from "@/components/markdown";
 import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, Metric, Notice, PageHeader, StatusBadge } from "@/components/ui";
 import type { ColumnStat } from "@/lib/types";
+import { CommandCenterShell } from "@/components/command-center/command-center-shell";
 
 type TopValueRow = { value: string; count: number | null; note: string | null };
 
@@ -131,7 +132,7 @@ function provenanceScanCopy(scanMode?: string | null, approximate?: boolean) {
   return { label: "Chưa xác định", detail: "Chưa ghi nhận cách quét dữ liệu." };
 }
 
-export default function ProfilePage() {
+function ProfileOverview() {
   const { runId } = useParams<{ runId: string }>();
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
@@ -221,4 +222,11 @@ export default function ProfilePage() {
       </aside>
     )}
   </>;
+}
+
+export default function ProfilePage() {
+  if (process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true") {
+    return <CommandCenterShell overview={<ProfileOverview />} />;
+  }
+  return <ProfileOverview />;
 }

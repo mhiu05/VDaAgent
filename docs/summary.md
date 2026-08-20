@@ -1,6 +1,8 @@
 # VDaAgent — Technical Summary
 
-Tài liệu này mô tả contract kỹ thuật và các boundary quan trọng của VDaAgent. README dành cho cài đặt và user flow; file này dành cho người phát triển, review code và vận hành deployment.
+Tài liệu này mô tả contract kỹ thuật và các boundary đang tồn tại trong code VDaAgent. README dành cho cài đặt và user flow; file này dành cho người phát triển, review code và vận hành deployment.
+
+Khi `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true`, Profile Run Command Center là trải nghiệm chính cho Tổng quan, Khám phá, Hỏi Agent và Báo cáo. Preview/Official, Workspace Context/Theme và Pin to Report là contract additive. Analysis Session và Notebook vẫn có API/route legacy để tương thích hoặc rollback, nhưng app shell không đưa chúng vào left sidebar.
 
 ## 1. Mục tiêu và invariant
 
@@ -49,7 +51,10 @@ Backend mount các router tại `/api/v1`:
 - `skill_routes.py`: catalog native skill và inspect các read-only tool bundle.
 - `notebook_routes.py`: notebook CRUD, cells, sharing và export.
 
-Startup tạo/reuse metadata repository và kiểm tra cấu hình. Production yêu cầu PostgreSQL kết nối được, Supabase Auth và storage provider hợp lệ. `/docs` và `/redoc` bị tắt khi `APP_ENV=production`.
+Startup tạo/reuse metadata repository và kiểm tra cấu hình. Development/test có
+thể gọi `metadata.create_all`; production yêu cầu Alembic migration chạy trước,
+PostgreSQL kết nối được, Supabase Auth và storage provider hợp lệ. `/docs` và
+`/redoc` bị tắt khi `APP_ENV=production`.
 
 ## 3. Authentication, tenancy và capability
 
@@ -79,8 +84,8 @@ actor/is_guest
 Guest token có dạng `guest.<session_uuid>.<role>`. Backend map token vào user ID deterministic và tạo guest workspace riêng. Guest vẫn đi qua capability guard, nhưng không có email hay Supabase account.
 
 Guest storage được cấu hình bằng `GUEST_STORAGE_PROVIDER`. Guest chỉ được tạo
-sau khi visitor chọn Analyst. Đổi role hoặc bấm `Kết thúc
-dùng thử` sẽ yêu cầu cleanup best-effort qua:
+sau khi visitor chọn Analyst. Bấm `Kết thúc dùng thử` sẽ yêu cầu cleanup
+best-effort qua:
 
 ```text
 DELETE /api/v1/guest/session
@@ -105,15 +110,15 @@ hữu toàn bộ tập capability:
 | Profiling | `profile.run`, `profile.read`, `profile.review` |
 | Stats / Drift | `stats.run`, `drift.run` |
 | Q&A | `qa.profile.ask`, `qa.published.ask` |
-| Analysis | `analysis.run` |
-| Notebook | `notebook.read`, `notebook.write`, `notebook.share` |
+| Analysis (legacy) | `analysis.run` |
+| Notebook (legacy) | `notebook.read`, `notebook.write`, `notebook.share` |
 | Report | `report.draft.write`, `report.submit`, `report.review`, `report.publish`, `report.archive`, `report.published.read`, `report.published.export` |
 | Workspace | `workspace.members.manage`, `workspace.settings.manage`, `workspace.storage.connect`, `workspace.audit.read`, `workspace.activity.read`, `workspace.lifecycle.manage`, `workspace.create`, `workspace.delete` |
 | Agent | `agent.run.read`, `agent.trace.read`, `agent.trace.debug.read` |
 
 Frontend có thể ẩn button, nhưng không phải security boundary. Backend trả `401` cho auth failure, `403` cho thiếu permission, `404` cho resource ngoài tenant và `409 workspace_required` khi cần chọn workspace.
 
-### 3.4 Signup, PKCE và guest role switching
+### 3.4 Signup, PKCE và guest Analyst
 
 Self-signup có hai feature flag tương ứng:
 
@@ -122,14 +127,16 @@ AUTH_ALLOW_SIGNUP=true
 NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true
 ```
 
-Frontend gửi `requested_role` trong callback URL và trong Supabase user metadata.
+Frontend vẫn gửi `requested_role` trong callback URL và Supabase user metadata
+để tương thích, nhưng giá trị hiện tại luôn là `analyst`; signup không có role
+selector.
 Sau khi email được xác nhận, `frontend/src/app/auth/callback/page.tsx` lấy
 session đã được `createBrowserClient` xử lý PKCE rồi gọi
 `POST /api/v1/onboarding/provision`. Callback không gọi
 `exchangeCodeForSession` lần thứ hai; làm vậy có thể làm mất code verifier.
 
-Provisioning tạo hoặc trả về personal workspace, membership và role đã chọn.
-Nếu callback cũ không có role, callback flow dùng Analyst làm fallback an toàn.
+Provisioning tạo hoặc trả về personal workspace và membership Analyst. Nếu
+callback cũ không có role, callback flow cũng dùng Analyst làm fallback an toàn.
 Khi một tài khoản Supabase đã tồn tại nhưng chưa có membership (ví dụ được tạo
 trực tiếp trong Supabase Dashboard), `AuthProvider` gọi lại endpoint provision
 idempotent sau lần `GET /session` bị thiếu workspace rồi retry session. Role lấy
@@ -137,13 +144,12 @@ từ metadata nếu hợp lệ, mặc định là `analyst`; membership hiện c
 Trang signup hỗ trợ gửi lại email với cooldown 120 giây; email vẫn chịu rate
 limit/SMTP của Supabase và Gmail có thể gộp thư vào cùng một thread.
 
-`PublicNavbar` hiển thị Viewer/Analyst/Admin trên Trang chủ, Đăng nhập và Đăng
-ký. `AuthProvider.enterGuestRole` tạo guest session chỉ sau thao tác chọn role,
-xóa Supabase session local cũ và ưu tiên guest token đã chọn; vì vậy Supabase
-token hết hạn không thể chặn trial. `loadSequence` và `guestSwitchSequence` đảm
-bảo response cũ không thể ghi đè workspace role mới. Khi chuyển role hoặc kết
-thúc dùng thử, guest cleanup là best-effort và không được làm hỏng việc mở
-workspace mới.
+`PublicNavbar` chỉ hiển thị một lựa chọn trial là Analyst trên các public entry
+point. `AuthProvider.enterGuestRole` tạo guest session sau thao tác này, xóa
+Supabase session local cũ và ưu tiên guest token; vì vậy Supabase token hết hạn
+không thể chặn trial. `loadSequence` và `guestSwitchSequence` bảo đảm response
+cũ không ghi đè session/workspace mới. Khi kết thúc dùng thử, cleanup là
+best-effort và không được làm hỏng việc quay lại public flow.
 
 ### 3.5 API router inventory
 
@@ -156,6 +162,7 @@ authz_routes.py        session, workspaces, dashboard, onboarding, invitations, 
 agent_routes.py        tenant-scoped agent run, trace, evidence, plan và summary
 google_drive_routes.py status, OAuth connect/callback và disconnect
 notebook_routes.py     notebook CRUD, cells, sharing và export
+skill_routes.py        native skill catalog và read-only inspect
 ```
 
 Các route nghiệp vụ dùng `RequestContext`/permission guard phù hợp; route auth
@@ -175,12 +182,14 @@ Dataset
   → Report / Q&A / Test / Drift / Analysis
 ```
 
-Các resource quan trọng đều có `workspace_id`:
+Các resource gốc có `workspace_id` trực tiếp hoặc được scope bắt buộc qua chuỗi
+ownership đã kiểm tra:
 
 - dataset và immutable source reference;
 - profile run và column stats;
-- proposal, statistical test result, drift report;
-- analysis session, context version, quality gate, execution;
+- proposal, statistical test result và drift report qua profile run;
+- analysis session trực tiếp; context version, quality gate và execution qua
+  session;
 - report draft/version/visualization;
 - audit event và profile retrieval document.
 
@@ -197,7 +206,7 @@ Compute tạo schema/dtype, row count, null percentage, cardinality, uniqueness,
 
 LangGraph hỗ trợ orchestration, resume/checkpoint và narrative. Nếu LLM không có key, compute/profile vẫn có thể chạy; narrative sẽ dùng fallback dạng bảng hoặc được bỏ qua tùy workflow.
 
-## 5.1. Trạng thái skill và boundary tích hợp
+### 5.1 Trạng thái skill và boundary tích hợp
 
 Native skill registry hiện có tại `backend/src/agents/skills/registry.py`; agent
 không dùng DB-GPT `SkillManager`/`SkillLoader`. Năm skill có version, permission
@@ -216,7 +225,8 @@ budget vẫn giữ nguyên boundary hiện hữu. `get_profile_readiness` bổ s
 thái evidence-ready nhưng không thay Analysis Workspace quality gate.
 
 Không cho model tự đăng ký skill/tool mới lúc runtime, tự đọc source file hay tự
-tính lại metric. Contract đầy đủ: [agent_skills.md](agent_skills.md).
+tính lại metric. Contract nguồn nằm trong từng `SKILL.md` dưới
+`backend/src/agents/skills/` và registry tương ứng.
 
 ## 6. Proposal review và PII
 
@@ -237,7 +247,17 @@ PII policy:
 
 ## 7. Report, Q&A và retrieval
 
-`GET /api/v1/profile/{run_id}` trả profile đã mask. `GET /api/v1/profile/{run_id}/report` tạo bounded source document cho combined export, gồm profile metadata, report data, linked analysis sessions và export policy.
+`GET /api/v1/profile/{run_id}` trả profile đã mask.
+`GET /api/v1/profile/{run_id}/report` tạo bounded source document cho combined
+export, gồm profile metadata/metrics, section được chọn, linked Analysis
+Sessions và export policy. `POST` trên cùng path tạo report workspace từ profile
+completed và publish ngay theo flow Analyst hiện tại.
+
+`GET /api/v1/reports` trả thư viện report trong workspace, gồm draft, published
+và archived nhưng loại latest version bị rejected. Generic
+`POST /api/v1/reports` và `PATCH /api/v1/reports/{report_id}` vẫn hỗ trợ
+draft/version/visualization; endpoint `submit` được giữ cho client cũ nhưng hiện
+publish trực tiếp, không có bước review tách role.
 
 Agent có hai nhánh evidence:
 
@@ -259,7 +279,7 @@ trường này. `agent_runs`, step/attempt, model/tool invocation, evidence và
 append-only trace event là nguồn truy nguyên runtime; LangGraph checkpoint chỉ
 dùng resume orchestration.
 
-Generic API luôn scope workspace và yêu cầu Analyst/Admin:
+Generic API luôn scope workspace và yêu cầu capability của Analyst:
 
 ```text
 GET /api/v1/agent-runs/{run_id}
@@ -374,7 +394,10 @@ limitations
 duration_ms
 ```
 
-Nếu profile run là sample, execution được đánh dấu approximate.
+Engine hiện materialize immutable source để aggregate, nhưng cờ
+`is_approximate` của execution vẫn được kế thừa từ profile run. Vì vậy session
+tạo từ profile sample được gắn limitation approximate ngay cả khi aggregate đọc
+full source; contract Preview/Official tách biệt chưa được triển khai.
 
 ## 10. Export report có chọn nội dung
 
@@ -423,9 +446,10 @@ Cover giữ metadata nhận diện report; checklist quyết định các sectio
 
 Supabase upload file lớn hơn `SUPABASE_STORAGE_RESUMABLE_THRESHOLD_MB` bằng resumable chunks. `SECURITY_MAX_UPLOAD_MB` chỉ là giới hạn ứng dụng; giới hạn plan của Supabase vẫn có hiệu lực. Google Drive dùng OAuth workspace-level, refresh token mã hóa bằng Fernet và resumable upload/download.
 
-Google Drive connection cho phép Analyst hoặc Admin có quyền upload tự tạo kết
-nối; chỉ Admin có capability ngắt kết nối hoặc quản lý workspace settings. Kết
-nối thuộc workspace và OAuth state có TTL; callback phải khớp redirect URI.
+Google Drive connection cho phép Analyst có capability
+`workspace.storage.connect` tự tạo kết nối; cùng role Analyst có
+`workspace.settings.manage` để ngắt kết nối. Kết nối thuộc workspace và OAuth
+state có TTL; callback phải khớp redirect URI.
 
 ## 12. Configuration và deployment
 
@@ -464,7 +488,7 @@ Production không tự tạo schema thiếu; migration phải chạy trước ro
 Agent runtime rollout bắt đầu bằng `AGENT_TRACE_MODE=shadow`; verifier,
 planner, jobs và memory đều giữ `off/false` cho tới khi migration và deterministic
 evaluation gate tương ứng pass. `AGENT_TRACE_MODE=required` fail closed nếu
-không thể ghi trace. Xem [ADR agent runtime v2](adr-agent-runtime-v2.md).
+không thể ghi trace.
 
 Các switch runtime hiện có:
 
@@ -486,42 +510,48 @@ thực thi trong Q&A.
 
 ## 13. Frontend contract
 
-Frontend dùng Next.js 15, React 19, TypeScript, TanStack Query và Supabase SSR. `auth-provider.tsx` bootstrap session, workspace và permissions. `api.ts` gắn token/workspace vào request; React Query cache phải được reset khi logout hoặc switch workspace.
+Frontend dùng Next.js 15, React 19, TypeScript, TanStack Query và Supabase SSR. `auth-provider.tsx` bootstrap session, workspace và permissions. `api.ts` gắn token/workspace vào request; React Query cache phải được reset khi logout hoặc switch workspace. Form tạo workspace dùng preset Business, Marketing, IT hoặc Education để điền sẵn context/theme và vẫn cho phép sửa trước khi submit.
 
 Route chính:
 
 ```text
-/                             public home và guest role selector
+/                             public home và nút Analyst trial
 /guide                        hướng dẫn public
 /login                        Supabase login
-/signup                       self-signup, role selector và resend confirmation
+/signup                       self-signup Analyst và resend confirmation
 /forgot-password              yêu cầu reset password
 /auth/callback                PKCE callback và self-signup provisioning
 /account/update-password      đặt password mới sau reset
 /dashboard                    dashboard Analyst
+/datasets                     danh sách dataset trong workspace
 /datasets/new                 upload + profile run
-/profiles/{runId}             profile report
+/datasets/{datasetId}/runs    lịch sử và tạo profile run mới
+/profiles/{runId}             Profile Run Command Center khi feature flag bật
 /profiles/{runId}/review      proposal review
 /profiles/{runId}/analysis    test, drift, export
-/analyses/new                 create Analysis Session
-/analyses/{sessionId}         context, quality gate, exploration
-/notebooks                    danh sách notebooks
-/notebooks/{notebookId}       chi tiết notebook và cells
-/workspaces                   workspace management
-/workspaces/manage            quản lý thành viên và settings
+/reports                      thư viện report draft/published/archived
+/reports/{reportId}           report detail/version và export PDF
+/workspaces                   workspace management + preset context/theme
+/workspaces/manage            quản lý thành viên và invitation
+/settings                     Workspace Context & Theme
 /activity                     workspace activity log
 /compare                      so sánh profile/drift
-/chat                         Q&A Agent
-/reports                      published report portal
-/reports/{reportId}           published report
+/chat                         Agent Q&A
+/analyses                     legacy Analysis Session; hidden from left sidebar
+/analyses/new                 legacy create route
+/analyses/{sessionId}         legacy context, quality gate, exploration
+/notebooks                    legacy notebook library; hidden from left sidebar
+/notebooks/{notebookId}       legacy notebook detail/cells
 ```
 
-Navbar public dùng role buttons ở home/auth pages; visitor cần chọn một role
-trước khi vào route workspace. Guest workspace dùng public topbar kết hợp app
-shell và có nút `Kết thúc dùng thử`; signed-in workspace dùng
-membership/workspace controls. `AuthProvider` reset React Query cache khi
-logout/switch workspace và giữ `X-Workspace-Id` chỉ cho signed-in membership có
-nhiều workspace.
+Navbar public dùng một nút Analyst để bắt đầu trial; không có selector nhiều
+role. Guest workspace dùng public topbar kết hợp app shell và có nút `Kết
+thúc dùng thử`; signed-in workspace dùng membership/workspace controls.
+`AuthProvider` reset React Query cache khi logout/switch workspace. Sau khi
+bootstrap, API client gắn `X-Workspace-Id` cho cả signed-in và guest khi có
+workspace hiện tại; backend vẫn tự xác minh membership/session.
+
+`/profiles/{runId}` expose Command Center bốn tab `Tổng quan`, `Khám phá`, `Hỏi Agent` và `Báo cáo` khi `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true`. Explorer tạo Analysis Session lazy ở backend; Preview phải Promote thành Official qua quality gate trước khi Pin. Agent có thể bind execution evidence; Report tab quản lý draft, reorder, unpin, snapshot và export. Legacy URL vẫn truy cập trực tiếp được, nhưng app shell không đưa Analysis/Notebook vào primary navigation.
 
 ## 14. Kiểm tra và vận hành
 
@@ -533,13 +563,15 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
 Backend:
 
 ```powershell
-python -m compileall -q backend/src
-python -m pytest -q
+.\.venv\Scripts\python.exe -m compileall -q backend/src
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check backend tests
 ```
 
 Backend tests cần PostgreSQL test database riêng. Health check:
@@ -571,23 +603,29 @@ Khi điều tra lỗi “Failed to fetch”, kiểm tra theo thứ tự:
 ## 15. Giới hạn và quyết định chưa hoàn tất
 
 - Chưa hỗ trợ join nhiều bảng hoặc semantic layer dùng chung cho một Analysis Session.
-- Không có arbitrary SQL, notebook, source cleaning hay rollback.
+- Không có arbitrary SQL, raw-row analysis, source cleaning hay rollback;
+  Notebook chỉ là working document riêng.
 - Deep analysis mới ở mức workflow mở rộng; planner nhiều bước và insight bank chưa phải contract hoàn chỉnh.
 - Agent runtime mới phát hành trace/provenance cho profiling và Q&A. Native
   skill registry chỉ phát hành playbook + bounded tool bindings; chưa có planner
   thực thi tự do, verifier enforce, approval workflow, durable
   queue/DLQ, circuit breaker hoặc long-term memory.
 - Sample run không mặc định là exact population metric.
+- Preview dùng bounded sample và limitation riêng; Official chạy lại trên full
+  pinned source. Hard cancellation vẫn phụ thuộc request lifecycle/runtime.
 - Đóng tab chỉ xóa guest token ở browser; cleanup workspace/file ở backend phụ
   thuộc retention nếu request cleanup best-effort chưa hoàn tất.
 - Published report là snapshot; report versioning nâng cao và viewer filter tương tác chưa phải phạm vi hiện tại.
-- Invitation email cần nối Supabase Auth Admin hoặc SMTP ở deployment.
+- Legacy Profile/Analysis/Notebook data model vẫn tồn tại trong compatibility
+  window; chưa có kế hoạch drop table/API trong release Command Center này.
+- Invitation email cần nối Supabase Auth Admin API hoặc SMTP ở deployment.
 
 ## 16. Tài liệu liên quan
 
 - [README.md](../README.md)
+- [Architecture](../ARCHITECTURE.md)
+- [UX architecture proposal](ux_architecture_proposal.md)
+- [UX architecture implementation plan](ux-architecture-implementation-plan.md)
 - [.env.example](../.env.example)
 - [config.yaml](../config.yaml)
 - [Backend migrations](../backend/migrations)
-- [ADR agent runtime v2](adr-agent-runtime-v2.md)
-- [Agent production-readiness implementation plan](agent-production-readiness-implementation-plan.md)

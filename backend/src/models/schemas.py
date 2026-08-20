@@ -272,6 +272,8 @@ class QARequest(BaseModel):
         max_length=20,
         description="Một số lượt chat gần nhất để duy trì short-term memory.",
     )
+    analysis_execution_id: str | None = Field(default=None, max_length=64)
+    workspace_context_version_id: str | None = Field(default=None, max_length=64)
     stream: bool = True
 
     @field_validator("question")
@@ -334,6 +336,10 @@ class QAResponse(BaseModel):
     sources: list[AnswerSource] = Field(default_factory=list)
     is_approximate: bool = False
     agent_run_id: str | None = None
+    evidence_status: Literal['verified', 'profile_only', 'no_evidence'] = 'no_evidence'
+    profile_run_id: str | None = None
+    context_version_id: str | None = None
+    analysis_execution_id: str | None = None
     verification: dict[str, Any] | None = None
     trace_summary: dict[str, Any] | None = None
 
