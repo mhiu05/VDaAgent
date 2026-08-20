@@ -68,7 +68,7 @@ function Distribution({ stat, totalRows }: { stat: ColumnStat; totalRows?: numbe
       .map(([label, count]) => ({ label, count: Number(count) })))
     .filter((entry) => Number.isFinite(entry.count))
     .slice(0, 5);
-  if (!entries.length) return <span className="muted">Chưa có phân phối category an toàn để hiển thị.</span>;
+  if (!entries.length) return <span className="muted">Chưa có phân phối danh mục (category) an toàn để hiển thị.</span>;
   const max = Math.max(...entries.map((entry) => entry.count), 1);
   const total = Number(totalRows) || Number(stat.row_count) || null;
   return <div className="chart-bars">{entries.map((entry) => <div className="bar-row" key={entry.label}><span className="truncate" title={entry.label}>{entry.label}</span><span className="bar-track"><span className="bar-fill" style={{ width: `${(entry.count / max) * 100}%` }} /></span><b>{formatNumber(entry.count)} {total ? <small>({formatPercent(entry.count / total, 2)})</small> : null}</b></div>)}</div>;
@@ -111,7 +111,7 @@ function CorrelationPanel({ matrix }: { matrix: Record<string, Record<string, nu
     .filter((pair) => Number.isFinite(pair.value))
     .sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
 
-  if (!pairs.length) return <p className="muted">Không đủ cột numeric để tính correlation.</p>;
+  if (!pairs.length) return <p className="muted">Không đủ cột dữ liệu số (numeric) để tính độ tương quan (correlation).</p>;
 
   return <>
     <div className="correlation-legend"><span><i className="correlation-swatch positive" /> Dương</span><span><i className="correlation-swatch negative" /> Âm</span><span>Gần 0 = ít liên hệ tuyến tính</span></div>
@@ -122,11 +122,11 @@ function CorrelationPanel({ matrix }: { matrix: Record<string, Record<string, nu
 
 function provenanceScanCopy(scanMode?: string | null, approximate?: boolean) {
   if (scanMode === "sample" || approximate) return {
-    label: "Sampling",
+    label: "Lấy mẫu (Sampling)",
     detail: "Thống kê được tính trên mẫu dữ liệu; phù hợp để kiểm tra nhanh.",
   };
   if (scanMode === "full") return {
-    label: "Full scan",
+    label: "Quét toàn bộ (Full scan)",
     detail: "Thống kê được tính trên toàn bộ dữ liệu đã nạp.",
   };
   return { label: "Chưa xác định", detail: "Chưa ghi nhận cách quét dữ liệu." };
@@ -140,7 +140,7 @@ function ProfileOverview() {
   });
   if (profile.isLoading) return <LoadingBlock label="Đang tải báo cáo profile…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
-  if (!profile.data) return <EmptyState title="Không có dữ liệu profile" detail="Profile run không tồn tại hoặc API chưa trả dữ liệu." />;
+  if (!profile.data) return <EmptyState title="Không có dữ liệu profile" detail="Phiên chạy profile (profile run) không tồn tại hoặc API chưa trả dữ liệu." />;
   const data = profile.data;
   const columns = Object.values(data.column_stats);
   const pii = data.proposals.pii?.filter((proposal) => proposal.status !== "rejected") ?? [];
@@ -158,16 +158,16 @@ function ProfileOverview() {
   ];
 
   return <>
-    <PageHeader eyebrow={`Profile run · ${data.run_name || `Phiên bản v${data.version ?? "—"}`}`} title={data.dataset_name || "Báo cáo profile"} description="Các số liệu đến trực tiếp từ compute engine. Evidence proposal được giữ riêng để analyst review." />
+    <div style={{ marginBottom: "1rem" }}>
+      <Link href="/datasets" className="button secondary">← Quay lại Datasets</Link>
+    </div>
+    <PageHeader eyebrow={`Phiên chạy (Profile run) · ${data.run_name || `Phiên bản v${data.version ?? "—"}`}`} title={data.dataset_name || "Báo cáo profile"} description="Các số liệu được lấy trực tiếp từ engine xử lý. Các đề xuất (proposal) được giữ riêng để chuyên viên phân tích review." />
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}
-    <section className="panel compact" style={{ marginBottom: 18 }}><div className="inline-actions"><StatusBadge status={data.status} /><span className="chip">{data.scan_mode || "—"} scan {data.is_approximate && "· sampled"}</span>{data.is_approximate && <span className="chip">≈ Có uncertainty</span>}</div></section>
-    <section className="panel report-actions-panel report-next-actions">
+    <section className="panel compact" style={{ marginBottom: 18 }}><div className="inline-actions"><StatusBadge status={data.status} /><span className="chip">{data.scan_mode || "—"} scan {data.is_approximate && "· sampled"}</span>{data.is_approximate && <span className="chip">≈ Có uncertainty (độ bất định)</span>}</div></section>
+    {(hasReview || !runComplete) && <section className="panel report-actions-panel report-next-actions">
       {hasReview ? <>
-        <div><p className="eyebrow">Bước cần hoàn tất</p><h2>Xem xét metadata trước</h2><p className="muted">Còn {formatNumber(data.pending_proposals)} đề xuất cần được xác nhận, chỉnh sửa hoặc từ chối. Profile sẽ tiếp tục hoàn tất sau khi review xong.</p></div>
-        <div className="inline-actions"><Link href={`/profiles/${runId}/review`} className="button primary">Xem xét {data.pending_proposals} đề xuất</Link></div>
-      </> : runComplete ? <>
-        <div><p className="eyebrow">Bước tiếp theo</p><h2>Tiếp tục khám phá dữ liệu</h2><p className="muted">Profile đã hoàn tất. Phân tích chuyên sâu khi có câu hỏi nghiệp vụ, hoặc kiểm định chất lượng, so sánh drift và xuất báo cáo.</p></div>
-        <div className="inline-actions"><Link href={`/analyses/new?runId=${encodeURIComponent(runId)}`} className="button primary">Phân tích chuyên sâu</Link><InfoTip label="Phân tích chuyên sâu dùng để làm gì">Dùng khi bạn có mục tiêu nghiệp vụ rõ ràng và cần context, quality gate, review.</InfoTip><Link href={`/profiles/${runId}/analysis`} className="button secondary">Kiểm định, drift & xuất</Link><InfoTip label="Kiểm định, drift và xuất báo cáo dùng để làm gì">Kiểm tra giả thuyết thống kê, đối chiếu thay đổi giữa các phiên dữ liệu và xuất báo cáo khi cần.</InfoTip></div>
+        <div><p className="eyebrow">Bước cần hoàn tất</p><h2>Review đề xuất trước</h2><p className="muted">Còn {formatNumber(data.pending_proposals)} đề xuất cần được xác nhận, chỉnh sửa hoặc từ chối. Profile sẽ tiếp tục hoàn thành sau khi Review xong.</p></div>
+        <div className="inline-actions"><Link href={`/profiles/${runId}/review`} className="button primary">Review {data.pending_proposals} đề xuất</Link></div>
       </> : data.status === "failed" ? <>
         <div><p className="eyebrow">Cần xử lý</p><h2>Profile chưa sẵn sàng để phân tích</h2><p className="muted">Pipeline đã gặp lỗi. Hãy kiểm tra thông báo bên trên và chạy lại một phiên profiling khi dữ liệu đã được xử lý.</p></div>
         <div className="inline-actions"><Link href={`/datasets/${data.dataset_id}/runs`} className="button secondary">Quay lại các profile run</Link></div>
@@ -175,7 +175,7 @@ function ProfileOverview() {
         <div><p className="eyebrow">Đang hoàn thiện</p><h2>Profile đang được xử lý</h2><p className="muted">Các thao tác phân tích, kiểm định và xuất báo cáo sẽ mở khi profile chuyển sang trạng thái hoàn tất.</p></div>
         <div className="inline-actions"><StatusBadge status={data.status} /></div>
       </>}
-    </section>
+    </section>}
     <section id="summary_metrics" className="grid four"><Metric label="Số dòng" value={formatNumber(data.row_count)} approximate={data.is_approximate} detail={data.is_approximate ? "Ước lượng từ sample" : "Compute đầy đủ"} /><Metric label="Số cột" value={formatNumber(data.column_count)} detail={`${pii.length} tín hiệu PII`} /><Metric label="Đề xuất chờ review" value={formatNumber(data.pending_proposals)} detail="PII/key không tự xác nhận" /><Metric label="Quasi-identifiers" value={formatNumber(data.quasi_identifiers.length)} detail={data.quasi_identifiers.slice(0, 2).join(", ") || "Không phát hiện"} /></section>
     <div id="risk_provenance" className="grid two" style={{ marginTop: 18 }}>
       <section className="panel"><div className="panel-title"><h2>Rủi ro & privacy</h2><span className="chip pii">Đã bảo vệ PII</span></div>{data.risk_warnings.length ? <ul className="warning-list">{data.risk_warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : <p className="muted">Không có cảnh báo rủi ro từ pipeline.</p>}<div className="chip-list" style={{ marginTop: 14 }}>{pii.map((proposal) => <span className="chip pii" key={proposal.id}>{proposal.column_name || proposal.columns?.join(", ")}: {proposal.pii_type || proposal.proposed_type || "PII candidate"}</span>)}</div></section>
@@ -189,18 +189,25 @@ function ProfileOverview() {
         </div>
         <div className="provenance-flow" aria-label="Các bước tạo báo cáo">
           <div className="provenance-flow-step done"><span>1</span><div><b>Nạp dữ liệu</b><small>Đọc dataset vào compute engine</small></div></div>
-          <div className="provenance-flow-step done"><span>2</span><div><b>Tính metric</b><small>{scanCopy.label} · seed {data.random_seed ?? "—"}</small></div></div>
+          <div className="provenance-flow-step done"><span>2</span><div><b>Tính metric</b><small>{scanCopy.label}</small></div></div>
           <div className={`provenance-flow-step ${reviewComplete ? "done" : "current"}`}><span>3</span><div><b>Review metadata</b><small>{reviewComplete ? "Proposal đã được xử lý" : "Đang chờ quyết định"}</small></div></div>
           <div className={`provenance-flow-step ${runComplete ? "done" : "current"}`}><span>4</span><div><b>Sẵn sàng sử dụng</b><small>{runComplete ? "Báo cáo đã hoàn tất" : "Pipeline chưa hoàn tất"}</small></div></div>
         </div>
         <div className="provenance-details"><div><span>Profile run</span><b>{data.run_name || `Phiên bản v${data.version ?? "—"}`}</b></div><div><span>Phiên bản</span><b>v{data.version ?? "—"}</b></div><div><span>Cách tính</span><b>Deterministic aggregate</b></div></div>
-        {data.executed_query && <details className="provenance-technical"><summary>Xem thông tin kỹ thuật để tái lập</summary><p>{scanCopy.detail} Query nội bộ đã được lưu để backend có thể nạp lại đúng nguồn khi cần.</p><code>{data.executed_query}</code></details>}
+        {data.executed_query && <details className="provenance-technical"><summary>Xem câu lệnh SQL truy vấn nguồn dữ liệu</summary><p>{scanCopy.detail} Hệ thống đã lưu lại câu lệnh truy vấn bên dưới để đảm bảo tính minh bạch và có thể tái sử dụng để truy xuất đúng tập dữ liệu gốc này khi cần thiết.</p><code>{data.executed_query}</code></details>}
       </section>
     </div>
     {data.narrative_report && <section id="narrative_report" className="panel" style={{ marginTop: 18 }}><div className="panel-title"><h2>Tóm tắt agent</h2><small>Chỉ diễn giải metric đã kiểm chứng</small></div><MarkdownContent text={data.narrative_report} className="report report-markdown" /></section>}
     <section id="column_profiles" className="panel" style={{ marginTop: 18 }}><div className="panel-title"><div><h2>Hồ sơ cột</h2><small>Top values bị ẩn với cột PII.</small></div><span className="chip">{columns.length} cột</span></div><div className="table-wrap"><table><thead><tr><th>Cột</th><th>Kiểu</th><th>Null</th><th>Cardinality</th><th>Uniqueness</th><th>Tóm tắt số</th><th>Giá trị phổ biến</th></tr></thead><tbody>{columns.map((stat) => <tr key={stat.column_name}><td><b>{stat.column_name}</b>{stat.pii_masked && <><br /><span className="chip pii">Đã ẩn PII</span></>}</td><td>{stat.dtype || "—"}</td><td>{formatPercent(stat.null_pct)}<br /><small>{formatNumber(stat.null_count)} null</small></td><td>{formatNumber(stat.cardinality)}</td><td>{formatPercent(stat.uniqueness_ratio)}</td><td>{stat.mean !== null && stat.mean !== undefined ? <div className="metric-summary"><span>mean: <b>{formatNumber(stat.mean)}</b></span><span>min: <b>{formatNumber(stat.min_value)}</b></span><span>max: <b>{formatNumber(stat.max_value)}</b></span><span>outliers: <b>{formatNumber(stat.outlier_count)}</b></span></div> : <div className="metric-summary"><span>min length: <b>{formatNumber(stat.min_length)}</b></span><span>max length: <b>{formatNumber(stat.max_length)}</b></span></div>}</td><td><TopValues stat={stat} /></td></tr>)}</tbody></table></div></section>
     <div id="metric_charts" className="grid two" style={{ marginTop: 18 }}><MetricChart title="Tỷ lệ null theo cột" columns={columns} metric="null_pct" warning /><MetricChart title="Tỷ lệ unique theo cột" columns={columns} metric="uniqueness_ratio" ratio /></div>
     <div id="distribution_correlation" className="grid two" style={{ marginTop: 18 }}><section className="panel"><div className="panel-title"><h2>Phân phối</h2><small>Top-k non-PII · tỷ lệ trên toàn bộ dòng</small></div>{columns.filter((stat) => !stat.pii_masked).slice(0, 3).map((stat) => <div className="distribution-column" key={stat.column_name}><h3>{stat.column_name}</h3><Distribution stat={stat} totalRows={data.row_count} /></div>)}</section><section className="panel"><div className="panel-title"><h2>Tương quan</h2><small>Pearson r · các cột số</small></div><CorrelationPanel matrix={data.correlation_matrix} /></section></div>
+
+    {(!hasReview && runComplete) && (
+      <section className="panel report-actions-panel" style={{ marginTop: 18 }}>
+        <div><p className="eyebrow">Bước tiếp theo</p><h2>Khám phá dữ liệu đã hoàn tất</h2><p className="muted">Tạo aggregate an toàn, xác nhận evidence và đưa kết quả vào báo cáo trong Command Center.</p></div>
+        <div className="inline-actions"><Link href={`/profiles/${runId}?tab=explorer`} className="button primary">Khám phá dữ liệu</Link></div>
+      </section>
+    )}
     
     {tocItems.length > 0 && (
       <aside className="report-toc-sidebar">

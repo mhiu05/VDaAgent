@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const publicPaths = new Set(["/", "/guide", "/login", "/signup", "/forgot-password", "/auth/callback", "/auth/confirm", "/account/update-password"]);
 const guestAllowed = process.env.NEXT_PUBLIC_AUTH_ALLOW_GUEST === "true";
-const appPaths = ["/dashboard", "/workspaces", "/reports", "/chat", "/datasets", "/profiles", "/analyses", "/compare"];
+const appPaths = ["/dashboard", "/workspaces", "/reports", "/chat", "/datasets", "/profiles", "/compare"];
 
 export async function middleware(request: NextRequest) {
   const url = request.nextUrl;

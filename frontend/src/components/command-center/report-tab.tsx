@@ -36,7 +36,7 @@ export function ReportTab({ runId }: { runId: string }) {
   async function exportPdf() {
     setExporting(true);
     try {
-      const blob = await downloadCombinedReport(runId);
+      const blob = await downloadCombinedReport(runId, undefined, data.id);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -46,7 +46,7 @@ export function ReportTab({ runId }: { runId: string }) {
     } finally { setExporting(false); }
   }
   return <section className="command-report">
-    <header className="panel-title"><div><h2>{data.title}</h2><p className="muted">Report Draft gắn với Profile Run. Snapshot không tự động cập nhật khi context, theme hoặc evidence thay đổi.</p></div><div className="inline-actions"><button className="button primary" type="button" onClick={() => snapshot.mutate()} disabled={snapshot.isPending || data.items.length === 0 || data.stale_reasons.length > 0}>{snapshot.isPending ? "Đang đóng băng…" : "Tạo snapshot"}</button>{data.snapshot_hash && <button className="button secondary" type="button" onClick={() => void exportPdf()} disabled={exporting}>{exporting ? "Đang xuất…" : "Xuất PDF"}</button>}</div></header>
+    <header className="panel-title"><div><h2>{data.title}</h2><p className="muted">PDF luôn dùng snapshot gần nhất đã đóng băng. Nếu bạn thay đổi thứ tự hoặc nội dung đã ghim, hãy tạo snapshot mới trước khi xuất.</p></div><div className="inline-actions"><button className="button primary" type="button" onClick={() => snapshot.mutate()} disabled={snapshot.isPending || data.items.length === 0 || data.stale_reasons.length > 0}>{snapshot.isPending ? "Đang đóng băng…" : "Tạo snapshot"}</button>{data.snapshot_hash && <button className="button secondary" type="button" onClick={() => void exportPdf()} disabled={exporting}>{exporting ? "Đang xuất…" : "Xuất PDF"}</button>}</div></header>
     {data.stale_reasons.length > 0 && <Notice tone="warning"><b>Draft da stale.</b><p>{data.stale_reasons.join(", ")}. Re-run va pin lai evidence truoc khi export.</p></Notice>}
     {snapshot.isError && <ErrorNotice error={snapshot.error} retry={() => snapshot.reset()} />}
     {data.snapshot_hash && <Notice tone="info">Snapshot hash: <code>{data.snapshot_hash}</code></Notice>}

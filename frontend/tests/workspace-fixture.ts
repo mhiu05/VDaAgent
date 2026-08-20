@@ -4,7 +4,7 @@ const analystPermissions = [
   "report.published.read", "report.published.export", "qa.published.ask",
   "dataset.read", "dataset.upload", "dataset.delete", "profile.read",
   "profile.run", "profile.review", "stats.run", "drift.run", "qa.profile.ask",
-  "analysis.run", "notebook.read", "notebook.write", "notebook.share",
+  "analysis.run",
   "report.draft.write", "report.submit", "report.review", "report.publish",
   "report.archive", "workspace.activity.read", "workspace.audit.read",
   "workspace.members.manage", "workspace.settings.manage", "workspace.storage.connect",

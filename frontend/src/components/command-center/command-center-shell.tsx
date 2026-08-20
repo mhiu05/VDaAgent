@@ -62,6 +62,9 @@ export function CommandCenterShell({ overview }: Props) {
   const data = profile.data;
 
   return <main className="page command-center" aria-labelledby="command-center-title">
+    <div style={{ marginBottom: "1rem" }}>
+      <Link href="/datasets" className="button secondary">← Quay lại Datasets</Link>
+    </div>
     <header className="command-center-header">
       <div>
         <p className="eyebrow">PROFILE RUN COMMAND CENTER</p>
@@ -72,12 +75,12 @@ export function CommandCenterShell({ overview }: Props) {
         <span className="chip">{data.scan_mode || "unknown"} scan</span>
         <StatusBadge status={data.status} />
         <span className={data.is_approximate ? "chip warning" : "chip"}>{confidenceLabel(data.scan_mode, data.is_approximate)}</span>
-        {data.pending_proposals > 0 && <span className="chip pii">{data.pending_proposals} cần review</span>}
+        {data.pending_proposals > 0 && <span className="chip pii">{data.pending_proposals} đề xuất cần review</span>}
       </div>
     </header>
 
     {data.status === "failed" && <Notice tone="warning"><b>Profile chạy thất bại.</b><p>{data.error || "Hãy kiểm tra source và bắt đầu một profile run mới."}</p><Link className="button secondary" href={`/datasets/${data.dataset_id}/runs`}>Mở profile runs</Link></Notice>}
-    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review metadata trước khi chạy Explorer.</b><p>Xử lý proposal đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}?tab=${activeTab}`)}`}>Review proposals</Link></Notice>}
+    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đê xuất trước khi chạy Explorer.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}?tab=${activeTab}`)}`}>Review đề xuất</Link></Notice>}
 
     <div className="command-center-tabs" role="tablist" aria-label="Command Center tabs" id={tabListId}>
       {COMMAND_CENTER_TABS.map((item) => <button

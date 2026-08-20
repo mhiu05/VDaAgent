@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import type { SelfSignupRole } from "@/lib/api";
@@ -15,6 +15,7 @@ export default function SignupPage() {
   const [registeredRole, setRegisteredRole] = useState<SelfSignupRole | null>(null);
   const [resendBusy, setResendBusy] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
   const signupAllowed = process.env.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP === "true";
 
   useEffect(() => {
@@ -25,7 +26,6 @@ export default function SignupPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formElement = event.currentTarget;
     if (!signupAllowed) {
       setError("Đăng ký tài khoản đang tắt. Hãy liên hệ workspace để nhận lời mời.");
       return;
@@ -35,10 +35,10 @@ export default function SignupPage() {
       setError("Supabase Auth chưa được cấu hình cho frontend.");
       return;
     }
-    const form = new FormData(formElement);
-    const email = String(form.get("email")).trim();
-    const password = String(form.get("password"));
-    const confirmPassword = String(form.get("confirm-password"));
+    const formData = new FormData(event.currentTarget);
+    const email = String(formData.get("email")).trim();
+    const password = String(formData.get("password"));
+    const confirmPassword = String(formData.get("confirm-password"));
     if (password !== confirmPassword) {
       setError("Mật khẩu xác nhận không khớp.");
       return;
@@ -47,25 +47,30 @@ export default function SignupPage() {
     setError(null);
     setMessage(null);
     const redirect = `${window.location.origin}/auth/callback?requested_role=${encodeURIComponent(role)}`;
-    const { data, error: signupError } = await client.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: redirect, data: { requested_role: role } },
-    });
-    setBusy(false);
-    if (signupError) {
-      setError(signupError.message);
-      return;
+    try {
+      const { data, error: signupError } = await client.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: redirect, data: { requested_role: role } },
+      });
+      if (signupError) {
+        setError(signupError.message);
+        return;
+      }
+      if (data.session) {
+        window.location.assign(`/auth/callback?requested_role=${encodeURIComponent(role)}`);
+        return;
+      }
+      setMessage("Hãy kiểm tra email để xác nhận; sau đó hệ thống sẽ tự tạo personal workspace và đăng nhập cho bạn.");
+      setRegisteredEmail(email);
+      setRegisteredRole(role);
+      setResendCooldown(120);
+      formRef.current?.reset();
+    } catch (signupException) {
+      setError(signupException instanceof Error ? signupException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
+    } finally {
+      setBusy(false);
     }
-    if (data.session) {
-      window.location.assign(`/auth/callback?requested_role=${encodeURIComponent(role)}`);
-      return;
-    }
-    setMessage(`Tài khoản đã được tạo với role ${role}. Hãy kiểm tra email để xác nhận; sau đó hệ thống sẽ tự tạo personal workspace và đăng nhập cho bạn.`);
-    setRegisteredEmail(email);
-    setRegisteredRole(role);
-    setResendCooldown(120);
-    formElement.reset();
   }
 
   async function resendConfirmation() {
@@ -78,47 +83,51 @@ export default function SignupPage() {
     setResendBusy(true);
     setError(null);
     const redirect = `${window.location.origin}/auth/callback?requested_role=${encodeURIComponent(registeredRole)}`;
-    const { error: resendError } = await client.auth.resend({
-      type: "signup",
-      email: registeredEmail,
-      options: { emailRedirectTo: redirect },
-    });
-    setResendBusy(false);
-    if (resendError) {
-      const status = "status" in resendError ? resendError.status : undefined;
-      const rawMessage = resendError.message.toLowerCase();
-      if (status === 429 || rawMessage.includes("rate limit") || rawMessage.includes("too many")) {
-        setError("Supabase đang giới hạn số email xác thực. Với SMTP mặc định, project có thể chỉ gửi khoảng 2 email mỗi giờ; hãy chờ thêm hoặc cấu hình SMTP riêng.");
-      } else {
-        setError(resendError.message);
+    try {
+      const { error: resendError } = await client.auth.resend({
+        type: "signup",
+        email: registeredEmail,
+        options: { emailRedirectTo: redirect },
+      });
+      if (resendError) {
+        const status = "status" in resendError ? resendError.status : undefined;
+        const rawMessage = resendError.message.toLowerCase();
+        if (status === 429 || rawMessage.includes("rate limit") || rawMessage.includes("too many")) {
+          setError("Supabase đang giới hạn số email xác thực. Với SMTP mặc định, project có thể chỉ gửi khoảng 2 email mỗi giờ; hãy chờ thêm hoặc cấu hình SMTP riêng.");
+        } else {
+          setError(resendError.message);
+        }
+        return;
       }
-      return;
+      const sentAt = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(new Date());
+      setMessage(`Supabase đã nhận yêu cầu gửi lại email tới ${registeredEmail} lúc ${sentAt}. Hãy kiểm tra Inbox, Spam và Promotions.`);
+      setResendCooldown(120);
+    } catch (resendException) {
+      setError(resendException instanceof Error ? resendException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
+    } finally {
+      setResendBusy(false);
     }
-    const sentAt = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit" }).format(new Date());
-    setMessage(`Supabase đã nhận yêu cầu gửi lại email tới ${registeredEmail} lúc ${sentAt}. Hãy kiểm tra Inbox, Spam và Promotions.`);
-    setResendCooldown(120);
   }
 
   return <div className="public-page auth-screen">
     <PublicNavbar />
     <main className="auth-layout">
       <section className="auth-intro">
-        <p className="eyebrow">Create your workspace identity</p>
-        <h1>Bắt đầu với một workspace rõ ràng.</h1>
-        <p>Chọn role ngay khi đăng ký. Sau khi xác nhận email, VDaAgent tự tạo một personal workspace riêng và kích hoạt membership cho tài khoản của bạn.</p>
-        <div className="auth-trust-list"><span><b>Confirm your email</b><small>Liên kết xác nhận dùng callback an toàn</small></span><span><b>Choose your role</b><small>Role được áp dụng ngay cho workspace riêng</small></span><span><b>Keep data scoped</b><small>Dữ liệu luôn thuộc workspace phù hợp</small></span></div>
+        <p className="eyebrow">Tham gia VDaAgent</p>
+        <h1>Tạo không gian làm việc của bạn.</h1>
+        <p>Đăng ký tài khoản để bắt đầu phân tích. Sau khi xác nhận email, VDaAgent sẽ cấp phát ngay một workspace cá nhân dành riêng cho bạn.</p>
+        <div className="auth-trust-list"><span><b>Xác thực an toàn</b><small>Liên kết xác nhận an toàn qua email</small></span><span><b>Không gian cá nhân</b><small>Không gian làm việc riêng biệt và bảo mật</small></span><span><b>Sẵn sàng phân tích</b><small>Đầy đủ công cụ upload, profile và xuất báo cáo</small></span></div>
       </section>
       <section className="auth-card panel" aria-labelledby="signup-title">
-        <div className="auth-card-heading"><p className="eyebrow">VDaAgent account</p><h2 id="signup-title">Đăng ký Analyst</h2><p>Tạo tài khoản để bắt đầu phân tích trong workspace.</p></div>
+        <div className="auth-card-heading"><p className="eyebrow">Tài khoản VDaAgent</p><h2 id="signup-title">Đăng ký</h2><p>Tạo tài khoản để bắt đầu phân tích trong workspace.</p></div>
         {!signupAllowed && <div className="notice info" role="status"><b>Đăng ký công khai đang tắt</b><p>Workspace hiện nhận thành viên qua invitation. Có thể bật <code>AUTH_ALLOW_SIGNUP=true</code> để mở signup.</p></div>}
-        <form className="auth-form" onSubmit={submit}>
+        <form ref={formRef} className="auth-form" onSubmit={submit}>
           <label htmlFor="signup-email">Email<input id="signup-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></label>
           <label htmlFor="signup-password">Mật khẩu<input id="signup-password" name="password" type="password" autoComplete="new-password" minLength={8} placeholder="Tối thiểu 8 ký tự" required /></label>
           <label htmlFor="signup-confirm-password">Xác nhận mật khẩu<input id="signup-confirm-password" name="confirm-password" type="password" autoComplete="new-password" minLength={8} placeholder="Nhập lại mật khẩu" required /></label>
-          <div className="notice info"><b>Role: Analyst</b><p>Tài khoản có đầy đủ quyền upload, profiling, phân tích và tạo báo cáo trong workspace.</p></div>
           <p className="auth-password-hint">Dùng mật khẩu dài, riêng biệt và không chia sẻ cho người khác.</p>
           {error && <div className="notice error" role="alert"><b>Không thể tạo tài khoản</b><p>{error}</p></div>}
-          {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p>{registeredEmail && <div className="signup-resend"><button className="button secondary" type="button" onClick={() => void resendConfirmation()} disabled={resendBusy || resendCooldown > 0}>{resendBusy ? "Đang gửi lại…" : resendCooldown > 0 ? `Gửi lại sau ${Math.floor(resendCooldown / 60)}:${String(resendCooldown % 60).padStart(2, "0")}` : "Gửi lại email xác nhận"}</button><small>Gmail có thể gộp email mới vào thread cũ; hãy mở rộng thread để xem thư mới nhất.</small></div>}</div>}
+          {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p>{registeredEmail && <div className="signup-resend"><button className="button secondary" type="button" onClick={() => void resendConfirmation()} disabled={resendBusy || resendCooldown > 0}>{resendBusy ? "Đang gửi lại…" : resendCooldown > 0 ? `Gửi lại sau ${Math.floor(resendCooldown / 60)}:${String(resendCooldown % 60).padStart(2, "0")}` : "Gửi lại email xác nhận"}</button><small>Kiểm tra thư rác hoặc spam nếu chưa nhận được.</small></div>}</div>}
           <button className="button primary auth-submit" type="submit" disabled={busy || !signupAllowed}>{busy ? "Đang tạo tài khoản…" : "Đăng ký"}</button>
         </form>
         <p className="auth-switch">Đã có tài khoản? <Link href="/login">Đăng nhập</Link></p>

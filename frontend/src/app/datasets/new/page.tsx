@@ -279,12 +279,12 @@ export default function NewDatasetPage() {
   const profiledCount = profiled.filter(Boolean).length;
   const selectedPath = (file: File) => file.webkitRelativePath || file.name;
   return <>
-    <PageHeader eyebrow="Bộ dữ liệu mới" title="Tải lên và bắt đầu profiling" description="File được gửi trực tiếp tới API. Compute engine tạo metric; Agent chỉ đề xuất metadata kèm evidence." />
+    <PageHeader eyebrow="Bộ dữ liệu mới" title="Tải lên và bắt đầu profiling" description="Hệ thống sẽ tự động quét và phân tích dữ liệu của bạn một cách bảo mật. Các chỉ số được tính toán chính xác tuyệt đối, AI chỉ đóng vai trò hỗ trợ gợi ý thông tin." />
     {error && <ErrorNotice error={error} retry={files.length && !allUploaded ? handleUpload : allUploaded ? handleProfile : undefined} />}
     {selectionWarning && <Notice tone="info"><p>{selectionWarning}</p></Notice>}
     {driveStatus?.provider === "google_drive" && <Notice tone={driveStatus.connected ? "success" : "info"}>
       <b>{driveStatus.connected ? "Google Drive đã kết nối." : "Cần kết nối Google Drive trước khi upload."}</b>
-      {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn có thể tự kết nối Google Drive một lần bằng tài khoản Google của mình." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
+      {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn chỉ cần kết nối Google Drive 1 lần trong 1 tài khoản." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
       {!driveStatus.connected && driveStatus.can_connect && <button className="button secondary" onClick={handleConnectDrive} disabled={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</button>}
     </Notice>}
     <div className="grid two">
@@ -300,8 +300,8 @@ export default function NewDatasetPage() {
       </section>
       <section className="panel"><div className="panel-title"><h2>2. Cấu hình profiling</h2><small>Sampling có thể tái lập</small></div>
         <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên bộ dữ liệu</label><input id="dataset-name" value={datasetName} onChange={(event) => { setDatasetName(event.target.value); setCollectionSaved(false); }} placeholder="Ví dụ: Dữ liệu bán hàng tháng 8" maxLength={255} disabled={!files.length || busy !== null || savingCollection} /><small className="muted">{files.length > 1 ? `Tên này gộp ${files.length} file thành một bộ; tên từng file vẫn được giữ nguyên.` : "Tên này dùng để phân loại dataset trong workspace."}{collectionSaved ? " Đã lưu." : ""}</small></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!allUploaded}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div></div>
-        <Notice tone="info"><b>Ranh giới privacy</b><p>PII candidate và candidate key luôn chờ analyst review; mẫu dữ liệu nhạy cảm không được render.</p></Notice>
-        <div className="form-actions"><button className="button secondary" disabled={!allUploaded || !datasetName.trim() || busy !== null || savingCollection} onClick={() => void saveDatasetCollection()}>{savingCollection ? "Đang lưu tên bộ…" : "Lưu tên bộ dữ liệu"}</button><button className="button primary" disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</button></div>
+        <Notice tone="info"><b>Bảo mật quyền riêng tư</b><p>Hệ thống sẽ không hiển thị các dữ liệu mẫu nhạy cảm. Mọi phát hiện về thông tin cá nhân hoặc định danh đều cần bạn xác nhận trước khi lưu.</p></Notice>
+        <div className="form-actions"><button className="button primary" disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</button></div>
       </section>
     </div>
   </>;

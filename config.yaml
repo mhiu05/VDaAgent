@@ -87,7 +87,7 @@ guardrails:
 # Agent runtime v2 is additive. Keep every enforcement feature off until the
 # corresponding migration and deterministic eval gates have passed.
 agent:
-  trace_mode: "off"
+  trace_mode: "shadow"
   verifier_mode: "off"
   planner_enabled: false
   jobs_enabled: false
@@ -100,7 +100,7 @@ agent:
 # API contract and cross-workspace tests have been verified in staging.
 ux:
   command_center_enabled: false
-  preview_timeout_seconds: 10
+  preview_timeout_seconds: 60
   preview_row_budget: 50000
   preview_result_limit: 50
   official_result_limit: 500
@@ -109,7 +109,7 @@ ux:
 # API contract and cross-workspace tests have been verified in staging.
 ux:
   command_center_enabled: false
-  preview_timeout_seconds: 10
+  preview_timeout_seconds: 60
   preview_row_budget: 50000
   preview_result_limit: 50
   official_result_limit: 500

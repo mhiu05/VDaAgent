@@ -393,10 +393,10 @@ EXPORT_SECTION_KEYS = (
     "overview",
     "technical_profile",
     "quality",
-    "tests",
-    "drift",
     "agent_summary",
+    "drift",
     "analysis",
+    "report_snapshot",
 )
 
 
@@ -487,8 +487,6 @@ def _report_profile(
         profile["column_stats"] = []
     if "quality" not in selected_sections:
         profile["run"]["risk_warnings"] = []
-    if "tests" not in selected_sections:
-        profile["test_results"] = []
     if "drift" not in selected_sections:
         profile["drift_reports"] = []
     if "agent_summary" not in selected_sections:
@@ -524,7 +522,6 @@ def _profile_report_payload(report_payload: dict[str, Any], run_id: str) -> dict
         if float(item.get("null_pct") or 0) > 0
     ]
     warnings = [str(item) for item in (run.get("risk_warnings") or [])]
-    test_count = len(profile.get("test_results") or [])
     analysis_count = len(report_payload.get("analysis_sessions") or [])
 
     summary = run.get("narrative_report") or (
@@ -542,7 +539,7 @@ def _profile_report_payload(report_payload: dict[str, Any], run_id: str) -> dict
         f"Có {len(missing_columns)} cột có giá trị thiếu"
         + (f": {', '.join(missing_columns)}." if missing_columns else ".")
         + f"\nCó {len(warnings)} cảnh báo chất lượng/quyền riêng tư."
-        + f"\nCó {test_count} kết quả kiểm định và {analysis_count} phiên phân tích liên kết."
+        + f"\nCó {analysis_count} phiên khám phá liên kết."
     )
     limitations = (
         "Báo cáo chỉ chứa metadata, thống kê tổng hợp và evidence đã được lọc. "
@@ -1055,10 +1052,23 @@ def _qa_state(
     return state
 
 
-def _qa_evidence_metadata(request: QARequest) -> dict[str, Any]:
+def _qa_evidence_metadata(
+    request: QARequest, *, agent_run_id: str | None, workspace_id: str
+) -> dict[str, Any]:
+    evidence_exists = False
+    if agent_run_id and request.profile_run_id:
+        try:
+            evidence_exists = any(
+                item.get("profile_run_id") == request.profile_run_id
+                for item in get_repository().list_agent_evidence(
+                    agent_run_id, workspace_id=workspace_id
+                )
+            )
+        except Exception:  # Evidence metadata must never fail a Q&A response.
+            logger.warning("Could not load Q&A evidence metadata", exc_info=True)
     status = (
         'verified'
-        if request.analysis_execution_id
+        if evidence_exists
         else 'profile_only'
         if request.profile_run_id
         else 'no_evidence'
@@ -1153,7 +1163,9 @@ async def ask_question(
         sources=result.get("answer_sources") or [],
         is_approximate=is_approximate,
         agent_run_id=agent_run_id,
-        **_qa_evidence_metadata(request),
+        **_qa_evidence_metadata(
+            request, agent_run_id=agent_run_id, workspace_id=context.workspace_id
+        ),
         verification={"status": "not_run", "mode": get_settings().agent_verifier_mode},
         trace_summary=trace_summary,
     )
@@ -1239,7 +1251,11 @@ async def ask_question_stream(
                     "length": len(answer),
                     "agent_run_id": agent_run_id,
                     "trace_summary": trace_summary,
-                    **_qa_evidence_metadata(request),
+                    **_qa_evidence_metadata(
+                        request,
+                        agent_run_id=agent_run_id,
+                        workspace_id=context.workspace_id,
+                    ),
                 },
             )
 

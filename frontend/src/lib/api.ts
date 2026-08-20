@@ -11,7 +11,6 @@ import type {
   UploadResult,
 } from "@/lib/types";
 import type { AnalysisExecution, AnalysisSession, QuerySpec } from "@/lib/analysis-types";
-import type { Notebook, NotebookCell, NotebookCellKind } from "@/lib/notebook-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
@@ -480,8 +479,8 @@ export async function downloadExport(runId: string): Promise<Blob> {
   return response.blob();
 }
 
-export type CombinedReportSection = "overview" | "technical_profile" | "quality" | "tests" | "drift" | "agent_summary" | "analysis";
-export const ALL_COMBINED_REPORT_SECTIONS: CombinedReportSection[] = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
+export type CombinedReportSection = "overview" | "technical_profile" | "quality" | "agent_summary" | "drift" | "analysis" | "report_snapshot";
+export const ALL_COMBINED_REPORT_SECTIONS: CombinedReportSection[] = ["overview", "technical_profile", "quality", "agent_summary", "drift", "analysis", "report_snapshot"];
 
 function reportSectionQuery(sections?: CombinedReportSection[], reportId?: string): string {
   const params = new URLSearchParams();
@@ -619,51 +618,22 @@ export async function uploadDataset(
   }
 }
 
-export function listAnalyses(signal?: AbortSignal, profileRunId?: string): Promise<AnalysisSession[]> {
-  const query = profileRunId ? `?profile_run_id=${encodeURIComponent(profileRunId)}` : "";
-  return request<AnalysisSession[]>(`/analysis-sessions${query}`, { signal });
-}
-
-export function getAnalysis(sessionId: string, signal?: AbortSignal): Promise<AnalysisSession> {
-  return request<AnalysisSession>(`/analysis-sessions/${encodeURIComponent(sessionId)}`, { signal });
-}
-
-export function createAnalysis(payload: { profile_run_id: string; mode: "quick" | "deep"; goal: string; decision?: string; audience?: string; output?: "answer" | "report" | "chart" }): Promise<AnalysisSession> {
-  return request<AnalysisSession>("/analysis-sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-}
-
-export function createAnalysisContext(sessionId: string, payload: { row_grain?: string; entity?: string; keys: string[]; time_column?: string; timezone?: string; dimensions: string[]; measures: string[]; ignored_columns: string[]; limitations: string[] }): Promise<AnalysisSession["context"]> {
-  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-}
-
-export function approveAnalysisContext(sessionId: string, contextId: string): Promise<AnalysisSession["context"]> {
-  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions/${encodeURIComponent(contextId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-}
-
-export function runAnalysisQualityGate(sessionId: string): Promise<AnalysisSession["quality_gate"]> {
-  return request<AnalysisSession["quality_gate"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/quality-gate`, { method: "POST" });
-}
-
-export function executeAnalysis(sessionId: string, contextId: string, query: QuerySpec): Promise<AnalysisExecution> {
-  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/executions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_context_version_id: contextId, query }) });
-}
-
 export function ensureExplorerSession(runId: string): Promise<AnalysisSession> {
   return request<AnalysisSession>(`/profile/${encodeURIComponent(runId)}/explorer/session`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
   });
 }
 
-export function previewExplorer(sessionId: string, query: QuerySpec, signal?: AbortSignal): Promise<AnalysisExecution> {
-  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/previews`, {
+export function previewExplorer(runId: string, query: QuerySpec, signal?: AbortSignal): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/profile/${encodeURIComponent(runId)}/explorer/previews`, {
     method: "POST", signal,
     headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
     body: JSON.stringify({ query }),
   });
 }
 
-export function promoteExplorerPreview(sessionId: string, previewId: string, contextId: string, signal?: AbortSignal): Promise<AnalysisExecution> {
-  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/previews/${encodeURIComponent(previewId)}/promote`, {
+export function promoteExplorerPreview(runId: string, previewId: string, contextId: string, signal?: AbortSignal): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/profile/${encodeURIComponent(runId)}/explorer/previews/${encodeURIComponent(previewId)}/promote`, {
     method: "POST", signal,
     headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
     body: JSON.stringify({ expected_context_version_id: contextId }),
@@ -673,7 +643,7 @@ export function promoteExplorerPreview(sessionId: string, previewId: string, con
 export type ReportDraftItem = {
   id: string; item_type: "chart" | "note" | string; position: number; title?: string | null; note?: string | null;
   query_execution_id?: string | null; query_spec?: QuerySpec | null; result_hash?: string | null;
-  content_json?: { result?: AnalysisExecution["result"] } | null; limitations?: string[] | null;
+  content_json?: { result?: AnalysisExecution["result"]; answer?: string } | null; limitations?: string[] | null;
 };
 export type ReportDraft = { id: string; title: string; profile_run_id: string; status: "empty" | "draft" | "stale" | "snapshot" | string; draft_version: number; version_id: string; items: ReportDraftItem[]; stale_reasons: string[]; snapshot_hash?: string | null };
 
@@ -720,53 +690,4 @@ export function unpinReportDraftItem(reportId: string, itemId: string): Promise<
 
 export function snapshotReportDraft(reportId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/snapshots`, { method: "POST" });
-}
-
-export function listNotebooks(signal?: AbortSignal, profileRunId?: string, status: "active" | "archived" = "active"): Promise<Notebook[]> {
-  const params = new URLSearchParams({ status });
-  if (profileRunId) params.set("profile_run_id", profileRunId);
-  const query = `?${params.toString()}`;
-  return request<Notebook[]>(`/notebooks${query}`, { signal });
-}
-
-export function getNotebook(notebookId: string, signal?: AbortSignal): Promise<Notebook> {
-  return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}`, { signal });
-}
-
-export function createNotebook(payload: { profile_run_id: string; title: string; description?: string }): Promise<Notebook> {
-  return request<Notebook>("/notebooks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-}
-
-export function updateNotebook(notebookId: string, payload: { title?: string; description?: string | null; visibility?: "private" | "workspace"; status?: "active" }): Promise<Notebook> {
-  return request<Notebook>(`/notebooks/${encodeURIComponent(notebookId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-}
-
-export function shareNotebook(notebookId: string, visibility: "private" | "workspace"): Promise<Notebook> {
-  return updateNotebook(notebookId, { visibility });
-}
-
-export function archiveNotebook(notebookId: string): Promise<{ archived: boolean; notebook_id: string }> {
-  return request<{ archived: boolean; notebook_id: string }>(`/notebooks/${encodeURIComponent(notebookId)}`, { method: "DELETE" });
-}
-
-export function restoreNotebook(notebookId: string): Promise<Notebook> {
-  return updateNotebook(notebookId, { status: "active" });
-}
-
-export function createNotebookCell(notebookId: string, payload: { kind: NotebookCellKind; source: string; title?: string }): Promise<NotebookCell> {
-  return request<NotebookCell>(`/notebooks/${encodeURIComponent(notebookId)}/cells`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-}
-
-export function updateNotebookCell(notebookId: string, cellId: string, payload: { source?: string; title?: string | null; result?: NotebookCell["result"]; status?: string }): Promise<NotebookCell> {
-  return request<NotebookCell>(`/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cellId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-}
-
-export function deleteNotebookCell(notebookId: string, cellId: string): Promise<{ deleted: boolean; cell_id: string }> {
-  return request<{ deleted: boolean; cell_id: string }>(`/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cellId)}`, { method: "DELETE" });
-}
-
-export async function downloadNotebook(notebookId: string): Promise<Blob> {
-  const response = await apiFetch(`/notebooks/${encodeURIComponent(notebookId)}/export`);
-  if (!response.ok) throw await readError(response);
-  return response.blob();
 }

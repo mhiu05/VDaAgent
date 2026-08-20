@@ -20,7 +20,6 @@ type ReportPayload = {
     };
     column_stats: Array<Record<string, unknown>>;
     proposals: Record<string, Array<Record<string, unknown>>>;
-    test_results: Array<Record<string, unknown>>;
     drift_reports: Array<Record<string, unknown>>;
   };
   analysis_sessions: Array<{
@@ -32,10 +31,27 @@ type ReportPayload = {
     quality_gate?: { decision?: string };
     executions?: Array<Record<string, unknown>>;
   }>;
+  report_snapshot?: {
+    id: string;
+    title?: string;
+    snapshot_hash?: string;
+    snapshot_at?: string;
+    version?: number;
+    items: Array<{
+      id: string;
+      item_type: string;
+      title?: string | null;
+      note?: string | null;
+      query_spec?: Record<string, unknown> | null;
+      result_hash?: string | null;
+      content_json?: Record<string, unknown> | null;
+      limitations?: string[] | null;
+    }>;
+  } | null;
   export_sections?: string[];
 };
 
-const ALL_EXPORT_SECTIONS = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
+const ALL_EXPORT_SECTIONS = ["overview", "technical_profile", "quality", "agent_summary", "drift", "analysis", "report_snapshot"];
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
@@ -362,7 +378,7 @@ function buildLayout(payload: ReportPayload): string[] {
   let topHeadingNumber = 0;
   let subHeadingNumber = 0;
   let detailHeadingNumber = 0;
-  const sectionByHeading = ["overview", "technical_profile", "quality", "tests", "drift", "agent_summary", "analysis"];
+  const sectionByHeading = ["overview", "technical_profile", "quality", "agent_summary", "drift", "report_snapshot", "analysis"];
 
   const addParagraph = (value: string, size = 9, color = COLORS.ink, width = CONTENT_WIDTH - 10) => {
     if (!selectedSections.has(activeSection)) return;
@@ -518,6 +534,45 @@ function buildLayout(payload: ReportPayload): string[] {
     flushMetrics();
   };
 
+  const addReportSnapshot = () => {
+    const snapshot = payload.report_snapshot;
+    if (!snapshot) {
+      addCallout("Không có snapshot Report Draft cho bản xuất này.");
+      return;
+    }
+    addCallout(`Snapshot v${cell(snapshot.version)} · hash ${cell(snapshot.snapshot_hash, 18)} · ${date(snapshot.snapshot_at)}`);
+    if (!snapshot.items.length) {
+      addCallout("Snapshot này chưa có nội dung được ghim.");
+      return;
+    }
+    snapshot.items.forEach((item, index) => {
+      const itemTitle = item.title || (item.item_type === "chart" ? "Kết quả Explorer đã ghim" : item.item_type === "agent_answer" ? "Tóm tắt từ Agent đã ghim" : "Ghi chú đã ghim");
+      addHeading(`${index + 1}. ${itemTitle}`, 2);
+      if (item.item_type === "agent_answer") {
+        const answer = item.content_json?.answer;
+        if (typeof answer === "string" && answer.trim()) addAgentSummary(answer);
+        else addCallout("Mục Agent này không có nội dung có thể xuất.", true);
+      } else if (item.item_type === "chart") {
+        if (item.query_spec) addParagraph(`Truy vấn: ${cell(item.query_spec, 220)}`, 8, COLORS.gray);
+        const result = item.content_json?.result as { columns?: unknown; data?: unknown } | undefined;
+        const rows = Array.isArray(result?.data)
+          ? result.data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
+          : [];
+        const columns = Array.isArray(result?.columns)
+          ? result.columns.filter((column): column is string => typeof column === "string").slice(0, 6)
+          : (rows[0] ? Object.keys(rows[0]).slice(0, 6) : []);
+        if (columns.length && rows.length) {
+          addTable(columns, rows.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48))), equalWidths(columns.length));
+          if (rows.length > 25) addParagraph(`Hiển thị 25 dòng đầu trên tổng số ${rows.length} dòng kết quả đã ghim.`, 8, COLORS.gray);
+        } else addCallout("Kết quả Explorer đã ghim không có dữ liệu dạng bảng.");
+      } else {
+        addParagraph(item.note || "Ghi chú này không có nội dung để xuất.");
+      }
+      if (item.limitations?.length) addCallout(item.limitations.join(" "), true);
+      if (item.result_hash) addParagraph(`Evidence hash: ${item.result_hash}`, 8, COLORS.gray);
+    });
+  };
+
   page = { commands: [], y: PAGE_HEIGHT - 80 };
   pages.push(page);
   rectCommand(page.commands, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, COLORS.paleGray);
@@ -542,7 +597,7 @@ function buildLayout(payload: ReportPayload): string[] {
     textCommand(page.commands, MARGIN + 18, y, label, 8.2, true, COLORS.gray);
     textCommand(page.commands, MARGIN + 170, y, value, 8.5, false, COLORS.ink);
   });
-  textCommand(page.commands, MARGIN, 116, "Báo cáo kết hợp hồ sơ kỹ thuật với các phiên Analysis được liên kết.", 8.5, false, COLORS.gray);
+  textCommand(page.commands, MARGIN, 116, "Báo cáo kết hợp hồ sơ kỹ thuật với bằng chứng Explorer đã được ghim.", 8.5, false, COLORS.gray);
   textCommand(page.commands, MARGIN, 96, "Dữ liệu dòng thô không được đưa vào; giá trị PII được che trong bản xuất.", 8.5, false, COLORS.gray);
 
   startPage();
@@ -572,39 +627,52 @@ function buildLayout(payload: ReportPayload): string[] {
   if (run.risk_warnings?.length) run.risk_warnings.forEach((warning) => addCallout(warning, true));
   addCallout("Dữ liệu dòng thô không được đưa vào. Giá trị PII được che, bao gồm cả các đề xuất PII đang chờ duyệt. Kết quả tổng hợp giữ execution ID và result hash để đối chiếu.");
 
-  addHeading("Kiểm định thống kê");
-  if (profile.test_results.length) addTable(["Kiểm định", "Cột mục tiêu", "Kết luận", "p-value"], profile.test_results.map((item) => [cell(item.test_type), cell(item.target_columns), cell(item.conclusion || item.interpretation), cell(item.p_value)]), [85, 105, 237, 80]);
-  else addCallout("Không có kiểm định thống kê nào được ghi nhận.");
-
-  addHeading("Báo cáo drift");
-  if (profile.drift_reports.length) addTable(["Profile A", "Profile B", "Tóm tắt"], profile.drift_reports.map((item) => [cell(item.profile_run_id_a), cell(item.profile_run_id_b), cell(item.summary)]), [112, 112, 283]);
-  else addCallout("Không có báo cáo drift nào được ghi nhận.");
-
   addHeading("Tóm tắt từ Agent");
   addAgentSummary(run.narrative_report || "Chưa có báo cáo diễn giải.");
 
-  addHeading("Các phiên phân tích nghiệp vụ");
-  if (!sessions.length) addCallout("Chưa có phiên Analysis được liên kết. Bạn có thể thêm Analysis để có insight nghiệp vụ, hoặc bỏ qua và xuất trực tiếp báo cáo kỹ thuật.");
-  sessions.forEach((session, sessionIndex) => {
-    addHeading(cell(session.goal), 2);
-    addTable(["Trường", "Giá trị"], [
-      ["Session", cell(session.id)], ["Chế độ", cell(session.mode)], ["Trạng thái", cell(session.status)],
-      ["Ngày tạo", date(session.created_at)], ["Quality gate", cell(session.quality_gate?.decision)],
-    ], [145, 362]);
-    (session.executions || []).forEach((execution, executionIndex) => {
-      addHeading(`Execution ${executionIndex + 1}: ${cell(execution.id, 54)}`, 3);
+  addHeading("So sánh dữ liệu");
+  if (profile.drift_reports.length) addTable(["Profile A", "Profile B", "Tóm tắt"], profile.drift_reports.map((item) => [cell(item.profile_run_id_a), cell(item.profile_run_id_b), cell(item.summary)]), [112, 112, 283]);
+  else addCallout("Chưa có dữ liệu so sánh nào được ghi nhận.");
+
+  addHeading("Snapshot báo cáo");
+  addReportSnapshot();
+
+  addHeading("Kết quả Explorer liên quan");
+  const seenResults = new Set<string>();
+  const officialResults = sessions.flatMap((session) => session.executions || [])
+    .filter((execution) => execution.execution_kind === "official" && execution.status === "ready")
+    .filter((execution) => {
+      const identity = String(execution.result_hash || execution.id || "");
+      if (seenResults.has(identity)) return false;
+      seenResults.add(identity);
+      return true;
+    });
+  if (!officialResults.length) {
+    addCallout("Chưa có kết quả Explorer chính thức để đưa vào phần tham khảo. Các lượt xem trước không được dùng làm bằng chứng trong báo cáo.");
+  } else {
+    addParagraph(`Báo cáo chỉ giữ ${officialResults.length} kết quả chính thức, đã loại các lượt xem trước và kết quả trùng lặp.`);
+    officialResults.forEach((execution, index) => {
       const result = (execution.result || {}) as { columns?: string[]; data?: Array<Record<string, unknown>> };
       const columns = (result.columns || (result.data?.[0] ? Object.keys(result.data[0]) : [])).slice(0, 6);
-      if (columns.length && result.data?.length) {
-        const rows = result.data.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48)));
-        addTable(columns, rows, equalWidths(columns.length));
-        if (result.data.length > 25) addParagraph(`Đang hiển thị 25 dòng đầu trên tổng số ${result.data.length} dòng kết quả.`, 8, COLORS.gray);
-      } else addCallout("Execution này không có kết quả dạng bảng.");
-      addParagraph(`Evidence hash: ${cell(execution.result_hash)} | Thời lượng: ${cell(execution.duration_ms)} ms | Xấp xỉ: ${cell(execution.is_approximate)}`, 8, COLORS.gray);
+      const data = result.data || [];
+      const query = (execution.query_spec || {}) as { aggregate?: string };
+      const title = query.aggregate === "count" ? "Quy mô dữ liệu đã xác nhận" : `Kết quả Explorer đã xác nhận ${index + 1}`;
+      addHeading(title, 2);
+      if (columns.length === 1 && data.length === 1) {
+        const value = data[0][columns[0]];
+        const displayed = typeof value === "number" && Number.isFinite(value) ? new Intl.NumberFormat("vi-VN").format(value) : cell(value, 48);
+        const label = query.aggregate === "count" ? "Tổng số dòng dữ liệu" : "Kết quả đã tính";
+        addTable(["Nội dung", "Kết quả"], [[label, displayed]], [250, 257]);
+      } else if (columns.length && data.length) {
+        addTable(columns, data.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48))), equalWidths(columns.length));
+        if (data.length > 25) addParagraph(`Hiển thị 25 dòng đầu trên tổng số ${data.length} dòng kết quả.`, 8, COLORS.gray);
+      } else addCallout("Kết quả này không có dữ liệu dạng bảng để hiển thị.");
+      const scope = execution.is_approximate ? "Ước lượng từ mẫu dữ liệu" : "Được tính trên toàn bộ dữ liệu";
+      addParagraph(`${scope} · Mã đối chiếu: ${cell(execution.result_hash, 12)}`, 8, COLORS.gray);
     });
-  });
+  }
 
-  addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với bằng chứng Analysis được liên kết. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
+  addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với snapshot Report Draft và bằng chứng Explorer liên quan. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
 
   return pages.map((item, index) => {
     textCommand(item.commands, MARGIN, 24, "Bảo mật  |  Bản xuất đã che PII", 7.2, false, COLORS.gray);

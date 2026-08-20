@@ -116,6 +116,18 @@ class ReportDraftRepository:
             ).mappings()
         ]
         active_context, active_theme = self._configuration(conn, report["workspace_id"])
+        latest_snapshot = (
+            conn.execute(
+                select(report_versions.c.snapshot_hash, report_versions.c.version)
+                .where(
+                    report_versions.c.report_id == report["id"],
+                    report_versions.c.status == "snapshot",
+                )
+                .order_by(report_versions.c.version.desc())
+            )
+            .mappings()
+            .first()
+        )
         stale: list[str] = []
         if (
             version.get("workspace_context_version_id")
@@ -147,7 +159,8 @@ class ReportDraftRepository:
             "version_id": version["id"],
             "items": items,
             "stale_reasons": sorted(set(stale)),
-            "snapshot_hash": version.get("snapshot_hash"),
+            "snapshot_hash": version.get("snapshot_hash") or (latest_snapshot or {}).get("snapshot_hash"),
+            "snapshot_version": (latest_snapshot or {}).get("version"),
         }
 
     def get_or_create(
@@ -546,6 +559,54 @@ class ReportDraftRepository:
                 "next_draft_version": next_version["version"],
             }
 
+
+    def latest_snapshot(
+        self, report_id: str, workspace_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.connect() as conn:
+            report = (
+                conn.execute(
+                    select(reports).where(
+                        reports.c.id == report_id,
+                        reports.c.workspace_id == workspace_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not report:
+                return None
+            version = (
+                conn.execute(
+                    select(report_versions)
+                    .where(
+                        report_versions.c.report_id == report_id,
+                        report_versions.c.status == "snapshot",
+                    )
+                    .order_by(report_versions.c.version.desc())
+                )
+                .mappings()
+                .first()
+            )
+            if not version:
+                return None
+            items = [
+                dict(row)
+                for row in conn.execute(
+                    select(report_items)
+                    .where(report_items.c.report_version_id == version["id"])
+                    .order_by(report_items.c.position)
+                ).mappings()
+            ]
+            return {
+                "id": report["id"],
+                "title": report["title"],
+                "profile_run_id": report["profile_run_id"],
+                "snapshot_hash": version.get("snapshot_hash"),
+                "snapshot_at": version.get("snapshot_at"),
+                "version": version["version"],
+                "items": items,
+            }
 
 def get_report_draft_repository() -> ReportDraftRepository:
     from src.services.repository import get_repository

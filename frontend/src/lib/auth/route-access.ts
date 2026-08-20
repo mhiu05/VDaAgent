@@ -8,8 +8,6 @@ export const routeAccess: Array<{ prefix: string; permission: Permission }> = [
   { prefix: "/chat", permission: PERMISSIONS.qaProfileAsk },
   { prefix: "/datasets", permission: PERMISSIONS.datasetRead },
   { prefix: "/profiles", permission: PERMISSIONS.profileRead },
-  { prefix: "/analyses", permission: PERMISSIONS.analysisRun },
-  { prefix: "/notebooks", permission: PERMISSIONS.notebookRead },
   { prefix: "/compare", permission: PERMISSIONS.driftRun },
 ];
 
