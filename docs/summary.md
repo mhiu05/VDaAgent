@@ -128,11 +128,11 @@ Không đặt secret vào biến `NEXT_PUBLIC_*`. Frontend chỉ nhận URL publ
 | Biến | Ý nghĩa |
 | --- | --- |
 | `NEXT_PUBLIC_API_URL` | Base URL FastAPI dùng bởi frontend |
-| `NEXT_PUBLIC_COMMAND_CENTER_ENABLED` | Bật điều hướng Command Center ở frontend |
-| `COMMAND_CENTER_ENABLED` | Bật router/API Command Center ở backend |
+| `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật Command Center ở frontend; đây là biến build-time nên cần build/deploy lại frontend sau khi thay đổi. |
+| `UX_COMMAND_CENTER_ENABLED` | Bật contract/router Command Center ở backend. |
 | `AGENT_TRACE_MODE` | `shadow` mặc định; dùng `off` chỉ khi cần vô hiệu trace có chủ đích |
 | `DATABASE_URL` | Kết nối PostgreSQL của backend |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | Cấu hình Supabase phía client khi dùng Supabase auth |
+| `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | Cấu hình Supabase phía backend; frontend dùng `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. |
 
 Sau khi đổi config backend, restart service nếu môi trường không tự reload. Migration chạy từ thư mục `backend` bằng `alembic upgrade head`; chỉ thực hiện với database đã được xác nhận là đúng môi trường.
 
