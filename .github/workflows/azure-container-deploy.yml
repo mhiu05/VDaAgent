@@ -257,4 +257,16 @@ jobs:
             echo "Backend did not become healthy at $BACKEND_URL/health."
             exit 1
           fi
-          curl --fail --silent --show-error --max-time 10 "$FRONTEND_URL/login" > /dev/null
+
+          frontend_ok=false
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 10 "$FRONTEND_URL/login" > /dev/null; then
+              frontend_ok=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "$frontend_ok" != "true" ]; then
+            echo "Frontend did not become healthy at $FRONTEND_URL/login."
+            exit 1
+          fi
