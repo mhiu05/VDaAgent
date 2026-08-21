@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+# pyrefly: ignore [missing-import]
 from charset_normalizer import from_bytes
 
 _TEXT_DELIMITED_SUFFIXES = frozenset({".csv", ".tsv"})

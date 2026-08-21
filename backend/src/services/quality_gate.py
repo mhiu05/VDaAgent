@@ -76,7 +76,51 @@ def evaluate_quality_gate(
             "Có time column nhưng chưa nêu timezone.",
             {"time_column": context["time_column"]},
         )
+    # OpenMetadata-style Extended Quality Assertions
     stats = repository.get_column_stats(profile_run_id)
+    all_stats = stats or {}
+    total_columns = len(all_stats)
+    clean_columns = 0
+
+    for col_name, stat in all_stats.items():
+        null_pct = float(stat.get("null_pct") or 0)
+        cardinality = int(stat.get("cardinality") or 0)
+        outlier_count = int(stat.get("outlier_count") or 0)
+        row_count = int(run.get("row_count") or 0)
+
+        # 1. Extreme Missingness Assertion
+        if null_pct >= 50.0:
+            add(
+                "extreme_missingness",
+                "completeness",
+                "warning",
+                f"Cột '{col_name}' bị thiếu dữ liệu nghiêm trọng ({null_pct:.1f}% null).",
+                {"column": col_name, "null_pct": null_pct},
+            )
+
+        # 2. Outlier Anomaly Assertion (> 10% row count)
+        if row_count > 0 and (outlier_count / row_count) >= 0.10:
+            add(
+                "high_outlier_ratio",
+                "validity",
+                "warning",
+                f"Cột '{col_name}' có tỷ lệ outlier bất thường ({outlier_count:,} dòng, {(outlier_count / row_count * 100):.1f}%).",
+                {"column": col_name, "outlier_count": outlier_count, "outlier_pct": round(outlier_count / row_count * 100, 2)},
+            )
+
+        # 3. Low Cardinality on ID columns
+        if "id" in col_name.lower() and row_count > 10 and cardinality <= 1:
+            add(
+                "constant_identifier",
+                "uniqueness",
+                "warning",
+                f"Cột định danh '{col_name}' có cardinality = {cardinality} (gần như đơn trị).",
+                {"column": col_name, "cardinality": cardinality},
+            )
+
+        if null_pct < 5.0 and (outlier_count / max(row_count, 1)) < 0.05:
+            clean_columns += 1
+
     for measure in context.get("measures") or []:
         stat = stats.get(measure)
         if stat and (stat.get("null_pct") or 0) >= 20:
@@ -87,10 +131,13 @@ def evaluate_quality_gate(
                 f"Measure '{measure}' có missingness cao.",
                 {"column": measure, "null_pct": stat.get("null_pct")},
             )
-    return (
+
+    gate_status = (
         "blocked"
         if any(item["severity"] == "critical" for item in issues)
         else "warning"
         if issues
         else "passed"
-    ), issues
+    )
+
+    return gate_status, issues

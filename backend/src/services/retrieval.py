@@ -462,4 +462,82 @@ def reset_index() -> None:
     _index = None
 
 
-__all__ = ["Document", "Hit", "HybridIndex", "get_index", "reset_index", "tokenize"]
+def index_business_glossary(
+    glossary_terms: list[dict[str, str]],
+    workspace_id: str | None = None,
+    settings: Settings | None = None,
+) -> int:
+    """Index OpenMetadata-style business terms into hybrid retrieval for domain-aware Q&A."""
+    index = get_index(settings)
+    docs = []
+    for term in glossary_terms:
+        name = str(term.get("name") or "").strip()
+        definition = str(term.get("definition") or "").strip()
+        synonyms = str(term.get("synonyms") or "").strip()
+        if not name:
+            continue
+        text = f"Thuật ngữ nghiệp vụ: {name}\nĐịnh nghĩa: {definition}\nTừ đồng nghĩa: {synonyms}"
+        doc_id = f"glossary_{name.lower().replace(' ', '_')}"
+        docs.append(
+            Document(
+                doc_id=doc_id,
+                text=text,
+                metadata={
+                    "evidence_type": "business_glossary",
+                    "term": name,
+                    "workspace_id": workspace_id,
+                },
+            )
+        )
+    if docs:
+        index.upsert_many(docs, workspace_id=workspace_id)
+    return len(docs)
+
+
+def index_column_lineage(
+    profile_run_id: str,
+    lineage_entries: list[dict[str, Any]],
+    workspace_id: str | None = None,
+    settings: Settings | None = None,
+) -> int:
+    """Index OpenMetadata-style column-level lineage and transformations."""
+    index = get_index(settings)
+    docs = []
+    for entry in lineage_entries:
+        target_column = str(entry.get("target_column") or "").strip()
+        source_columns = ", ".join(entry.get("source_columns") or [])
+        transformation = str(entry.get("transformation") or "").strip()
+        if not target_column:
+            continue
+        text = (
+            f"Dòng chảy dữ liệu (Lineage): Cột '{target_column}' được sinh từ các cột nguồn [{source_columns}]. "
+            f"Phép biến đổi: {transformation}"
+        )
+        doc_id = f"lineage_{profile_run_id}_{target_column}"
+        docs.append(
+            Document(
+                doc_id=doc_id,
+                text=text,
+                metadata={
+                    "evidence_type": "column_lineage",
+                    "profile_run_id": profile_run_id,
+                    "target_column": target_column,
+                    "workspace_id": workspace_id,
+                },
+            )
+        )
+    if docs:
+        index.upsert_many(docs, workspace_id=workspace_id)
+    return len(docs)
+
+
+__all__ = [
+    "Document",
+    "Hit",
+    "HybridIndex",
+    "get_index",
+    "index_business_glossary",
+    "index_column_lineage",
+    "reset_index",
+    "tokenize",
+]

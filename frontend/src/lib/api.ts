@@ -10,7 +10,7 @@ import type {
   TestResult,
   UploadResult,
 } from "@/lib/types";
-import type { AnalysisExecution, AnalysisSession, QuerySpec } from "@/lib/analysis-types";
+import type { AnalysisExecution, AnalysisSession, AutoChartPlan, AutoProfilePack, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
@@ -624,6 +624,26 @@ export function ensureExplorerSession(runId: string): Promise<AnalysisSession> {
   });
 }
 
+export function autoPlanChart(runId: string, question: string): Promise<AutoChartPlan> {
+  return request<AutoChartPlan>(`/profile/${encodeURIComponent(runId)}/charts/auto-plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  });
+}
+
+export function autoProfilePack(runId: string): Promise<AutoProfilePack> {
+  return request<AutoProfilePack>(`/profile/${encodeURIComponent(runId)}/charts/auto-profile-pack`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+}
+
+export function listForecastAlgorithms(runId: string): Promise<{ algorithms: ForecastAlgorithmCapability[] }> {
+  return request<{ algorithms: ForecastAlgorithmCapability[] }>(`/profile/${encodeURIComponent(runId)}/charts/algorithms`);
+}
+
 export function previewExplorer(runId: string, query: QuerySpec, signal?: AbortSignal): Promise<AnalysisExecution> {
   return request<AnalysisExecution>(`/profile/${encodeURIComponent(runId)}/explorer/previews`, {
     method: "POST", signal,
@@ -643,7 +663,7 @@ export function promoteExplorerPreview(runId: string, previewId: string, context
 export type ReportDraftItem = {
   id: string; item_type: "chart" | "note" | string; position: number; title?: string | null; note?: string | null;
   query_execution_id?: string | null; query_spec?: QuerySpec | null; result_hash?: string | null;
-  content_json?: { result?: AnalysisExecution["result"]; answer?: string } | null; limitations?: string[] | null;
+  content_json?: { result?: AnalysisExecution["result"]; chart_spec?: ChartSpec; answer?: string; insight?: string; insight_reviewed?: boolean } | null; limitations?: string[] | null;
 };
 export type ReportDraft = { id: string; title: string; profile_run_id: string; status: "empty" | "draft" | "stale" | "snapshot" | string; draft_version: number; version_id: string; items: ReportDraftItem[]; stale_reasons: string[]; snapshot_hash?: string | null };
 
@@ -651,10 +671,24 @@ export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
 }
 
-export function pinChartToReport(reportId: string, executionId: string): Promise<ReportDraft> {
+export function pinChartToReport(
+  reportId: string,
+  executionId: string,
+  title?: string,
+  chartSpec?: ChartSpec,
+  insight?: { text: string; reviewed: boolean; agentRunId: string },
+  idempotencyKey = crypto.randomUUID(),
+): Promise<ReportDraft> {
   return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items`, {
-    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-    body: JSON.stringify({ item_type: "chart", query_execution_id: executionId }),
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({
+      item_type: "chart",
+      query_execution_id: executionId,
+      title,
+      chart_spec: chartSpec,
+      agent_run_id: insight?.agentRunId,
+      content: insight ? { insight: insight.text, insight_reviewed: insight.reviewed } : undefined,
+    }),
   });
 }
 

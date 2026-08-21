@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from src.agents.prompts import CHART_PLANNER_PROMPT
+from src.agents.runtime.context import ExecutionContext, execution_scope
+from src.agents.runtime.trace import (
+    complete_agent_run,
+    fail_agent_run,
+    invoke_model,
+    start_agent_run,
+)
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
 from src.models.analysis_schemas import (
     AnalysisSessionCreate,
+    AutoChartPlanRequest,
     ContextApprove,
     ContextCreate,
     ExecutionCreate,
@@ -24,6 +34,13 @@ from src.services.analysis_engine import (
     ExecutionControl,
 )
 from src.services.analysis_repository import get_analysis_repository
+from src.services.chart_planner import (
+    ChartPlanCandidate,
+    build_auto_profile_pack,
+    build_chart_plan,
+)
+from src.services.forecasting import forecast_algorithm_catalog
+from src.services.llm import get_llm
 from src.services.permissions import ANALYSIS_RUN
 from src.services.quality_gate import evaluate_quality_gate
 from src.services.repository import get_repository
@@ -188,6 +205,201 @@ async def ensure_explorer_session(
         profile_run_id=run_id,
     )
     return session
+
+
+@profile_router.post("/{run_id}/charts/auto-plan")
+async def auto_plan_chart(
+    run_id: str,
+    payload: AutoChartPlanRequest,
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
+) -> dict[str, Any]:
+    """Turn one business question into a bounded, executable chart plan."""
+
+    _require_command_center()
+    get_rate_limiter().check(context.user_id)
+    session = await ensure_explorer_session(run_id, context)
+    semantic = session.get("context") or {}
+    approved_context = semantic.get("context") or {}
+    stats = get_repository().get_column_stats(run_id)
+    allowed_columns = set(approved_context.get("dimensions") or []) | set(
+        approved_context.get("measures") or []
+    )
+    safe_stats = {
+        name: {
+            "dtype": str((stats.get(name) or {}).get("dtype", "unknown")),
+            "cardinality": (stats.get(name) or {}).get("cardinality"),
+        }
+        for name in sorted(allowed_columns)
+    }
+    planning_input = {
+        "business_question": payload.question,
+        "profile_metadata": {
+            "dimensions": approved_context.get("dimensions") or [],
+            "measures": approved_context.get("measures") or [],
+            "time_column": approved_context.get("time_column"),
+            "column_dtypes": safe_stats,
+            "limitations": approved_context.get("limitations") or [],
+        },
+    }
+    agent_run_id = start_agent_run(
+        workspace_id=context.workspace_id,
+        actor_user_id=context.user_id,
+        run_type="chart_planner",
+        resource_bindings={
+            "profile_run_id": run_id,
+            "analysis_session_id": str(session["id"]),
+            "context_version_id": str(semantic.get("id") or ""),
+        },
+        request_for_hash=planning_input,
+    )
+    candidate: ChartPlanCandidate | None = None
+    planning_mode = "agent"
+    try:
+        planner = get_llm().with_structured_output(ChartPlanCandidate)
+
+        def _invoke() -> ChartPlanCandidate:
+            messages = [
+                ("system", CHART_PLANNER_PROMPT),
+                ("human", json.dumps(planning_input, ensure_ascii=False)),
+            ]
+            if not agent_run_id:
+                return invoke_model(planner, messages, prompt_id="chart_planner")
+            with execution_scope(
+                ExecutionContext(
+                    agent_run_id=agent_run_id,
+                    workspace_id=context.workspace_id,
+                    actor_user_id=context.user_id,
+                    effective_permissions=context.workspace.effective_permissions,
+                    resource_bindings={
+                        "profile_run_id": run_id,
+                        "analysis_session_id": str(session["id"]),
+                    },
+                )
+            ):
+                return invoke_model(planner, messages, prompt_id="chart_planner")
+
+        candidate = await asyncio.to_thread(_invoke)
+        complete_agent_run(agent_run_id, workspace_id=context.workspace_id)
+    except Exception as exc:  # noqa: BLE001 - deterministic fallback is intentional
+        planning_mode = "rules_fallback"
+        fail_agent_run(
+            agent_run_id,
+            workspace_id=context.workspace_id,
+            error=exc,
+            error_code="chart_planner_fallback",
+        )
+
+    plan = build_chart_plan(
+        payload.question,
+        approved_context,
+        stats,
+        candidate,
+        planning_mode=planning_mode,
+    )
+    _audit(
+        context,
+        "chart_auto_planned",
+        resource_type="profile_run",
+        resource_id=run_id,
+        profile_run_id=run_id,
+        analysis_session_id=session["id"],
+        agent_run_id=agent_run_id,
+        planning_mode=plan["planning_mode"],
+        problem=plan["problem"],
+        algorithm=plan["algorithm"],
+        chart_type=plan["chart_type"],
+    )
+    return {
+        **plan,
+        "agent_run_id": agent_run_id,
+        "context_version_id": semantic.get("id"),
+    }
+
+
+@profile_router.post("/{run_id}/charts/auto-profile-pack")
+async def auto_profile_pack(
+    run_id: str,
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
+) -> dict[str, Any]:
+    """Build a domain-neutral multi-chart profiling pack from Profile Context.
+
+    No business question is required.  The planner uses only approved semantic
+    fields and persisted profile statistics; each returned plan still has to go
+    through the normal bounded Preview/Official workflow.
+    """
+
+    _require_command_center()
+    get_rate_limiter().check(context.user_id)
+    session = await ensure_explorer_session(run_id, context)
+    semantic = session.get("context") or {}
+    approved_context = semantic.get("context") or {}
+    stats = get_repository().get_column_stats(run_id)
+    plans = build_auto_profile_pack(approved_context, stats)
+    planning_input = {
+        "profile_run_id": run_id,
+        "analysis_session_id": str(session["id"]),
+        "context_version_id": str(semantic.get("id") or ""),
+        "profile_metadata": {
+            "dimensions": approved_context.get("dimensions") or [],
+            "measures": approved_context.get("measures") or [],
+            "time_column": approved_context.get("time_column"),
+            "column_stats": {
+                name: {
+                    "dtype": str((stats.get(name) or {}).get("dtype", "unknown")),
+                    "cardinality": (stats.get(name) or {}).get("cardinality"),
+                }
+                for name in set(approved_context.get("dimensions") or [])
+                | set(approved_context.get("measures") or [])
+            },
+        },
+        "objectives": [plan.get("objective") for plan in plans],
+    }
+    agent_run_id = start_agent_run(
+        workspace_id=context.workspace_id,
+        actor_user_id=context.user_id,
+        run_type="chart_auto_profile_pack",
+        resource_bindings={
+            "profile_run_id": run_id,
+            "analysis_session_id": str(session["id"]),
+            "context_version_id": str(semantic.get("id") or ""),
+        },
+        request_for_hash=planning_input,
+    )
+    complete_agent_run(agent_run_id, workspace_id=context.workspace_id)
+    _audit(
+        context,
+        "chart_auto_profile_pack_created",
+        resource_type="profile_run",
+        resource_id=run_id,
+        profile_run_id=run_id,
+        analysis_session_id=session["id"],
+        context_version_id=semantic.get("id"),
+        agent_run_id=agent_run_id,
+        objectives=[plan.get("objective") for plan in plans],
+        chart_count=len(plans),
+    )
+    return {
+        "profile_run_id": run_id,
+        "context_version_id": semantic.get("id"),
+        "agent_run_id": agent_run_id,
+        "objectives": [plan.get("objective") for plan in plans],
+        "plans": plans,
+    }
+
+
+@profile_router.get("/{run_id}/charts/algorithms")
+async def list_chart_algorithms(
+    run_id: str,
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
+) -> dict[str, Any]:
+    """Expose model capability without importing or executing unavailable packages."""
+
+    _require_command_center()
+    get_rate_limiter().check(context.user_id)
+    run = get_repository().get_profile_run(run_id, workspace_id=context.workspace_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Profile run was not found.")
+    return {"algorithms": forecast_algorithm_catalog()}
 
 
 @profile_router.post("/{run_id}/explorer/previews", status_code=201)

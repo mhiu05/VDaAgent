@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, select
+
 from src.api.dependencies import RequestContext, get_current_user, require_permission
 from src.config import get_settings
 from src.models.auth_schemas import (
@@ -648,7 +649,7 @@ async def pin_report_item(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit(
         context,

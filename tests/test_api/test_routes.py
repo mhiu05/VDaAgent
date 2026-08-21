@@ -35,6 +35,7 @@ def test_health(client: TestClient) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["env"] == "test"
+    assert body["command_center_enabled"] is True
 
 
 def test_status_reports_missing_config(client: TestClient) -> None:

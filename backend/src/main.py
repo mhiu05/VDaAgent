@@ -178,6 +178,7 @@ async def health() -> HealthResponse:
         app=settings.app_name,
         env=settings.app_env,
         llm_configured=settings.llm_configured,
+        command_center_enabled=settings.ux_command_center_enabled,
     )
 
 

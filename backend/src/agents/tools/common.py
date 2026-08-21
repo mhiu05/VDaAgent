@@ -39,9 +39,44 @@ def active_run(tool_name: str) -> tuple[str, dict[str, Any] | None]:
     return run_id, get_repository().get_profile_run(run_id)
 
 
-def error(tool_name: str, code: str, message: str) -> dict[str, Any]:
+import difflib
+
+
+def get_column_suggestions(stats: dict[str, dict[str, Any]], name: str, n: int = 3) -> list[str]:
+    """Find close column name matches using substring and fuzzy matching."""
+    if not stats or not name:
+        return []
+    candidates = list(stats.keys())
+    target = name.strip().casefold()
+    if not target:
+        return candidates[:n]
+
+    matched: list[str] = []
+    # 1. Substring matches (e.g., 'email' matches 'email_address' or vice versa)
+    for c in candidates:
+        if target in c.casefold() or c.casefold() in target:
+            matched.append(c)
+
+    # 2. Fuzzy matches
+    fuzzy = difflib.get_close_matches(target, [c.casefold() for c in candidates], n=n, cutoff=0.3)
+    for f in fuzzy:
+        for c in candidates:
+            if c.casefold() == f and c not in matched:
+                matched.append(c)
+
+    return matched[:n]
+
+
+def error(
+    tool_name: str,
+    code: str,
+    message: str,
+    *,
+    suggestions: list[str] | None = None,
+    self_correction_guidance: str | None = None,
+) -> dict[str, Any]:
     """Build the stable machine-readable error envelope."""
-    return {
+    payload: dict[str, Any] = {
         "tool": tool_name,
         "profile_run_id": current_run_id(),
         "data": None,
@@ -51,6 +86,11 @@ def error(tool_name: str, code: str, message: str) -> dict[str, Any]:
         "error_code": code,
         "error": message,
     }
+    if suggestions:
+        payload["suggestions"] = suggestions
+    if self_correction_guidance:
+        payload["self_correction_guidance"] = self_correction_guidance
+    return payload
 
 
 def ok(
@@ -116,6 +156,7 @@ __all__ = [
     "active_run",
     "column_stats",
     "error",
+    "get_column_suggestions",
     "ok",
     "page",
     "resolve_column",

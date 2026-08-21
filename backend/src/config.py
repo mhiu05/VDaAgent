@@ -249,7 +249,7 @@ class Settings(BaseSettings):
     # --- UX Command Center rollout ---------------------------------------
     # The backend flag is independent from the frontend flag: a browser must
     # never reach the additive API before the backend contract is enabled.
-    ux_command_center_enabled: bool = False
+    ux_command_center_enabled: bool = True
     ux_preview_timeout_seconds: int = Field(default=60, ge=1, le=60)
     ux_preview_row_budget: int = Field(default=50_000, ge=1_000, le=5_000_000)
     ux_preview_result_limit: int = Field(default=50, ge=1, le=50)

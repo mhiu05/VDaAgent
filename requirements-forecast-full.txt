@@ -1,0 +1,11 @@
+# Optional full forecasting image.
+# Core production dependencies (including statsmodels + scikit-learn).
+-r requirements.txt
+
+# Large model backends are isolated from the default image. The runtime
+# capability registry enables each adapter only after its package is present.
+xgboost>=2.1.0
+lightgbm>=4.5.0
+catboost>=1.2.7
+prophet>=1.1.6
+neuralprophet>=0.9.0

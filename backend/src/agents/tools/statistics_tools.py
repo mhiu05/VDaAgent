@@ -11,6 +11,7 @@ from src.agents.tools.common import (
     active_run,
     column_stats,
     error,
+    get_column_suggestions,
     ok,
     page,
     resolve_column,
@@ -28,9 +29,26 @@ def get_correlation(column_a: str, column_b: str) -> dict[str, Any]:
             "get_correlation", "not_found", "Active profile run was not found."
         )
     matrix = run.get("correlation_matrix") or {}
-    a = resolve_column(column_stats(run_id), column_a)
-    b = resolve_column(column_stats(run_id), column_b)
-    if not a or not b or a[0] not in matrix or b[0] not in matrix.get(a[0], {}):
+    stats_map = column_stats(run_id)
+    a = resolve_column(stats_map, column_a)
+    b = resolve_column(stats_map, column_b)
+    if not a or not b:
+        missing = []
+        suggestions = []
+        if not a:
+            missing.append(column_a)
+            suggestions.extend(get_column_suggestions(stats_map, column_a))
+        if not b:
+            missing.append(column_b)
+            suggestions.extend(get_column_suggestions(stats_map, column_b))
+        return error(
+            "get_correlation",
+            "not_found",
+            f"Columns not found: {', '.join(missing)}.",
+            suggestions=list(dict.fromkeys(suggestions)),
+            self_correction_guidance=f"Please call get_correlation with valid column names. Suggestions: {list(dict.fromkeys(suggestions))}",
+        )
+    if a[0] not in matrix or b[0] not in matrix.get(a[0], {}):
         return error(
             "get_correlation",
             "no_evidence",
@@ -122,10 +140,16 @@ def get_distribution(column_name: str, limit: int = DEFAULT_LIMIT) -> dict[str, 
         return error(
             "get_distribution", "not_found", "Active profile run was not found."
         )
-    resolved = resolve_column(column_stats(run_id), column_name)
+    stats_map = column_stats(run_id)
+    resolved = resolve_column(stats_map, column_name)
     if not resolved:
+        suggestions = get_column_suggestions(stats_map, column_name)
         return error(
-            "get_distribution", "not_found", f"Column '{column_name}' was not found."
+            "get_distribution",
+            "not_found",
+            f"Column '{column_name}' was not found.",
+            suggestions=suggestions,
+            self_correction_guidance=f"Column '{column_name}' was not found. Valid suggestions: {suggestions}. Retry get_distribution with an exact match.",
         )
     name, stats = resolved
     if name in pii_columns(run_id):
