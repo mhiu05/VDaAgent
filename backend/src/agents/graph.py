@@ -55,6 +55,7 @@ from src.agents.nodes.qa_nodes import (
     qa_structured_node,
     qa_vector_node,
 )
+from src.agents.runtime.trace import traced_node
 from src.agents.state import ProfilingState
 from src.config import get_settings
 
@@ -69,44 +70,55 @@ MAX_DEEP_ANALYSIS = 5
 # Checkpointer
 # --------------------------------------------------------------------------- #
 def build_checkpointer() -> Any:
-    """Tạo checkpointer theo `settings.checkpointer_url` (ADR-009).
-
-    Postgres cho production, SQLite cho dev. Thiếu driver thì hạ xuống
-    MemorySaver và ghi cảnh báo — state sẽ mất khi restart, nhưng agent vẫn
-    chạy được để dev không bị chặn.
-    """
-    url = get_settings().checkpointer_url
+    """Tạo PostgreSQL checkpointer theo `settings.checkpointer_url` (ADR-009)."""
+    settings = get_settings()
+    url = settings.checkpointer_url
+    if not url.startswith(("postgresql://", "postgres://")):
+        raise RuntimeError(
+            "DATABASE_CHECKPOINTER_URL phải là PostgreSQL cho LangGraph."
+        )
 
     try:
         if url.startswith(("postgresql://", "postgres://")):
             from langgraph.checkpoint.postgres import PostgresSaver
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
 
-            saver = PostgresSaver.from_conn_string(url)
-            # from_conn_string trả context manager ở một số phiên bản.
-            saver = saver.__enter__() if hasattr(saver, "__enter__") else saver
-            saver.setup()
+            # Keep a pool instead of one process-lifetime connection. Supabase
+            # pooler/server-side idle timeouts can close an otherwise healthy
+            # connection; ConnectionPool replaces broken connections and the
+            # PostgresSaver integration obtains a fresh connection per cursor.
+            pool = ConnectionPool(
+                conninfo=url,
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,
+                    "row_factory": dict_row,
+                },
+                # Keep this pool small because the metadata SQLAlchemy pool
+                # uses the same Supabase session-mode client quota.
+                min_size=1,
+                max_size=2,
+                max_idle=300,
+                max_lifetime=1800,
+                check=ConnectionPool.check_connection,
+                open=True,
+            )
+            try:
+                pool.wait(timeout=30)
+                saver = PostgresSaver(pool)
+                saver.setup()
+            except Exception:
+                pool.close()
+                raise
             return saver
 
-        if url.startswith("sqlite:///"):
-            import sqlite3
-
-            from langgraph.checkpoint.sqlite import SqliteSaver
-
-            path = url.removeprefix("sqlite:///")
-            conn = sqlite3.connect(path, check_same_thread=False)
-            return SqliteSaver(conn)
     except ImportError as exc:
-        logger.warning(
-            "Thiếu package cho checkpointer (%s). Dùng MemorySaver — state mất khi restart. "
-            "Cài lại dependency bằng: pip install -r requirements.txt",
-            exc,
-        )
-    except Exception as exc:  # noqa: BLE001 - không được để checkpointer chặn khởi động
-        logger.warning("Không khởi tạo được checkpointer (%s). Dùng MemorySaver.", exc)
-
-    from langgraph.checkpoint.memory import MemorySaver
-
-    return MemorySaver()
+        raise RuntimeError(
+            "Cần langgraph-checkpoint-postgres và psycopg để lưu state trên PostgreSQL."
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError("Không khởi tạo được PostgreSQL checkpointer.") from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -115,6 +127,11 @@ def build_checkpointer() -> Any:
 def route_after_summarize(state: ProfilingState) -> str:
     """Chỉ vào nhánh QA khi request thực sự mang câu hỏi."""
     return "qa_router" if (state.get("question") or "").strip() else END
+
+
+def route_after_profile_stage(state: ProfilingState) -> str:
+    """Stop profiling at the first failed ingest, compute, or proposal stage."""
+    return "finalize" if state.get("error") else "next"
 
 
 def _guard(state: ProfilingState) -> str | None:
@@ -134,11 +151,13 @@ def route_hitl(state: ProfilingState) -> str:
 # Graph
 # --------------------------------------------------------------------------- #
 def _add_qa_nodes(graph: StateGraph, terminal: str = END) -> None:
-    graph.add_node("qa_router", qa_router_node)
-    graph.add_node("qa_structured", qa_structured_node)
-    graph.add_node("qa_vector", qa_vector_node)
-    graph.add_node("clarify", clarify_node)
-    graph.add_node("qa_guardrail", qa_guardrail_node)
+    graph.add_node("qa_router", traced_node("qa_router", qa_router_node, 10))
+    graph.add_node(
+        "qa_structured", traced_node("qa_structured", qa_structured_node, 11)
+    )
+    graph.add_node("qa_vector", traced_node("qa_vector", qa_vector_node, 11))
+    graph.add_node("clarify", traced_node("qa_clarify", clarify_node, 11))
+    graph.add_node("qa_guardrail", traced_node("qa_guardrail", qa_guardrail_node, 11))
 
     graph.add_conditional_edges(
         "qa_router",
@@ -160,19 +179,33 @@ def build_profiling_graph(checkpointer: Any = None) -> Any:
     """Graph đầy đủ: ingest → … → summarize → (QA nếu có câu hỏi)."""
     graph = StateGraph(ProfilingState)
 
-    graph.add_node("ingest", ingest_node)
-    graph.add_node("compute_stats", compute_stats_node)
-    graph.add_node("propose_metadata", propose_metadata_node)
-    graph.add_node("hitl_review", hitl_review_node)
-    graph.add_node("deep_analysis", deep_analysis_node)
-    graph.add_node("summarize", summarize_node)
-    graph.add_node("finalize", finalize_profile_node)
+    graph.add_node("ingest", traced_node("ingest", ingest_node, 1))
+    graph.add_node("compute_stats", traced_node("compute_stats", compute_stats_node, 2))
+    graph.add_node(
+        "propose_metadata", traced_node("propose_metadata", propose_metadata_node, 3)
+    )
+    graph.add_node("hitl_review", traced_node("hitl_review", hitl_review_node, 4))
+    graph.add_node("deep_analysis", traced_node("deep_analysis", deep_analysis_node, 5))
+    graph.add_node("summarize", traced_node("summarize", summarize_node, 6))
+    graph.add_node("finalize", traced_node("finalize", finalize_profile_node, 12))
     _add_qa_nodes(graph, terminal="finalize")
 
     graph.set_entry_point("ingest")
-    graph.add_edge("ingest", "compute_stats")
-    graph.add_edge("compute_stats", "propose_metadata")
-    graph.add_edge("propose_metadata", "hitl_review")
+    graph.add_conditional_edges(
+        "ingest",
+        route_after_profile_stage,
+        {"finalize": "finalize", "next": "compute_stats"},
+    )
+    graph.add_conditional_edges(
+        "compute_stats",
+        route_after_profile_stage,
+        {"finalize": "finalize", "next": "propose_metadata"},
+    )
+    graph.add_conditional_edges(
+        "propose_metadata",
+        route_after_profile_stage,
+        {"finalize": "finalize", "next": "hitl_review"},
+    )
     graph.add_conditional_edges(
         "hitl_review",
         route_hitl,

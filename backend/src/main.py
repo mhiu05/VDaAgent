@@ -1,7 +1,7 @@
 """Điểm vào FastAPI của agent profiling dữ liệu.
 
 Chạy dev:
-    uvicorn src.main:app --reload
+    .\\.venv\\Scripts\\python.exe -m uvicorn src.main:app --app-dir backend --reload --port 8000
 
 Lần khởi động đầu tiên, log sẽ liệt kê các biến môi trường còn thiếu để bạn
 biết cần điền gì vào `.env`. Agent vẫn khởi động được khi chưa có LLM key —
@@ -18,8 +18,14 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from src.api.analysis_routes import router as analysis_router
+from src.api.agent_routes import router as agent_router
+from src.api.analysis_routes import (
+    profile_router as command_center_router,
+)
+from src.api.authz_routes import router as authz_router
+from src.api.google_drive_routes import router as google_drive_router
 from src.api.routes import router
+from src.api.skill_routes import router as skill_router
 from src.config import get_settings
 from src.models.schemas import HealthResponse
 
@@ -34,9 +40,12 @@ logger = logging.getLogger("p170")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    """Tạo thư mục dữ liệu, khởi tạo DB, và báo phần cấu hình còn thiếu."""
-    settings.data_path.mkdir(parents=True, exist_ok=True)
-    settings.index_path.mkdir(parents=True, exist_ok=True)
+    """Khởi tạo DB và báo phần cấu hình còn thiếu.
+
+    Production intentionally has no local persistence bootstrap: datasets,
+    audit events and retrieval documents live in Supabase, while compute uses
+    only ephemeral files downloaded for the current operation.
+    """
 
     logger.info(
         "Khởi động %s (env=%s, provider=%s, model=%s)",
@@ -52,15 +61,52 @@ async def lifespan(app: FastAPI) -> Any:
 
         get_repository()
         logger.info("Metadata DB: %s", settings.database_url.split("://")[0])
-    except Exception as exc:  # noqa: BLE001 - báo lỗi rõ ràng hơn là crash im lặng
+    except Exception as exc:
         logger.error("Không kết nối được metadata DB: %s", exc)
+        if settings.app_env == "production":
+            raise RuntimeError(
+                "Production yêu cầu kết nối được Supabase PostgreSQL."
+            ) from exc
 
     missing = settings.missing_required()
     if missing:
         logger.warning(
-            "Còn %d biến môi trường chưa điền trong .env: %s", len(missing), ", ".join(missing)
+            "Còn %d biến môi trường chưa điền trong .env: %s",
+            len(missing),
+            ", ".join(missing),
         )
         logger.warning("Xem hướng dẫn từng biến trong .env.example và README.md.")
+    if settings.app_env == "production":
+        critical = {
+            "DATABASE_URL",
+            "SUPABASE_URL",
+            "SUPABASE_PUBLISHABLE_KEY",
+            "AUTH_MODE=supabase",
+        }
+        if settings.storage_provider == "supabase":
+            critical.add("SUPABASE_SECRET_KEY")
+        elif settings.storage_provider == "google_drive":
+            critical.add("GOOGLE_DRIVE_* (storage provider google_drive)")
+        if settings.auth_allow_guest and settings.guest_storage_provider == "supabase":
+            critical.add("SUPABASE_SECRET_KEY (guest trial storage)")
+        if settings.auth_allow_guest and settings.guest_storage_provider == "local":
+            critical.add("GUEST_STORAGE_PROVIDER=supabase")
+        missing_critical = sorted(critical.intersection(missing))
+        if missing_critical:
+            raise RuntimeError(
+                "Thiếu cấu hình production: " + ", ".join(missing_critical)
+            )
+        if settings.auth_mode == "supabase":
+            try:
+                from src.services.auth import get_jwt_verifier
+
+                keys = get_jwt_verifier(settings)._jwks_client().get_signing_keys()
+                if not keys:
+                    raise RuntimeError("JWKS không có signing key.")
+            except Exception as exc:
+                raise RuntimeError(
+                    "Không kiểm tra được Supabase JWKS khi khởi động production."
+                ) from exc
     if not settings.llm_configured:
         logger.warning(
             "Chưa có API key cho LLM — profiling và kiểm định vẫn chạy, nhưng báo cáo sẽ ở "
@@ -77,7 +123,7 @@ async def lifespan(app: FastAPI) -> Any:
 
 
 app = FastAPI(
-    title="P-170 — AI Data Profiling Agent",
+    title="VDaAgent — AI Data Profiling Agent",
     description=(
         "Agent tự động lập hồ sơ dữ liệu: tính thống kê, phát hiện PII, đề xuất "
         "candidate key và semantic type, chạy kiểm định thống kê, so sánh drift, "
@@ -88,6 +134,8 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None if settings.app_env == "production" else "/docs",
+    redoc_url=None if settings.app_env == "production" else "/redoc",
 )
 
 app.add_middleware(
@@ -99,7 +147,12 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api/v1")
-app.include_router(analysis_router, prefix="/api/v1")
+app.include_router(agent_router, prefix="/api/v1")
+app.include_router(skill_router, prefix="/api/v1")
+app.include_router(command_center_router, prefix="/api/v1")
+app.include_router(authz_router, prefix="/api/v1")
+app.include_router(google_drive_router, prefix="/api/v1")
+
 
 @app.get("/")
 async def root() -> dict[str, str]:

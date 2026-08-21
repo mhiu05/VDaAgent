@@ -10,7 +10,6 @@ from functools import lru_cache
 from typing import Any
 
 from langchain_openai import ChatOpenAI
-
 from src.config import LLM_PROVIDERS, Settings, get_settings
 
 

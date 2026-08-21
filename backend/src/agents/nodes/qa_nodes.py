@@ -24,6 +24,8 @@ from src.agents.prompts import (
     QA_STRUCTURED_PROMPT,
     QA_VECTOR_PROMPT,
 )
+from src.agents.runtime.trace import invoke_model, record_retrieval_call
+from src.agents.skills.registry import select_skill_for_question, skill_guidance
 from src.agents.state import ProfilingState
 from src.agents.tools.registry import STRUCTURED_TOOLS, run_tool
 from src.config import get_settings
@@ -75,6 +77,23 @@ _SOCIAL_GREETING = re.compile(
     r"^\s*(?:hi|hello|hey|xin chào|chào|hế lô|good morning|good afternoon)\b|"
     r"\b(?:tôi|mình|em)\s+tên\s+là\s+[^.!?]+",
     re.IGNORECASE,
+)
+
+# These express a request for an explanation, not a request to calculate the
+# current profile's metric. Check them before numerical keywords such as p-value.
+_CONCEPT_HINTS = (
+    "là gì",
+    "tại sao",
+    "khi nào",
+    "như thế nào",
+    "nên ",
+    "best practice",
+    "meaning",
+    "why",
+    "when",
+    "how",
+    "what is",
+    "what are",
 )
 
 _NAME_INTRODUCTION = re.compile(
@@ -152,10 +171,12 @@ def _profile_fallback_summary(run_id: str | None) -> str:
     lines.extend(f"- {warning}" for warning in warnings) if warnings else lines.append(
         "- Chưa có cảnh báo chất lượng dữ liệu nổi bật."
     )
-    lines.extend([
-        "",
-        "_Tóm tắt này lấy trực tiếp từ compute engine; diễn giải bằng LLM sẽ được dùng lại khi kết nối dịch vụ khả dụng._",
-    ])
+    lines.extend(
+        [
+            "",
+            "_Tóm tắt này lấy trực tiếp từ compute engine; diễn giải bằng LLM sẽ được dùng lại khi kết nối dịch vụ khả dụng._",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -166,13 +187,15 @@ def _mentioned_columns(question: str, columns: list[str]) -> list[str]:
 
 def _social_response(question: str) -> str:
     """Trả lời tự nhiên cho lời chào/giới thiệu, không truy vấn dataset."""
-    match = re.search(r"\b(?:tôi|mình|em)\s+tên\s+là\s+([^.!?]+)", question, re.IGNORECASE)
+    match = re.search(
+        r"\b(?:tôi|mình|em)\s+tên\s+là\s+([^.!?]+)", question, re.IGNORECASE
+    )
     raw_name = match.group(1).strip() if match else "bạn"
     # Tên được phản chiếu vào Markdown nên chỉ giữ ký tự tên người thông dụng,
     # chặn markup/control text và payload dài.
     name = re.sub(r"[^\wÀ-ỹ' -]", "", raw_name, flags=re.UNICODE).strip()[:80] or "bạn"
     return (
-        f"Rất vui được làm quen với {name}! Mình là P-170 Agent, trợ lý profiling dữ liệu.\n\n"
+        f"Rất vui được làm quen với {name}! Mình là VDaAgent, trợ lý profiling dữ liệu.\n\n"
         "Bạn có thể bắt đầu bằng cách upload một dataset. Sau đó:\n"
         "- Chọn Sampling hoặc Full scan để tính metrics.\n"
         "- Review và xác nhận các proposals metadata.\n"
@@ -203,6 +226,8 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
     if assessment.blocked:
         get_audit().log(
             "guardrail_block",
+            workspace_id=state.get("workspace_id"),
+            actor_user_id=state.get("requested_by"),
             reason=assessment.reason,
             profile_run_id=state.get("profile_run_id"),
             user=state.get("requested_by"),
@@ -257,14 +282,22 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
         }
 
     lowered = question.lower()
-    heuristic = "quantitative" if any(h in lowered for h in _QUANTITATIVE_HINTS) else None
+    if not state.get("profile_run_id"):
+        heuristic = "qualitative"
+    elif any(h in lowered for h in _CONCEPT_HINTS):
+        heuristic = "qualitative"
+    else:
+        heuristic = (
+            "quantitative" if any(h in lowered for h in _QUANTITATIVE_HINTS) else None
+        )
 
     question_type = heuristic
     if question_type is None:
         try:
             llm = get_llm()
             history = _conversation_context(state)
-            response = llm.invoke(
+            response = invoke_model(
+                llm,
                 [
                     {"role": "system", "content": QA_ROUTER_PROMPT},
                     {
@@ -274,10 +307,15 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
                             ensure_ascii=False,
                         ),
                     },
-                ]
+                ],
+                prompt_id="qa_router",
             )
             label = str(response.content).strip().lower()
-            question_type = label if label in {"quantitative", "qualitative", "clarify"} else "qualitative"
+            question_type = (
+                label
+                if label in {"quantitative", "qualitative", "clarify"}
+                else "qualitative"
+            )
         except (LLMNotConfiguredError, Exception):  # noqa: BLE001
             # Không có LLM: mặc định định tính (hybrid search vẫn chạy offline).
             question_type = "qualitative"
@@ -285,7 +323,11 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
     return {
         "question": question,
         "question_type": question_type,
-        "qa_context": {"mentioned_columns": mentioned, "columns_available": columns[:50]},
+        "selected_skill": select_skill_for_question(question),
+        "qa_context": {
+            "mentioned_columns": mentioned,
+            "columns_available": columns[:50],
+        },
         "tool_calls": state.get("tool_calls", 0) + 1,
     }
 
@@ -305,7 +347,8 @@ def classify_question_type(state: ProfilingState) -> str:
 def qa_guardrail_node(state: ProfilingState) -> dict[str, Any]:
     """Trả policy response deterministic; tuyệt đối không gọi model hay data source."""
     return {
-        "answer": state.get("answer") or "Yêu cầu này không nằm trong phạm vi được phép.",
+        "answer": state.get("answer")
+        or "Yêu cầu này không nằm trong phạm vi được phép.",
         "answer_sources": [],
         "question_type": "guardrail",
     }
@@ -318,7 +361,8 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
 
     try:
         llm = get_llm()
-        response = llm.invoke(
+        response = invoke_model(
+            llm,
             [
                 {"role": "system", "content": BASE_RULES},
                 {
@@ -328,7 +372,8 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
                         columns=", ".join(columns[:30]) or "(chưa profiling)",
                     ),
                 },
-            ]
+            ],
+            prompt_id="qa_clarify",
         )
         answer = _guard_answer(str(response.content))
     except (LLMNotConfiguredError, Exception):  # noqa: BLE001
@@ -338,7 +383,11 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
             f"Các cột hiện có: {preview}"
         )
 
-    return {"answer": _guard_answer(answer), "answer_sources": [], "question_type": "clarify"}
+    return {
+        "answer": _guard_answer(answer),
+        "answer_sources": [],
+        "question_type": "clarify",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -368,7 +417,9 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         mentioned = (state.get("qa_context") or {}).get("mentioned_columns") or []
         if mentioned:
             facts: Any = {
-                column: run_tool("get_stat", {"column_name": column}, profile_run_id=run_id)
+                column: run_tool(
+                    "get_stat", {"column_name": column}, profile_run_id=run_id
+                )
                 for column in mentioned
             }
             source_type = "get_stat"
@@ -381,13 +432,26 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                 f"```json\n{json.dumps(facts, ensure_ascii=False, indent=2, default=str)}\n```"
             ),
             "answer_sources": [
-                {"type": "tool", "tool": source_type, "profile_run_id": run_id}
+                {
+                    "type": "tool",
+                    "tool": source_type,
+                    "args": {},
+                    "status": "ok",
+                    "profile_run_id": run_id,
+                }
             ],
             "tool_calls": state.get("tool_calls", 0) + 1,
         }
 
     messages: list[Any] = [
-        {"role": "system", "content": BASE_RULES + "\n\n" + QA_STRUCTURED_PROMPT},
+        {
+            "role": "system",
+            "content": BASE_RULES
+            + "\n\n"
+            + QA_STRUCTURED_PROMPT
+            + "\n\nNative skill playbook:\n"
+            + skill_guidance(state.get("selected_skill")),
+        },
     ]
     history = _conversation_context(state)
     if history:
@@ -409,7 +473,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     max_calls = settings.guardrails_max_tool_calls_per_request
 
     for _ in range(max(1, settings.llm_max_tool_rounds)):
-        response = llm.invoke(messages)
+        response = invoke_model(llm, messages, prompt_id="qa_structured")
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
@@ -434,7 +498,9 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             else:
                 calls_used += 1
                 result = run_tool(name, args, profile_run_id=run_id)
-                if name != "calculate" and not (isinstance(result, dict) and result.get("error")):
+                if name != "calculate" and not (
+                    isinstance(result, dict) and result.get("error")
+                ):
                     evidence_available = True
 
             sources.append(
@@ -442,7 +508,9 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                     "type": "tool",
                     "tool": name,
                     "args": args,
-                    "status": "error" if isinstance(result, dict) and result.get("error") else "ok",
+                    "status": "error"
+                    if isinstance(result, dict) and result.get("error")
+                    else "ok",
                 }
             )
             messages.append(
@@ -462,7 +530,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                     ),
                 }
             )
-            response = base_llm.invoke(messages)
+            response = invoke_model(base_llm, messages, prompt_id="qa_structured")
             break
     else:
         messages.append(
@@ -474,10 +542,12 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                 ),
             }
         )
-        response = base_llm.invoke(messages)
+        response = invoke_model(base_llm, messages, prompt_id="qa_structured")
 
     get_audit().log(
         "qa_structured",
+        workspace_id=state.get("workspace_id"),
+        actor_user_id=state.get("requested_by"),
         profile_run_id=run_id,
         tools_used=[s.get("tool") for s in sources],
         tool_calls=calls_used,
@@ -496,11 +566,50 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Nhánh định tính
 # --------------------------------------------------------------------------- #
+def _external_diverse(hits: list[Any], max_per_source: int) -> list[Any]:
+    selected: list[Any] = []
+    counts: dict[str, int] = {}
+    for hit in hits:
+        source_id = str((hit.metadata or {}).get("source_id") or hit.doc_id)
+        if counts.get(source_id, 0) >= max_per_source:
+            continue
+        counts[source_id] = counts.get(source_id, 0) + 1
+        selected.append(hit)
+    return selected
+
+
+def _source_for_hit(hit: Any, citation_id: str) -> dict[str, Any]:
+    metadata = hit.metadata or {}
+    if metadata.get("knowledge_type") == "external_knowledge":
+        return {
+            "type": "external_knowledge",
+            "citation_id": citation_id,
+            "doc_id": hit.doc_id,
+            "source_id": metadata.get("source_id"),
+            "title": metadata.get("title"),
+            "canonical_url": metadata.get("canonical_url"),
+            "retrieved_at": metadata.get("retrieved_at"),
+            "category": metadata.get("category"),
+            "retrieval_channel": hit.source,
+            "score": round(hit.score, 6),
+        }
+    return {
+        "type": "profile_report",
+        "citation_id": citation_id,
+        "doc_id": hit.doc_id,
+        "profile_run_id": metadata.get("profile_run_id"),
+        "dataset_name": metadata.get("dataset_name"),
+        "retrieval_channel": hit.source,
+        "score": round(hit.score, 6),
+    }
+
+
 def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
-    """Trả lời câu hỏi mở bằng hybrid retrieval trên báo cáo đã index (ADR-007)."""
+    """Retrieve scoped profile evidence plus opt-in external knowledge."""
     settings = get_settings()
     question = state.get("question") or ""
     run_id = state.get("profile_run_id")
+    workspace_id = state.get("workspace_id")
 
     qa_context = state.get("qa_context") or {}
     if qa_context.get("remembered_name"):
@@ -519,67 +628,109 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         }
 
     index = get_index()
-    where = {"profile_run_id": run_id} if run_id else None
-    hits = index.search(
-        question,
-        top_k=settings.retrieval_top_k,
-        candidate_k=settings.retrieval_candidate_k,
-        where=where,
+    profile_hits = (
+        index.search(
+            question,
+            top_k=settings.retrieval_profile_top_k,
+            candidate_k=settings.retrieval_candidate_k,
+            where={"knowledge_type": "profile_report", "profile_run_id": run_id},
+            workspace_id=workspace_id,
+        )
+        if run_id
+        else []
     )
-
-    # Defense in depth: khi caller chọn run, không bao giờ fallback hoặc nhận
-    # evidence của run khác dù index/backend retrieval có lỗi filter.
-    if run_id:
-        hits = [
-            hit for hit in hits if (hit.metadata or {}).get("profile_run_id") == run_id
-        ]
-
-    if not hits:
-        return {
-            "answer": (
-                "Dữ liệu profiling không có thông tin để trả lời câu hỏi này. "
-                "Bạn chạy profiling cho dataset trước, hoặc hỏi cụ thể về một cột."
+    knowledge_hits = []
+    if settings.retrieval_external_knowledge_enabled:
+        knowledge_hits = _external_diverse(
+            index.search(
+                question,
+                top_k=settings.retrieval_knowledge_top_k,
+                candidate_k=settings.retrieval_candidate_k,
+                where={"knowledge_type": "external_knowledge"},
+                workspace_id=workspace_id,
             ),
+            settings.retrieval_max_chunks_per_source,
+        )
+
+    # Explicit defense in depth even though HybridIndex pre-filters before rank.
+    profile_hits = [
+        hit
+        for hit in profile_hits
+        if (hit.metadata or {}).get("profile_run_id") == run_id
+    ]
+    # A custom index implementation must not be able to smuggle a profile
+    # document through the external-knowledge branch by ignoring `where`.
+    # Keep the source type contract explicit at the node boundary.
+    knowledge_hits = [
+        hit
+        for hit in knowledge_hits
+        if (hit.metadata or {}).get("knowledge_type") == "external_knowledge"
+    ]
+    record_retrieval_call(
+        query=question,
+        profile_run_id=run_id,
+        profile_hits=profile_hits,
+        knowledge_hits=knowledge_hits,
+    )
+    hits = profile_hits + knowledge_hits
+    if not hits:
+        if not run_id and not settings.retrieval_external_knowledge_enabled:
+            message = "Knowledge base hiện chưa được bật. Bạn có thể hỏi về dataset sau khi chạy profiling."
+        elif not run_id:
+            message = "Knowledge base chưa có evidence phù hợp cho câu hỏi này."
+        else:
+            message = (
+                "Profile và knowledge base chưa đủ evidence để trả lời câu hỏi này."
+            )
+        return {
+            "answer": message,
             "answer_sources": [],
         }
 
     evidence: list[dict[str, Any]] = []
-    bounded_hits = []
+    bounded_hits: list[Any] = []
     remaining = settings.guardrails_max_context_chars
-    for index_number, hit in enumerate(hits, start=1):
-        if remaining <= 0:
-            break
-        text = hit.text[:remaining]
-        if not text:
-            break
-        evidence.append(
-            {
-                "source_id": f"S{index_number}",
-                "retrieval_channel": hit.source,
-                "text": text,
-            }
-        )
-        bounded_hits.append(hit)
-        remaining -= len(text)
-
-    sources = [
-        {
-            "type": "profile_report",
-            "source_id": f"S{i + 1}",
-            "doc_id": h.doc_id,
-            "source": h.source,
-            "score": round(h.score, 6),
-            "profile_run_id": (h.metadata or {}).get("profile_run_id"),
-            "dataset_name": (h.metadata or {}).get("dataset_name"),
-        }
-        for i, h in enumerate(bounded_hits)
-    ]
+    for group, quota in (
+        (profile_hits, settings.retrieval_profile_context_chars),
+        (knowledge_hits, settings.retrieval_knowledge_context_chars),
+    ):
+        allowed = min(quota, remaining)
+        for hit in group:
+            if allowed <= 0 or remaining <= 0:
+                break
+            text = hit.text[: min(allowed, remaining)]
+            if not text:
+                continue
+            citation_id = f"S{len(bounded_hits) + 1}"
+            metadata = hit.metadata or {}
+            evidence.append(
+                {
+                    "citation_id": citation_id,
+                    "evidence_type": metadata.get("knowledge_type", "profile_report"),
+                    "retrieval_channel": hit.source,
+                    "title": metadata.get("title") or metadata.get("dataset_name"),
+                    "url": metadata.get("canonical_url"),
+                    "text": text,
+                }
+            )
+            bounded_hits.append(hit)
+            allowed -= len(text)
+            remaining -= len(text)
+    sources = [_source_for_hit(hit, f"S{i + 1}") for i, hit in enumerate(bounded_hits)]
 
     try:
         llm = get_llm()
-        response = llm.invoke(
+        response = invoke_model(
+            llm,
             [
-                {"role": "system", "content": BASE_RULES + "\n\n" + QA_VECTOR_PROMPT},
+                {
+                    "role": "system",
+                    "content": BASE_RULES
+                    + "\n\n"
+                    + QA_VECTOR_PROMPT
+                    + "\n\nNative skill playbook:\n"
+                    + skill_guidance(state.get("selected_skill")),
+                },
                 {
                     "role": "user",
                     "content": json.dumps(
@@ -592,19 +743,46 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
                         default=str,
                     ),
                 },
-            ]
+            ],
+            prompt_id="qa_vector",
         )
         answer = _guard_answer(str(response.content))
     except LLMNotConfiguredError:
-        answer = _profile_fallback_summary(run_id)
+        answer = (
+            _profile_fallback_summary(run_id)
+            if profile_hits
+            else (
+                "Đã tìm thấy tài liệu tham khảo bên dưới. Cần cấu hình LLM để tổng hợp nội dung thành câu trả lời."
+            )
+        )
     except Exception:  # noqa: BLE001
         # Không đưa lỗi transport và report thô dài vào chat; vẫn trả evidence hữu ích.
-        answer = _profile_fallback_summary(run_id)
+        answer = (
+            _profile_fallback_summary(run_id)
+            if profile_hits
+            else (
+                "Đã tìm thấy tài liệu tham khảo bên dưới. Cần cấu hình LLM để tổng hợp nội dung thành câu trả lời."
+            )
+        )
 
     get_audit().log(
         "qa_vector",
+        workspace_id=workspace_id,
+        actor_user_id=state.get("requested_by"),
         profile_run_id=run_id,
-        hits=len(bounded_hits),
+        profile_hits=len(profile_hits),
+        knowledge_hits=len(knowledge_hits),
+        retrieval_mode="external+profile"
+        if profile_hits and knowledge_hits
+        else ("external" if knowledge_hits else "profile"),
+        corpus_revision=next(
+            (
+                h.metadata.get("corpus_revision")
+                for h in knowledge_hits
+                if h.metadata.get("corpus_revision")
+            ),
+            None,
+        ),
         context_chars=settings.guardrails_max_context_chars - remaining,
         **audit_question_fields(
             question,

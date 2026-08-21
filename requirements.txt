@@ -1,7 +1,7 @@
-# P-170 — AI Data Profiling Agent
+# VDaAgent — AI Data Profiling Agent
 #
-# Danh sách dependency đầy đủ cho backend local/CI.
-# Backend hiện dùng SQLite cho metadata và LangGraph checkpointer.
+# Danh sách dependency đầy đủ cho backend local/CI/deploy.
+# Production dùng Supabase PostgreSQL + Supabase Storage.
 # Frontend cài riêng bằng `pnpm install` trong thư mục frontend/.
 
 # --- Web / API ---
@@ -17,7 +17,8 @@ python-multipart>=0.0.9      # upload CSV qua POST /datasets/upload
 langchain-core>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
-langgraph-checkpoint-sqlite>=2.0.0   # HITL interrupt giữ state qua restart (L2)
+langgraph-checkpoint-postgres>=3.0.0 # HITL state bền vững trên Supabase
+psycopg[binary,pool]>=3.2.0         # SQLAlchemy + LangGraph PostgreSQL
 
 # --- Compute engine: mọi con số do đây tính, LLM không tự tính ---
 duckdb>=1.1.0
@@ -25,12 +26,21 @@ pandas>=2.2.0
 numpy>=1.26.0
 scipy>=1.14.0                # 6 kiểm định thống kê trong services/stats_tests.py
 
+charset-normalizer>=3.4.0,<4 # detect legacy CSV encodings before DuckDB reads them
+
 # --- Metadata DB ---
 sqlalchemy>=2.0.0
+alembic>=1.14.0                       # versioned PostgreSQL migrations
+supabase>=2.15.0                     # Supabase Storage backend-only client
+google-api-python-client>=2.170.0    # Google Drive resumable upload/download
+google-auth-oauthlib>=1.2.1          # Google OAuth web-server flow
+google-auth-httplib2>=0.2.0          # Google API HTTP transport
+PyJWT[crypto]>=2.10.0                 # asymmetric Supabase JWT/JWKS verification
 
 # --- Retrieval (nhánh QA định tính) ---
 rank-bm25>=0.2.2             # BM25 keyword
 sentence-transformers>=3.0.0 # local embedding mặc định trong config.yaml
+voyageai>=0.3.0             # hosted document/query embeddings (optional)
 
 # --- Dev ---
 ruff>=0.8.0

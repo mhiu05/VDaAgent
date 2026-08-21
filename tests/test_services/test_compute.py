@@ -7,13 +7,13 @@ LLM chỉ diễn đạt lại. Sai ở đây là sai vào mặt người dùng.
 from __future__ import annotations
 
 import pandas as pd
-
 from src.services.compute import (
     compute_column_stats,
     compute_correlation_matrix,
     detect_pii,
     detect_quasi_identifiers,
     find_candidate_keys,
+    load_dataset,
 )
 
 
@@ -147,3 +147,27 @@ def test_correlation_matrix_detects_perfect_relationship() -> None:
 def test_correlation_matrix_empty_when_not_enough_numeric_columns() -> None:
     df = pd.DataFrame({"only": [1, 2, 3], "text": list("abc")})
     assert compute_correlation_matrix(df) == {}
+
+
+def test_load_dataset_normalizes_utf16_csv(tmp_path) -> None:
+    """Excel-style UTF-16 exports must profile instead of failing in DuckDB."""
+    source = tmp_path / "sales.csv"
+    source.write_text("city,revenue\nHà Nội,120\nĐà Nẵng,80\n", encoding="utf-16")
+
+    dataframe, query, truncated = load_dataset(str(source), scan_mode="full")
+
+    assert list(dataframe.columns) == ["city", "revenue"]
+    assert dataframe["city"].tolist() == ["Hà Nội", "Đà Nẵng"]
+    assert dataframe["revenue"].tolist() == [120, 80]
+    assert str(source) in query
+    assert truncated == []
+
+
+def test_load_dataset_normalizes_windows_1258_csv(tmp_path) -> None:
+    """Vietnamese Windows CSV exports must retain text after normalization."""
+    source = tmp_path / "sales-vn.csv"
+    source.write_text("product,revenue\nCà phê,120\nTrà,80\n", encoding="cp1258")
+
+    dataframe, _, _ = load_dataset(str(source), scan_mode="full")
+
+    assert dataframe["product"].tolist() == ["Cà phê", "Trà"]

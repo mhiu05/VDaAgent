@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Report"
+  short_description: "Create a scoped evidence-backed report"
+  default_prompt: "Use $generate-report to create a privacy-safe profile report."

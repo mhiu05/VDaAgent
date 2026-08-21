@@ -9,29 +9,36 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . ./
+
+# These are deliberately limited to values safe to embed in a browser bundle.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 ARG NEXT_PUBLIC_AUTH_ALLOW_GUEST
 ARG NEXT_PUBLIC_AUTH_ALLOW_SIGNUP
+ARG NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
     NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
     NEXT_PUBLIC_AUTH_ALLOW_GUEST=$NEXT_PUBLIC_AUTH_ALLOW_GUEST \
-    NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=$NEXT_PUBLIC_AUTH_ALLOW_SIGNUP
+    NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=$NEXT_PUBLIC_AUTH_ALLOW_SIGNUP \
+    NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=$NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED
 RUN pnpm build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
     PORT=8080
-RUN corepack enable
-COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/next.config.ts ./next.config.ts
+
+# Next.js standalone contains the production server and only its runtime
+# dependencies. public/ includes public/fonts/arial.ttf for server-side PDF.
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
+
+USER node
 EXPOSE 8080
-CMD ["pnpm", "start", "-p", "8080"]
+CMD ["node", "server.js"]

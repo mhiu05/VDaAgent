@@ -20,7 +20,6 @@ type ReportPayload = {
     };
     column_stats: Array<Record<string, unknown>>;
     proposals: Record<string, Array<Record<string, unknown>>>;
-    test_results: Array<Record<string, unknown>>;
     drift_reports: Array<Record<string, unknown>>;
   };
   analysis_sessions: Array<{
@@ -32,7 +31,27 @@ type ReportPayload = {
     quality_gate?: { decision?: string };
     executions?: Array<Record<string, unknown>>;
   }>;
+  report_snapshot?: {
+    id: string;
+    title?: string;
+    snapshot_hash?: string;
+    snapshot_at?: string;
+    version?: number;
+    items: Array<{
+      id: string;
+      item_type: string;
+      title?: string | null;
+      note?: string | null;
+      query_spec?: Record<string, unknown> | null;
+      result_hash?: string | null;
+      content_json?: Record<string, unknown> | null;
+      limitations?: string[] | null;
+    }>;
+  } | null;
+  export_sections?: string[];
 };
+
+const ALL_EXPORT_SECTIONS = ["overview", "technical_profile", "quality", "agent_summary", "drift", "analysis", "report_snapshot"];
 
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
@@ -338,6 +357,7 @@ function ratioPercentage(value: unknown): number | null {
 
 function buildLayout(payload: ReportPayload): string[] {
   const { profile, analysis_sessions: sessions } = payload;
+  const selectedSections = new Set(payload.export_sections || ALL_EXPORT_SECTIONS);
   const run = profile.run;
   const pages: Page[] = [];
   let page: Page;
@@ -346,7 +366,7 @@ function buildLayout(payload: ReportPayload): string[] {
     page = { commands: [], y: PAGE_HEIGHT - 64 };
     pages.push(page);
     rectCommand(page.commands, 0, PAGE_HEIGHT - 34, PAGE_WIDTH, 34, COLORS.navy);
-    textCommand(page.commands, MARGIN, PAGE_HEIGHT - 22, "P-170  |  BÁO CÁO HỒ SƠ DỮ LIỆU", 8, true, COLORS.white);
+    textCommand(page.commands, MARGIN, PAGE_HEIGHT - 22, "VDaAgent  |  BÁO CÁO HỒ SƠ DỮ LIỆU", 8, true, COLORS.white);
     textCommand(page.commands, PAGE_WIDTH - MARGIN - 126, PAGE_HEIGHT - 22, "Evidence-first export", 7, false, "0.82 0.88 0.96");
   };
 
@@ -354,7 +374,14 @@ function buildLayout(payload: ReportPayload): string[] {
     if (page.y - height < BOTTOM) startPage();
   };
 
+  let activeSection = "overview";
+  let topHeadingNumber = 0;
+  let subHeadingNumber = 0;
+  let detailHeadingNumber = 0;
+  const sectionByHeading = ["overview", "technical_profile", "quality", "agent_summary", "drift", "report_snapshot", "analysis"];
+
   const addParagraph = (value: string, size = 9, color = COLORS.ink, width = CONTENT_WIDTH - 10) => {
+    if (!selectedSections.has(activeSection)) return;
     const leading = size + 4;
     for (const line of wrap(value, width, size)) {
       ensure(leading);
@@ -365,6 +392,21 @@ function buildLayout(payload: ReportPayload): string[] {
   };
 
   const addHeading = (title: string, level = 1) => {
+    if (level === 1) {
+      topHeadingNumber += 1;
+      subHeadingNumber = 0;
+      detailHeadingNumber = 0;
+      activeSection = sectionByHeading[topHeadingNumber - 1] || "";
+      title = `${topHeadingNumber}. ${title}`;
+    } else if (level === 2) {
+      subHeadingNumber += 1;
+      detailHeadingNumber = 0;
+      title = `${topHeadingNumber}.${subHeadingNumber} ${title}`;
+    } else if (level === 3) {
+      detailHeadingNumber += 1;
+      title = `${topHeadingNumber}.${subHeadingNumber}.${detailHeadingNumber} ${title}`;
+    }
+    if (!selectedSections.has(activeSection)) return;
     const size = level === 1 ? 12 : 10;
     const lines = fitLines(title, CONTENT_WIDTH - 24, size, 2);
     const height = Math.max(level === 1 ? 21 : 18, 8 + lines.length * (size + 2));
@@ -377,6 +419,7 @@ function buildLayout(payload: ReportPayload): string[] {
   };
 
   const addCallout = (value: string, warning = false) => {
+    if (!selectedSections.has(activeSection)) return;
     const lines = wrap(value, CONTENT_WIDTH - 30, 8.2);
     const height = 16 + lines.length * 11;
     ensure(height + 8);
@@ -392,6 +435,7 @@ function buildLayout(payload: ReportPayload): string[] {
     rows: Array<{ label: string; value: number }>,
     color = COLORS.blue,
   ) => {
+    if (!selectedSections.has(activeSection)) return;
     const visibleRows = rows.sort((left, right) => right.value - left.value).slice(0, 10);
     if (!visibleRows.length) return;
     const rowHeight = 20;
@@ -416,6 +460,7 @@ function buildLayout(payload: ReportPayload): string[] {
   };
 
   const addTable = (headers: string[], rows: string[][], widths: number[]) => {
+    if (!selectedSections.has(activeSection)) return;
     if (!headers.length) return;
     const drawHeader = () => {
       const height = 25;
@@ -489,12 +534,51 @@ function buildLayout(payload: ReportPayload): string[] {
     flushMetrics();
   };
 
+  const addReportSnapshot = () => {
+    const snapshot = payload.report_snapshot;
+    if (!snapshot) {
+      addCallout("Không có snapshot Report Draft cho bản xuất này.");
+      return;
+    }
+    addCallout(`Snapshot v${cell(snapshot.version)} · hash ${cell(snapshot.snapshot_hash, 18)} · ${date(snapshot.snapshot_at)}`);
+    if (!snapshot.items.length) {
+      addCallout("Snapshot này chưa có nội dung được ghim.");
+      return;
+    }
+    snapshot.items.forEach((item, index) => {
+      const itemTitle = item.title || (item.item_type === "chart" ? "Kết quả Explorer đã ghim" : item.item_type === "agent_answer" ? "Tóm tắt từ Agent đã ghim" : "Ghi chú đã ghim");
+      addHeading(`${index + 1}. ${itemTitle}`, 2);
+      if (item.item_type === "agent_answer") {
+        const answer = item.content_json?.answer;
+        if (typeof answer === "string" && answer.trim()) addAgentSummary(answer);
+        else addCallout("Mục Agent này không có nội dung có thể xuất.", true);
+      } else if (item.item_type === "chart") {
+        if (item.query_spec) addParagraph(`Truy vấn: ${cell(item.query_spec, 220)}`, 8, COLORS.gray);
+        const result = item.content_json?.result as { columns?: unknown; data?: unknown } | undefined;
+        const rows = Array.isArray(result?.data)
+          ? result.data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
+          : [];
+        const columns = Array.isArray(result?.columns)
+          ? result.columns.filter((column): column is string => typeof column === "string").slice(0, 6)
+          : (rows[0] ? Object.keys(rows[0]).slice(0, 6) : []);
+        if (columns.length && rows.length) {
+          addTable(columns, rows.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48))), equalWidths(columns.length));
+          if (rows.length > 25) addParagraph(`Hiển thị 25 dòng đầu trên tổng số ${rows.length} dòng kết quả đã ghim.`, 8, COLORS.gray);
+        } else addCallout("Kết quả Explorer đã ghim không có dữ liệu dạng bảng.");
+      } else {
+        addParagraph(item.note || "Ghi chú này không có nội dung để xuất.");
+      }
+      if (item.limitations?.length) addCallout(item.limitations.join(" "), true);
+      if (item.result_hash) addParagraph(`Evidence hash: ${item.result_hash}`, 8, COLORS.gray);
+    });
+  };
+
   page = { commands: [], y: PAGE_HEIGHT - 80 };
   pages.push(page);
   rectCommand(page.commands, 0, 0, PAGE_WIDTH, PAGE_HEIGHT, COLORS.paleGray);
   rectCommand(page.commands, 0, PAGE_HEIGHT - 230, PAGE_WIDTH, 230, COLORS.navy);
   rectCommand(page.commands, 0, 0, 13, PAGE_HEIGHT, COLORS.blue);
-  textCommand(page.commands, MARGIN, PAGE_HEIGHT - 78, "P-170", 15, true, COLORS.white);
+  textCommand(page.commands, MARGIN, PAGE_HEIGHT - 78, "VDaAgent", 15, true, COLORS.white);
   textCommand(page.commands, MARGIN, PAGE_HEIGHT - 126, "Báo cáo hồ sơ dữ liệu", 27, true, COLORS.white);
   textCommand(page.commands, MARGIN, PAGE_HEIGHT - 160, "Phân tích kỹ thuật và bằng chứng từ Analysis", 11, false, "0.83 0.89 0.97");
   fitLines(cell(profile.dataset?.name, 90), CONTENT_WIDTH - 20, 10, 2).forEach((line, index) => textCommand(page.commands, MARGIN, PAGE_HEIGHT - 195 - index * 12, line, 10, false, COLORS.white));
@@ -513,7 +597,7 @@ function buildLayout(payload: ReportPayload): string[] {
     textCommand(page.commands, MARGIN + 18, y, label, 8.2, true, COLORS.gray);
     textCommand(page.commands, MARGIN + 170, y, value, 8.5, false, COLORS.ink);
   });
-  textCommand(page.commands, MARGIN, 116, "Báo cáo kết hợp hồ sơ kỹ thuật với các phiên Analysis được liên kết.", 8.5, false, COLORS.gray);
+  textCommand(page.commands, MARGIN, 116, "Báo cáo kết hợp hồ sơ kỹ thuật với bằng chứng Explorer đã được ghim.", 8.5, false, COLORS.gray);
   textCommand(page.commands, MARGIN, 96, "Dữ liệu dòng thô không được đưa vào; giá trị PII được che trong bản xuất.", 8.5, false, COLORS.gray);
 
   startPage();
@@ -543,39 +627,52 @@ function buildLayout(payload: ReportPayload): string[] {
   if (run.risk_warnings?.length) run.risk_warnings.forEach((warning) => addCallout(warning, true));
   addCallout("Dữ liệu dòng thô không được đưa vào. Giá trị PII được che, bao gồm cả các đề xuất PII đang chờ duyệt. Kết quả tổng hợp giữ execution ID và result hash để đối chiếu.");
 
-  addHeading("Kiểm định thống kê");
-  if (profile.test_results.length) addTable(["Kiểm định", "Cột mục tiêu", "Kết luận", "p-value"], profile.test_results.map((item) => [cell(item.test_type), cell(item.target_columns), cell(item.conclusion || item.interpretation), cell(item.p_value)]), [85, 105, 237, 80]);
-  else addCallout("Không có kiểm định thống kê nào được ghi nhận.");
-
-  addHeading("Báo cáo drift");
-  if (profile.drift_reports.length) addTable(["Profile A", "Profile B", "Tóm tắt"], profile.drift_reports.map((item) => [cell(item.profile_run_id_a), cell(item.profile_run_id_b), cell(item.summary)]), [112, 112, 283]);
-  else addCallout("Không có báo cáo drift nào được ghi nhận.");
-
   addHeading("Tóm tắt từ Agent");
   addAgentSummary(run.narrative_report || "Chưa có báo cáo diễn giải.");
 
-  addHeading("Các phiên phân tích nghiệp vụ");
-  if (!sessions.length) addCallout("Chưa có phiên Analysis được liên kết. Bạn có thể thêm Analysis để có insight nghiệp vụ, hoặc bỏ qua và xuất trực tiếp báo cáo kỹ thuật.");
-  sessions.forEach((session, sessionIndex) => {
-    addHeading(`${sessionIndex + 1}. ${cell(session.goal)}`, 2);
-    addTable(["Trường", "Giá trị"], [
-      ["Session", cell(session.id)], ["Chế độ", cell(session.mode)], ["Trạng thái", cell(session.status)],
-      ["Ngày tạo", date(session.created_at)], ["Quality gate", cell(session.quality_gate?.decision)],
-    ], [145, 362]);
-    (session.executions || []).forEach((execution, executionIndex) => {
-      addHeading(`Execution ${executionIndex + 1}: ${cell(execution.id, 54)}`, 3);
+  addHeading("So sánh dữ liệu");
+  if (profile.drift_reports.length) addTable(["Profile A", "Profile B", "Tóm tắt"], profile.drift_reports.map((item) => [cell(item.profile_run_id_a), cell(item.profile_run_id_b), cell(item.summary)]), [112, 112, 283]);
+  else addCallout("Chưa có dữ liệu so sánh nào được ghi nhận.");
+
+  addHeading("Snapshot báo cáo");
+  addReportSnapshot();
+
+  addHeading("Kết quả Explorer liên quan");
+  const seenResults = new Set<string>();
+  const officialResults = sessions.flatMap((session) => session.executions || [])
+    .filter((execution) => execution.execution_kind === "official" && execution.status === "ready")
+    .filter((execution) => {
+      const identity = String(execution.result_hash || execution.id || "");
+      if (seenResults.has(identity)) return false;
+      seenResults.add(identity);
+      return true;
+    });
+  if (!officialResults.length) {
+    addCallout("Chưa có kết quả Explorer chính thức để đưa vào phần tham khảo. Các lượt xem trước không được dùng làm bằng chứng trong báo cáo.");
+  } else {
+    addParagraph(`Báo cáo chỉ giữ ${officialResults.length} kết quả chính thức, đã loại các lượt xem trước và kết quả trùng lặp.`);
+    officialResults.forEach((execution, index) => {
       const result = (execution.result || {}) as { columns?: string[]; data?: Array<Record<string, unknown>> };
       const columns = (result.columns || (result.data?.[0] ? Object.keys(result.data[0]) : [])).slice(0, 6);
-      if (columns.length && result.data?.length) {
-        const rows = result.data.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48)));
-        addTable(columns, rows, equalWidths(columns.length));
-        if (result.data.length > 25) addParagraph(`Đang hiển thị 25 dòng đầu trên tổng số ${result.data.length} dòng kết quả.`, 8, COLORS.gray);
-      } else addCallout("Execution này không có kết quả dạng bảng.");
-      addParagraph(`Evidence hash: ${cell(execution.result_hash)} | Thời lượng: ${cell(execution.duration_ms)} ms | Xấp xỉ: ${cell(execution.is_approximate)}`, 8, COLORS.gray);
+      const data = result.data || [];
+      const query = (execution.query_spec || {}) as { aggregate?: string };
+      const title = query.aggregate === "count" ? "Quy mô dữ liệu đã xác nhận" : `Kết quả Explorer đã xác nhận ${index + 1}`;
+      addHeading(title, 2);
+      if (columns.length === 1 && data.length === 1) {
+        const value = data[0][columns[0]];
+        const displayed = typeof value === "number" && Number.isFinite(value) ? new Intl.NumberFormat("vi-VN").format(value) : cell(value, 48);
+        const label = query.aggregate === "count" ? "Tổng số dòng dữ liệu" : "Kết quả đã tính";
+        addTable(["Nội dung", "Kết quả"], [[label, displayed]], [250, 257]);
+      } else if (columns.length && data.length) {
+        addTable(columns, data.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48))), equalWidths(columns.length));
+        if (data.length > 25) addParagraph(`Hiển thị 25 dòng đầu trên tổng số ${data.length} dòng kết quả.`, 8, COLORS.gray);
+      } else addCallout("Kết quả này không có dữ liệu dạng bảng để hiển thị.");
+      const scope = execution.is_approximate ? "Ước lượng từ mẫu dữ liệu" : "Được tính trên toàn bộ dữ liệu";
+      addParagraph(`${scope} · Mã đối chiếu: ${cell(execution.result_hash, 12)}`, 8, COLORS.gray);
     });
-  });
+  }
 
-  addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với bằng chứng Analysis được liên kết. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
+  addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với snapshot Report Draft và bằng chứng Explorer liên quan. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
 
   return pages.map((item, index) => {
     textCommand(item.commands, MARGIN, 24, "Bảo mật  |  Bản xuất đã che PII", 7.2, false, COLORS.gray);
@@ -622,19 +719,55 @@ function buildPdf(payload: ReportPayload): Uint8Array {
   return output;
 }
 
-async function getReport(runId: string): Promise<ReportPayload> {
-  const base = (process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
-  const headers: HeadersInit = { Accept: "application/json" };
-  if (process.env.API_TOKEN) headers.Authorization = `Bearer ${process.env.API_TOKEN}`;
-  const response = await fetch(`${base}/profile/${encodeURIComponent(runId)}/report`, { headers, cache: "no-store" });
-  if (!response.ok) throw new Error(`Không thể lấy dữ liệu report (${response.status}).`);
-  return response.json() as Promise<ReportPayload>;
+async function getReport(runId: string, request: Request, sections?: string, reportId?: string | null): Promise<ReportPayload> {
+  const configuredBase = (process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/$/, "");
+  const bases = [configuredBase];
+  // In local Windows/Node environments, localhost may resolve differently
+  // from the address used by the browser. Keep a loopback fallback for the
+  // server-side PDF proxy without changing the public API URL contract.
+  if (configuredBase.includes("localhost")) bases.push(configuredBase.replace("localhost", "127.0.0.1"));
+  if (configuredBase.includes("127.0.0.1")) bases.push(configuredBase.replace("127.0.0.1", "localhost"));
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const authorization = request.headers.get("authorization");
+  const workspaceId = request.headers.get("x-workspace-id");
+  if (authorization) headers.Authorization = authorization;
+  if (workspaceId) headers["X-Workspace-Id"] = workspaceId;
+  const query = sections ? `?sections=${encodeURIComponent(sections)}` : "";
+  const endpoint = reportId
+    ? `/reports/${encodeURIComponent(reportId)}/export-source${query}`
+    : `/profile/${encodeURIComponent(runId)}/report${query}`;
+  let lastNetworkError: unknown = null;
+  for (const base of [...new Set(bases)]) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(`${base}${endpoint}`, {
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Không thể lấy dữ liệu report (${response.status}).`);
+      return response.json() as Promise<ReportPayload>;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Không thể lấy dữ liệu report (")) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        lastNetworkError = new Error("Backend không phản hồi trong 30 giây khi chuẩn bị PDF.");
+      } else {
+        lastNetworkError = error;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error(lastNetworkError instanceof Error ? `Không thể kết nối backend để xuất PDF: ${lastNetworkError.message}` : "Không thể kết nối backend để xuất PDF.");
 }
 
-export async function GET(_request: Request, context: { params: Promise<{ runId: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ runId: string }> }) {
   try {
     const { runId } = await context.params;
-    const payload = await getReport(runId);
+    const params = new URL(request.url).searchParams;
+    const sections = params.get("sections") || ALL_EXPORT_SECTIONS.join(",");
+    const payload = await getReport(runId, request, sections, params.get("reportId"));
     return new Response(buildPdf(payload) as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",

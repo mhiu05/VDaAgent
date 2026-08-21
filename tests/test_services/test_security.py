@@ -115,6 +115,16 @@ def test_audit_tail_on_missing_file_is_empty(tmp_path: Path) -> None:
     assert Audit(tmp_path / "chua-ton-tai.jsonl").tail(5) == []
 
 
+def test_audit_tail_can_filter_workspace(tmp_path: Path) -> None:
+    audit = Audit(tmp_path / "audit.jsonl")
+    audit.log("dataset_uploaded", workspace_id="workspace-a", resource_id="dataset-a")
+    audit.log("dataset_uploaded", workspace_id="workspace-b", resource_id="dataset-b")
+    audit.log("profile_completed", workspace_id="workspace-a", resource_id="run-a")
+
+    entries = audit.tail(10, workspace_id="workspace-a")
+    assert [entry["resource_id"] for entry in entries] == ["dataset-a", "run-a"]
+
+
 # --------------------------------------------------------------------------- #
 # Mask PII ở tầng repository (eval C-01)
 # --------------------------------------------------------------------------- #

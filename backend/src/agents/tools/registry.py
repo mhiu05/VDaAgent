@@ -6,6 +6,7 @@ import logging
 import time
 from typing import Any
 
+from src.agents.runtime.trace import record_tool_result
 from src.agents.tools.context import _current_run_id
 from src.agents.tools.core_profile_tools import CORE_PROFILE_TOOLS
 from src.agents.tools.data_quality_tools import DATA_QUALITY_TOOLS
@@ -99,6 +100,15 @@ def run_tool(
             error_code=result.get("error_code"),
             result_size=len(str(result)),
         )
+    # Runtime trace is an additive, redacted provenance ledger. It records
+    # only bounded tool metadata/evidence and does not alter the legacy tool
+    # envelope returned to the graph.
+    record_tool_result(
+        tool_name=name,
+        args=args,
+        result=result,
+        duration_ms=round((time.perf_counter() - started) * 1000),
+    )
     return result
 
 

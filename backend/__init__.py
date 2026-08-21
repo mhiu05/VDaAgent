@@ -1,2 +1,2 @@
-"""Backend application package for P-170."""
+"""Backend application package for VDaAgent."""
 

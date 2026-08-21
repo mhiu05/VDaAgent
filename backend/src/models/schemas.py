@@ -10,9 +10,9 @@ Quy ước:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ScanMode = Literal["full", "sample"]
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
@@ -32,13 +32,17 @@ class SamplingConfig(BaseModel):
 
 
 class ProfileRequest(BaseModel):
-    dataset_ref: str = Field(
-        ...,
+    # dataset_id is the normal contract after an authenticated upload.  The
+    # legacy ref remains temporarily available only to development/dual mode.
+    dataset_id: str | None = Field(default=None, min_length=1, max_length=64)
+    dataset_ref: str | None = Field(
+        default=None,
         min_length=1,
         max_length=1000,
         description="Đường dẫn file CSV/Parquet, hoặc tên bảng BigQuery.",
     )
     dataset_name: str | None = Field(default=None, max_length=255)
+    run_name: str | None = Field(default=None, max_length=255)
     scan_mode: ScanMode | None = Field(
         default=None, description="Bỏ trống để dùng mặc định trong config.yaml."
     )
@@ -51,10 +55,24 @@ class ProfileRequest(BaseModel):
 
     @field_validator("dataset_ref")
     @classmethod
-    def _no_control_chars(cls, v: str) -> str:
+    def _no_control_chars(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if any(ord(c) < 32 for c in v):
             raise ValueError("dataset_ref chứa ký tự điều khiển không hợp lệ.")
         return v.strip()
+
+    @field_validator("run_name")
+    @classmethod
+    def _normalize_run_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip()
+        if not normalized:
+            raise ValueError("Tên phiên profiling không được để trống.")
+        if any(ord(c) < 32 for c in normalized):
+            raise ValueError("Tên phiên profiling chứa ký tự điều khiển không hợp lệ.")
+        return normalized
 
 
 class ColumnStatOut(BaseModel):
@@ -101,12 +119,14 @@ class ProposalOut(BaseModel):
     status: ProposalStatus
     confirmed_by: str | None = None
     confirmed_at: datetime | None = None
+    review_note: str | None = None
 
 
 class ProfileResponse(BaseModel):
     profile_run_id: str
     dataset_id: str
     dataset_name: str | None = None
+    run_name: str | None = None
     status: str
     graph_thread_id: str | None = None
     initial_question: str | None = None
@@ -130,6 +150,9 @@ class ProfileResponse(BaseModel):
     answer: str | None = None
     answer_sources: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
+    # Additive runtime v2 provenance. Older clients can ignore these fields.
+    agent_run_id: str | None = None
+    trace_summary: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -140,15 +163,38 @@ class ProposalDecision(BaseModel):
     proposal_id: str = Field(..., min_length=1)
     decision: Literal["confirm", "reject", "edit"]
     final_type: str | None = Field(
-        default=None, max_length=100, description="Bắt buộc khi decision='edit'."
+        default=None,
+        max_length=100,
+        description="Giá trị phân loại chính thức khi chỉnh semantic type hoặc PII.",
     )
     note: str | None = Field(default=None, max_length=1000)
 
+    @field_validator("final_type", "note", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return value
+        cleaned = value.strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_edit_decision(self) -> "ProposalDecision":
+        if self.decision != "edit":
+            return self
+        if self.kind == "candidate_key":
+            raise ValueError(
+                "Candidate key chỉ hỗ trợ xác nhận hoặc từ chối, không có giá trị để chỉnh sửa."
+            )
+        if not self.final_type:
+            raise ValueError("Quyết định chỉnh sửa cần giá trị phân loại chính thức.")
+        if not self.note or len(self.note) < 3:
+            raise ValueError("Quyết định chỉnh sửa cần lý do gồm ít nhất 3 ký tự.")
+        return self
+
 
 class ConfirmRequest(BaseModel):
-    """Analyst xác nhận/từ chối đề xuất. `confirmed_by` là bắt buộc để truy vết."""
+    """Actor attribution is taken from the verified JWT, never client input."""
 
-    confirmed_by: str = Field(..., min_length=1, max_length=255)
     action: Literal["confirm", "edit", "reject", "request_test"] | None = None
     decisions: list[ProposalDecision] = Field(default_factory=list, max_length=500)
     test_requests: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
@@ -182,7 +228,6 @@ class TestSpec(BaseModel):
 
 
 class TestRequest(BaseModel):
-    requested_by: str = Field(..., min_length=1, max_length=255)
     tests: list[TestSpec] = Field(..., min_length=1, max_length=20)
     alpha: float | None = Field(default=None, gt=0.0, lt=1.0)
     fdr_method: Literal["benjamini_hochberg", "bonferroni", "none"] | None = None
@@ -227,6 +272,8 @@ class QARequest(BaseModel):
         max_length=20,
         description="Một số lượt chat gần nhất để duy trì short-term memory.",
     )
+    analysis_execution_id: str | None = Field(default=None, max_length=64)
+    workspace_context_version_id: str | None = Field(default=None, max_length=64)
     stream: bool = True
 
     @field_validator("question")
@@ -238,12 +285,63 @@ class QARequest(BaseModel):
         return value
 
 
+class ProfileReportSource(BaseModel):
+    type: Literal["profile_report"]
+    citation_id: str
+    doc_id: str
+    profile_run_id: str | None = None
+    dataset_name: str | None = None
+    retrieval_channel: str
+    score: float
+
+
+class ExternalKnowledgeSource(BaseModel):
+    type: Literal["external_knowledge"]
+    citation_id: str
+    doc_id: str
+    source_id: str
+    title: str | None = None
+    canonical_url: str
+    retrieved_at: str | None = None
+    category: str | None = None
+    retrieval_channel: str
+    score: float
+
+    @field_validator("canonical_url")
+    @classmethod
+    def http_url_only(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("canonical_url must use HTTP(S)")
+        return value
+
+
+class ToolSource(BaseModel):
+    type: Literal["tool"]
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    profile_run_id: str | None = None
+
+
+AnswerSource = Annotated[
+    ProfileReportSource | ExternalKnowledgeSource | ToolSource,
+    Field(discriminator="type"),
+]
+
+
 class QAResponse(BaseModel):
     question: str
     question_type: str | None = None
     answer: str
-    sources: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[AnswerSource] = Field(default_factory=list)
     is_approximate: bool = False
+    agent_run_id: str | None = None
+    evidence_status: Literal['verified', 'profile_only', 'no_evidence'] = 'no_evidence'
+    profile_run_id: str | None = None
+    context_version_id: str | None = None
+    analysis_execution_id: str | None = None
+    verification: dict[str, Any] | None = None
+    trace_summary: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -286,13 +384,40 @@ class DatasetOut(BaseModel):
     name: str
     source_type: str | None = None
     source_ref: str | None = None
+    collection_name: str | None = None
     last_profiled_at: datetime | None = None
+
+
+class DatasetCollectionUpdate(BaseModel):
+    """Logical group label shared by a batch of uploaded datasets."""
+
+    dataset_ids: list[str] = Field(min_length=1, max_length=100)
+    collection_name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("dataset_ids")
+    @classmethod
+    def _unique_dataset_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
+            raise ValueError("Danh sách dataset không hợp lệ.")
+        return normalized
+
+    @field_validator("collection_name")
+    @classmethod
+    def _normalize_collection_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Tên bộ dữ liệu không được để trống.")
+        if any(ord(char) < 32 for char in normalized):
+            raise ValueError("Tên bộ dữ liệu chứa ký tự điều khiển không hợp lệ.")
+        return normalized
 
 
 class UploadResponse(BaseModel):
     """Kết quả upload file — `dataset_ref` truyền thẳng vào `POST /profile`."""
 
     dataset_ref: str
+    dataset_id: str | None = None
     filename: str
     size_bytes: int
     suggested_name: str | None = None
@@ -303,6 +428,7 @@ class ProfileRunSummary(BaseModel):
 
     id: str
     dataset_id: str
+    run_name: str | None = None
     version: int | None = None
     status: str
     scan_mode: str | None = None
@@ -326,6 +452,10 @@ class StatusResponse(BaseModel):
     allow_raw_export: bool
     require_api_token: bool
     indexed_documents: int = 0
+    external_knowledge_enabled: bool = False
+    profile_report_documents: int = 0
+    external_knowledge_documents: int = 0
+    corpus_revision: str | None = None
     missing_config: list[str] = Field(
         default_factory=list, description="Các biến môi trường bạn cần điền."
     )
@@ -346,12 +476,15 @@ __all__ = [
     "ColumnStatOut",
     "ConfirmRequest",
     "ConfirmResponse",
+    "DatasetCollectionUpdate",
     "DatasetOut",
     "DriftFinding",
     "DriftRequest",
     "DriftResponse",
     "ErrorResponse",
+    "ExternalKnowledgeSource",
     "HealthResponse",
+    "ProfileReportSource",
     "ProfileRequest",
     "ProfileResponse",
     "ProfileRunSummary",
@@ -366,5 +499,6 @@ __all__ = [
     "TestResponse",
     "TestResultOut",
     "TestSpec",
+    "ToolSource",
     "UploadResponse",
 ]

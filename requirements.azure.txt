@@ -1,3 +1,6 @@
+# Runtime-only backend dependencies for the Azure container. Keep test and
+# lint tooling in requirements.txt so image installs stay deterministic and
+# smaller while all import paths used in production remain available.
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 pydantic>=2.10.0
@@ -5,21 +8,29 @@ pydantic-settings>=2.7.0
 python-dotenv>=1.0.0
 PyYAML>=6.0
 python-multipart>=0.0.9
+
 langchain-core>=0.3.0
 langchain-openai>=0.3.0
 langgraph>=0.2.0
 langgraph-checkpoint-postgres>=3.0.0
 psycopg[binary,pool]>=3.2.0
+
 duckdb>=1.1.0
 pandas>=2.2.0
 numpy>=1.26.0
 scipy>=1.14.0
+charset-normalizer>=3.4.0,<4
+
 sqlalchemy>=2.0.0
 alembic>=1.14.0
 supabase>=2.15.0
+httpx>=0.28.0
 google-api-python-client>=2.170.0
 google-auth-oauthlib>=1.2.1
 google-auth-httplib2>=0.2.0
 PyJWT[crypto]>=2.10.0
+
 rank-bm25>=0.2.2
+# config.yaml enables Voyage with a local sentence-transformers fallback.
+sentence-transformers>=3.0.0
 voyageai>=0.3.0

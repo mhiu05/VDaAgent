@@ -14,6 +14,20 @@ import type { AnalysisExecution, AnalysisSession, QuerySpec } from "@/lib/analys
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
+type AuthTransport = {
+  accessToken: () => Promise<string | null>;
+  workspaceId: () => string | null;
+  refresh: () => Promise<string | null>;
+};
+
+let authTransport: AuthTransport | null = null;
+
+/** Installed by AuthProvider; keeping transport here makes every API path use
+ * the same token/workspace policy, including SSE, XHR and downloads. */
+export function setApiAuthTransport(next: AuthTransport | null) {
+  authTransport = next;
+}
+
 export type QAHistoryMessage = { role: "user" | "agent"; text: string };
 
 function apiBase(): string {
@@ -22,6 +36,16 @@ function apiBase(): string {
     return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
   }
   return "http://localhost:8000/api/v1";
+}
+
+function apiBaseCandidates(): string[] {
+  const candidates = [apiBase()];
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost") candidates.push(`${window.location.protocol}//127.0.0.1:8000/api/v1`);
+    if (hostname === "127.0.0.1") candidates.push(`${window.location.protocol}//localhost:8000/api/v1`);
+  }
+  return [...new Set(candidates)];
 }
 
 export class ApiError extends Error {
@@ -50,12 +74,43 @@ async function readError(response: Response): Promise<ApiError> {
   return new ApiError(message, response.status, correlationId);
 }
 
+async function authHeaders(headers?: HeadersInit): Promise<Headers> {
+  const next = new Headers(headers);
+  next.set("Accept", next.get("Accept") ?? "application/json");
+  const token = await authTransport?.accessToken();
+  const workspaceId = authTransport?.workspaceId();
+  if (token) next.set("Authorization", `Bearer ${token}`);
+  if (workspaceId) next.set("X-Workspace-Id", workspaceId);
+  return next;
+}
+
+async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  let response: Response;
+  const headers = await authHeaders(init.headers);
+  try {
+    response = await fetch(`${apiBase()}${path}`, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
+  } catch (reason) {
+    // Preserve cancellations used by page transitions and explicit aborts.
+    if (reason instanceof Error && reason.name === "AbortError") throw reason;
+    throw new ApiError(
+      "Không thể kết nối tới backend. Hãy kiểm tra backend đang chạy và thử lại.",
+      0,
+    );
+  }
+  if (response.status === 401 && !retried && authTransport) {
+    const previousToken = headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+    const refreshed = await authTransport.refresh();
+    if (refreshed && refreshed !== previousToken) return apiFetch(path, init, true);
+  }
+  return response;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${apiBase()}${path}`, {
-    ...init,
-    headers: { Accept: "application/json", ...init.headers },
-    credentials: "include",
-  });
+  const response = await apiFetch(path, init);
   if (!response.ok) throw await readError(response);
   return response.json() as Promise<T>;
 }
@@ -64,9 +119,289 @@ export function listDatasets(signal?: AbortSignal): Promise<Dataset[]> {
   return request<Dataset[]>("/datasets", { signal });
 }
 
+export type GoogleDriveStatus = {
+  provider: "supabase" | "google_drive" | "local";
+  configured: boolean;
+  connected: boolean;
+  folder_id: string | null;
+  can_connect: boolean;
+};
+
+export function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
+  return request<GoogleDriveStatus>("/google-drive/status");
+}
+
+export function disconnectGoogleDrive(): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>("/google-drive/connection", { method: "DELETE" });
+}
+
+export async function connectGoogleDrive(targetWindow?: Window | null): Promise<void> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const authorization = request<{ authorization_url: string }>("/google-drive/connect");
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new ApiError("API khÃ´ng tráº£ link Google trong 15 giÃ¢y.", 0)), 15_000);
+  });
+  let payload: { authorization_url: string };
+  try {
+    payload = await Promise.race([authorization, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.replace(payload.authorization_url);
+    return;
+  }
+  const opened = window.open(payload.authorization_url, "_blank", "noopener,noreferrer");
+  if (!opened) {
+    throw new ApiError("Trình duyệt đã chặn tab Google mới. Hãy cho phép popup rồi thử lại.", 0);
+  }
+}
+
+export function getDashboard<T>(): Promise<T> {
+  return request<T>("/dashboard");
+}
+
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  role: string;
+  status?: string;
+  created_by_user_id?: string;
+  is_project?: boolean;
+};
+
+export function listWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
+  return request<{ workspaces: WorkspaceSummary[] }>("/workspaces");
+}
+
+export function listArchivedWorkspaces(): Promise<{ workspaces: WorkspaceSummary[] }> {
+  return request<{ workspaces: WorkspaceSummary[] }>("/workspaces/archived");
+}
+
+export type WorkspaceContextInput = { domain?: string; primary_goal?: string; target_audience?: string };
+export type WorkspaceThemeInput = { primary_color?: string; secondary_color?: string; tone?: "concise" | "professional" | "friendly"; default_language?: "vi" | "en" };
+export type WorkspaceConfiguration = {
+  context: (WorkspaceContextInput & { id: string; version: number; status: string }) | null;
+  theme: (WorkspaceThemeInput & { id: string; version: number; status: string }) | null;
+};
+
+export function createWorkspace(input: string | { name: string; context?: WorkspaceContextInput; theme?: WorkspaceThemeInput }): Promise<WorkspaceSummary> {
+  const payload = typeof input === "string" ? { name: input } : input;
+  return request<WorkspaceSummary>("/workspaces", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWorkspaceConfiguration(): Promise<WorkspaceConfiguration> {
+  return request<WorkspaceConfiguration>("/workspaces/current/configuration");
+}
+
+export function updateWorkspaceConfiguration(payload: {
+  context?: WorkspaceContextInput;
+  theme?: WorkspaceThemeInput;
+  expected_context_version?: number;
+  expected_theme_version?: number;
+}): Promise<WorkspaceConfiguration> {
+  return request<WorkspaceConfiguration>("/workspaces/current/configuration", {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+}
+
+export function deleteWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
+  return request<{ deleted: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}`, {
+    method: "DELETE",
+  });
+}
+
+export function purgeWorkspace(workspaceId: string): Promise<{ deleted: boolean; workspace_id: string }> {
+  return request<{ deleted: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}/permanent`, {
+    method: "DELETE",
+  });
+}
+
+export function restoreWorkspace(workspaceId: string): Promise<{ restored: boolean; workspace_id: string }> {
+  return request<{ restored: boolean; workspace_id: string }>(`/workspaces/${encodeURIComponent(workspaceId)}/restore`, {
+    method: "POST",
+  });
+}
+
+export type WorkspaceRole = "analyst";
+export type WorkspaceMemberStatus = "active" | "suspended" | "removed";
+
+export type WorkspaceMember = {
+  workspace_id: string;
+  user_id: string;
+  email?: string | null;
+  display_name?: string | null;
+  role: WorkspaceRole;
+  status: WorkspaceMemberStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceInvitation = {
+  id: string;
+  workspace_id?: string;
+  email: string;
+  role: WorkspaceRole;
+  status: "pending" | "accepted" | "cancelled" | string;
+  expires_at: string;
+  invited_by_user_id?: string;
+  accepted_by_user_id?: string | null;
+  created_at: string;
+};
+
+export function listWorkspaceMembers(): Promise<{ members: WorkspaceMember[] }> {
+  return request<{ members: WorkspaceMember[] }>("/workspaces/current/members");
+}
+
+export function updateWorkspaceMember(
+  userId: string,
+  payload: Partial<Pick<WorkspaceMember, "role" | "status">>,
+): Promise<WorkspaceMember> {
+  return request<WorkspaceMember>(`/workspaces/current/members/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listWorkspaceInvitations(): Promise<{ invitations: WorkspaceInvitation[] }> {
+  return request<{ invitations: WorkspaceInvitation[] }>("/workspaces/current/invitations");
+}
+
+export function inviteWorkspaceMember(payload: { email: string; role: WorkspaceRole }): Promise<WorkspaceInvitation> {
+  return request<WorkspaceInvitation>("/workspaces/current/invitations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelWorkspaceInvitation(invitationId: string): Promise<{ cancelled: boolean }> {
+  return request<{ cancelled: boolean }>(`/workspaces/current/invitations/${encodeURIComponent(invitationId)}`, {
+    method: "DELETE",
+  });
+}
+
+export type ActivityEntry = {
+  ts: string;
+  event: string;
+  workspace_id?: string | null;
+  actor_user_id?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  outcome?: string | null;
+  [key: string]: unknown;
+};
+
+/** Audit events are already scoped to the workspace selected in the API session. */
+export function listWorkspaceActivity(limit = 100): Promise<{ entries: ActivityEntry[] }> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request<{ entries: ActivityEntry[] }>(`/audit?${params.toString()}`);
+}
+
+export type SelfSignupRole = "analyst";
+
+export async function provisionSelfSignup(role: SelfSignupRole, accessToken: string): Promise<{
+  workspace_id: string;
+  workspace_name: string;
+  workspace_slug: string;
+  role: SelfSignupRole;
+  created: boolean;
+}> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(`${apiBase()}/onboarding/provision`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      credentials: "include",
+      body: JSON.stringify({ role }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw await readError(response);
+    return response.json();
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === "AbortError") {
+      throw new ApiError("KhÃ´ng thá»ƒ táº¡o workspace trong 12 giÃ¢y. HÃ£y kiá»ƒm tra backend Ä‘ang cháº¡y.", 0);
+    }
+    throw reason;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export async function cleanupGuestSession(accessToken: string): Promise<void> {
+  try {
+    await fetch(`${apiBase()}/guest/session`, {
+      method: "DELETE",
+      headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
+      credentials: "include",
+      keepalive: true,
+    });
+  } catch {
+    // Cleanup is deliberately best-effort. A stale guest session must not
+    // prevent the visitor from starting a fresh trial role.
+  }
+}
+
+export function listPublishedReports<T>(): Promise<T> {
+  return request<T>("/reports");
+}
+
+export function getPublishedReport<T>(reportId: string): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}`);
+}
+
+export function reviewReport<T = unknown>(reportId: string, payload: { decision: "approved" | "changes_requested" | "rejected"; comment?: string }): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function publishReport<T = unknown>(reportId: string, payload: { reason?: string } = {}): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createProfileReport<T = { id: string; status: string }>(runId: string): Promise<T> {
+  return request<T>(`/profile/${encodeURIComponent(runId)}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+}
+
+export function deleteReport(reportId: string): Promise<{ deleted: boolean; report_id: string }> {
+  return request<{ deleted: boolean; report_id: string }>(`/reports/${encodeURIComponent(reportId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function deleteDataset(datasetId: string): Promise<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }> {
   return request<{ dataset_id: string; deleted_runs: number; deleted_file: boolean }>(`/datasets/${encodeURIComponent(datasetId)}`, {
     method: "DELETE",
+  });
+}
+
+export function setDatasetCollection(datasetIds: string[], collectionName: string): Promise<Dataset[]> {
+  return request<Dataset[]>("/datasets/collection", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset_ids: datasetIds, collection_name: collectionName }),
   });
 }
 
@@ -79,8 +414,10 @@ export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile
 }
 
 export function createProfile(payload: {
-  dataset_ref: string;
+  dataset_id?: string;
+  dataset_ref?: string;
   dataset_name?: string;
+  run_name?: string;
   scan_mode: "full" | "sample";
   sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number };
 }): Promise<Profile> {
@@ -94,7 +431,6 @@ export function createProfile(payload: {
 export function confirmProposals(
   runId: string,
   payload: {
-    confirmed_by: string;
     resume: boolean;
     action?: "confirm" | "edit" | "reject" | "request_test";
     test_requests?: Array<{ test_type: string; columns: string[]; params?: Record<string, unknown> }>;
@@ -117,7 +453,6 @@ export function confirmProposals(
 export function runTests(
   runId: string,
   payload: {
-    requested_by: string;
     tests: Array<{ test_type: string; columns: string[] }>;
     alpha?: number;
     fdr_method?: "benjamini_hochberg" | "bonferroni" | "none";
@@ -139,28 +474,38 @@ export function detectDrift(runId: string, baselineRunId: string): Promise<Drift
 }
 
 export async function downloadExport(runId: string): Promise<Blob> {
-  const response = await fetch(`${apiBase()}/profile/${encodeURIComponent(runId)}/export`, {
-    headers: { Accept: "application/json" },
+  const response = await apiFetch(`/profile/${encodeURIComponent(runId)}/export`);
+  if (!response.ok) throw await readError(response);
+  return response.blob();
+}
+
+export type CombinedReportSection = "overview" | "technical_profile" | "quality" | "agent_summary" | "drift" | "analysis" | "report_snapshot";
+export const ALL_COMBINED_REPORT_SECTIONS: CombinedReportSection[] = ["overview", "technical_profile", "quality", "agent_summary", "drift", "analysis", "report_snapshot"];
+
+function reportSectionQuery(sections?: CombinedReportSection[], reportId?: string): string {
+  const params = new URLSearchParams();
+  if (sections?.length) params.set("sections", sections.join(","));
+  if (reportId) params.set("reportId", reportId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function downloadCombinedReport(runId: string, sections?: CombinedReportSection[], reportId?: string): Promise<Blob> {
+  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}${reportSectionQuery(sections, reportId)}`, {
+    headers: await authHeaders({ Accept: "application/pdf" }),
     credentials: "include",
   });
   if (!response.ok) throw await readError(response);
   return response.blob();
 }
 
-export async function downloadCombinedReport(runId: string): Promise<Blob> {
-  const response = await fetch(`/api/reports/profile/${encodeURIComponent(runId)}`, {
-    headers: { Accept: "application/pdf" },
-    credentials: "include",
-  });
-  if (!response.ok) throw await readError(response);
-  return response.blob();
+/** Export a report through the bounded profile/report exporter. */
+export function downloadPublishedReportPdf(runId: string, reportId: string): Promise<Blob> {
+  return downloadCombinedReport(runId, ALL_COMBINED_REPORT_SECTIONS, reportId);
 }
 
-export async function downloadCombinedJson(runId: string): Promise<Blob> {
-  const response = await fetch(`${apiBase()}/profile/${encodeURIComponent(runId)}/report`, {
-    headers: { Accept: "application/json" },
-    credentials: "include",
-  });
+export async function downloadCombinedJson(runId: string, sections?: CombinedReportSection[]): Promise<Blob> {
+  const response = await apiFetch(`/profile/${encodeURIComponent(runId)}/report${reportSectionQuery(sections)}`);
   if (!response.ok) throw await readError(response);
   return response.blob();
 }
@@ -174,14 +519,19 @@ export function askQuestion(payload: { question: string; profile_run_id?: string
 }
 
 export async function streamQuestion(
-  payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[] },
+  payload: {
+    question: string;
+    profile_run_id?: string;
+    history?: QAHistoryMessage[];
+    analysis_execution_id?: string;
+    workspace_context_version_id?: string;
+  },
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${apiBase()}/qa/stream`, {
+  const response = await apiFetch("/qa/stream", {
     method: "POST",
     headers: { Accept: "text/event-stream", "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify(payload),
     signal,
   });
@@ -206,17 +556,20 @@ export async function streamQuestion(
   }
 }
 
-export function uploadDataset(
+function uploadDatasetOnce(
   file: File,
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
+  baseUrl = apiBase(),
 ): Promise<UploadResult> {
-  return new Promise((resolve, reject) => {
+  return (async () => {
+    const headers = await authHeaders();
+    return new Promise<UploadResult>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", `${apiBase()}/datasets/upload`);
+    request.open("POST", `${baseUrl}/datasets/upload`);
     request.responseType = "json";
     request.withCredentials = true;
-    request.setRequestHeader("Accept", "application/json");
+    headers.forEach((value, key) => request.setRequestHeader(key, value));
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
     };
@@ -232,34 +585,109 @@ export function uploadDataset(
     const formData = new FormData();
     formData.append("file", file);
     request.send(formData);
+    });
+  })();
+}
+
+export async function uploadDataset(
+  file: File,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
+): Promise<UploadResult> {
+  try {
+    return await uploadDatasetOnce(file, onProgress, signal);
+  } catch (reason) {
+    // XHR does not use apiFetch, so retry once after refreshing an expired
+    // Supabase session just like the other API calls do.
+    if (reason instanceof ApiError && reason.status === 401 && authTransport) {
+      const previousToken = await authTransport.accessToken();
+      const refreshed = await authTransport.refresh();
+      if (refreshed && refreshed !== previousToken) return uploadDatasetOnce(file, onProgress, signal, apiBase());
+      throw new ApiError("PhiÃªn Ä‘Äƒng nháº­p Ä‘Ã£ háº¿t háº¡n. HÃ£y Ä‘Äƒng nháº­p láº¡i.", 401);
+    }
+    if (reason instanceof ApiError && reason.status === 0) {
+      for (const baseUrl of apiBaseCandidates().slice(1)) {
+        try {
+          return await uploadDatasetOnce(file, onProgress, signal, baseUrl);
+        } catch (fallbackReason) {
+          if (!(fallbackReason instanceof ApiError) || fallbackReason.status !== 0) throw fallbackReason;
+        }
+      }
+    }
+    throw reason;
+  }
+}
+
+export function ensureExplorerSession(runId: string): Promise<AnalysisSession> {
+  return request<AnalysisSession>(`/profile/${encodeURIComponent(runId)}/explorer/session`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
   });
 }
 
-export function listAnalyses(signal?: AbortSignal, profileRunId?: string): Promise<AnalysisSession[]> {
-  const query = profileRunId ? `?profile_run_id=${encodeURIComponent(profileRunId)}` : "";
-  return request<AnalysisSession[]>(`/analysis-sessions${query}`, { signal });
+export function previewExplorer(runId: string, query: QuerySpec, signal?: AbortSignal): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/profile/${encodeURIComponent(runId)}/explorer/previews`, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ query }),
+  });
 }
 
-export function getAnalysis(sessionId: string, signal?: AbortSignal): Promise<AnalysisSession> {
-  return request<AnalysisSession>(`/analysis-sessions/${encodeURIComponent(sessionId)}`, { signal });
+export function promoteExplorerPreview(runId: string, previewId: string, contextId: string, signal?: AbortSignal): Promise<AnalysisExecution> {
+  return request<AnalysisExecution>(`/profile/${encodeURIComponent(runId)}/explorer/previews/${encodeURIComponent(previewId)}/promote`, {
+    method: "POST", signal,
+    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ expected_context_version_id: contextId }),
+  });
 }
 
-export function createAnalysis(payload: { profile_run_id: string; mode: "quick" | "deep"; goal: string; decision?: string; audience?: string; output?: "answer" | "report" | "chart" }): Promise<AnalysisSession> {
-  return request<AnalysisSession>("/analysis-sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+export type ReportDraftItem = {
+  id: string; item_type: "chart" | "note" | string; position: number; title?: string | null; note?: string | null;
+  query_execution_id?: string | null; query_spec?: QuerySpec | null; result_hash?: string | null;
+  content_json?: { result?: AnalysisExecution["result"]; answer?: string } | null; limitations?: string[] | null;
+};
+export type ReportDraft = { id: string; title: string; profile_run_id: string; status: "empty" | "draft" | "stale" | "snapshot" | string; draft_version: number; version_id: string; items: ReportDraftItem[]; stale_reasons: string[]; snapshot_hash?: string | null };
+
+export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
 }
 
-export function createAnalysisContext(sessionId: string, payload: { row_grain?: string; entity?: string; keys: string[]; time_column?: string; timezone?: string; dimensions: string[]; measures: string[]; ignored_columns: string[]; limitations: string[] }): Promise<AnalysisSession["context"]> {
-  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+export function pinChartToReport(reportId: string, executionId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items`, {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    body: JSON.stringify({ item_type: "chart", query_execution_id: executionId }),
+  });
 }
 
-export function approveAnalysisContext(sessionId: string, contextId: string, approvedBy: string): Promise<AnalysisSession["context"]> {
-  return request<AnalysisSession["context"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/context-versions/${encodeURIComponent(contextId)}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved_by: approvedBy }) });
+export function pinAgentAnswerToReport(
+  reportId: string,
+  agentRunId: string,
+  title: string,
+  content: string,
+): Promise<ReportDraft> {
+  return request<ReportDraft>('/reports/' + encodeURIComponent(reportId) + '/items', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+    body: JSON.stringify({ item_type: 'agent_answer', agent_run_id: agentRunId, title, content: { answer: content } }),
+  });
 }
 
-export function runAnalysisQualityGate(sessionId: string): Promise<AnalysisSession["quality_gate"]> {
-  return request<AnalysisSession["quality_gate"]>(`/analysis-sessions/${encodeURIComponent(sessionId)}/quality-gate`, { method: "POST" });
+export function reorderReportDraft(reportId: string, itemIds: string[], expectedDraftVersion: number): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/reorder`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: itemIds, expected_draft_version: expectedDraftVersion }),
+  });
 }
 
-export function executeAnalysis(sessionId: string, contextId: string, query: QuerySpec): Promise<AnalysisExecution> {
-  return request<AnalysisExecution>(`/analysis-sessions/${encodeURIComponent(sessionId)}/executions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_context_version_id: contextId, query }) });
+export function updateReportDraftItem(reportId: string, itemId: string, payload: { title?: string; note?: string }): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+}
+
+export function unpinReportDraftItem(reportId: string, itemId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+}
+
+export function snapshotReportDraft(reportId: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/snapshots`, { method: "POST" });
 }

@@ -43,10 +43,20 @@ retrieval:
   index_dir: ./data/index
   top_k: 5
   candidate_k: 20
-  embedding_provider: local
-  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  embedding_provider: voyage
+  # Voyage uses document/query embeddings separately for retrieval.
+  embedding_model: voyage-3.5
+  # Used automatically when Voyage is unavailable or rate-limited.
+  local_fallback_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
   rerank_model: cross-encoder/ms-marco-MiniLM-L-6-v2
   enable_rerank: false
+  # Enable after validating and importing data/knowledge_base in staging.
+  external_knowledge_enabled: true
+  profile_top_k: 1
+  knowledge_top_k: 4
+  max_chunks_per_source: 2
+  profile_context_chars: 12000
+  knowledge_context_chars: 12000
 
 security:
   require_api_token: false
@@ -54,7 +64,16 @@ security:
   max_upload_mb: 500
   allow_raw_export: false
   mask_pii_in_answers: true
-  audit_log: ./data/audit.jsonl
+  # Empty -> append-only audit_events table in Supabase PostgreSQL.
+  audit_log: ""
+
+auth:
+  # dual is a short rollout bridge; production must set supabase.
+  mode: dual
+  allow_signup: false
+  require_email_confirmed: true
+  audience: authenticated
+  jwks_cache_ttl_seconds: 300
 
 guardrails:
   # Trần cứng mỗi request, độc lập với số vòng hội thoại tool của LLM.
@@ -65,6 +84,56 @@ guardrails:
   # Mặc định audit chỉ lưu hash + độ dài câu hỏi, không lưu nội dung người dùng.
   audit_question_content: false
 
+# Agent runtime v2 is additive. Keep every enforcement feature off until the
+# corresponding migration and deterministic eval gates have passed.
+agent:
+  trace_mode: "shadow"
+  verifier_mode: "off"
+  planner_enabled: false
+  jobs_enabled: false
+  workspace_memory_enabled: false
+  personal_memory_enabled: false
+  runtime_version: 2.0.0
+  trace_event_limit: 500
+
+# Command Center is an additive rollout. Keep it disabled until the migration,
+# API contract and cross-workspace tests have been verified in staging.
+ux:
+  command_center_enabled: false
+  preview_timeout_seconds: 60
+  preview_row_budget: 50000
+  preview_result_limit: 50
+  official_result_limit: 500
+
+# Command Center is an additive rollout. Keep it disabled until the migration,
+# API contract and cross-workspace tests have been verified in staging.
+ux:
+  command_center_enabled: false
+  preview_timeout_seconds: 60
+  preview_row_budget: 50000
+  preview_result_limit: 50
+  official_result_limit: 500
+
 database:
-  url: sqlite:///./data/app.db
+  # Set DATABASE_URL in .env. PostgreSQL is required in every environment.
+  url: ""
   checkpointer_url: ""
+
+storage_provider: supabase
+guest_storage_provider: supabase
+guest_max_upload_mb: 25
+guest_retention_hours: 24
+
+supabase:
+  url: ""
+  publishable_key: ""
+  secret_key: ""
+  # Temporary compatibility only. Prefer secret_key.
+  service_role_key: ""
+  storage_bucket: p170-dataset
+  storage_prefix: datasets
+  storage_timeout_seconds: 300
+  storage_resumable_threshold_mb: 6
+  storage_chunk_mb: 6
+  google_drive_chunk_mb: 8
+  google_drive_oauth_state_ttl_seconds: 600

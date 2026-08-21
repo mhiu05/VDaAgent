@@ -13,12 +13,12 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal
 
 import duckdb
 import numpy as np
 import pandas as pd
+from src.services.storage import materialize_source
 
 ScanMode = Literal["full", "sample"]
 
@@ -103,16 +103,13 @@ class ProfileComputation:
 # --------------------------------------------------------------------------- #
 # Nạp dữ liệu
 # --------------------------------------------------------------------------- #
-_SAFE_REF = re.compile(r"^[A-Za-z0-9_\-./\\: ]+$")
-
-
 def _quote(ref: str) -> str:
     """Escape để chèn dataset_ref vào SQL an toàn.
 
     DuckDB không hỗ trợ parameter binding cho tên file trong `FROM`, nên phải
     tự escape. Chặn ký tự lạ trước, rồi nhân đôi dấu nháy đơn.
     """
-    if not _SAFE_REF.match(ref):
+    if not ref or any(ord(char) < 32 for char in ref):
         raise ValueError(
             "dataset_ref chứa ký tự không cho phép. Chỉ nhận chữ, số, _ - . / \\ : và khoảng trắng."
         )
@@ -132,27 +129,32 @@ def load_dataset(
     Trả về (dataframe, câu SQL đã chạy, danh sách cột bị cắt).
     Câu SQL được lưu vào ProfileRun.executed_query cho reproducibility (L5).
     """
-    path = Path(dataset_ref)
-    if not path.exists():
-        raise FileNotFoundError(f"Không tìm thấy dataset: {dataset_ref}")
+    with materialize_source(dataset_ref) as path:
+        src = _quote(str(path))
+        con = duckdb.connect(database=":memory:")
+        try:
+            if random_seed is not None:
+                con.execute(f"SELECT setseed({(random_seed % 1000) / 1000.0})")
 
-    src = _quote(str(path))
-    con = duckdb.connect(database=":memory:")
-    try:
-        if random_seed is not None:
-            con.execute(f"SELECT setseed({(random_seed % 1000) / 1000.0})")
+            if scan_mode == "full":
+                query = f"SELECT * FROM {src}"
+            elif sample_strategy == "tablesample":
+                # TABLESAMPLE nhanh hơn nhưng phân phối kém đều hơn reservoir.
+                query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (system)"
+            else:
+                query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (reservoir)"
 
-        if scan_mode == "full":
-            query = f"SELECT * FROM {src}"
-        elif sample_strategy == "tablesample":
-            # TABLESAMPLE nhanh hơn nhưng phân phối kém đều hơn reservoir.
-            query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (system)"
-        else:
-            query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (reservoir)"
+            df = con.execute(query).df()
+        except duckdb.Error as exc:
+            raise ValueError(
+                "Không thể đọc dữ liệu bảng. Với CSV/TSV, hãy kiểm tra dấu phân cách, header và encoding của file."
+            ) from exc
+        finally:
+            con.close()
 
-        df = con.execute(query).df()
-    finally:
-        con.close()
+    # Không lưu temporary path vào evidence. Dataset reference ổn định của
+    # Supabase vẫn đủ để truy vết; lần đọc sau sẽ materialize file tạm mới.
+    query = query.replace(str(path), dataset_ref)
 
     truncated: list[str] = []
     if len(df.columns) > max_columns:
@@ -467,7 +469,7 @@ def find_candidate_keys(
                 combo = df[[a, b]].dropna()
                 if combo.empty:
                     continue
-                distinct = int(len(combo.drop_duplicates()))
+                distinct = len(combo.drop_duplicates())
                 ratio = distinct / len(combo)
                 if ratio >= 0.999:
                     proposals.append(
