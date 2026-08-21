@@ -232,6 +232,12 @@ jobs:
             --name "$FRONTEND_APP" \
             --settings WEBSITES_PORT=8080 PORT=8080 NODE_ENV=production WEBSITES_CONTAINER_START_TIME_LIMIT=1800 INTERNAL_API_URL="$BACKEND_URL/api/v1" \
             --output none
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp config set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$FRONTEND_APP" \
+            --startup-file "node server.js" \
+            --output none
 
       - name: Restart apps
         shell: bash
