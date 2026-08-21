@@ -2,6 +2,7 @@
 
 Triển khai VDaAgent lên Azure App Service bằng hai Linux container độc lập (FastAPI và Next.js), lưu image trong Azure Container Registry (ACR), còn PostgreSQL/Auth/Storage dùng Supabase. Kế hoạch ưu tiên một đường phát hành có migration, smoke test và rollback rõ ràng; các image luôn được gắn tag bất biến theo Git SHA.
 
+
 ## Scope
 
 - In: chuẩn hóa Dockerfile/requirements, cấu hình Azure App Service và ACR, GitHub Actions OIDC, migration Alembic, biến môi trường production, kiểm tra sau deploy và rollback.
