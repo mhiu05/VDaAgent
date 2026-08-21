@@ -29,13 +29,15 @@ const rootEnv = readRootEnv();
 const publicEnv = {
   // The frontend may use the backend variable names from the root .env. Only
   // these low-privilege/public values are forwarded into the browser bundle.
-  NEXT_PUBLIC_SUPABASE_URL: rootEnv.NEXT_PUBLIC_SUPABASE_URL || rootEnv.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: rootEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || rootEnv.SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "",
-  NEXT_PUBLIC_SITE_URL: rootEnv.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-  NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: rootEnv.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || rootEnv.AUTH_ALLOW_SIGNUP || process.env.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || "false",
-  NEXT_PUBLIC_AUTH_ALLOW_GUEST: rootEnv.NEXT_PUBLIC_AUTH_ALLOW_GUEST || rootEnv.AUTH_ALLOW_GUEST || process.env.NEXT_PUBLIC_AUTH_ALLOW_GUEST || "false",
+  // Explicit process values must win so Docker build arguments cannot be
+  // silently overridden by a developer's root .env file.
+  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || rootEnv.NEXT_PUBLIC_SUPABASE_URL || rootEnv.SUPABASE_URL || "",
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || rootEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || rootEnv.SUPABASE_PUBLISHABLE_KEY || "",
+  NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || rootEnv.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+  NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: process.env.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || rootEnv.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || rootEnv.AUTH_ALLOW_SIGNUP || "false",
+  NEXT_PUBLIC_AUTH_ALLOW_GUEST: process.env.NEXT_PUBLIC_AUTH_ALLOW_GUEST || rootEnv.NEXT_PUBLIC_AUTH_ALLOW_GUEST || rootEnv.AUTH_ALLOW_GUEST || "false",
   NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED: process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED || rootEnv.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED || rootEnv.UX_COMMAND_CENTER_ENABLED || "false",
-  NEXT_PUBLIC_API_URL: rootEnv.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1",
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || rootEnv.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1",
 };
 
 const isDevelopment = process.env.NODE_ENV !== "production";
@@ -57,6 +59,7 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
+  output: "standalone",
   env: publicEnv,
   // Keep dev and production chunks isolated so concurrent commands cannot corrupt `.next`.
   distDir: isDevelopment ? ".next-dev" : ".next",

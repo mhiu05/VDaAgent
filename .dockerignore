@@ -1,0 +1,31 @@
+# Keep local credentials, caches, and source-control metadata out of the
+# backend build context. The image only copies the backend, config, and
+# Alembic assets it needs at runtime.
+.env
+.env.*
+!.env.example
+.git
+.github
+.agents
+.codex
+.venv
+venv
+env
+node_modules
+frontend/node_modules
+frontend/.next
+frontend/.next-dev
+data
+tmp
+logs
+.pytest_cache
+.pytest_tmp
+.ruff_cache
+__pycache__
+*.py[cod]
+*.log
+test-results
+playwright-report
+tests
+docs
+worklog
