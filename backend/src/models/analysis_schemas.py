@@ -56,10 +56,33 @@ class FilterSpec(BaseModel):
 
 
 class QuerySpec(BaseModel):
+    analysis_kind: Literal[
+        "aggregate", "histogram", "scatter", "box", "heatmap", "forecast",
+        "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
+        "violin", "donut", "outlier",
+    ] = "aggregate"
     aggregate: Literal["count", "count_distinct", "sum", "mean", "median"]
     column: str | None = Field(default=None, max_length=255)
+    x_column: str | None = Field(default=None, max_length=255)
+    y_column: str | None = Field(default=None, max_length=255)
+    columns: list[str] = Field(default_factory=list, max_length=12)
     dimensions: list[str] = Field(default_factory=list, max_length=3)
     filters: list[FilterSpec] = Field(default_factory=list, max_length=20)
+    time_grain: Literal["day", "week", "month", "quarter", "year"] | None = None
+    bins: int = Field(default=12, ge=5, le=30)
+    forecast_algorithm: Literal[
+        "naive", "seasonal_naive", "drift", "moving_average",
+        "weighted_moving_average", "ses", "holt_linear", "holt_winters", "ets",
+        "arima", "sarima", "sarimax", "auto_arima", "arimax",
+        "structural_time_series", "local_level", "local_linear_trend",
+        "kalman_filter", "dynamic_linear_model", "unobserved_components",
+        "prophet", "neuralprophet", "linear_regression", "ridge", "lasso",
+        "random_forest", "extra_trees", "xgboost", "lightgbm", "catboost",
+    ] | None = None
+    forecast_horizon: int = Field(default=12, ge=1, le=60)
+    season_length: int = Field(default=12, ge=2, le=365)
+    confidence_level: float = Field(default=0.95, ge=0.8, le=0.99)
+    history_limit: int = Field(default=500, ge=12, le=2000)
     limit: int = Field(default=100, ge=1, le=500)
     sort: Literal["asc", "desc"] = "desc"
 
@@ -77,6 +100,20 @@ class PreviewCreate(BaseModel):
 class PreviewPromote(BaseModel):
     expected_context_version_id: str = Field(min_length=1)
     idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class AutoChartPlanRequest(BaseModel):
+    """Business intent supplied by the user; technical choices are agent-owned."""
+
+    question: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("question")
+    @classmethod
+    def strip_question(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Câu hỏi kinh doanh không được để trống.")
+        return value
 
 
 class AnalysisOut(BaseModel):

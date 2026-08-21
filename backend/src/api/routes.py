@@ -32,6 +32,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
+
 from src.agents.graph import get_profiling_graph, get_qa_graph
 from src.agents.nodes.profiling_nodes import clear_dataframe_cache
 from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_agent_run
@@ -1066,9 +1067,32 @@ def _qa_evidence_metadata(
             )
         except Exception:  # Evidence metadata must never fail a Q&A response.
             logger.warning("Could not load Q&A evidence metadata", exc_info=True)
+    official_execution_exists = False
+    if request.analysis_execution_id and request.profile_run_id:
+        try:
+            analyses = get_analysis_repository()
+            execution = analyses.get_execution(
+                request.analysis_execution_id, workspace_id=workspace_id
+            )
+            session = (
+                analyses.get_session(
+                    str(execution["session_id"]), workspace_id=workspace_id
+                )
+                if execution
+                else None
+            )
+            official_execution_exists = bool(
+                execution
+                and execution.get("execution_kind") == "official"
+                and execution.get("status") == "ready"
+                and ((session or {}).get("source") or {}).get("profile_run_id")
+                == request.profile_run_id
+            )
+        except Exception:  # Verification metadata must fail closed.
+            logger.warning("Could not verify bound Official execution", exc_info=True)
     status = (
         'verified'
-        if evidence_exists
+        if evidence_exists or official_execution_exists
         else 'profile_only'
         if request.profile_run_id
         else 'no_evidence'
@@ -1115,7 +1139,11 @@ async def ask_question(
         run_type="qa",
         resource_bindings={
             key: value
-            for key, value in {"profile_run_id": request.profile_run_id}.items()
+            for key, value in {
+                "profile_run_id": request.profile_run_id,
+                "analysis_execution_id": request.analysis_execution_id,
+                "context_version_id": request.workspace_context_version_id,
+            }.items()
             if value
         },
         request_for_hash=request.model_dump(),
@@ -1199,7 +1227,11 @@ async def ask_question_stream(
         run_type="qa",
         resource_bindings={
             key: value
-            for key, value in {"profile_run_id": request.profile_run_id}.items()
+            for key, value in {
+                "profile_run_id": request.profile_run_id,
+                "analysis_execution_id": request.analysis_execution_id,
+                "context_version_id": request.workspace_context_version_id,
+            }.items()
             if value
         },
         request_for_hash=request.model_dump(),

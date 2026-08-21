@@ -20,11 +20,24 @@ langgraph>=0.2.0
 langgraph-checkpoint-postgres>=3.0.0 # HITL state bền vững trên Supabase
 psycopg[binary,pool]>=3.2.0         # SQLAlchemy + LangGraph PostgreSQL
 
+# --- MCP integration (local stdio MVP; pin v1 API until v2 stabilizes) ---
+mcp>=1.28,<2
+
 # --- Compute engine: mọi con số do đây tính, LLM không tự tính ---
 duckdb>=1.1.0
 pandas>=2.2.0
 numpy>=1.26.0
 scipy>=1.14.0                # 6 kiểm định thống kê trong services/stats_tests.py
+statsmodels>=0.14.4          # smoothing, ARIMA/SARIMA và state-space forecasting
+scikit-learn>=1.5.0         # regression/ensemble forecasting với lag features
+
+# Forecast model tùy chọn: registry chỉ bật model khi package tương ứng đã cài.
+# Không đưa vào image mặc định vì kích thước/CPU lớn; cài theo deployment cần dùng:
+# xgboost>=2.1.0
+# lightgbm>=4.5.0
+# catboost>=1.2.7
+# prophet>=1.1.6
+# neuralprophet>=0.9.0
 
 charset-normalizer>=3.4.0,<4 # detect legacy CSV encodings before DuckDB reads them
 

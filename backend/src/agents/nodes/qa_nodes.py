@@ -132,6 +132,18 @@ def _conversation_context(state: ProfilingState) -> list[dict[str, str]]:
     return context
 
 
+def _resolve_column_from_history(state: ProfilingState, columns: list[str]) -> list[str]:
+    """Look back in recent conversation history to find the most recently discussed column."""
+    if not columns:
+        return []
+    for msg in reversed(state.get("messages") or []):
+        text = str(msg.get("text") or "")
+        found = _mentioned_columns(text, columns)
+        if found:
+            return [found[-1]]
+    return []
+
+
 def _profile_fallback_summary(run_id: str | None) -> str:
     """Tạo tóm tắt deterministic, ngắn gọn khi LLM không sẵn sàng."""
     if not run_id:
@@ -274,12 +286,14 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
 
     mentioned = _mentioned_columns(question, columns)
 
-    # Tham chiếu mơ hồ + không nêu cột nào -> hỏi lại (eval B-01).
+    # Tham chiếu mơ hồ: thử resolve từ context trước khi hỏi lại (eval B-01).
     if _VAGUE_REFERENCES.search(question) and not mentioned:
-        return {
-            "question_type": "clarify",
-            "qa_context": {"columns_available": columns[:50]},
-        }
+        mentioned = _resolve_column_from_history(state, columns)
+        if not mentioned:
+            return {
+                "question_type": "clarify",
+                "qa_context": {"columns_available": columns[:50]},
+            }
 
     lowered = question.lower()
     if not state.get("profile_run_id"):

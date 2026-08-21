@@ -204,8 +204,8 @@ function ProfileOverview() {
 
     {(!hasReview && runComplete) && (
       <section className="panel report-actions-panel" style={{ marginTop: 18 }}>
-        <div><p className="eyebrow">Bước tiếp theo</p><h2>Khám phá dữ liệu đã hoàn tất</h2><p className="muted">Tạo aggregate an toàn, xác nhận evidence và đưa kết quả vào báo cáo trong Command Center.</p></div>
-        <div className="inline-actions"><Link href={`/profiles/${runId}?tab=explorer`} className="button primary">Khám phá dữ liệu</Link></div>
+        <div><p className="eyebrow">Bước tiếp theo</p><h2>Tạo biểu đồ & phân tích</h2><p className="muted">Tạo biểu đồ trực quan, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo trong Command Center.</p></div>
+        <div className="inline-actions"><Link href={`/profiles/${runId}?tab=charts`} className="button primary">Tạo biểu đồ & phân tích</Link></div>
       </section>
     )}
     
