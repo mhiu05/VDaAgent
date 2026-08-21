@@ -27,7 +27,6 @@ env:
 jobs:
   build-and-deploy:
     runs-on: self-hosted
-    environment: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
