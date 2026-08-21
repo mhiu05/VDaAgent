@@ -123,7 +123,9 @@ class ReportPublishInput(BaseModel):
 
 class ChartSpecInput(BaseModel):
     chart_type: Literal[
-        "kpi", "bar", "line", "table", "histogram", "scatter", "box", "heatmap"
+        "kpi", "bar", "line", "table", "histogram", "scatter", "box", "heatmap",
+        "donut", "violin", "missing_bar", "missing_heatmap", "correlation_heatmap",
+        "cardinality", "outlier",
     ]
     renderer: Literal[
         "native-svg", "native-css", "native-html", "native-kpi", "native-grid"
@@ -135,7 +137,7 @@ class ChartSpecInput(BaseModel):
     ] = "aggregate"
     x_column: str | None = Field(default=None, max_length=255)
     y_column: str | None = Field(default=None, max_length=255)
-    aggregation: Literal["count", "count_distinct", "sum", "mean", "median"]
+    aggregation: Literal["count", "count_distinct", "sum", "mean", "median"] | None = "count"
     time_grain: Literal["day", "week", "month", "quarter", "year"] | None = None
     bins: int | None = Field(default=None, ge=5, le=30)
     forecast_algorithm: str | None = Field(default=None, max_length=64)

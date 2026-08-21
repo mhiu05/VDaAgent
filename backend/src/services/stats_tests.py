@@ -12,8 +12,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import numpy as np
 import pandas as pd
+# pyrefly: ignore [missing-import]
 from scipy import stats as sps
 
 # --------------------------------------------------------------------------- #
@@ -347,6 +349,7 @@ def grubbs(df: pd.DataFrame, columns: list[str], alpha: float, **_: Any) -> Test
 def adf_test(df: pd.DataFrame, columns: list[str], alpha: float, **_: Any) -> TestResult:
     """H0: chuỗi KHÔNG dừng (có unit root). Cần statsmodels."""
     try:
+        # pyrefly: ignore [missing-import]
         from statsmodels.tsa.stattools import adfuller
     except ImportError as exc:  # pragma: no cover - phụ thuộc tuỳ chọn
         raise ValueError("Kiểm định ADF cần statsmodels: pip install 'p170[stats]'.") from exc

@@ -10,7 +10,7 @@ import type {
   TestResult,
   UploadResult,
 } from "@/lib/types";
-import type { AnalysisExecution, AnalysisSession, AutoChartPlan, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
+import type { AnalysisExecution, AnalysisSession, AutoChartPlan, AutoProfilePack, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
@@ -629,6 +629,14 @@ export function autoPlanChart(runId: string, question: string): Promise<AutoChar
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
+  });
+}
+
+export function autoProfilePack(runId: string): Promise<AutoProfilePack> {
+  return request<AutoProfilePack>(`/profile/${encodeURIComponent(runId)}/charts/auto-profile-pack`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
   });
 }
 

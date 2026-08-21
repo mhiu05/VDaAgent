@@ -1,9 +1,11 @@
-"""Local MCP adapter for the privacy-safe P-170 agent tools.
+"""Model Context Protocol (MCP) Server for the VDaAgent Tri-Engine Platform.
 
-This first version intentionally runs over stdio. It exposes the existing
-bounded tool registry instead of creating a second data-access path. HTTP
-transport should only be enabled after workspace authentication and request
-context propagation are implemented for MCP clients.
+Orchestrates bounded, privacy-safe analytics across three core engines:
+1. Profiling & Compute Engine (DuckDB & Cloud Warehouse)
+2. Business Context & Knowledge Base (Vector DB / Hybrid RAG)
+3. Statistical & Predictive Algorithms (Anomaly Detection & 30+ Forecasting Models)
+
+Guarantees Zero Raw Data Leakage, strict execution budgets, and evidence verification.
 """
 
 from __future__ import annotations

@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
+# pyrefly: ignore [missing-import]
 import httpx
 from src.config import Settings, get_settings
 from src.services.tabular_source import utf8_tabular_source
@@ -68,7 +69,9 @@ class SupabaseStorage:
                 "Thiếu SUPABASE_URL hoặc SUPABASE_SECRET_KEY."
             )
         try:
+            # pyrefly: ignore [missing-import]
             from supabase import create_client
+            # pyrefly: ignore [missing-import]
             from supabase.lib.client_options import SyncClientOptions
         except ImportError as exc:  # pragma: no cover - depends on deployment extras
             raise StorageNotConfiguredError(

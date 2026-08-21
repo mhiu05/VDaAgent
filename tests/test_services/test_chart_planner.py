@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from src.services.chart_planner import ChartPlanCandidate, build_chart_plan
+from src.services.chart_planner import (
+    ChartPlanCandidate,
+    build_auto_profile_pack,
+    build_chart_plan,
+)
 
 CONTEXT = {
     "dimensions": ["order_date", "region", "channel"],
@@ -136,3 +140,30 @@ def test_agent_selects_core_profiling_chart_from_user_question(
     assert plan["algorithm"] == algorithm
     assert plan["query"]["analysis_kind"] == analysis_kind
     assert plan["chart_type"] == chart_type
+
+
+def test_auto_profile_pack_is_domain_neutral_and_requires_no_question() -> None:
+    pack = build_auto_profile_pack(CONTEXT, {**STATS, "order_date": {**STATS["order_date"], "cardinality": 24}})
+
+    objectives = {item["objective"] for item in pack}
+    assert {"missingness", "cardinality", "distribution", "box_plot", "outlier"} <= objectives
+    assert "relationship" in objectives
+    assert "correlation" in objectives
+    assert "trend" in objectives
+    assert "forecast" in objectives
+    assert len(pack) <= 12
+    assert all(item["auto_generated"] is True for item in pack)
+    assert all(item["planning_mode"] == "auto_profile" for item in pack)
+    assert all("query" in item and item["query"]["analysis_kind"] for item in pack)
+
+
+def test_data_formulation_transforms_and_lineage() -> None:
+    trend_plan = build_chart_plan("Doanh số theo tháng", CONTEXT, STATS)
+    assert "transforms" in trend_plan
+    assert len(trend_plan["transforms"]) > 0
+    assert "source_columns" in trend_plan
+    assert "sales" in trend_plan["source_columns"]
+
+    hist_plan = build_chart_plan("Phân phối sales", CONTEXT, STATS)
+    assert any(t["step"] == "binning" for t in hist_plan.get("transforms", []))
+

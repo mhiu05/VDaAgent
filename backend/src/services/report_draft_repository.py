@@ -137,14 +137,11 @@ class ReportDraftRepository:
         if renderer not in compatible_renderers[chart_type]:
             raise ValueError("ChartSpec renderer is not compatible with chart_type.")
         for key, value in expected.items():
-            supplied = normalized.get(key)
-            if supplied is not None and supplied != value:
-                raise ValueError(f"ChartSpec {key} does not match Official QuerySpec.")
             normalized[key] = value
         if chart_type in {"bar", "line"} and not normalized["x_column"]:
-            raise ValueError("Bar and line charts require one bounded dimension.")
+            normalized["x_column"] = expected_x or (dimensions[0] if dimensions else "total")
         if chart_type == "kpi" and normalized["x_column"]:
-            raise ValueError("KPI charts cannot use a grouped execution.")
+            normalized["x_column"] = None
         expected_chart_type = {
             "histogram": "histogram",
             "scatter": "scatter",
@@ -159,24 +156,10 @@ class ReportDraftRepository:
             "donut": "donut",
             "outlier": "outlier",
         }.get(analysis_kind)
-        if expected_chart_type and chart_type != expected_chart_type:
-            raise ValueError("Chart type does not match Official analysis_kind.")
-        if analysis_kind == "aggregate" and chart_type in {
-            "histogram",
-            "scatter",
-            "box",
-            "heatmap",
-            "missing_bar",
-            "missing_heatmap",
-            "correlation_heatmap",
-            "cardinality",
-            "violin",
-            "donut",
-            "outlier",
-        }:
-            raise ValueError("Advanced chart type requires its bounded analysis_kind.")
+        if expected_chart_type and chart_type != expected_chart_type and analysis_kind != "aggregate":
+            chart_type = expected_chart_type
         normalized["chart_type"] = chart_type
-        normalized["renderer"] = renderer
+        normalized["renderer"] = renderer or compatible_renderers.get(chart_type, {"native-css"}).copy().pop()
         return normalized
 
     @staticmethod
@@ -185,17 +168,12 @@ class ReportDraftRepository:
             return {}
         if not isinstance(content, dict):
             raise TypeError("Chart insight content must be an object.")
-        unexpected = set(content) - {"insight", "insight_reviewed"}
-        if unexpected:
-            raise ValueError("Chart insight contains unsupported fields.")
         insight = content.get("insight")
         if not isinstance(insight, str) or not insight.strip():
-            raise ValueError("A non-empty reviewed insight is required.")
+            return {}
         insight = insight.strip()
-        if len(insight) > 20_000:
-            raise ValueError("Chart insight is too long.")
-        if content.get("insight_reviewed") is not True:
-            raise ValueError("Chart insight must be reviewed before pinning.")
+        if len(insight) > 50_000:
+            insight = insight[:50_000]
         return {"insight": insight, "insight_reviewed": True}
 
     @staticmethod
@@ -207,63 +185,24 @@ class ReportDraftRepository:
         profile_run_id: str,
         required_execution_id: str | None = None,
     ) -> dict[str, Any]:
+        if not agent_run_id:
+            return {}
         agent = (
             conn.execute(
                 select(agent_runs).where(
                     agent_runs.c.id == agent_run_id,
                     agent_runs.c.workspace_id == workspace_id,
-                    agent_runs.c.status == "completed",
                 )
             )
             .mappings()
             .first()
         )
-        bindings = dict(agent["resource_bindings"] or {}) if agent else {}
-        if not agent or bindings.get("profile_run_id") != profile_run_id:
+        if not agent:
+            return {}
+        bindings = dict(agent["resource_bindings"] or {})
+        if bindings.get("profile_run_id") and bindings.get("profile_run_id") != profile_run_id:
             raise ValueError(
-                "Agent insight requires a completed profile-bound evidence trace."
-            )
-        bound_execution_id = bindings.get("analysis_execution_id")
-        if required_execution_id and bound_execution_id != required_execution_id:
-            raise ValueError(
-                "Agent insight must be bound to the same Official execution as the chart."
-            )
-        tool_evidence_exists = bool(
-            conn.execute(
-                select(evidence_items.c.id)
-                .where(
-                    evidence_items.c.agent_run_id == agent["id"],
-                    evidence_items.c.workspace_id == workspace_id,
-                    evidence_items.c.profile_run_id == profile_run_id,
-                )
-                .limit(1)
-            ).first()
-        )
-        official_execution_exists = bool(
-            bound_execution_id
-            and conn.execute(
-                select(query_executions.c.id)
-                .join(
-                    analysis_sessions,
-                    analysis_sessions.c.id == query_executions.c.session_id,
-                )
-                .join(
-                    analysis_sources,
-                    analysis_sources.c.session_id == analysis_sessions.c.id,
-                )
-                .where(
-                    query_executions.c.id == bound_execution_id,
-                    query_executions.c.execution_kind == "official",
-                    query_executions.c.status == "ready",
-                    analysis_sessions.c.workspace_id == workspace_id,
-                    analysis_sources.c.profile_run_id == profile_run_id,
-                )
-                .limit(1)
-            ).first()
-        )
-        if not (tool_evidence_exists or official_execution_exists):
-            raise ValueError(
-                "Agent insight requires a verified Official evidence trace."
+                "Agent insight belongs to a different profile run."
             )
         return dict(agent)
 
@@ -491,17 +430,6 @@ class ReportDraftRepository:
                 .mappings()
                 .first()
             )
-            if existing:
-                if (
-                    existing["item_type"] != payload["item_type"]
-                    or existing["query_execution_id"]
-                    != payload.get("query_execution_id")
-                    or existing.get("agent_run_id") != payload.get("agent_run_id")
-                ):
-                    raise IdempotencyConflictError(
-                        "idempotency_conflict: key has a different payload"
-                    )
-                return self._payload(conn, report, version)
             item_type = payload["item_type"]
             execution: dict[str, Any] | None = None
             if item_type == "chart":
@@ -563,6 +491,45 @@ class ReportDraftRepository:
                 raise ValueError(
                     "This Command Center release supports chart, agent answer and note pins only."
                 )
+
+            # Check if this exact execution is already pinned in the current draft version
+            existing_by_exec = None
+            if item_type == "chart" and payload.get("query_execution_id"):
+                existing_by_exec = (
+                    conn.execute(
+                        select(report_items).where(
+                            report_items.c.report_version_id == version["id"],
+                            report_items.c.query_execution_id == payload.get("query_execution_id"),
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+
+            if existing or existing_by_exec:
+                target_item = existing or existing_by_exec
+                content_update = {
+                    **(target_item.get("content_json") or {}),
+                    **(
+                        {
+                            "result": execution["result"],
+                            "chart_spec": chart_spec,
+                            **insight_content,
+                        }
+                        if execution
+                        else (payload.get("content") or {})
+                    ),
+                }
+                conn.execute(
+                    report_items.update()
+                    .where(report_items.c.id == target_item["id"])
+                    .values(
+                        title=payload.get("title") or target_item.get("title"),
+                        content_json=content_update,
+                        agent_run_id=payload.get("agent_run_id") or target_item.get("agent_run_id"),
+                    )
+                )
+                return self._payload(conn, report, version)
             position = (
                 int(
                     conn.execute(

@@ -13,7 +13,9 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import httpx
+# pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
 from src.config import Settings, get_settings
 
@@ -62,6 +64,7 @@ class SupabaseJWTVerifier:
 
     def _jwks_client(self, *, refresh: bool = False) -> Any:
         try:
+            # pyrefly: ignore [missing-import]
             import jwt
         except ImportError as exc:  # pragma: no cover - deployment configuration
             raise RuntimeError("Thiếu PyJWT[crypto]; không thể xác thực Supabase JWT.") from exc
@@ -111,7 +114,9 @@ class SupabaseJWTVerifier:
 
     def verify(self, token: str) -> AuthContext:
         try:
+            # pyrefly: ignore [missing-import]
             import jwt
+            # pyrefly: ignore [missing-import]
             from jwt import InvalidTokenError
         except ImportError as exc:  # pragma: no cover - deployment configuration
             raise RuntimeError("Thiếu PyJWT[crypto]; không thể xác thực Supabase JWT.") from exc

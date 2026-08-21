@@ -27,9 +27,9 @@ function accountInitials(email: string | null) {
 }
 
 const analystNavigation = [
+  { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
+  { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
   { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
-  { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và mở báo cáo profile.", permission: PERMISSIONS.datasetRead },
-  ...(process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true" ? [{ href: "/charts", label: "Biểu đồ", icon: "▥", description: "Chọn một Profile Run để phân tích, tạo biểu đồ, review insight và ghim vào báo cáo.", permission: PERMISSIONS.profileRead } as const] : []),
   { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
   { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
 ] as const;
@@ -50,16 +50,23 @@ function AppShellContent({ children }: { children: ReactNode }) {
     <section className="sidebar-account" aria-label="Tài khoản đang đăng nhập">
       <span className="account-avatar" aria-hidden="true">{accountInitials(me.user.email)}</span>
       <span className="account-details">
-        <small>Tài khoản</small>
-        <b title={me.user.email ?? undefined}>{me.user.email || "Analyst workspace"}</b>
+        <b title={me.user.email ?? undefined}>{me.user.email || "Analyst"}</b>
         <em><span className="account-status-dot" aria-hidden="true" />Đang hoạt động</em>
       </span>
+      <button
+        type="button"
+        className="sidebar-account-signout"
+        title="Đăng xuất"
+        aria-label="Đăng xuất"
+        onClick={() => void signOut()}
+      >
+        <SidebarIcon name="logout" />
+      </button>
     </section>
   ) : isGuest ? (
     <section className="sidebar-account sidebar-guest-account" aria-label="Phiên khách đang hoạt động">
       <span className="account-avatar" aria-hidden="true">AN</span>
       <span className="account-details">
-        <small>Phiên khách</small>
         <b>Analyst workspace</b>
         <em><span className="account-status-dot" aria-hidden="true" />Đang dùng thử</em>
       </span>
@@ -179,9 +186,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
               return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
             })}
           </nav>
-          <div className="sidebar-footer">
-            {authenticated && me && <button type="button" className="sidebar-signout" onClick={() => void signOut()}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="logout" /></span><span className="sidebar-link-label">Đăng xuất</span></button>}
-          </div>
           {/* Account panel ở cuối cùng */}
           {accountPanel}
         </div>

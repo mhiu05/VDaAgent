@@ -1,4 +1,4 @@
-"""Safe chart planning from business intent and approved profile metadata.
+"""Safe chart planning from profile metadata and optional user intent.
 
 The LLM may propose semantic choices, but this module owns every executable
 field. It never accepts SQL or an arbitrary operation from the model.
@@ -11,6 +11,7 @@ import unicodedata
 from datetime import date, datetime
 from typing import Any, Literal
 
+# pyrefly: ignore [missing-import]
 from pydantic import BaseModel, Field
 from src.services.forecasting import (
     CAPABILITIES,
@@ -111,6 +112,23 @@ def _mentions(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+COLUMN_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "gia": ("price", "cost", "amount", "salary", "fee", "rate", "revenue", "val", "spend"),
+    "price": ("price", "cost", "amount", "fee"),
+    "so luong": ("quantity", "qty", "volume", "count", "num", "units", "sl"),
+    "quantity": ("quantity", "qty", "volume", "count", "num"),
+    "danh muc": ("category", "cat", "type", "genre", "group", "class", "industry", "sector"),
+    "nganh": ("industry", "sector", "category", "field", "domain"),
+    "kho": ("warehouse", "store", "location", "facility", "site", "depot"),
+    "vi tri": ("location", "aisle", "shelf", "bin", "site", "place"),
+    "nha cung cap": ("supplier", "vendor", "provider", "distributor"),
+    "trang thai": ("status", "state", "condition", "stage"),
+    "danh gia": ("rating", "score", "rank", "diem", "eval"),
+    "san pham": ("product", "item", "goods", "sku", "title", "name"),
+    "ngay": ("date", "time", "restocked", "created", "updated", "timestamp", "year"),
+}
+
+
 def _best_column(question: str, columns: list[str], preferred: tuple[str, ...] = ()) -> str | None:
     if not columns:
         return None
@@ -118,11 +136,30 @@ def _best_column(question: str, columns: list[str], preferred: tuple[str, ...] =
     directly_named = [column for column in columns if _plain(column) in intent]
     if directly_named:
         return directly_named[0]
+    for key, tokens in COLUMN_SYNONYMS.items():
+        if key in intent:
+            for token in tokens:
+                for column in columns:
+                    if token in _plain(column):
+                        return column
     for token in preferred:
         for column in columns:
             if token in _plain(column):
                 return column
     return columns[0]
+
+
+def _best_dimension(question: str, dimensions: list[str]) -> str | None:
+    if not dimensions:
+        return None
+    text = _plain(question)
+    match = re.search(r"(?:theo|theo tung|theo cac|giua cac|giua|theo moi|theo nhom|cac|tung)\s+([^,.;]+)", text)
+    if match:
+        target = match.group(1)
+        found = _best_column(target, dimensions)
+        if found:
+            return found
+    return _best_column(question, dimensions)
 
 
 def _time_columns(context: dict[str, Any], column_stats: dict[str, Any]) -> list[str]:
@@ -184,16 +221,24 @@ def _relative_time_filters(
 
 
 def _fallback_candidate(
-    question: str,
-    context: dict[str, Any],
-    column_stats: dict[str, Any],
+    question: str, context: dict[str, Any], column_stats: dict[str, Any]
 ) -> ChartPlanCandidate:
+    """Deterministic heuristic when LLM planner is unavailable or unhelpful."""
+
     text = _plain(question)
     dimensions = list(context.get("dimensions") or [])
     measures = list(context.get("measures") or [])
     times = _time_columns(context, column_stats)
+    filters = _relative_time_filters(question, times[0] if times else None, column_stats)
 
-    if times and _mentions(text, ("du bao", "forecast", "predict", "tuong lai", "sap toi", "next ")):
+    explicit_forecast = (
+        "du bao", "forecast", "predict", "tien doan",
+        "neuralprophet", "prophet", "auto arima", "sarimax", "sarima",
+        "arimax", "arima", "holt winters", "holt", "ets",
+        "moving average", "trung binh truot", "seasonal naive", "naive",
+        "random forest", "xgboost", "lightgbm", "catboost",
+    )
+    if times and _mentions(text, explicit_forecast):
         problem: ProblemType = "forecast"
     elif times and _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time")):
         problem: ProblemType = "trend"
@@ -213,9 +258,16 @@ def _fallback_candidate(
     measure = _best_column(
         question,
         measures,
-        ("revenue", "sales", "amount", "total", "doanh thu", "doanh so", "value", "rating"),
+        ("price", "revenue", "sales", "amount", "total", "doanh thu", "doanh so", "value", "rating", "cost", "salary"),
     )
-    dimension = _best_column(question, [item for item in dimensions if item not in times])
+    if not measure and _mentions(text, ("gia", "price", "cost", "fee", "luong", "salary")):
+        numeric_candidates = [
+            c for c in list(column_stats.keys())
+            if c in measures or any(token in str((column_stats.get(c) or {}).get("dtype", "")).casefold() for token in ("float", "double", "int", "numeric", "decimal"))
+        ]
+        measure = _best_column(question, numeric_candidates)
+
+    dimension = _best_dimension(question, [item for item in dimensions if item not in times])
     time_column = _best_column(question, times)
     aggregate: AnalysisMethod = "sum" if measure else "count"
     if _mentions(text, ("trung binh", "average", "mean")) and measure:
@@ -271,7 +323,9 @@ def _fallback_candidate(
             algorithm = "box"
         else:
             algorithm = "histogram"
-        x_column = dimension if algorithm in {"box", "violin"} else None
+        has_group = _mentions(text, ("theo", "giua", "by", "per", "across"))
+        x_column = dimension if (algorithm in {"box", "violin"} and has_group) else None
+        y_column = measure or _best_column(question, measures) or (measures[0] if measures else None)
     elif problem == "relationship":
         if len(measures) >= 2 and _mentions(text, ("tuong quan", "correlation")):
             algorithm = "correlation_heatmap"
@@ -289,17 +343,22 @@ def _fallback_candidate(
             problem = "summary"
             algorithm = aggregate
             x_column = None
-    elif problem == "compare" and _mentions(text, ("donut", "pie", "ty trong", "co cau")):
-        algorithm = "donut"
+    elif problem == "compare":
         low_cardinality = [
             name for name in dimensions
-            if 1 <= int((column_stats.get(name) or {}).get("cardinality") or 0) <= 12
+            if 1 <= int((column_stats.get(name) or {}).get("cardinality") or 0) <= 8
             and name not in times
         ]
-        x_column = _best_column(question, low_cardinality)
-        if not x_column:
-            problem = "summary"
-            algorithm = aggregate
+        if len(dimensions) >= 2 and _mentions(text, ("ma tran", "matrix", "va ", "giua ", "theo ca ", "cross")):
+            problem = "relationship"
+            algorithm = "heatmap"
+            x_column = dimension or dimensions[0]
+            second_dimension = next((item for item in dimensions if item != x_column), dimensions[1])
+            y_column = None
+        elif _mentions(text, ("donut", "pie", "ty trong", "co cau", "ty le", "phan tram", "share", "proportion", "breakdown")) or (x_column in low_cardinality and not measure):
+            algorithm = "donut"
+            if not x_column and low_cardinality:
+                x_column = _best_column(question, low_cardinality) or low_cardinality[0]
 
     return ChartPlanCandidate(
         problem=problem,
@@ -311,7 +370,7 @@ def _fallback_candidate(
         forecast_horizon=forecast_horizon,
         season_length=season_length,
         title=question[:255],
-        rationale="Kế hoạch dự phòng được chọn từ loại cột và từ khóa trong câu hỏi kinh doanh.",
+        rationale="Kế hoạch được tối ưu về tính trực quan và thẩm mỹ dựa trên đặc trưng kiểu dữ liệu.",
     )
 
 
@@ -321,7 +380,7 @@ def build_chart_plan(
     column_stats: dict[str, Any],
     candidate: ChartPlanCandidate | None = None,
     *,
-    planning_mode: Literal["agent", "rules_fallback"] = "agent",
+    planning_mode: Literal["agent", "rules_fallback", "auto_profile"] = "agent",
 ) -> dict[str, Any]:
     """Normalize an agent proposal into a bounded executable chart plan."""
 
@@ -362,8 +421,10 @@ def build_chart_plan(
 
     y_column = proposed.y_column if proposed.y_column in measures else fallback.y_column
     if algorithm in {
-        "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality", "outlier"
-    }:
+        "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality", "outlier", "donut"
+    } and not y_column:
+        y_column = None
+    if algorithm == "donut":
         y_column = None
     second_dimension = (
         proposed.second_dimension
@@ -418,6 +479,17 @@ def build_chart_plan(
         query = {"analysis_kind": "histogram", "aggregate": "count", "column": y_column, "dimensions": [], "filters": [], "bins": 12, "limit": 50, "sort": "asc"}
     elif algorithm == "box":
         query = {"analysis_kind": "box", "aggregate": "median", "column": y_column, "dimensions": [x_column] if x_column else [], "filters": [], "bins": 12, "limit": 50, "sort": "desc"}
+    elif algorithm == "violin":
+        query = {
+            "analysis_kind": "violin",
+            "aggregate": "count",
+            "column": y_column,
+            "dimensions": [x_column] if x_column else [],
+            "filters": [],
+            "bins": 16,
+            "limit": 8,
+            "sort": "desc",
+        }
     elif algorithm == "scatter":
         query = {"analysis_kind": "scatter", "aggregate": "count", "x_column": x_column, "y_column": y_column, "dimensions": [], "filters": [], "bins": 12, "limit": 50, "sort": "desc"}
     elif algorithm == "heatmap":
@@ -449,21 +521,11 @@ def build_chart_plan(
             "analysis_kind": "outlier",
             "aggregate": "count",
             "columns": measures[:12],
-            "dimensions": [],
-            "filters": [],
-            "bins": 12,
-            "limit": 50,
-            "sort": "desc",
-        }
-    elif algorithm == "violin":
-        query = {
-            "analysis_kind": "violin",
-            "aggregate": "count",
             "column": y_column,
             "dimensions": [x_column] if x_column else [],
             "filters": [],
-            "bins": 16,
-            "limit": 8,
+            "bins": 12,
+            "limit": 50,
             "sort": "desc",
         }
     elif algorithm == "donut":
@@ -471,7 +533,7 @@ def build_chart_plan(
             "analysis_kind": "donut",
             "aggregate": "sum" if y_column else "count",
             "column": y_column,
-            "dimensions": [x_column],
+            "dimensions": [x_column] if x_column else [],
             "filters": [],
             "bins": 12,
             "limit": 12,
@@ -495,6 +557,26 @@ def build_chart_plan(
             "sort": "asc" if problem == "trend" else "desc",
         }
 
+    transforms: list[dict[str, str]] = []
+    source_columns: list[str] = [c for c in [x_column, y_column, second_dimension] if c]
+
+    if problem == "forecast":
+        transforms.append({"step": "time_aggregation", "detail": f"Nhóm thời gian theo {time_grain or 'month'}"})
+        transforms.append({"step": "model_fit", "detail": f"Áp dụng thuật toán {algorithm} ({forecast_horizon} kỳ)"})
+    elif algorithm == "histogram":
+        transforms.append({"step": "binning", "detail": f"Chia 12 khoảng giá trị cho {y_column}"})
+        transforms.append({"step": "frequency_count", "detail": "Đếm tần suất theo từng bin"})
+    elif algorithm in {"heatmap", "correlation_heatmap", "missing_heatmap"}:
+        transforms.append({"step": "matrix_pivot", "detail": "Tổng hợp ma trận 2 chiều"})
+    elif algorithm in {"box", "violin"}:
+        transforms.append({"step": "quantile_summary", "detail": f"Tính ngũ phân vị / mật độ cho {y_column}"})
+    else:
+        if x_column and problem != "summary":
+            transforms.append({"step": "group_by", "detail": f"Nhóm theo {x_column}"})
+        transforms.append({"step": "aggregate", "detail": f"Tính {algorithm} ({y_column or '*'})"})
+        if problem == "trend":
+            transforms.append({"step": "sort_time", "detail": "Sắp xếp theo thời gian tăng dần"})
+
     return {
         "question": question,
         "title": proposed.title.strip()[:255] or question[:255],
@@ -509,9 +591,104 @@ def build_chart_plan(
         "chart_type": chart_type,
         "renderer": RENDERER_FOR_CHART[chart_type],
         "query": query,
+        "transforms": transforms,
+        "source_columns": source_columns,
         "rationale": proposed.rationale.strip(),
-        "planning_mode": planning_mode if candidate else "rules_fallback",
+        "planning_mode": planning_mode if candidate or planning_mode == "auto_profile" else "rules_fallback",
     }
 
 
-__all__ = ["ChartPlanCandidate", "build_chart_plan"]
+def build_auto_profile_pack(
+    context: dict[str, Any],
+    column_stats: dict[str, Any],
+    *,
+    max_charts: int = 12,
+) -> list[dict[str, Any]]:
+    """Create a rich, visually diverse profiling pack without a user question."""
+
+    dimensions = [str(item) for item in context.get("dimensions") or []]
+    measures = [str(item) for item in context.get("measures") or []]
+    times = _time_columns(context, column_stats)
+    objectives: list[tuple[str, str]] = []
+
+    def add(objective: str, question: str) -> None:
+        if len(objectives) >= max_charts:
+            return
+        if any(existing == objective for existing, _ in objectives):
+            return
+        objectives.append((objective, question))
+
+    # Core quality & distribution
+    add("missingness", "Tự động kiểm tra missing null theo từng cột")
+    if dimensions:
+        add("cardinality", "Tự động kiểm tra cardinality unique duplicate theo cột")
+    if measures:
+        add("outlier", "Tự động kiểm tra outlier theo các measure")
+        add(
+            "distribution",
+            f"Tự động phân tích histogram phân phối của measure {measures[0]}",
+        )
+        add(
+            "box_plot",
+            f"Tự động phân tích box plot outlier của measure {measures[0]}",
+        )
+
+    # Time-series trend & forecast (high priority when time column exists)
+    if times and measures:
+        add(
+            "trend",
+            f"Tự động phân tích xu hướng của {measures[0]} theo thời gian {times[0]}",
+        )
+        distinct_periods = (column_stats.get(times[0]) or {}).get("cardinality") or 0
+        if int(distinct_periods or 0) >= 12:
+            add(
+                "forecast",
+                f"Tự động dự báo chuỗi thời gian của {measures[0]} theo {times[0]}",
+            )
+
+    # Relationships between measures
+    if len(measures) >= 2:
+        add("correlation", "Tự động kiểm tra correlation giữa các measure")
+        add(
+            "relationship",
+            f"Tự động kiểm tra scatter giữa {measures[0]} và {measures[1]}",
+        )
+
+    # Visual diversity: Donut & Cross Heatmap
+    low_card_dims = [
+        d for d in dimensions 
+        if 2 <= int((column_stats.get(d) or {}).get("cardinality") or 0) <= 8
+        and d not in times
+    ]
+    if low_card_dims:
+        add(
+            "donut_share",
+            f"Tỷ trọng phân bổ cơ cấu theo {low_card_dims[0]} bằng biểu đồ donut",
+        )
+
+    if len(dimensions) >= 2:
+        dim1, dim2 = dimensions[0], dimensions[1]
+        add(
+            "cross_heatmap",
+            f"Ma trận phân bố tương quan 2 chiều giữa {dim1} và {dim2}",
+        )
+
+    if dimensions and measures:
+        add(
+            "comparison",
+            f"Tự động so sánh {measures[0]} theo dimension {dimensions[0]}",
+        )
+
+    if len(dimensions) + len(measures) >= 3:
+        add("missing_pattern", "Tự động kiểm tra pattern missing bằng missing heatmap")
+
+    plans: list[dict[str, Any]] = []
+    for objective, question in objectives:
+        plan = build_chart_plan(question, context, column_stats, planning_mode="auto_profile")
+        plan["objective"] = objective
+        plan["auto_generated"] = True
+        plans.append(plan)
+    return plans
+
+
+__all__ = ["ChartPlanCandidate", "build_auto_profile_pack", "build_chart_plan"]

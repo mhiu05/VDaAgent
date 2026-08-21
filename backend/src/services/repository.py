@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+# pyrefly: ignore [missing-import]
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -37,6 +38,7 @@ from sqlalchemy import (
     or_,
     select,
 )
+# pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
 from src.config import Settings, get_settings
 
@@ -1134,6 +1136,7 @@ class Repository:
         it, Google Drive upload succeeds and the subsequent metadata insert
         fails because SQLAlchemy includes the new nullable columns.
         """
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import text
 
         with self.engine.begin() as conn:
@@ -1182,6 +1185,7 @@ class Repository:
 
     def _migrate_semantic_description(self) -> None:
         """Bổ sung cột mô tả cho các metadata DB đã tồn tại từ phiên bản trước."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         columns = {
@@ -1198,6 +1202,7 @@ class Repository:
 
     def _migrate_review_proposal_columns(self) -> None:
         """Bổ sung dữ liệu quyết định review cho các DB local đã tồn tại."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         additions = {
@@ -1220,6 +1225,7 @@ class Repository:
 
     def _migrate_tool_v2_profile_columns(self) -> None:
         """Add aggregate Tool V2 artifacts to existing PostgreSQL databases."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         columns = {
@@ -1238,6 +1244,7 @@ class Repository:
 
     def _migrate_workflow_columns(self) -> None:
         """Add durable execution identity and terminal continuation fields."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         columns = {
@@ -1278,6 +1285,7 @@ class Repository:
         Alembic.  This compatibility path intentionally does not enforce the
         final NOT NULL constraints before `backfill_authz.py` has run.
         """
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         additions: dict[str, dict[str, str]] = {
@@ -3706,6 +3714,14 @@ class Repository:
                 select(report_visualizations)
                 .where(report_visualizations.c.report_version_id == version_id)
                 .order_by(report_visualizations.c.position)
+            ).mappings()
+        ]
+        payload["items"] = [
+            dict(row)
+            for row in conn.execute(
+                select(report_items)
+                .where(report_items.c.report_version_id == version_id)
+                .order_by(report_items.c.position)
             ).mappings()
         ]
         payload["reviews"] = [

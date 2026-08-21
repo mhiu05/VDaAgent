@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   autoPlanChart,
+  autoProfilePack,
   ensureExplorerSession,
   getProfileReportDraft,
   listForecastAlgorithms,
@@ -53,6 +54,8 @@ type ChartDraft = {
   planning_mode?: AutoChartPlan["planning_mode"];
   planner_agent_run_id?: string | null;
   planned_query?: QuerySpec;
+  transforms?: Array<{ step: string; detail: string }>;
+  source_columns?: string[];
 };
 
 type Props = { runId: string; profile: Profile; onExplain: (execution: AnalysisExecution) => void };
@@ -130,6 +133,8 @@ function chartFromPlan(plan: AutoChartPlan): ChartDraft {
     planning_mode: plan.planning_mode,
     planner_agent_run_id: plan.agent_run_id,
     planned_query: plan.query,
+    transforms: plan.transforms,
+    source_columns: plan.source_columns,
   };
 }
 
@@ -184,7 +189,7 @@ function chartQuery(chart: ChartDraft): QuerySpec {
 
 function chartSpec(chart: ChartDraft): ChartSpec {
   if (!chart.chart_type || !chart.renderer) throw new Error("Chart type và renderer chưa được chọn.");
-  const query = chartQuery(chart);
+  const query = chart.execution?.query_spec ?? chartQuery(chart);
   const analysisKind = query.analysis_kind ?? "aggregate";
   const xColumn = ["missing_bar", "cardinality", "outlier"].includes(analysisKind)
     ? "column"
@@ -195,14 +200,14 @@ function chartSpec(chart: ChartDraft): ChartSpec {
     : analysisKind === "scatter"
       ? query.x_column
       : analysisKind === "box"
-        ? query.dimensions[0] ?? query.column
-        : query.dimensions[0];
+        ? query.dimensions?.[0] ?? query.column
+        : query.dimensions?.[0];
   const yColumn = analysisKind === "scatter"
     ? query.y_column
     : ["missing_heatmap", "correlation_heatmap"].includes(analysisKind)
       ? "y"
     : analysisKind === "heatmap"
-      ? query.dimensions[1]
+      ? query.dimensions?.[1]
       : query.column;
   return {
     chart_type: chart.chart_type,
@@ -243,14 +248,11 @@ function generatedReady(chart: ChartDraft): boolean {
     && chart.renderer
     && chart.generated
     && chart.insight
-    && chart.insight_agent_run_id
-    && chart.insight_evidence_status === "verified"
-    && chart.insight_reviewed
     && !chart.pinned
   );
 }
 
-function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, enabled, onChange, onRemove, onGenerate, onExplain }: {
+function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, enabled, onChange, onRemove, onGenerate, onExplain, onPin }: {
   chart: ChartDraft;
   dimensions: string[];
   measures: string[];
@@ -260,6 +262,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
   onRemove: () => void;
   onGenerate: () => void;
   onExplain: (execution: AnalysisExecution) => void;
+  onPin?: () => void;
 }) {
   const validation = analysisError(chart);
   const algorithms = chart.problem ? PROBLEM_ALGORITHMS[chart.problem] : [];
@@ -268,9 +271,34 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
     : chart.problem ? PROBLEM_CHARTS[chart.problem] : [];
   const official = chart.execution?.execution_kind === "official";
   return <article className="panel chart-builder-card chart-workflow-card">
-    <header className="chart-card-header"><div><span className="eyebrow">ANALYSIS {chart.id.slice(-4)}</span><h3>{chart.title || chart.question || "Bài phân tích mới"}</h3></div><div className="inline-actions"><span className={`chip ${chart.status === "official" ? "success" : chart.status === "preview" ? "warning" : chart.status === "failed" ? "danger" : ""}`}>{chart.pinned ? "Đã ghim" : chart.status === "official" ? "Official" : chart.status === "preview" ? "Preview" : chart.status === "failed" ? "Lỗi" : "Nháp"}</span><button type="button" className="button danger chart-remove" onClick={onRemove}>Xóa</button></div></header>
+    <header className="chart-card-header">
+      <div>
+        <span className="eyebrow">ANALYSIS {chart.id.slice(-4)}</span>
+        <h3>{chart.title || chart.question || "Bài phân tích mới"}</h3>
+      </div>
+      <div className="inline-actions" style={{ alignItems: "center", gap: "8px" }}>
+        {chart.pinned ? (
+          <span className="chip success" style={{ fontWeight: 700 }}>✓ Đã ghim Báo cáo</span>
+        ) : (
+          generatedReady(chart) && onPin && (
+            <button
+              type="button"
+              className="button primary"
+              style={{ padding: "4px 10px", fontSize: "0.78rem", fontWeight: 700 }}
+              onClick={onPin}
+            >
+              📌 Ghim vào Báo cáo
+            </button>
+          )
+        )}
+        <span className={`chip ${chart.status === "official" ? "success" : chart.status === "preview" ? "warning" : chart.status === "failed" ? "danger" : ""}`}>
+          {chart.status === "official" ? "Official" : chart.status === "preview" ? "Preview" : chart.status === "failed" ? "Lỗi" : "Nháp"}
+        </span>
+        <button type="button" className="button danger chart-remove" onClick={onRemove}>Xóa</button>
+      </div>
+    </header>
     <fieldset className="chart-workflow-fieldset" disabled={!enabled}>
-    {chart.problem && chart.algorithm && chart.chart_type && chart.renderer && <div className="chart-auto-decision"><div className="chart-auto-decision-chips"><span className="chip">{PROBLEMS.find((item) => item.value === chart.problem)?.label}</span><span className="chip">{ALGORITHM_LABELS[chart.algorithm]}</span><span className="chip">{CHART_LABELS[chart.chart_type]}</span><span className="chip">{RENDERER_LABELS[chart.renderer]}</span>{chart.planning_mode && <span className={`chip ${chart.planning_mode === "agent" ? "success" : "warning"}`}>{chart.planning_mode === "agent" ? "Agent đã lập kế hoạch" : "Kế hoạch dự phòng"}</span>}</div>{chart.rationale && <p>{chart.rationale}</p>}</div>}
+    {chart.problem && chart.algorithm && chart.chart_type && chart.renderer && <div className="chart-auto-decision"><div className="chart-auto-decision-chips"><span className="chip">{PROBLEMS.find((item) => item.value === chart.problem)?.label}</span><span className="chip">{ALGORITHM_LABELS[chart.algorithm]}</span><span className="chip">{CHART_LABELS[chart.chart_type]}</span><span className="chip">{RENDERER_LABELS[chart.renderer]}</span>{chart.planning_mode && <span className={`chip ${chart.planning_mode === "agent" ? "success" : "warning"}`}>{chart.planning_mode === "agent" ? "Agent đã lập kế hoạch" : "Kế hoạch dự phòng"}</span>}</div>{chart.rationale && <p>{chart.rationale}</p>}{chart.transforms && chart.transforms.length > 0 && <div className="chart-formulation-pipeline" style={{ marginTop: "0.5rem", padding: "0.4rem 0.6rem", background: "rgba(99, 102, 241, 0.08)", borderRadius: "6px", fontSize: "0.8rem" }}><div style={{ fontWeight: 600, color: "#4338ca", marginBottom: "0.25rem" }}>⚡ Data Formulation Pipeline (AI Wrangling)</div><div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>{chart.transforms.map((t, idx) => <span key={idx} className="chip" style={{ fontSize: "0.75rem", background: "#e0e7ff", color: "#3730a3" }}>{idx + 1}. {t.detail}</span>)}</div></div>}</div>}
     <details className="chart-advanced" open={!chart.problem}>
     <summary>Tùy chỉnh nâng cao · xem hoặc thay đổi quyết định kỹ thuật</summary>
     <div className="chart-flow-section"><span className="chart-flow-number">3</span><div><b>Chọn bài toán</b><p>Nhập câu hỏi và xác nhận loại bài toán cần giải quyết.</p></div></div>
@@ -300,7 +328,17 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
     <div className="chart-flow-section"><span className="chart-flow-number">7</span><div><b>Chọn tool vẽ</b><p>Renderer được giới hạn theo loại biểu đồ để kết quả tái tạo được.</p></div></div>
     <div className="chart-config-fields chart-step-fields"><label>Renderer<select value={chart.renderer} disabled={!chart.chart_type} onChange={(event) => onChange({ renderer: event.target.value as ChartRenderer, generated: false, insight: undefined })}><option value="">Chọn renderer</option>{chart.chart_type && <option value={RENDERER_FOR_CHART[chart.chart_type]}>{RENDERER_LABELS[RENDERER_FOR_CHART[chart.chart_type]]}</option>}</select></label></div>
     </details>
-    <div className="chart-flow-section"><span className="chart-flow-number">8–9</span><div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div><button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button></div>
+    <div className="chart-flow-section">
+      <span className="chart-flow-number chart-flow-icon" aria-hidden="true" title="Biểu đồ & Insight">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+      </span>
+      <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div>
+      <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
+    </div>
     {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><strong>{chart.title || "Kết quả biểu đồ"}</strong><small>{RENDERER_LABELS[chart.renderer]}</small></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={chart.title} /><div className="chart-result-meta">Hash {chart.execution.result_hash.slice(0, 12)} · {chart.execution.duration_ms ?? "-"}ms <button type="button" className="button link-button" onClick={() => onExplain(chart.execution!)}>Phân tích chuyên sâu</button></div></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
     </fieldset>
   </article>;
@@ -309,15 +347,58 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
 export function ChartsTab({ runId, profile, onExplain }: Props) {
   const explorer = useQuery({ queryKey: ["command-center", runId, "explorer-session"], queryFn: () => ensureExplorerSession(runId) });
   const forecastCatalog = useQuery({ queryKey: ["command-center", runId, "forecast-algorithms"], queryFn: () => listForecastAlgorithms(runId) });
-  const [understanding, setUnderstanding] = useState("");
-  const [understandingRunId, setUnderstandingRunId] = useState<string | null>(null);
-  const [charts, setCharts] = useState<ChartDraft[]>([draftChart()]);
+  const [understanding, setUnderstanding] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try { return localStorage.getItem(`p170_charts_understanding_${runId}`) || ""; } catch { return ""; }
+  });
+  const [understandingRunId, setUnderstandingRunId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return localStorage.getItem(`p170_charts_understanding_run_${runId}`) || null; } catch { return null; }
+  });
+  const [charts, setCharts] = useState<ChartDraft[]>(() => {
+    if (typeof window === "undefined") return [draftChart()];
+    try {
+      const cached = localStorage.getItem(`p170_charts_state_${runId}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [draftChart()];
+  });
   const [message, setMessage] = useState("");
-  const [businessQuestion, setBusinessQuestion] = useState("");
+  const [businessQuestion, setBusinessQuestion] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try { return localStorage.getItem(`p170_charts_question_${runId}`) || ""; } catch { return ""; }
+  });
   const [autoStage, setAutoStage] = useState("");
+  const [autoProfileProgress, setAutoProfileProgress] = useState<{ percent: number; step: string; current: number; total: number } | null>(null);
+  const [autoQuestionProgress, setAutoQuestionProgress] = useState<{ percent: number; step: string } | null>(null);
   const context = explorer.data?.context;
   const dimensions = context?.context.dimensions ?? [];
   const measures = context?.context.measures ?? [];
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !runId) return;
+    try {
+      localStorage.setItem(`p170_charts_state_${runId}`, JSON.stringify(charts));
+    } catch {}
+  }, [charts, runId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !runId) return;
+    try {
+      localStorage.setItem(`p170_charts_question_${runId}`, businessQuestion);
+    } catch {}
+  }, [businessQuestion, runId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !runId) return;
+    try {
+      if (understanding) localStorage.setItem(`p170_charts_understanding_${runId}`, understanding);
+      if (understandingRunId) localStorage.setItem(`p170_charts_understanding_run_${runId}`, understandingRunId);
+    } catch {}
+  }, [understanding, understandingRunId, runId]);
 
   const understand = useMutation({
     mutationFn: async () => {
@@ -332,48 +413,136 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     onSuccess: ({ answer, agentRunId }) => { setUnderstanding(answer); setUnderstandingRunId(agentRunId); setMessage("Agent đã đọc Profile. Bạn có thể bắt đầu chọn bài toán."); },
   });
 
+  const autoProfile = useMutation({
+    mutationFn: async () => {
+      setAutoProfileProgress({ percent: 5, step: "Đang đọc Profile Context và tạo danh mục Analysis Pack…", current: 0, total: 0 });
+      setAutoStage("Đang đọc Profile Context và tạo Analysis Pack…");
+      const pack = await autoProfilePack(runId);
+      const plans = pack.plans.slice(0, MAX_CHARTS);
+      if (!plans.length) throw new Error("Profile Run không có trường tương thích để tạo gói phân tích tự động.");
+      const plannedCharts = plans.map(chartFromPlan);
+      const total = plans.length;
+      setUnderstanding(`Gói phân tích tự động: ${pack.objectives.join(", ")}\n\nKế hoạch phân tích dựa trên Profile metadata đã duyệt.`);
+      setUnderstandingRunId(pack.agent_run_id ?? null);
+      setCharts((current) => [...plannedCharts, ...current.filter((item) => item.question)].slice(0, MAX_CHARTS));
+
+      const completed: ChartDraft[] = [];
+      for (let index = 0; index < total; index += 1) {
+        const plan = plans[index];
+        const planned = plannedCharts[index];
+        const chartTitle = planned.title || planned.algorithm || `Biểu đồ ${index + 1}`;
+        const basePercent = 10 + Math.round((index / total) * 85);
+        try {
+          const previewStep = `[${index + 1}/${total}] Đang chạy Preview: ${chartTitle}`;
+          setAutoStage(previewStep);
+          setAutoProfileProgress({ percent: basePercent, step: previewStep, current: index + 1, total });
+          const previewResult = await previewExplorer(runId, plan.query);
+          setCharts((current) => current.map((item) => item.id === planned.id ? { ...item, execution: previewResult, status: "preview" } : item));
+
+          const officialStep = `[${index + 1}/${total}] Đang tạo Official evidence: ${chartTitle}`;
+          setAutoStage(officialStep);
+          setAutoProfileProgress({ percent: Math.min(basePercent + Math.round((0.3 / total) * 85), 94), step: officialStep, current: index + 1, total });
+          const officialResult = await promoteExplorerPreview(runId, previewResult.id, previewResult.context_version_id ?? plan.context_version_id ?? context?.id ?? "");
+          const officialChart: ChartDraft = { ...planned, execution: officialResult, status: "official", generated: true, insight_busy: true };
+          setCharts((current) => current.map((item) => item.id === planned.id ? officialChart : item));
+
+          const insightStep = `[${index + 1}/${total}] Agent đang viết AI Insight: ${chartTitle}`;
+          setAutoStage(insightStep);
+          setAutoProfileProgress({ percent: Math.min(basePercent + Math.round((0.6 / total) * 85), 98), step: insightStep, current: index + 1, total });
+          const written = await writeInsightForChart(officialChart);
+          const finished = { ...officialChart, ...written, insight_busy: false };
+          completed.push(finished);
+          setCharts((current) => current.map((item) => item.id === planned.id ? finished : item));
+        } catch (reason) {
+          setCharts((current) => current.map((item) => item.id === planned.id ? { ...item, status: "failed", insight_busy: false, error: reason instanceof Error ? reason.message : "Phân tích biểu đồ tự động thất bại." } : item));
+        }
+      }
+      setAutoProfileProgress({ percent: 100, step: `Đã hoàn tất phân tích ${completed.length}/${total} biểu đồ thành công!`, current: total, total });
+      if (!completed.length) throw new Error("Không có biểu đồ nào hoàn tất thành công.");
+      return completed;
+    },
+    onSuccess: (completed) => {
+      setAutoStage("");
+      setMessage(`Đã hoàn tất tự động phân tích ${completed.length} biểu đồ kèm Official evidence và AI insight.`);
+      setTimeout(() => setAutoProfileProgress(null), 3500);
+    },
+    onError: () => {
+      setAutoStage("");
+      setTimeout(() => setAutoProfileProgress(null), 3000);
+    },
+  });
+
   const automate = useMutation({
     mutationFn: async () => {
-      const question = businessQuestion.trim();
-      if (question.length < 3) throw new Error("Hãy nhập một câu hỏi kinh doanh cụ thể.");
-      let chartId: string | null = null;
-      try {
-        setAutoStage("Agent đang hiểu dữ liệu và chọn kế hoạch phân tích…");
-        const plan = await autoPlanChart(runId, question);
-        const planned = chartFromPlan(plan);
-        chartId = planned.id;
-        setUnderstanding(`**Agent đã hiểu yêu cầu:** ${plan.rationale}\n\nKế hoạch: ${PROBLEMS.find((item) => item.value === plan.problem)?.label} → ${ALGORITHM_LABELS[plan.algorithm]} → ${CHART_LABELS[plan.chart_type]} → ${RENDERER_LABELS[plan.renderer]}.`);
-        setUnderstandingRunId(plan.agent_run_id ?? null);
-        setCharts((current) => current.length === 1 && !current[0].question ? [planned] : [planned, ...current]);
+      // Split questions by newline or semicolon, removing bullet points / numbering
+      const questions = businessQuestion
+        .split(/\n+|;+/)
+        .map((q) => q.replace(/^[\d\s.\-•*]+/, "").trim())
+        .filter((q) => q.length >= 3);
 
-        setAutoStage("Đang chạy Preview bằng bounded analysis engine…");
-        const previewResult = await previewExplorer(runId, plan.query);
-        setCharts((current) => current.map((item) => item.id === planned.id ? { ...item, execution: previewResult, status: "preview" } : item));
+      if (!questions.length) throw new Error("Hãy nhập ít nhất một câu hỏi phân tích cụ thể.");
+      const total = questions.length;
+      const completed: ChartDraft[] = [];
 
-        setAutoStage("Đang kiểm tra quality gate và tạo Official evidence…");
-        const officialResult = await promoteExplorerPreview(
-          runId,
-          previewResult.id,
-          previewResult.context_version_id ?? plan.context_version_id ?? context?.id ?? "",
-        );
-        const officialChart: ChartDraft = { ...planned, execution: officialResult, status: "official", generated: true, insight_busy: true };
-        setCharts((current) => current.map((item) => item.id === planned.id ? officialChart : item));
+      for (let index = 0; index < total; index += 1) {
+        const question = questions[index];
+        const basePercent = Math.round((index / total) * 100);
+        let chartId: string | null = null;
+        try {
+          const stepPrefix = total > 1 ? `[${index + 1}/${total}] ` : "";
+          setAutoQuestionProgress({ percent: basePercent + Math.round((0.15 / total) * 100), step: `${stepPrefix}Đang lập kế hoạch: "${question.slice(0, 45)}…"` });
+          setAutoStage(`${stepPrefix}Agent đang phân tích câu hỏi: "${question.slice(0, 45)}…"`);
+          
+          const plan = await autoPlanChart(runId, question);
+          const planned = chartFromPlan(plan);
+          chartId = planned.id;
+          
+          if (index === 0 || total === 1) {
+            setUnderstanding(`**Agent đã hiểu yêu cầu:** ${plan.rationale}\n\nKế hoạch: ${PROBLEMS.find((item) => item.value === plan.problem)?.label} → ${ALGORITHM_LABELS[plan.algorithm]} → ${CHART_LABELS[plan.chart_type]} → ${RENDERER_LABELS[plan.renderer]}.`);
+            setUnderstandingRunId(plan.agent_run_id ?? null);
+          }
+          
+          setCharts((current) => current.length === 1 && !current[0].question ? [planned] : [planned, ...current]);
 
-        setAutoStage("Agent đang đọc Official evidence và viết insight…");
-        const written = await writeInsightForChart(officialChart);
-        return { chart: { ...officialChart, ...written, insight_busy: false }, planningMode: plan.planning_mode };
-      } catch (reason) {
-        if (chartId) setCharts((current) => current.map((item) => item.id === chartId ? { ...item, status: "failed", insight_busy: false, error: reason instanceof Error ? reason.message : "Không thể hoàn tất phân tích tự động." } : item));
-        throw reason;
+          setAutoQuestionProgress({ percent: basePercent + Math.round((0.45 / total) * 100), step: `${stepPrefix}Đang chạy DuckDB Preview: ${planned.title || planned.algorithm}` });
+          const previewResult = await previewExplorer(runId, plan.query);
+          setCharts((current) => current.map((item) => item.id === planned.id ? { ...item, execution: previewResult, status: "preview" } : item));
+
+          setAutoQuestionProgress({ percent: basePercent + Math.round((0.70 / total) * 100), step: `${stepPrefix}Đang tạo Official evidence: ${planned.title || planned.algorithm}` });
+          const officialResult = await promoteExplorerPreview(
+            runId,
+            previewResult.id,
+            previewResult.context_version_id ?? plan.context_version_id ?? context?.id ?? "",
+          );
+          const officialChart: ChartDraft = { ...planned, execution: officialResult, status: "official", generated: true, insight_busy: true };
+          setCharts((current) => current.map((item) => item.id === planned.id ? officialChart : item));
+
+          setAutoQuestionProgress({ percent: basePercent + Math.round((0.90 / total) * 100), step: `${stepPrefix}Agent đang viết AI Insight: ${planned.title || planned.algorithm}` });
+          const written = await writeInsightForChart(officialChart);
+          const finished = { ...officialChart, ...written, insight_busy: false };
+          completed.push(finished);
+          setCharts((current) => current.map((item) => item.id === planned.id ? finished : item));
+        } catch (reason) {
+          if (chartId) {
+            setCharts((current) => current.map((item) => item.id === chartId ? { ...item, status: "failed", insight_busy: false, error: reason instanceof Error ? reason.message : "Không thể hoàn tất phân tích tự động." } : item));
+          }
+        }
       }
+
+      setAutoQuestionProgress({ percent: 100, step: `Đã hoàn tất tự động tạo ${completed.length}/${total} biểu đồ thành công!` });
+      if (!completed.length) throw new Error("Không có câu hỏi nào được hoàn tất thành công.");
+      return completed;
     },
-    onSuccess: ({ chart, planningMode }) => {
-      setCharts((current) => current.map((item) => item.id === chart.id ? chart : item));
+    onSuccess: (completed) => {
       setBusinessQuestion("");
       setAutoStage("");
-      setMessage(planningMode === "agent" ? "Agent đã tự động tạo biểu đồ và insight từ câu hỏi kinh doanh." : "Đã tạo biểu đồ bằng kế hoạch dự phòng an toàn; LLM planner chưa khả dụng.");
+      setTimeout(() => setAutoQuestionProgress(null), 3000);
+      setMessage(`Agent đã tự động tạo thành công ${completed.length} biểu đồ kèm số liệu và AI insight.`);
     },
-    onError: () => setAutoStage(""),
+    onError: () => {
+      setAutoStage("");
+      setTimeout(() => setAutoQuestionProgress(null), 3000);
+    },
   });
 
   const validCharts = useMemo(() => charts.filter((chart) => !analysisError(chart)), [charts]);
@@ -430,21 +599,52 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       const ready = charts.filter(generatedReady);
       if (!ready.length) throw new Error("Chưa có chart kèm insight để ghim.");
       const draft = await getProfileReportDraft(runId);
-      const results = await Promise.allSettled(ready.map((chart) => pinChartToReport(
+      const successfulIds: string[] = [];
+      const errors: string[] = [];
+
+      for (const chart of ready) {
+        try {
+          await pinChartToReport(
+            draft.id,
+            chart.execution!.id,
+            chart.title || chart.question,
+            chartSpec(chart),
+            { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
+            chart.pin_idempotency_key || crypto.randomUUID(),
+          );
+          successfulIds.push(chart.id);
+        } catch (reason) {
+          errors.push(reason instanceof Error ? reason.message : "Lỗi khi ghim biểu đồ");
+        }
+      }
+
+      if (!successfulIds.length && errors.length) throw new Error(errors[0]);
+      return { ids: successfulIds, errors };
+    },
+    onSuccess: ({ ids, errors }) => {
+      setCharts((current) => current.map((chart) => ids.includes(chart.id) ? { ...chart, pinned: true, insight_reviewed: true } : chart));
+      setMessage(errors.length ? `Đã ghim ${ids.length} biểu đồ; ${errors.length} biểu đồ lỗi.` : `Đã ghim thành công toàn bộ ${ids.length} biểu đồ kèm insight vào Report Draft.`);
+    },
+  });
+
+  async function pinSingleChart(chart: ChartDraft) {
+    if (!generatedReady(chart)) return;
+    try {
+      const draft = await getProfileReportDraft(runId);
+      await pinChartToReport(
         draft.id,
         chart.execution!.id,
         chart.title || chart.question,
         chartSpec(chart),
-        { text: chart.insight!, reviewed: chart.insight_reviewed, agentRunId: chart.insight_agent_run_id! },
-        chart.pin_idempotency_key,
-      )));
-      const ids = ready.filter((_, index) => results[index].status === "fulfilled").map((chart) => chart.id);
-      const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected").map((result) => result.reason instanceof Error ? result.reason.message : "Không thể ghim chart.");
-      if (!ids.length) throw new Error(errors[0] || "Không thể ghim chart.");
-      return { ids, errors };
-    },
-    onSuccess: ({ ids, errors }) => { setCharts((current) => current.map((chart) => ids.includes(chart.id) ? { ...chart, pinned: true } : chart)); setMessage(errors.length ? `Đã ghim ${ids.length} chart; ${errors.length} chart lỗi và có thể thử lại.` : `Đã ghim ${ids.length} chart kèm insight đã duyệt vào Report Draft.`); },
-  });
+        { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
+        chart.pin_idempotency_key || crypto.randomUUID(),
+      );
+      setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, pinned: true, insight_reviewed: true } : item));
+      setMessage(`Đã ghim "${chart.title || chart.question}" vào Báo cáo thành công!`);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Không thể ghim biểu đồ.");
+    }
+  }
 
   function updateChart(id: string, next: Partial<ChartDraft>) {
     const evidenceFields: Array<keyof ChartDraft> = ["question", "problem", "algorithm", "x_column", "y_column", "second_dimension", "time_grain", "date_from", "date_to", "forecast_horizon", "season_length", "chart_type", "renderer", "insight"];
@@ -466,20 +666,199 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
   if (explorer.isLoading) return <LoadingBlock label="Đang tạo context cho Biểu đồ…" />;
   if (explorer.isError) return <ErrorNotice error={explorer.error} retry={() => explorer.refetch()} />;
   if (!context) return <EmptyState title="Biểu đồ chưa có context" detail="Hãy hoàn tất Profile và review metadata trước khi tạo biểu đồ." />;
-  const busy = automate.isPending || understand.isPending || preview.isPending || promote.isPending || pin.isPending;
+  const busy = autoProfile.isPending || automate.isPending || understand.isPending || preview.isPending || promote.isPending || pin.isPending;
   const forecastGroups = Object.entries((forecastCatalog.data?.algorithms ?? []).reduce<Record<string, ForecastAlgorithmCapability[]>>((groups, item) => {
     (groups[item.family] ||= []).push(item);
     return groups;
   }, {}));
 
   return <section className="command-charts">
-    <header className="command-charts-header"><div><p className="eyebrow">CÂU HỎI KINH DOANH → BIỂU ĐỒ → INSIGHT</p><h2>Biểu đồ</h2><p className="muted">Bạn chỉ cần đặt câu hỏi. Agent tự chọn bài toán, thuật toán, biểu đồ và tool vẽ; phép tính vẫn chạy qua bounded Preview/Official.</p></div><div className="chart-workspace-count"><strong>{charts.filter((chart) => chart.question).length}/{MAX_CHARTS}</strong><span>bài phân tích</span></div></header>
-    <ol className="chart-workflow-map"><li className="done">Profiles</li><li className={understanding ? "done" : "active"}>Agent hiểu dữ liệu</li><li>Agent chọn bài toán</li><li>Agent chọn thuật toán</li><li>Phân tích</li><li>Chọn chart</li><li>Chọn tool</li><li>Sinh chart</li><li>Viết insight</li><li>Report</li></ol>
+    {/* Unified Hero Panel: Question Input + 1-Click Auto Analysis Pack */}
+    <section className="panel chart-auto-profile-pack" style={{ border: "2px solid #315efb", padding: "20px 24px", background: "linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)" }}>
+      <div className="panel-title" style={{ marginBottom: 14 }}>
+        <div>
+          <span className="eyebrow" style={{ color: "#315efb", fontWeight: 800 }}>AI ANALYTICS WORKSPACE · PHÂN TÍCH TỰ ĐỘNG</span>
+          <h3 style={{ margin: "4px 0 0", fontSize: "1.25rem", color: "#0c1a3a" }}>Bạn muốn phân tích câu hỏi gì từ dữ liệu?</h3>
+          <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.86rem" }}>
+            Nhập câu hỏi bằng ngôn ngữ tự nhiên hoặc nhấn nút phân tích trọn gói. Agent sẽ tự động tính toán qua DuckDB, vẽ biểu đồ và viết AI insight.
+          </p>
+        </div>
+      </div>
+
+      {/* Primary Input: Business Question */}
+      <div style={{ display: "grid", gap: "10px", background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #c9dafb", boxShadow: "0 2px 8px rgba(49, 94, 251, 0.06)" }}>
+        <label className="chart-business-question" style={{ margin: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "#14254b" }}>
+              💬 Nhập 1 hoặc nhiều câu hỏi phân tích (mỗi dòng 1 câu):
+            </span>
+            <small style={{ color: "#315efb", fontWeight: 700, fontSize: "0.76rem" }}>
+              Hỗ trợ nhập danh sách nhiều câu hỏi cùng lúc
+            </small>
+          </div>
+          <textarea 
+            rows={3} 
+            maxLength={4000} 
+            value={businessQuestion} 
+            onChange={(event) => setBusinessQuestion(event.target.value)} 
+            placeholder={`Bạn có thể dán 1 hoặc nhiều câu hỏi, ví dụ:
+1. So sánh số lượng tin tuyển dụng giữa các ngành công nghiệp (Industry) hàng đầu
+2. Phân phối điểm đánh giá Rating của các công ty
+3. Tỷ trọng phân bổ loại hình công ty Type of ownership`} 
+            disabled={busy} 
+            style={{ fontSize: "0.92rem", padding: "10px 14px", borderRadius: "8px", borderColor: "#a9c5fb", width: "100%", lineHeight: 1.5 }}
+          />
+        </label>
+
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <button 
+              type="button" 
+              className="button primary chart-auto-submit" 
+              onClick={() => automate.mutate()} 
+              disabled={busy || businessQuestion.trim().length < 3 || charts.filter((chart) => chart.question).length >= MAX_CHARTS}
+              style={{ minWidth: "220px", fontWeight: 800, padding: "10px 20px" }}
+            >
+              {automate.isPending ? `Agent đang xử lý (${autoQuestionProgress?.percent ?? 0}%)` : "✨ Agent tự động tạo biểu đồ"}
+            </button>
+
+            <button 
+              type="button" 
+              className="button secondary" 
+              onClick={() => autoProfile.mutate()} 
+              disabled={busy}
+              style={{ minWidth: "220px", fontWeight: 700, padding: "10px 18px", border: "1px solid #b2cbfd", background: "#f0f5ff" }}
+            >
+              {autoProfile.isPending ? `Đang tạo Analysis Pack (${autoProfileProgress?.percent ?? 0}%)` : "⚡ Hoặc Tự động tạo trọn gói 5–8 biểu đồ"}
+            </button>
+
+            {charts.some((c) => c.question || c.generated || c.status === "failed") && (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => {
+                  setCharts([draftChart()]);
+                  setMessage("Đã làm sạch danh sách biểu đồ cũ.");
+                }}
+                disabled={busy}
+                style={{ color: "#dc2626", borderColor: "rgba(239, 68, 68, 0.3)" }}
+              >
+                🗑️ Xóa danh sách cũ
+              </button>
+            )}
+          </div>
+
+          <div className="chart-agent-facts" style={{ margin: 0 }}>
+            <span><b>{profile.column_count}</b> cột</span>
+            <span><b>{dimensions.length}</b> dimensions</span>
+            <span><b>{measures.length}</b> measures</span>
+          </div>
+        </div>
+
+        <div style={{ fontSize: "0.78rem", color: "var(--muted)", paddingTop: "4px" }}>
+          💡 Gợi ý bấm nhanh: 
+          <button type="button" className="button link-button" style={{ marginLeft: 6, fontWeight: 600 }} onClick={() => setBusinessQuestion("So sánh số lượng tin tuyển dụng giữa các ngành công nghiệp (Industry) hàng đầu")}>
+            "So sánh theo Industry"
+          </button> · 
+          <button type="button" className="button link-button" style={{ marginLeft: 4, fontWeight: 600 }} onClick={() => setBusinessQuestion("Phân phối điểm đánh giá Rating của các công ty")}>
+            "Phân phối Rating"
+          </button> · 
+          <button type="button" className="button link-button" style={{ marginLeft: 4, fontWeight: 600 }} onClick={() => setBusinessQuestion("Tỷ trọng loại hình công ty Type of ownership")}>
+            "Tỷ trọng Type of ownership"
+          </button>
+        </div>
+      </div>
+
+      {/* Progress Bars */}
+      {autoQuestionProgress && (
+        <div className="chart-progress-card" role="status" aria-live="polite">
+          <div className="chart-progress-header">
+            <div>
+              <span className="eyebrow">TIẾN ĐỘ XỬ LÝ CÂU HỎI KINH DOANH</span>
+              <h4>{autoQuestionProgress.step}</h4>
+            </div>
+            <div className="chart-progress-badge">
+              {autoQuestionProgress.percent}%
+            </div>
+          </div>
+          <div className="chart-progress-track">
+            <div 
+              className="chart-progress-fill" 
+              style={{ width: `${autoQuestionProgress.percent}%` }} 
+            />
+          </div>
+          <div className="chart-progress-footer">
+            <span>Quy trình: Ý định → QuerySpec → DuckDB Preview → Official Evidence → AI Insight</span>
+            <span className="chart-progress-time-hint">Bảo đảm độ chính xác 100% theo Official evidence</span>
+          </div>
+        </div>
+      )}
+
+      {autoProfileProgress && (
+        <div className="chart-progress-card" role="status" aria-live="polite">
+          <div className="chart-progress-header">
+            <div>
+              <span className="eyebrow">TIẾN ĐỘ TẠO GÓI ANALYSIS PACK (5–8 BIỂU ĐỒ)</span>
+              <h4>{autoProfileProgress.step}</h4>
+            </div>
+            <div className="chart-progress-badge">
+              {autoProfileProgress.percent}%
+            </div>
+          </div>
+          <div className="chart-progress-track">
+            <div 
+              className="chart-progress-fill" 
+              style={{ width: `${autoProfileProgress.percent}%` }} 
+            />
+          </div>
+          <div className="chart-progress-footer">
+            <span>{autoProfileProgress.total > 0 ? `Tiến độ: Biểu đồ ${autoProfileProgress.current}/${autoProfileProgress.total}` : "Đang đọc Profile Context..."}</span>
+            <span className="chart-progress-time-hint">Mỗi biểu đồ được tính toán qua DuckDB & Agent viết AI insight</span>
+          </div>
+        </div>
+      )}
+
+      {autoStage && !autoProfileProgress && !autoQuestionProgress && <div className="chart-auto-stage"><span className="loading-dot" />{autoStage}</div>}
+
+      {/* Visual Workflow Steps */}
+      <ol className="chart-workflow-map auto-profile-workflow-map" style={{ marginTop: 14 }}>
+        <li className="done">Dataset</li>
+        <li className="done">Profile Run</li>
+        <li className={understanding ? "done" : "active"}>Profile Context</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent >= 10 ? "active" : ""}>Analysis Pack</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent >= 25 ? "active" : ""}>Bounded Preview</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent >= 50 ? "active" : ""}>Official results</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent >= 70 ? "active" : ""}>ChartSpec + renderer</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent >= 85 ? "active" : ""}>Multiple charts</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent >= 95 ? "active" : ""}>Evidence insight</li>
+        <li className={autoProfileProgress && autoProfileProgress.percent === 100 ? "done" : ""}>Review & Report</li>
+      </ol>
+
+      <ol className="charts-entry-flow">
+        <li><b>1. Profile Context</b><span>Schema, dtype, missingness, cardinality và semantic type.</span></li>
+        <li><b>2. Analysis Pack</b><span>Quality, distribution, relationship và time-series khi đủ điều kiện.</span></li>
+        <li><b>3. Preview - Official</b><span>Mỗi chart độc lập, bounded và có evidence hash.</span></li>
+        <li><b>4. Insight - Review - Report</b><span>Agent viết insight theo Official evidence; người dùng review trước khi ghim.</span></li>
+      </ol>
+
+      {understanding && <details className="chart-agent-understanding" style={{ marginTop: 10 }}><summary>Xem cách Agent hiểu yêu cầu và kế hoạch đã chọn</summary><MarkdownContent text={understanding} className="report report-markdown" /><small>Agent run: {understandingRunId || "không có"}</small></details>}
+    </section>
+
+    {/* Header & Workspace */}
+    <header className="command-charts-header">
+      <div>
+        <p className="eyebrow">CÂU HỎI KINH DOANH → BIỂU ĐỒ → INSIGHT</p>
+        <h2>Workspace Biểu đồ</h2>
+      </div>
+      <div className="chart-workspace-count">
+        <strong>{charts.filter((chart) => chart.question).length}/{MAX_CHARTS}</strong>
+        <span>bài phân tích</span>
+      </div>
+    </header>
     {message && <Notice tone="info">{message}</Notice>}
-    {[automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
-    <section className="panel chart-auto-entry"><div><span className="eyebrow">AGENT TỰ ĐỘNG PHÂN TÍCH</span><h3>Bạn muốn biết điều gì từ dữ liệu?</h3><p className="muted">Viết bằng ngôn ngữ kinh doanh, ví dụ “Doanh số thay đổi thế nào trong 12 tháng?”. Không cần chọn thuật toán.</p></div><label className="chart-business-question"><span>Câu hỏi kinh doanh</span><textarea rows={3} maxLength={2000} value={businessQuestion} onChange={(event) => setBusinessQuestion(event.target.value)} placeholder="Nhập câu hỏi về xu hướng, so sánh, xếp hạng, phân phối hoặc mối quan hệ…" disabled={busy} /></label><button type="button" className="button primary chart-auto-submit" onClick={() => automate.mutate()} disabled={busy || businessQuestion.trim().length < 3 || charts.filter((chart) => chart.question).length >= MAX_CHARTS}>{automate.isPending ? "Agent đang xử lý…" : "Agent tự động tạo biểu đồ"}</button>{autoStage && <div className="chart-auto-stage"><span className="loading-dot" />{autoStage}</div>}<div className="chart-agent-facts"><span><b>{profile.column_count}</b> cột</span><span><b>{dimensions.length}</b> dimensions</span><span><b>{measures.length}</b> measures</span><span><b>{profile.pending_proposals}</b> proposal chờ review</span></div>{understanding && <details className="chart-agent-understanding"><summary>Xem cách Agent hiểu yêu cầu và kế hoạch đã chọn</summary><MarkdownContent text={understanding} className="report report-markdown" /><small>Agent run: {understandingRunId || "không có"}</small></details>}</section>
+    {[autoProfile, automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
     <details className="panel chart-model-catalog"><summary>Danh mục thuật toán dự báo · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
     <div className="chart-toolbar"><details className="chart-manual-tools"><summary>Tùy chỉnh nâng cao / chạy thủ công</summary><div className="inline-actions"><button type="button" className="button secondary" onClick={() => understand.mutate()} disabled={busy}>{understand.isPending ? "Agent đang đọc Profile…" : "Đọc riêng Profile"}</button><button type="button" className="button secondary" onClick={() => setCharts((current) => current.length >= MAX_CHARTS ? current : [...current, draftChart()])} disabled={charts.length >= MAX_CHARTS || busy}>+ Bài phân tích thủ công</button><button type="button" className="button secondary" onClick={() => preview.mutate()} disabled={busy || !validCharts.length}>{preview.isPending ? "Đang chạy Preview…" : "Chạy Preview"}</button><button type="button" className="button secondary" onClick={() => promote.mutate()} disabled={busy || !charts.some((chart) => chart.execution?.execution_kind === "preview")}>{promote.isPending ? "Đang tạo Official…" : "Tạo Official"}</button></div></details><div className="inline-actions"><button type="button" className="button primary" onClick={() => pin.mutate()} disabled={busy || !charts.some(generatedReady)}>{pin.isPending ? "Đang ghim…" : "Ghim chart + insight đã duyệt"}</button><Link className="button secondary" href={`/profiles/${runId}?tab=report`}>Report Draft / Xuất</Link></div></div>
-    <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} />)}</div>
+    <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
   </section>;
 }

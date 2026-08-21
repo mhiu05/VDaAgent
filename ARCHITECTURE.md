@@ -14,6 +14,71 @@ Dataset upload → Profile Run → review and confirmation → Command Center
 `/analyses` and `/notebooks` are no longer product routes or public workflows.
 Explorer sessions are internal, profile-scoped implementation details.
 
+## Tri-Engine Agentic Architecture (MCP & Evidence-First)
+
+The analytics engine operates as an autonomous, privacy-safe tri-engine system orchestrated via the **Model Context Protocol (MCP)**:
+
+```text
+                           AI AGENT
+                              │
+                         MCP CLIENT
+                              │
+                         MCP SERVER
+                              │
+             ┌────────────────┼────────────────┐
+             ▼                ▼                ▼
+          DuckDB           BigQuery        Vector DB
+        (Local Data)     (Cloud Data)     (Business KB)
+        CSV/Parquet       Warehouse            RAG
+             │                │                │
+             └────────────────┼────────────────┘
+                              ▼
+                      Profiling Engine
+                              │
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+        Statistics                        Forecasting
+    (Descriptive/Anomaly)             (Time-series/ML)
+             │                                 │
+             └────────────────┬────────────────┘
+                              ▼
+                     Business Reasoning
+                (Hợp nhất Số liệu + Bối cảnh)
+                              │
+                              ▼
+                      Evidence Validator
+                 (Kiểm tra hash, chặn ảo giác)
+                              │
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+         AI Insight                      Visualization
+    (Giải thích nghiệp vụ)            (SVG / CSS / Grid Chart)
+             │                                 │
+             └────────────────┬────────────────┘
+                              ▼
+                     REPORT DRAFT / PDF
+```
+
+### Core Architecture Components
+
+1. **Tri-Engine Data & Knowledge Layer**:
+   - **DuckDB (Local Compute Engine)**: Fast, memory-efficient columnar query execution for local files (CSV, TSV, Parquet, JSON), computing descriptive statistics, distributions, and bounded group aggregations.
+   - **Cloud Warehouse (BigQuery / Snowflake)**: Scalable pushdown query execution directly on enterprise data warehouses without downloading raw data over the wire.
+   - **Vector DB / Knowledge Base (RAG Engine)**: Hybrid sparse-dense retrieval (BM25 + embeddings with Reciprocal Rank Fusion) supplying business context, data dictionaries, domain glossaries, and organizational rules.
+
+2. **Model Context Protocol (MCP Gateway)**:
+   - Enforces a formal protocol boundary between AI Agents (web agent, Claude Desktop, Antigravity, custom clients) and the data infrastructure.
+   - Exposes bounded, audited tools (`get_profile_overview`, `list_profile_columns`, `run_preview_query`, `promote_official_query`, `forecast_metric`, `auto_plan_chart`).
+   - Guarantees **Zero Raw Data / PII Leakage**: The LLM receives only bounded aggregates and summary metadata.
+
+3. **Reasoning & Evidence Validation (Zero Hallucination Gate)**:
+   - **Business Reasoning**: Merges quantitative findings (from DuckDB / Cloud / Algorithms) with qualitative domain context (from Vector DB RAG).
+   - **Evidence Validator**: Re-verifies every claim against computed `evidence_hash` and strict execution boundaries. Unverified claims cannot be marked as verified or pinned to official report drafts.
+
+4. **Dual Presentation Layer (AI Insight & Visualization)**:
+   - **AI Insight**: Natural language narratives contextualized to business impact.
+   - **Visualization**: High-performance, lightweight native renderers (`native-svg`, `native-css`, `native-grid`, `native-kpi`, `native-html`) depicting 15+ chart types and 30+ forecasting models with confidence intervals.
+
 ## Runtime architecture
 
 ```mermaid

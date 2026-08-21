@@ -9,6 +9,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 from langchain_openai import ChatOpenAI
 from src.config import LLM_PROVIDERS, Settings, get_settings
 

@@ -1,24 +1,68 @@
-# Tính năng Biểu Đồ
+# Tính năng Biểu Đồ (Charts & Evidence-First Analytics)
 
 ## 1. Mục đích
 
-Tính năng **Biểu Đồ** giúp Analyst đi từ một Profile Run đã hoàn tất đến một biểu đồ có thể giải thích, kiểm tra và đưa vào báo cáo.
+Tính năng **Biểu Đồ** giúp Analyst và Business User đi từ một Profile Run đã hoàn tất đến một biểu đồ có thể giải thích, kiểm tra và đưa vào báo cáo chính thức.
 
-Mục tiêu không chỉ là tạo ra hình ảnh. Mỗi biểu đồ phải trả lời được một câu hỏi phân tích, có nguồn dữ liệu rõ ràng, có thuật toán được kiểm soát và có insight đi kèm.
+Mục tiêu không chỉ là tạo ra hình ảnh đơn thuần. Mỗi biểu đồ trong hệ thống đều:
+1. Trả lời một câu hỏi phân tích kinh doanh cụ thể.
+2. Có nguồn dữ liệu và dấu vết (`evidence_hash`, `execution_id`) được kiểm toán rõ ràng.
+3. Được tính toán bằng động cơ deterministic an toàn (DuckDB / Cloud Warehouse / Thuật toán dự báo).
+4. Được bảo vệ bởi cơ chế **Zero Raw-Row & Zero PII Leakage**.
+5. Đi kèm **AI Insight** đã được thẩm định qua **Evidence Validator** trước khi ghim vào Report Draft / PDF.
 
-Luồng chính:
+Luồng cốt lõi theo kiến trúc **Tri-Engine & Evidence-First**:
 
 ```text
-Profiles
-  → Agent hiểu dữ liệu
-  → Agent chọn bài toán
-  → Agent chọn thuật toán
-  → Phân tích kết quả
-  → Agent chọn loại biểu đồ
-  → Agent chọn tool vẽ
-  → Sinh biểu đồ
-  → Agent viết insight
-  → Ghim vào Report Draft / Xuất báo cáo
+                           AI AGENT
+                              │
+                         MCP CLIENT
+                              │
+                         MCP SERVER
+                              │
+             ┌────────────────┼────────────────┐
+             ▼                ▼                ▼
+          DuckDB           BigQuery        Vector DB
+        (Local Data)     (Cloud Data)     (Business KB)
+        CSV/Parquet       Warehouse            RAG
+             │                │                │
+             └────────────────┼────────────────┘
+                              ▼
+                      Profiling Engine
+                              │
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+        Statistics                        Forecasting
+    (Descriptive/Anomaly)             (Time-series/ML)
+             │                                 │
+             └────────────────┬────────────────┘
+                              ▼
+                     Business Reasoning
+                (Hợp nhất Số liệu + Bối cảnh)
+                              │
+                              ▼
+                      Evidence Validator
+                 (Kiểm tra hash, chặn ảo giác)
+                              │
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+         AI Insight                      Visualization
+    (Giải thích nghiệp vụ)            (SVG / CSS / Grid Chart)
+             │                                 │
+             └────────────────┬────────────────┘
+                              ▼
+                     REPORT DRAFT / PDF
+```
+
+Chuỗi giá trị phân tích:
+```text
+Data Profiling chính xác
+  → Tool/MCP truy xuất được evidence
+  → Business Knowledge (RAG) giải thích ý nghĩa
+  → Agent reasoning
+  → Validator kiểm chứng (Anti-Hallucination Gate)
+  → Visualization / Insight
+  → Report Draft / PDF Lineage
 ```
 
 ## 2. Tính năng phục vụ mục đích gì cho dự án
@@ -496,8 +540,8 @@ Việc cài package không tự mở SARIMAX/ARIMAX: hai model này chỉ đư�
 Tính năng được xem là đạt production core khi người dùng có thể:
 
 - mở một Profile Run hoàn tất;
-- nhập một business question mà không cần biết thuật toán;
-- để Agent tự chọn bài toán, algorithm, cột, chart type và renderer hợp lệ;
+- mở một Profile Run mà không cần nhập business question;
+- để Agent tự tạo Analysis Pack và tự chọn bài toán, algorithm, cột, chart type và renderer hợp lệ;
 - để hệ thống tự chạy bounded Preview và tạo Official result sau quality gate;
 - nhận biểu đồ sinh từ aggregate result;
 - xem nguồn, hash và limitation;
@@ -535,7 +579,39 @@ pnpm build
 
 Toàn bộ `pytest` cần `P170_TEST_DATABASE_URL` trỏ tới PostgreSQL test riêng. Nếu database đó không đăng nhập được, test tích hợp sẽ dừng ở bước tạo repository trước khi chạy nghiệp vụ Biểu Đồ.
 
-## 10. Kết luận
+## 10. Luồng mặc định domain-agnostic
+
+Luồng mặc định của tính năng Biểu Đồ không yêu cầu người dùng nhập câu hỏi kinh doanh. Câu hỏi chỉ là tùy chọn để thu hẹp hoặc ưu tiên một mục tiêu profiling.
+
+```text
+Dataset
+  → Profile Run
+  → Agent đọc Profile Context
+  → Tự tạo mục tiêu profiling
+  → Tạo Analysis Pack
+  → Bounded Preview
+  → Official results
+  → ChartSpec + renderer
+  → Nhiều biểu đồ
+  → Insight theo Official evidence
+  → Review
+  → Report Draft / PDF
+  → Lineage + Audit
+```
+
+`Analysis Pack` được tạo từ metadata đã duyệt và chỉ chứa các phép phân tích mà dataset đáp ứng được:
+
+- Quality: missingness, missing pattern, cardinality và outlier.
+- Distribution: histogram, box plot và các summary phù hợp.
+- Relationship: scatter và correlation heatmap khi có đủ measure.
+- Comparison: bar/donut khi có dimension và measure.
+- Time series: line và forecast khi có time column cùng lịch sử đủ dài.
+
+Mỗi chart trong pack chạy độc lập qua Preview và Official. Chart lỗi hoặc bị quality gate chặn không làm mất các chart hợp lệ khác. Insight chỉ được viết từ Official evidence đã bind với Profile Run, sau đó Analyst review trước khi ghim vào Report Draft.
+
+Business question vẫn được giữ trong khu vực tùy chỉnh nâng cao cho các trường hợp người dùng muốn định hướng một phân tích cụ thể; nó không còn là điều kiện để bắt đầu profiling tự động.
+
+## 11. Kết luận
 
 Biểu Đồ là lớp kết nối giữa **Profile**, **phân tích có kiểm soát**, **Agent** và **báo cáo**.
 

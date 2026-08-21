@@ -13,6 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import duckdb
 from src.services.forecasting import ForecastingError, forecast_series
 from src.services.repository import Repository
