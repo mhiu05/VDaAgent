@@ -246,28 +246,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_ok=false
-          for attempt in {1..60}; do
-            if curl --fail --silent --show-error --max-time 10 "$BACKEND_URL/health"; then
-              backend_ok=true
-              break
-            fi
-            sleep 10
-          done
-          if [ "$backend_ok" != "true" ]; then
-            echo "Backend did not become healthy at $BACKEND_URL/health."
-            exit 1
-          fi
+          wait_for_url() {
+            local name="$1"
+            local url="$2"
+            local attempts="$3"
+            local body_file
+            body_file="$(mktemp)"
 
-          frontend_ok=false
-          for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 10 "$FRONTEND_URL/health" > /dev/null; then
-              frontend_ok=true
-              break
-            fi
-            sleep 10
-          done
-          if [ "$frontend_ok" != "true" ]; then
-            echo "Frontend did not become healthy at $FRONTEND_URL/health."
-            exit 1
-          fi
+            for attempt in $(seq 1 "$attempts"); do
+              local status
+              status="$(curl --silent --show-error --output "$body_file" --write-out "%{http_code}" --max-time 15 "$url" || true)"
+              if [ "$status" = "200" ]; then
+                echo "$name became healthy at $url."
+                cat "$body_file"
+                echo
+                rm -f "$body_file"
+                return 0
+              fi
+
+              echo "$name health attempt $attempt/$attempts returned ${status:-curl_failed} from $url."
+              if [ -s "$body_file" ]; then
+                head -c 500 "$body_file"
+                echo
+              fi
+              sleep 10
+            done
+
+            rm -f "$body_file"
+            echo "$name did not become healthy at $url."
+            return 1
+          }
+
+          wait_for_url Backend "$BACKEND_URL/health" 90
+          wait_for_url Frontend "$FRONTEND_URL/health" 60
