@@ -180,6 +180,7 @@ jobs:
             APP_HOST=0.0.0.0
             APP_PORT=8000
             WEBSITES_PORT=8000
+            WEBSITES_CONTAINER_START_TIME_LIMIT=1800
             CORS_ORIGINS="$FRONTEND_URL"
             AUTH_MODE=supabase
             AUTH_ALLOW_GUEST="$AUTH_ALLOW_GUEST"
@@ -229,7 +230,7 @@ jobs:
           az webapp config appsettings set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$FRONTEND_APP" \
-            --settings WEBSITES_PORT=8080 PORT=8080 NODE_ENV=production INTERNAL_API_URL="$BACKEND_URL/api/v1" \
+            --settings WEBSITES_PORT=8080 PORT=8080 NODE_ENV=production WEBSITES_CONTAINER_START_TIME_LIMIT=1800 INTERNAL_API_URL="$BACKEND_URL/api/v1" \
             --output none
 
       - name: Restart apps
@@ -246,7 +247,7 @@ jobs:
         run: |
           set -euo pipefail
           backend_ok=false
-          for attempt in {1..30}; do
+          for attempt in {1..60}; do
             if curl --fail --silent --show-error --max-time 10 "$BACKEND_URL/health"; then
               backend_ok=true
               break
@@ -260,13 +261,13 @@ jobs:
 
           frontend_ok=false
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 10 "$FRONTEND_URL/login" > /dev/null; then
+            if curl --fail --silent --show-error --max-time 10 "$FRONTEND_URL/health" > /dev/null; then
               frontend_ok=true
               break
             fi
             sleep 10
           done
           if [ "$frontend_ok" != "true" ]; then
-            echo "Frontend did not become healthy at $FRONTEND_URL/login."
+            echo "Frontend did not become healthy at $FRONTEND_URL/health."
             exit 1
           fi

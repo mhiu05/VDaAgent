@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const publicPaths = new Set(["/", "/guide", "/login", "/signup", "/forgot-password", "/auth/callback", "/auth/confirm", "/account/update-password"]);
+const publicPaths = new Set(["/", "/health", "/guide", "/login", "/signup", "/forgot-password", "/auth/callback", "/auth/confirm", "/account/update-password"]);
 const guestAllowed = process.env.NEXT_PUBLIC_AUTH_ALLOW_GUEST === "true";
 const appPaths = ["/dashboard", "/workspaces", "/reports", "/chat", "/datasets", "/profiles", "/compare"];
 
