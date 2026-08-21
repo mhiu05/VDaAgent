@@ -37,6 +37,8 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
+          ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -45,6 +47,7 @@ jobs:
           set -euo pipefail
           for name in \
             AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+            ACR_PULL_USERNAME ACR_PULL_PASSWORD \
             DATABASE_URL SUPABASE_SECRET_KEY \
             NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
             test -n "${!name}" || { echo "Missing production secret: $name"; exit 1; }
@@ -92,44 +95,6 @@ jobs:
           printf '%s' "$acr_token" | docker login "$ACR_LOGIN_SERVER" \
             --username 00000000-0000-0000-0000-000000000000 \
             --password-stdin
-
-      - name: Configure App Service ACR pull identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          acr_id="$(docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
-            az acr show \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$ACR_NAME" \
-              --query id \
-              --output tsv)"
-          test -n "$acr_id" || { echo "Could not find ACR resource id."; exit 1; }
-
-          for app_name in "$BACKEND_APP" "$FRONTEND_APP"; do
-            principal_id="$(docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
-              az webapp identity assign \
-                --resource-group "$RESOURCE_GROUP" \
-                --name "$app_name" \
-                --query principalId \
-                --output tsv)"
-            test -n "$principal_id" || { echo "Could not assign identity for $app_name."; exit 1; }
-
-            docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
-            az role assignment create \
-              --assignee "$principal_id" \
-              --scope "$acr_id" \
-              --role AcrPull \
-              --only-show-errors \
-              --output none || echo "AcrPull role assignment for $app_name may already exist."
-
-            docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
-            az webapp config set \
-              --resource-group "$RESOURCE_GROUP" \
-              --name "$app_name" \
-              --acr-use-identity true \
-              --acr-identity "[system]" \
-              --output none
-          done
 
       - name: Build and push backend image
         shell: bash
@@ -195,6 +160,8 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}
           AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}
+          ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
+          ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
         run: |
           set -euo pipefail
           docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
@@ -203,6 +170,8 @@ jobs:
             --name "$BACKEND_APP" \
             --container-image-name "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
             --container-registry-url "https://$ACR_LOGIN_SERVER" \
+            --container-registry-user "$ACR_PULL_USERNAME" \
+            --container-registry-password "$ACR_PULL_PASSWORD" \
             --enable-app-service-storage false
 
           settings=(
@@ -242,6 +211,9 @@ jobs:
 
       - name: Deploy frontend container
         shell: bash
+        env:
+          ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
+          ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
         run: |
           set -euo pipefail
           docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
@@ -250,6 +222,8 @@ jobs:
             --name "$FRONTEND_APP" \
             --container-image-name "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
             --container-registry-url "https://$ACR_LOGIN_SERVER" \
+            --container-registry-user "$ACR_PULL_USERNAME" \
+            --container-registry-password "$ACR_PULL_PASSWORD" \
             --enable-app-service-storage false
           docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp config appsettings set \
