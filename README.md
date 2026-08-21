@@ -97,7 +97,7 @@ thread, vì vậy cần mở rộng thread hoặc kiểm tra Spam/Promotions.
 - Profiling deterministic: schema, dtype, missingness, cardinality, uniqueness, duplicate, outlier, top values và correlation.
 - Human-in-the-loop review cho semantic type, candidate key và PII proposal.
 - Profile report có provenance, narrative summary và các metric đã kiểm chứng.
-- **Profile Run Command Center** tập trung bốn tab Tổng quan, Khám phá, Hỏi Agent và Báo cáo vào đúng profile run.
+- **Profile Run Command Center** tập trung năm tab Tổng quan, Khám phá, Biểu đồ, Hỏi Agent và Báo cáo vào đúng profile run.
 - Explorer dùng bounded aggregate, Preview/Official, preset so sánh nhóm và Pin evidence vào Report Draft.
 - Q&A theo profile evidence; có thể mở rộng tới external knowledge base nếu được cấu hình.
 - Statistical tests với alpha và multiple-testing correction; drift giữa hai profile run cùng dataset.
@@ -236,6 +236,8 @@ DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/postgres
 AUTH_MODE=dual
 AUTH_ALLOW_GUEST=true
 NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+UX_COMMAND_CENTER_ENABLED=true
+NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true
 ```
 
 Nếu dùng Supabase Auth/Storage, điền thêm `SUPABASE_URL`,
@@ -266,6 +268,12 @@ Khởi động hai terminal:
 # Terminal 2
 cd frontend
 pnpm dev --port 3000
+```
+
+Nhóm forecast core (Baseline, Exponential Smoothing, ARIMA, State Space và scikit-learn) nằm trong `requirements.txt`. Muốn bật thêm XGBoost, LightGBM, CatBoost, Prophet và NeuralProphet:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-forecast-full.txt
 ```
 
 ### macOS/Linux
@@ -372,6 +380,7 @@ resource không thuộc workspace, `409 workspace_required` là cần chọn wor
 /datasets                     Dataset và profile runs
 /datasets/new                 Upload và tạo profiling run
 /datasets/{datasetId}/runs    Lịch sử profile của dataset
+/charts                       Chọn Profile Run và mở workspace Biểu đồ
 /profiles/{runId}             Profile Run Command Center khi feature flag bật
 /profiles/{runId}/review      Review proposal metadata
 /profiles/{runId}/analysis    Kiểm định, drift và export

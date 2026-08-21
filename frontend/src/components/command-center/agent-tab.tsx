@@ -103,7 +103,6 @@ export function AgentTab({ runId, execution }: { runId: string; execution: Analy
     };
   // A click on “Giải thích” is an explicit request; only rerun when its
   // execution changes, not while streaming state updates.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [execution]);
 
   const pinnable = [...messages].reverse().find((item) => item.role === 'agent' && item.agentRunId && item.evidenceStatus === 'verified');

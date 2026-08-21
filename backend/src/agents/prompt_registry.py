@@ -17,6 +17,7 @@ class PromptSpec:
 
 
 _TEMPLATES = {
+    "chart_planner": prompts.CHART_PLANNER_PROMPT,
     "qa_router": prompts.QA_ROUTER_PROMPT,
     "qa_clarify": prompts.CLARIFY_PROMPT,
     "qa_structured": prompts.QA_STRUCTURED_PROMPT,

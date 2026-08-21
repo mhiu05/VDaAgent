@@ -10,6 +10,7 @@ import { COMMAND_CENTER_TAB_LABELS, COMMAND_CENTER_TABS, isCommandCenterTab, typ
 import { ErrorNotice, LoadingBlock, Notice, StatusBadge } from "@/components/ui";
 
 const ExplorerTab = dynamic(() => import("./explorer-tab").then((module) => module.ExplorerTab), { loading: () => <LoadingBlock label="Đang mở Explorer…" /> });
+const ChartsTab = dynamic(() => import("./charts-tab").then((module) => module.ChartsTab), { loading: () => <LoadingBlock label="Đang mở Biểu đồ…" /> });
 const AgentTab = dynamic(() => import("./agent-tab").then((module) => module.AgentTab), { loading: () => <LoadingBlock label="Đang mở Agent…" /> });
 const ReportTab = dynamic(() => import("./report-tab").then((module) => module.ReportTab), { loading: () => <LoadingBlock label="Đang mở Report Draft…" /> });
 
@@ -98,6 +99,7 @@ export function CommandCenterShell({ overview }: Props) {
 
     <section id={`command-center-panel-${activeTab}`} role="tabpanel" aria-labelledby={`command-center-tab-${activeTab}`} tabIndex={0} className="command-center-panel">
       {activeTab === "overview" && overview}
+      {activeTab === "charts" && <ChartsTab runId={runId} profile={data} onExplain={explainExecution} />}
       {activeTab === 'explorer' && <ExplorerTab runId={runId} profile={data} onExplain={explainExecution} />}
       {activeTab === 'agent' && <AgentTab runId={runId} execution={selectedExecution} />}
       {activeTab === "report" && <ReportTab runId={runId} />}

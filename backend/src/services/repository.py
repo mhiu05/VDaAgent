@@ -3811,7 +3811,16 @@ class Repository:
 
     @staticmethod
     def _validate_visualization_spec(chart_type: str, spec: dict[str, Any]) -> None:
-        if chart_type not in {"kpi", "bar", "line", "table"}:
+        if chart_type not in {
+            "kpi",
+            "bar",
+            "line",
+            "table",
+            "histogram",
+            "scatter",
+            "box",
+            "heatmap",
+        }:
             raise ValueError("chart_type không thuộc allowlist.")
         encoded = json.dumps(spec, ensure_ascii=False)
         if len(encoded) > 20_000:

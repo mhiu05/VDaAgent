@@ -96,19 +96,10 @@ agent:
   runtime_version: 2.0.0
   trace_event_limit: 500
 
-# Command Center is an additive rollout. Keep it disabled until the migration,
-# API contract and cross-workspace tests have been verified in staging.
+# Command Center production core đã qua bounded-engine, cross-workspace và E2E
+# smoke test. Có thể override bằng UX_COMMAND_CENTER_ENABLED khi cần rollback.
 ux:
-  command_center_enabled: false
-  preview_timeout_seconds: 60
-  preview_row_budget: 50000
-  preview_result_limit: 50
-  official_result_limit: 500
-
-# Command Center is an additive rollout. Keep it disabled until the migration,
-# API contract and cross-workspace tests have been verified in staging.
-ux:
-  command_center_enabled: false
+  command_center_enabled: true
   preview_timeout_seconds: 60
   preview_row_budget: 50000
   preview_result_limit: 50
