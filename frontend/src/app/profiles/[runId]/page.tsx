@@ -164,6 +164,23 @@ function ProfileOverview() {
     <PageHeader eyebrow={`Phiên chạy (Profile run) · ${data.run_name || `Phiên bản v${data.version ?? "—"}`}`} title={data.dataset_name || "Báo cáo profile"} description="Các số liệu được lấy trực tiếp từ engine xử lý. Các đề xuất (proposal) được giữ riêng để chuyên viên phân tích review." />
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}
     <section className="panel compact" style={{ marginBottom: 18 }}><div className="inline-actions"><StatusBadge status={data.status} /><span className="chip">{data.scan_mode || "—"} scan {data.is_approximate && "· sampled"}</span>{data.is_approximate && <span className="chip">≈ Có uncertainty (độ bất định)</span>}</div></section>
+    
+    {/* BƯỚC TIẾP THEO ĐẶT LÊN TRÊN ĐẦU CHO DỄ THẤY */}
+    {(!hasReview && runComplete) && (
+      <section className="panel report-actions-panel" style={{ marginBottom: 18, background: "linear-gradient(135deg, rgba(2, 132, 199, 0.12) 0%, rgba(14, 165, 233, 0.06) 100%)", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
+        <div>
+          <p className="eyebrow" style={{ color: "#0284c7" }}>Bước tiếp theo</p>
+          <h2 style={{ color: "#0369a1" }}>Tạo biểu đồ & phân tích</h2>
+          <p className="muted">Tạo biểu đồ trực quan từ dữ liệu đã profile, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo hoàn chỉnh.</p>
+        </div>
+        <div className="inline-actions">
+          <Link href="/charts" className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "10px 20px", fontSize: "0.95rem" }}>
+            📊 Tạo biểu đồ & phân tích →
+          </Link>
+        </div>
+      </section>
+    )}
+
     {(hasReview || !runComplete) && <section className="panel report-actions-panel report-next-actions">
       {hasReview ? <>
         <div><p className="eyebrow">Bước cần hoàn tất</p><h2>Review đề xuất trước</h2><p className="muted">Còn {formatNumber(data.pending_proposals)} đề xuất cần được xác nhận, chỉnh sửa hoặc từ chối. Profile sẽ tiếp tục hoàn thành sau khi Review xong.</p></div>
@@ -201,13 +218,6 @@ function ProfileOverview() {
     <section id="column_profiles" className="panel" style={{ marginTop: 18 }}><div className="panel-title"><div><h2>Hồ sơ cột</h2><small>Top values bị ẩn với cột PII.</small></div><span className="chip">{columns.length} cột</span></div><div className="table-wrap"><table><thead><tr><th>Cột</th><th>Kiểu</th><th>Null</th><th>Cardinality</th><th>Uniqueness</th><th>Tóm tắt số</th><th>Giá trị phổ biến</th></tr></thead><tbody>{columns.map((stat) => <tr key={stat.column_name}><td><b>{stat.column_name}</b>{stat.pii_masked && <><br /><span className="chip pii">Đã ẩn PII</span></>}</td><td>{stat.dtype || "—"}</td><td>{formatPercent(stat.null_pct)}<br /><small>{formatNumber(stat.null_count)} null</small></td><td>{formatNumber(stat.cardinality)}</td><td>{formatPercent(stat.uniqueness_ratio)}</td><td>{stat.mean !== null && stat.mean !== undefined ? <div className="metric-summary"><span>mean: <b>{formatNumber(stat.mean)}</b></span><span>min: <b>{formatNumber(stat.min_value)}</b></span><span>max: <b>{formatNumber(stat.max_value)}</b></span><span>outliers: <b>{formatNumber(stat.outlier_count)}</b></span></div> : <div className="metric-summary"><span>min length: <b>{formatNumber(stat.min_length)}</b></span><span>max length: <b>{formatNumber(stat.max_length)}</b></span></div>}</td><td><TopValues stat={stat} /></td></tr>)}</tbody></table></div></section>
     <div id="metric_charts" className="grid two" style={{ marginTop: 18 }}><MetricChart title="Tỷ lệ null theo cột" columns={columns} metric="null_pct" warning /><MetricChart title="Tỷ lệ unique theo cột" columns={columns} metric="uniqueness_ratio" ratio /></div>
     <div id="distribution_correlation" className="grid two" style={{ marginTop: 18 }}><section className="panel"><div className="panel-title"><h2>Phân phối</h2><small>Top-k non-PII · tỷ lệ trên toàn bộ dòng</small></div>{columns.filter((stat) => !stat.pii_masked).slice(0, 3).map((stat) => <div className="distribution-column" key={stat.column_name}><h3>{stat.column_name}</h3><Distribution stat={stat} totalRows={data.row_count} /></div>)}</section><section className="panel"><div className="panel-title"><h2>Tương quan</h2><small>Pearson r · các cột số</small></div><CorrelationPanel matrix={data.correlation_matrix} /></section></div>
-
-    {(!hasReview && runComplete) && (
-      <section className="panel report-actions-panel" style={{ marginTop: 18 }}>
-        <div><p className="eyebrow">Bước tiếp theo</p><h2>Tạo biểu đồ & phân tích</h2><p className="muted">Tạo biểu đồ trực quan, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo trong Command Center.</p></div>
-        <div className="inline-actions"><Link href={`/profiles/${runId}?tab=charts`} className="button primary">Tạo biểu đồ & phân tích</Link></div>
-      </section>
-    )}
     
     {tocItems.length > 0 && (
       <aside className="report-toc-sidebar">
