@@ -387,6 +387,7 @@ function buildLayout(payload: ReportPayload): string[] {
   let subHeadingNumber = 0;
   let detailHeadingNumber = 0;
   const sectionByHeading = ["overview", "technical_profile", "quality", "agent_summary", "drift", "report_snapshot", "analysis"];
+  const tocEntries: Array<{ title: string; pageIndex: number; level: number }> = [];
 
   const addParagraph = (value: string, size = 9, color = COLORS.ink, width = CONTENT_WIDTH - 10) => {
     if (!selectedSections.has(activeSection)) return;
@@ -419,6 +420,7 @@ function buildLayout(payload: ReportPayload): string[] {
     const lines = fitLines(title, CONTENT_WIDTH - 24, size, 2);
     const height = Math.max(level === 1 ? 21 : 18, 8 + lines.length * (size + 2));
     ensure(height + 10);
+    tocEntries.push({ title, pageIndex: pages.length - 1, level });
     page.y -= 8;
     const top = page.y;
     rectCommand(page.commands, MARGIN, top - height + 2, level === 1 ? 5 : 3, height, level === 1 ? COLORS.blue : COLORS.border);
@@ -578,7 +580,7 @@ function buildLayout(payload: ReportPayload): string[] {
       xValues.forEach((xLabel, rowIndex) => { const y = top - 54 - rowIndex * cellHeight; textCommand(page.commands, MARGIN + 8, y - 9, xLabel, 6.4, true, COLORS.gray); yValues.forEach((yLabel, columnIndex) => { const value = lookup.get(`${xLabel}\u0000${yLabel}`) ?? 0; const shade = value / maxValue > .66 ? COLORS.blue : value / maxValue > .33 ? "0.55 0.66 0.96" : COLORS.paleBlue; rectCommand(page.commands, MARGIN + 96 + columnIndex * cellWidth, y - 17, cellWidth - 3, cellHeight - 3, shade, COLORS.white); textCommand(page.commands, MARGIN + 100 + columnIndex * cellWidth, y - 10, cell(value, 7), 6.2, true, COLORS.ink); }); });
       page.y = top - height - 10; return;
     }
-    if (["bar", "histogram", "missing_bar", "cardinality", "outlier"].includes(chartType)) {
+    if (["bar", "histogram", "missing_bar", "cardinality", "outlier", "map"].includes(chartType)) {
       const height = 42 + points.length * 20;
       ensure(height + 8);
       const top = page.y;
@@ -710,7 +712,7 @@ function buildLayout(payload: ReportPayload): string[] {
         const chartType = typeof chartSpec?.chart_type === "string" ? chartSpec.chart_type : "table";
         const dimension = typeof chartSpec?.x_column === "string" ? chartSpec.x_column : undefined;
         const secondaryDimension = typeof chartSpec?.y_column === "string" ? chartSpec.y_column : undefined;
-        if (["bar", "line", "kpi", "histogram", "scatter", "box", "heatmap", "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality", "violin", "donut", "outlier"].includes(chartType)) {
+        if (["bar", "line", "kpi", "histogram", "scatter", "box", "heatmap", "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality", "violin", "donut", "outlier", "map"].includes(chartType)) {
           addEvidenceChart(itemTitle, chartType, rows, dimension, secondaryDimension);
         }
         if (columns.length && rows.length) {
@@ -831,7 +833,48 @@ function buildLayout(payload: ReportPayload): string[] {
 
   addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với snapshot Report Draft và bằng chứng Explorer liên quan. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
 
+  // Generate Table of Contents (TOC) page
+  if (tocEntries.length > 0) {
+    const tocPage: Page = { commands: [], y: PAGE_HEIGHT - 64 };
+    rectCommand(tocPage.commands, 0, PAGE_HEIGHT - 34, PAGE_WIDTH, 34, COLORS.navy);
+    textCommand(tocPage.commands, MARGIN, PAGE_HEIGHT - 22, "VDaAgent  |  MỤC LỤC BÁO CÁO", 8, true, COLORS.white);
+    textCommand(tocPage.commands, PAGE_WIDTH - MARGIN - 126, PAGE_HEIGHT - 22, "Table of Contents", 7, false, "0.82 0.88 0.96");
+
+    rectCommand(tocPage.commands, MARGIN, PAGE_HEIGHT - 110, CONTENT_WIDTH, 36, COLORS.paleBlue, COLORS.border);
+    textCommand(tocPage.commands, MARGIN + 16, PAGE_HEIGHT - 88, "MỤC LỤC CHI TIẾT (TABLE OF CONTENTS)", 11, true, COLORS.navy);
+
+    let tocY = PAGE_HEIGHT - 140;
+    const maxTocY = BOTTOM + 20;
+
+    tocEntries.filter((entry) => entry.level <= 2).forEach((entry) => {
+      if (tocY < maxTocY) return;
+      const targetPage = entry.pageIndex + 2; // +1 (1-indexed) +1 (TOC page inserted at index 1)
+      const indent = entry.level === 1 ? 0 : 16;
+      const fontSize = entry.level === 1 ? 9 : 8;
+      const isBold = entry.level === 1;
+      const color = entry.level === 1 ? COLORS.navy : COLORS.ink;
+      
+      const maxTitleWidth = CONTENT_WIDTH - indent - 75;
+      const fitted = fitLines(entry.title, maxTitleWidth, fontSize, 1)[0] || entry.title;
+      textCommand(tocPage.commands, MARGIN + indent, tocY, fitted, fontSize, isBold, color);
+      textCommand(tocPage.commands, PAGE_WIDTH - MARGIN - 50, tocY, `Trang ${targetPage}`, fontSize, isBold, COLORS.blue);
+
+      if (entry.level === 1) {
+        lineCommand(tocPage.commands, MARGIN, tocY - 4, PAGE_WIDTH - MARGIN, tocY - 4, COLORS.border, 0.4);
+        tocY -= 22;
+      } else {
+        tocY -= 16;
+      }
+    });
+
+    // Insert TOC page directly after Cover page (index 1)
+    pages.splice(1, 0, tocPage);
+  }
+
   return pages.map((item, index) => {
+    if (index === 0) {
+      return item.commands.join("\n");
+    }
     textCommand(item.commands, MARGIN, 24, "Bảo mật  |  Bản xuất đã che PII", 7.2, false, COLORS.gray);
     textCommand(item.commands, PAGE_WIDTH - MARGIN - 62, 24, `Trang ${index + 1} / ${pages.length}`, 7.2, false, COLORS.gray);
     item.commands.push(`q ${COLORS.border} RG 0.6 w ${MARGIN} 36 m ${PAGE_WIDTH - MARGIN} 36 l S Q`);

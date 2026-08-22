@@ -4084,6 +4084,11 @@ class Repository:
                 )
             )
             conn.execute(
+                report_items.delete().where(
+                    report_items.c.report_version_id.in_(version_ids)
+                )
+            )
+            conn.execute(
                 report_versions.delete().where(report_versions.c.id.in_(version_ids))
             )
             conn.execute(

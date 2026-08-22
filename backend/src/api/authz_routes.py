@@ -592,9 +592,19 @@ async def get_published_report_export_source(
     from src.api.routes import _report_profile
 
     payload = _report_profile(run_id, str(report["workspace_id"]), sections)
-    snapshot = get_report_draft_repository().latest_snapshot(
-        report_id, context.workspace_id
-    )
+    repo = get_report_draft_repository()
+    snapshot = repo.latest_snapshot(report_id, context.workspace_id)
+    if not snapshot:
+        draft = repo.get_draft(report_id, context.workspace_id)
+        if draft:
+            snapshot = {
+                "id": draft["id"],
+                "title": draft.get("title"),
+                "version": draft.get("version", 1),
+                "snapshot_hash": "draft",
+                "snapshot_at": draft.get("updated_at"),
+                "items": draft.get("items", []),
+            }
     if snapshot:
         payload["report_snapshot"] = snapshot
     _audit(

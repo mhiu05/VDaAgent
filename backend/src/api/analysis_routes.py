@@ -7,6 +7,9 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import logging
+logger = logging.getLogger(__name__)
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from src.agents.prompts import CHART_PLANNER_PROMPT
 from src.agents.runtime.context import ExecutionContext, execution_scope
@@ -451,7 +454,21 @@ async def execute_preview(
             preview_row_budget=get_settings().ux_preview_row_budget,
         )
     except AnalysisQueryError as exc:
+        logger.error(f"AnalysisQueryError: {exc}")
+        with open("422_error.log", "w", encoding="utf-8") as f:
+            f.write(f"AnalysisQueryError: {exc}")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.error(f"OSError in preview: {exc}")
+        with open("422_error.log", "w", encoding="utf-8") as f:
+            f.write(f"OSError in preview: {exc}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Không thể truy cập dữ liệu: {exc}",
+        ) from exc
+    except Exception as exc:
+        logger.error(f"Unexpected error in preview: {exc}")
+        raise
     execution = analyses.save_execution(
         session_id,
         semantic_context["id"],

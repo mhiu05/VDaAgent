@@ -20,7 +20,7 @@ import { EmptyState, ErrorNotice, LoadingBlock, Notice } from "@/components/ui";
 import { MarkdownContent } from "@/components/markdown";
 import { ChartEvidenceView } from "./chart-evidence-view";
 
-type ProblemType = "compare" | "trend" | "ranking" | "summary" | "distribution" | "relationship" | "quality" | "forecast";
+type ProblemType = "compare" | "trend" | "ranking" | "summary" | "distribution" | "relationship" | "quality" | "forecast" | "composition" | "geographic" | "multi_dimensional";
 type AnalysisMethod = QuerySpec["aggregate"] | "histogram" | "box" | "scatter" | "heatmap" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier" | ForecastAlgorithm;
 type ChartStatus = "draft" | "preview" | "official" | "failed";
 type ChartDraft = {
@@ -70,6 +70,9 @@ const PROBLEMS: Array<{ value: ProblemType; label: string; detail: string }> = [
   { value: "relationship", label: "Mối quan hệ", detail: "Kiểm tra quan hệ giữa hai measure hoặc hai dimension." },
   { value: "forecast", label: "Dự báo chuỗi thời gian", detail: "Dự báo các kỳ tương lai từ lịch sử đã tổng hợp theo thời gian." },
   { value: "quality", label: "Chất lượng dữ liệu", detail: "Kiểm tra missing, cardinality, tương quan và outlier từ Profile evidence." },
+  { value: "composition", label: "Tỷ trọng / Thành phần", detail: "Phân tích cơ cấu, thành phần của một dimension." },
+  { value: "geographic", label: "Địa lý", detail: "Phân bổ theo vị trí địa lý." },
+  { value: "multi_dimensional", label: "Phân tích đa chiều", detail: "Phân tích kết hợp nhiều dimension và measure." },
 ];
 const FORECAST_LABELS: Record<ForecastAlgorithm, string> = {
   naive: "Naive Forecast", seasonal_naive: "Seasonal Naive", drift: "Drift Method", moving_average: "Moving Average", weighted_moving_average: "Weighted Moving Average",
@@ -95,15 +98,21 @@ const PROBLEM_ALGORITHMS: Record<ProblemType, AnalysisMethod[]> = {
   relationship: ["scatter", "heatmap", "correlation_heatmap"],
   quality: ["missing_bar", "missing_heatmap", "cardinality", "outlier"],
   forecast: FORECAST_IDS,
+  composition: ["count", "sum", "donut"],
+  geographic: ["count", "sum", "mean"],
+  multi_dimensional: ["scatter", "heatmap"],
 };
 const PROBLEM_CHARTS: Record<ProblemType, ChartType[]> = {
   compare: ["bar", "table"], trend: ["line", "table"], ranking: ["bar", "table"], summary: ["kpi", "table"],
   distribution: ["histogram", "box", "violin", "outlier"], relationship: ["scatter", "heatmap", "correlation_heatmap"],
   quality: ["missing_bar", "missing_heatmap", "cardinality", "outlier"],
   forecast: ["line", "table"],
+  composition: ["donut", "bar", "table"],
+  geographic: ["bar", "table"],
+  multi_dimensional: ["scatter", "heatmap"],
 };
-const CHART_LABELS: Record<ChartType, string> = { line: "Line · xu hướng", bar: "Bar · so sánh", table: "Table · chi tiết", kpi: "KPI · tổng hợp", histogram: "Histogram · phân phối", scatter: "Scatter · mật độ", box: "Box plot · năm số", heatmap: "Heatmap · hai chiều", missing_bar: "Missing Value Bar", missing_heatmap: "Missing Value Heatmap", correlation_heatmap: "Correlation Heatmap", cardinality: "Cardinality Chart", violin: "Violin Plot", donut: "Pie / Donut", outlier: "Outlier Chart" };
-const RENDERER_FOR_CHART: Record<ChartType, ChartRenderer> = { line: "native-svg", bar: "native-css", table: "native-html", kpi: "native-kpi", histogram: "native-svg", scatter: "native-svg", box: "native-svg", heatmap: "native-grid", missing_bar: "native-css", missing_heatmap: "native-grid", correlation_heatmap: "native-grid", cardinality: "native-css", violin: "native-svg", donut: "native-svg", outlier: "native-css" };
+const CHART_LABELS: Record<ChartType, string> = { line: "Line · xu hướng", bar: "Bar · so sánh", table: "Table · chi tiết", kpi: "KPI · tổng hợp", histogram: "Histogram · phân phối", scatter: "Scatter · mật độ", box: "Box plot · năm số", heatmap: "Heatmap · hai chiều", missing_bar: "Missing Value Bar", missing_heatmap: "Missing Value Heatmap", correlation_heatmap: "Correlation Heatmap", cardinality: "Cardinality Chart", violin: "Violin Plot", donut: "Pie / Donut", outlier: "Outlier Chart", map: "Bản đồ Địa lý" };
+const RENDERER_FOR_CHART: Record<ChartType, ChartRenderer> = { line: "native-svg", bar: "native-css", table: "native-html", kpi: "native-kpi", histogram: "native-svg", scatter: "native-svg", box: "native-svg", heatmap: "native-grid", missing_bar: "native-css", missing_heatmap: "native-grid", correlation_heatmap: "native-grid", cardinality: "native-css", violin: "native-svg", donut: "native-svg", outlier: "native-css", map: "native-css" };
 const RENDERER_LABELS: Record<ChartRenderer, string> = { "native-svg": "Native SVG", "native-css": "CSS Bars", "native-html": "HTML Table", "native-kpi": "Native KPI", "native-grid": "Native Grid" };
 
 function draftChart(): ChartDraft {
@@ -114,11 +123,15 @@ function draftChart(): ChartDraft {
   };
 }
 
+function chartDisplayTitle(chart: Pick<ChartDraft, "question" | "title">) {
+  return chart.question.trim() || chart.title.trim() || "Bài phân tích mới";
+}
+
 function chartFromPlan(plan: AutoChartPlan): ChartDraft {
   return {
     ...draftChart(),
     question: plan.question,
-    title: plan.title,
+    title: plan.question || plan.title,
     problem: plan.problem,
     algorithm: plan.algorithm,
     x_column: plan.x_column ?? "",
@@ -150,7 +163,7 @@ function chartQuery(chart: ChartDraft): QuerySpec {
     analysis_kind: "forecast",
     aggregate: chart.y_column ? "sum" : "count",
     column: chart.y_column || undefined,
-    dimensions: [chart.x_column],
+    dimensions: [chart.x_column].filter(Boolean) as string[],
     filters: [],
     time_grain: chart.time_grain || "month",
     forecast_algorithm: chart.algorithm as ForecastAlgorithm,
@@ -165,10 +178,10 @@ function chartQuery(chart: ChartDraft): QuerySpec {
   if (chart.algorithm === "histogram") return { analysis_kind: "histogram", aggregate: "count", column: chart.y_column, dimensions: [], filters: [], bins: 12, limit: 50, sort: "asc" };
   if (chart.algorithm === "box") return { analysis_kind: "box", aggregate: "median", column: chart.y_column, dimensions: chart.x_column ? [chart.x_column] : [], filters: [], limit: 50, sort: "desc" };
   if (chart.algorithm === "scatter") return { analysis_kind: "scatter", aggregate: "count", x_column: chart.x_column, y_column: chart.y_column, dimensions: [], filters: [], bins: 12, limit: 50, sort: "desc" };
-  if (chart.algorithm === "heatmap") return { analysis_kind: "heatmap", aggregate: "count", dimensions: [chart.x_column, chart.second_dimension], filters: [], limit: 50, sort: "desc" };
+  if (chart.algorithm === "heatmap") return { analysis_kind: "heatmap", aggregate: "count", dimensions: [chart.x_column, chart.second_dimension].filter(Boolean) as string[], filters: [], limit: 50, sort: "desc" };
   if (["missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality", "outlier"].includes(chart.algorithm)) return { analysis_kind: chart.algorithm as QuerySpec["analysis_kind"], aggregate: "count", columns: [], dimensions: [], filters: [], bins: 12, limit: 50, sort: "desc" };
   if (chart.algorithm === "violin") return { analysis_kind: "violin", aggregate: "count", column: chart.y_column, dimensions: chart.x_column ? [chart.x_column] : [], filters: [], bins: 16, limit: 8, sort: "desc" };
-  if (chart.algorithm === "donut") return { analysis_kind: "donut", aggregate: chart.y_column ? "sum" : "count", column: chart.y_column || undefined, dimensions: [chart.x_column], filters: [], bins: 12, limit: 12, sort: "desc" };
+  if (chart.algorithm === "donut") return { analysis_kind: "donut", aggregate: chart.y_column ? "sum" : "count", column: chart.y_column || undefined, dimensions: [chart.x_column].filter(Boolean) as string[], filters: [], bins: 12, limit: 12, sort: "desc" };
   const grouped = chart.problem !== "summary" && chart.x_column;
   const filters: QuerySpec["filters"] = [];
   if (chart.problem === "trend" && chart.x_column) {
@@ -224,6 +237,70 @@ function chartSpec(chart: ChartDraft): ChartSpec {
   };
 }
 
+type ChartSelectionExplanation = {
+  confidence: "high" | "review";
+  headline: string;
+  checks: string[];
+};
+
+function chartSelectionExplanation(chart: ChartDraft): ChartSelectionExplanation {
+  const query = chart.execution?.query_spec ?? chart.planned_query;
+  const dimensions = query?.dimensions?.filter(Boolean) ?? [];
+  const measure = query?.column || chart.y_column || "giá trị";
+  const dimension = dimensions[0] || chart.x_column || "nhóm";
+  const rowCount = chart.execution?.result.row_count ?? 0;
+  const chartType = chart.chart_type;
+  const chartLabel = chartType ? CHART_LABELS[chartType] : "biểu đồ";
+  const checks = [`Bài toán: ${PROBLEMS.find((item) => item.value === chart.problem)?.label || chart.problem || "chưa xác định"}`];
+
+  if (chartType === "bar") {
+    const suitable = Boolean(dimensions.length === 1 && rowCount > 0);
+    return {
+      confidence: suitable ? "high" : "review",
+      headline: suitable ? `Bar phù hợp để so sánh ${query?.aggregate || "giá trị"} theo “${dimension}”.` : "Bar cần một dimension để so sánh các nhóm.",
+      checks: [...checks, `Dimension: ${dimension}`, `Phép tính: ${query?.aggregate || "chưa xác định"}`, rowCount ? `${rowCount} nhóm trong Official result` : "Chưa có đủ nhóm trong Official result"],
+    };
+  }
+  if (chartType === "line") {
+    const hasTimeAxis = query?.analysis_kind === "forecast" || Boolean(query?.time_grain) || chart.problem === "trend";
+    return {
+      confidence: hasTimeAxis ? "high" : "review",
+      headline: hasTimeAxis ? `Line phù hợp để đọc xu hướng theo thời gian (${query?.time_grain || "time grain"}).` : "Line chỉ phù hợp khi trục X là thời gian có thứ tự.",
+      checks: [...checks, `Trục thời gian: ${chart.x_column || "chưa xác định"}`, `Mức thời gian: ${query?.time_grain || "chưa xác định"}`, query?.analysis_kind === "forecast" ? "Có dải dự báo và khoảng tin cậy" : "Dữ liệu được sắp xếp tăng dần theo thời gian"],
+    };
+  }
+  if (chartType === "kpi") {
+    const suitable = dimensions.length === 0;
+    return {
+      confidence: suitable ? "high" : "review",
+      headline: suitable ? `KPI phù hợp để tóm tắt một giá trị ${query?.aggregate || "tổng hợp"} cho toàn bộ dữ liệu.` : "KPI phù hợp hơn khi không chia dữ liệu theo nhóm.",
+      checks: [...checks, `Phép tính: ${query?.aggregate || "chưa xác định"}`, dimensions.length ? `Đang có ${dimensions.length} dimension` : "Không chia theo dimension"],
+    };
+  }
+  if (chartType === "histogram") {
+    return { confidence: chart.y_column ? "high" : "review", headline: `Histogram phù hợp để xem hình dạng phân phối của “${measure}” theo các khoảng giá trị.`, checks: [...checks, `Measure: ${measure}`, `Số khoảng: ${query?.bins || 12}`] };
+  }
+  if (chartType === "scatter") {
+    const suitable = Boolean(query?.x_column && query?.y_column && query.x_column !== query.y_column);
+    return { confidence: suitable ? "high" : "review", headline: suitable ? `Scatter phù hợp để kiểm tra mối quan hệ giữa “${query?.x_column}” và “${query?.y_column}”.` : "Scatter cần hai measure khác nhau ở trục X và Y.", checks: [...checks, `Trục X: ${query?.x_column || "chưa xác định"}`, `Trục Y: ${query?.y_column || "chưa xác định"}`] };
+  }
+  if (chartType === "heatmap" || chartType === "missing_heatmap" || chartType === "correlation_heatmap") {
+    const required = chartType === "heatmap" ? dimensions.length >= 2 : (query?.columns?.length ?? 0) >= 2;
+    return { confidence: required ? "high" : "review", headline: required ? "Heatmap phù hợp để đọc cường độ hoặc phân bố trong ma trận hai chiều." : "Heatmap cần tối thiểu hai trường để tạo ma trận.", checks: [...checks, chartType === "heatmap" ? `Dimension: ${dimensions.slice(0, 2).join(" × ") || "chưa xác định"}` : `Số cột trong ma trận: ${query?.columns?.length || 0}`] };
+  }
+  if (chartType === "donut") {
+    const suitable = dimensions.length === 1 && rowCount > 0 && rowCount <= 8;
+    return { confidence: suitable ? "high" : "review", headline: suitable ? `Donut phù hợp để xem tỷ trọng của tối đa 8 nhóm “${dimension}”.` : "Donut chỉ nên dùng cho ít nhóm; nhiều nhóm nên chuyển sang bar.", checks: [...checks, `Dimension: ${dimension}`, `Số nhóm hiển thị: ${rowCount || "chưa có"}`] };
+  }
+  if (["box", "violin"].includes(chartType || "")) {
+    return { confidence: chart.y_column ? "high" : "review", headline: `${chartLabel} phù hợp để xem phân phối và độ phân tán của “${measure}”.`, checks: [...checks, `Measure: ${measure}`, dimensions.length ? `Nhóm theo: ${dimension}` : "Không chia nhóm"] };
+  }
+  if (["missing_bar", "cardinality", "outlier"].includes(chartType || "")) {
+    return { confidence: "high", headline: `${chartLabel} phù hợp để kiểm tra chất lượng dữ liệu theo từng cột.`, checks: [...checks, `Số cột kiểm tra: ${query?.columns?.length || 0}`] };
+  }
+  return { confidence: "review", headline: `${chartLabel} đã được tạo theo kế hoạch, hãy đối chiếu với mục tiêu phân tích.`, checks };
+}
+
 function analysisError(chart: ChartDraft): string | null {
   if (!chart.question.trim()) return "Hãy mô tả câu hỏi kinh doanh.";
   if (!chart.problem) return "Hãy chọn bài toán.";
@@ -270,11 +347,13 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
     ? [chart.algorithm as ChartType]
     : chart.problem ? PROBLEM_CHARTS[chart.problem] : [];
   const official = chart.execution?.execution_kind === "official";
-  return <article className="panel chart-builder-card chart-workflow-card">
+  const selectionExplanation = chartSelectionExplanation(chart);
+  const displayTitle = chartDisplayTitle(chart);
+  return <article id={chart.id} className="panel chart-builder-card chart-workflow-card">
     <header className="chart-card-header">
       <div>
         <span className="eyebrow">ANALYSIS {chart.id.slice(-4)}</span>
-        <h3>{chart.title || chart.question || "Bài phân tích mới"}</h3>
+        <h3>{displayTitle}</h3>
       </div>
       <div className="inline-actions" style={{ alignItems: "center", gap: "8px" }}>
         {chart.pinned ? (
@@ -339,7 +418,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
       <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div>
       <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
     </div>
-    {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><strong>{chart.title || "Kết quả biểu đồ"}</strong><small>{RENDERER_LABELS[chart.renderer]}</small></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={chart.title} /><div className="chart-result-meta">Hash {chart.execution.result_hash.slice(0, 12)} · {chart.execution.duration_ms ?? "-"}ms <button type="button" className="button link-button" onClick={() => onExplain(chart.execution!)}>Phân tích chuyên sâu</button></div></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
+    {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
     </fieldset>
   </article>;
 }
@@ -571,7 +650,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     }
     let insight = ""; let agentRunId: string | null = null; let evidenceStatus = "unverified";
     await streamQuestion({
-      question: `Hãy viết insight ngắn cho biểu đồ "${chart.title || chart.question}". Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Nêu xu hướng chính, con số đáng chú ý, giới hạn và khuyến nghị. Chỉ dùng Official execution đã bind.`,
+      question: `Hãy viết insight ngắn cho biểu đồ "${chartDisplayTitle(chart)}". Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Trình bày theo format Markdown bắt buộc in đậm các mục sau: **1. Xu hướng chính**, **2. Con số đáng chú ý**, **3. Giới hạn**, **4. Khuyến nghị**. Chỉ dùng Official execution đã bind.`,
       profile_run_id: runId,
       analysis_execution_id: chart.execution.id,
       workspace_context_version_id: chart.execution.context_version_id,
@@ -607,7 +686,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
           await pinChartToReport(
             draft.id,
             chart.execution!.id,
-            chart.title || chart.question,
+            chartDisplayTitle(chart),
             chartSpec(chart),
             { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
             chart.pin_idempotency_key || crypto.randomUUID(),
@@ -634,13 +713,13 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       await pinChartToReport(
         draft.id,
         chart.execution!.id,
-        chart.title || chart.question,
+        chartDisplayTitle(chart),
         chartSpec(chart),
         { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
         chart.pin_idempotency_key || crypto.randomUUID(),
       );
       setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, pinned: true, insight_reviewed: true } : item));
-      setMessage(`Đã ghim "${chart.title || chart.question}" vào Báo cáo thành công!`);
+      setMessage(`Đã ghim "${chartDisplayTitle(chart)}" vào Báo cáo thành công!`);
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Không thể ghim biểu đồ.");
     }
@@ -674,21 +753,21 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
 
   return <section className="command-charts">
     {/* Unified Hero Panel: Question Input + 1-Click Auto Analysis Pack */}
-    <section className="panel chart-auto-profile-pack" style={{ border: "2px solid #315efb", padding: "20px 24px", background: "linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)" }}>
-      <div className="panel-title" style={{ marginBottom: 14 }}>
+    <section className="panel chart-auto-profile-pack" style={{ border: "2px solid #315efb", padding: "14px 18px", background: "linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)" }}>
+      <div className="panel-title" style={{ marginBottom: 10 }}>
         <div>
           <span className="eyebrow" style={{ color: "#315efb", fontWeight: 800 }}>AI ANALYTICS WORKSPACE · PHÂN TÍCH TỰ ĐỘNG</span>
-          <h3 style={{ margin: "4px 0 0", fontSize: "1.25rem", color: "#0c1a3a" }}>Bạn muốn phân tích câu hỏi gì từ dữ liệu?</h3>
-          <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.86rem" }}>
+          <h3 style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "#0c1a3a" }}>Bạn muốn phân tích câu hỏi gì từ dữ liệu?</h3>
+          <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.78rem" }}>
             Nhập câu hỏi bằng ngôn ngữ tự nhiên hoặc nhấn nút phân tích trọn gói. Agent sẽ tự động tính toán qua DuckDB, vẽ biểu đồ và viết AI insight.
           </p>
         </div>
       </div>
 
       {/* Primary Input: Business Question */}
-      <div style={{ display: "grid", gap: "10px", background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #c9dafb", boxShadow: "0 2px 8px rgba(49, 94, 251, 0.06)" }}>
+      <div className="chart-business-question-panel" style={{ display: "grid", gap: "10px", background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #c9dafb", boxShadow: "0 2px 8px rgba(49, 94, 251, 0.06)" }}>
         <label className="chart-business-question" style={{ margin: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div className="chart-business-question-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "#14254b" }}>
               💬 Nhập 1 hoặc nhiều câu hỏi phân tích (mỗi dòng 1 câu):
             </span>
@@ -697,7 +776,8 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
             </small>
           </div>
           <textarea 
-            rows={3} 
+            className="chart-business-question-input"
+            rows={6}
             maxLength={4000} 
             value={businessQuestion} 
             onChange={(event) => setBusinessQuestion(event.target.value)} 
@@ -706,28 +786,27 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
 2. Phân phối điểm đánh giá Rating của các công ty
 3. Tỷ trọng phân bổ loại hình công ty Type of ownership`} 
             disabled={busy} 
-            style={{ fontSize: "0.92rem", padding: "10px 14px", borderRadius: "8px", borderColor: "#a9c5fb", width: "100%", lineHeight: 1.5 }}
           />
         </label>
 
         <div style={{ display: "flex", gap: "12px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+          <div className="chart-action-buttons" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
             <button 
               type="button" 
-              className="button primary chart-auto-submit" 
+              className="button primary chart-auto-submit chart-action-button"
               onClick={() => automate.mutate()} 
               disabled={busy || businessQuestion.trim().length < 3 || charts.filter((chart) => chart.question).length >= MAX_CHARTS}
-              style={{ minWidth: "220px", fontWeight: 800, padding: "10px 20px" }}
+              style={{ fontWeight: 800 }}
             >
               {automate.isPending ? `Agent đang xử lý (${autoQuestionProgress?.percent ?? 0}%)` : "✨ Agent tự động tạo biểu đồ"}
             </button>
 
             <button 
               type="button" 
-              className="button secondary" 
+              className="button secondary chart-action-button"
               onClick={() => autoProfile.mutate()} 
               disabled={busy}
-              style={{ minWidth: "220px", fontWeight: 700, padding: "10px 18px", border: "1px solid #b2cbfd", background: "#f0f5ff" }}
+              style={{ fontWeight: 700, border: "1px solid #b2cbfd", background: "#f0f5ff" }}
             >
               {autoProfile.isPending ? `Đang tạo Analysis Pack (${autoProfileProgress?.percent ?? 0}%)` : "⚡ Hoặc Tự động tạo trọn gói 5–8 biểu đồ"}
             </button>
@@ -735,7 +814,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
             {charts.some((c) => c.question || c.generated || c.status === "failed") && (
               <button
                 type="button"
-                className="button secondary"
+                className="button secondary chart-action-button"
                 onClick={() => {
                   setCharts([draftChart()]);
                   setMessage("Đã làm sạch danh sách biểu đồ cũ.");
@@ -834,14 +913,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         <li className={autoProfileProgress && autoProfileProgress.percent === 100 ? "done" : ""}>Review & Report</li>
       </ol>
 
-      <ol className="charts-entry-flow">
-        <li><b>1. Profile Context</b><span>Schema, dtype, missingness, cardinality và semantic type.</span></li>
-        <li><b>2. Analysis Pack</b><span>Quality, distribution, relationship và time-series khi đủ điều kiện.</span></li>
-        <li><b>3. Preview - Official</b><span>Mỗi chart độc lập, bounded và có evidence hash.</span></li>
-        <li><b>4. Insight - Review - Report</b><span>Agent viết insight theo Official evidence; người dùng review trước khi ghim.</span></li>
-      </ol>
 
-      {understanding && <details className="chart-agent-understanding" style={{ marginTop: 10 }}><summary>Xem cách Agent hiểu yêu cầu và kế hoạch đã chọn</summary><MarkdownContent text={understanding} className="report report-markdown" /><small>Agent run: {understandingRunId || "không có"}</small></details>}
     </section>
 
     {/* Header & Workspace */}
@@ -860,5 +932,24 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     <details className="panel chart-model-catalog"><summary>Danh mục thuật toán dự báo · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
     <div className="chart-toolbar"><details className="chart-manual-tools"><summary>Tùy chỉnh nâng cao / chạy thủ công</summary><div className="inline-actions"><button type="button" className="button secondary" onClick={() => understand.mutate()} disabled={busy}>{understand.isPending ? "Agent đang đọc Profile…" : "Đọc riêng Profile"}</button><button type="button" className="button secondary" onClick={() => setCharts((current) => current.length >= MAX_CHARTS ? current : [...current, draftChart()])} disabled={charts.length >= MAX_CHARTS || busy}>+ Bài phân tích thủ công</button><button type="button" className="button secondary" onClick={() => preview.mutate()} disabled={busy || !validCharts.length}>{preview.isPending ? "Đang chạy Preview…" : "Chạy Preview"}</button><button type="button" className="button secondary" onClick={() => promote.mutate()} disabled={busy || !charts.some((chart) => chart.execution?.execution_kind === "preview")}>{promote.isPending ? "Đang tạo Official…" : "Tạo Official"}</button></div></details><div className="inline-actions"><button type="button" className="button primary" onClick={() => pin.mutate()} disabled={busy || !charts.some(generatedReady)}>{pin.isPending ? "Đang ghim…" : "Ghim chart + insight đã duyệt"}</button><Link className="button secondary" href={`/profiles/${runId}?tab=report`}>Report Draft / Xuất</Link></div></div>
     <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
+    {charts.filter((chart) => chart.question).length > 0 && (
+      <aside className="report-toc-sidebar">
+        <div className="report-toc-container">
+          <h3 className="report-toc-title">Danh mục biểu đồ</h3>
+          <ul className="report-toc-list">
+            {charts.filter((chart) => chart.question).map(chart => (
+              <li key={chart.id}>
+                <a href={`#${chart.id}`} onClick={(e) => {
+                  e.preventDefault();
+                  document.getElementById(chart.id)?.scrollIntoView({ behavior: "smooth" });
+                }}>
+                  <span>{chartDisplayTitle(chart)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </aside>
+    )}
   </section>;
 }

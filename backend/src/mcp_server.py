@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 from uuid import uuid4
 
+# pyrefly: ignore [missing-import]
 from mcp.server.fastmcp import FastMCP
 from src.agents.tools.registry import run_tool
 from src.config import get_settings
@@ -31,7 +32,7 @@ from src.services.repository import get_repository
 ChartType = Literal[
     "bar", "line", "table", "kpi", "histogram", "scatter", "box", "heatmap",
     "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
-    "violin", "donut", "outlier"
+    "violin", "donut", "outlier", "map"
 ]
 Aggregation = Literal["count", "count_distinct", "sum", "mean", "median"]
 TimeGrain = Literal["day", "week", "month", "quarter", "year"]

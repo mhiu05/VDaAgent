@@ -291,9 +291,13 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         os.close(fd)
         temp_path = Path(temp_name)
         try:
-            GoogleDriveStorage(settings).download(workspace_id, file_id, temp_path)
+            try:
+                GoogleDriveStorage(settings).download(workspace_id, file_id, temp_path)
+            except Exception as exc:
+                raise OSError(f"Lỗi tải dữ liệu từ Google Drive: {exc}") from exc
             with utf8_tabular_source(temp_path) as readable_path:
                 yield readable_path
+
         finally:
             temp_path.unlink(missing_ok=True)
         return

@@ -27,9 +27,9 @@ function accountInitials(email: string | null) {
 }
 
 const analystNavigation = [
-  { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
   { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
   { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
+  { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
   { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
   { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
 ] as const;

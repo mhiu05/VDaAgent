@@ -15,8 +15,13 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 from fastapi import FastAPI, Request
+# pyrefly: ignore [missing-import]
+from fastapi.exceptions import RequestValidationError
+# pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
+# pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse
 from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import (
@@ -138,6 +143,18 @@ app = FastAPI(
     redoc_url=None if settings.app_env == "production" else "/redoc",
 )
 
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error(f"Pydantic Validation Error at {request.url.path}:\n{exc}")
+    with open("422_error.log", "w", encoding="utf-8") as f:
+        f.write(f"Path: {request.url.path}\nError: {exc}\nBody: {exc.body}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": exc.body},
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -183,6 +200,7 @@ async def health() -> HealthResponse:
 
 
 if __name__ == "__main__":
+    # pyrefly: ignore [missing-import]
     import uvicorn
 
     uvicorn.run(
