@@ -640,6 +640,11 @@ export function autoProfilePack(runId: string): Promise<AutoProfilePack> {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getReportExportSource(reportId: string): Promise<any> {
+  return request<any>(`/reports/${encodeURIComponent(reportId)}/export-source`);
+}
+
 export function listForecastAlgorithms(runId: string): Promise<{ algorithms: ForecastAlgorithmCapability[] }> {
   return request<{ algorithms: ForecastAlgorithmCapability[] }>(`/profile/${encodeURIComponent(runId)}/charts/algorithms`);
 }

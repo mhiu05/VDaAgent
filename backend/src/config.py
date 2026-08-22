@@ -17,8 +17,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 from pydantic import AliasChoices, Field, model_validator
+# pyrefly: ignore [missing-import]
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # `src` is hosted under `backend/src`, while the runtime config and data

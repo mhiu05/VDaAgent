@@ -40,7 +40,7 @@ export default function ChartsPage() {
       description="Không gian tạo biểu đồ tự động bằng AI, phân tích trọn gói và ghim kết quả vào báo cáo."
     />
 
-    <section className="panel" style={{ marginBottom: "1.5rem" }}>
+    <section className="panel chart-dataset-selector" style={{ marginBottom: "1rem" }}>
       <div className="panel-title">
         <div><h2>Chọn bộ dữ liệu cần phân tích</h2><small>Chỉ phiên profiling đã hoàn tất mới được sử dụng</small></div>
         <span className="chip">Bounded analysis</span>

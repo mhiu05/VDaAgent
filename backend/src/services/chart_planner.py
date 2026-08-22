@@ -21,7 +21,7 @@ from src.services.forecasting import (
 
 ProblemType = Literal[
     "compare", "trend", "ranking", "summary", "distribution", "relationship",
-    "quality", "forecast"
+    "quality", "forecast", "composition", "geographic", "multi_dimensional"
 ]
 AnalysisMethod = Literal[
     "count",
@@ -44,7 +44,7 @@ AnalysisMethod = Literal[
 ChartType = Literal[
     "line", "bar", "table", "kpi", "histogram", "scatter", "box", "heatmap",
     "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
-    "violin", "donut", "outlier"
+    "violin", "donut", "outlier", "map"
 ]
 
 
@@ -72,6 +72,9 @@ PROBLEM_ALGORITHMS: dict[str, set[str]] = {
     "relationship": {"scatter", "heatmap", "correlation_heatmap"},
     "quality": {"missing_bar", "missing_heatmap", "cardinality", "outlier"},
     "forecast": {item.id for item in CAPABILITIES},
+    "composition": {"count", "sum", "donut"},
+    "geographic": {"count", "sum", "mean"},
+    "multi_dimensional": {"scatter", "heatmap"},
 }
 CHART_FOR_PROBLEM = {
     "compare": "bar",
@@ -82,6 +85,9 @@ CHART_FOR_PROBLEM = {
     "relationship": "scatter",
     "quality": "missing_bar",
     "forecast": "line",
+    "composition": "donut",
+    "geographic": "bar",
+    "multi_dimensional": "scatter",
 }
 RENDERER_FOR_CHART = {
     "line": "native-svg",
@@ -242,15 +248,15 @@ def _fallback_candidate(
         problem: ProblemType = "forecast"
     elif times and _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time")):
         problem: ProblemType = "trend"
-    elif _mentions(text, ("missing", "null", "thieu du lieu", "du lieu thieu", "cardinality", "unique", "trung lap", "outlier chart", "ty le outlier", "outlier theo cot")):
+    elif _mentions(text, ("missing", "null", "thieu du lieu", "du lieu thieu", "cardinality", "unique", "trung lap", "outlier chart", "ty le outlier", "outlier theo cot", "missing_bar", "missing_heatmap")):
         problem = "quality"
-    elif _mentions(text, ("phan phoi", "histogram", "tan suat", "box plot", "violin", "outlier", "ngoai le")):
+    elif _mentions(text, ("phan phoi", "histogram", "tan suat", "box plot", "violin", "outlier", "ngoai le", "boxplot")):
         problem = "distribution"
-    elif _mentions(text, ("tuong quan", "moi quan he", "relationship", "correlation")):
+    elif _mentions(text, ("tuong quan", "moi quan he", "relationship", "correlation", "scatter", "heatmap")):
         problem = "relationship"
-    elif _mentions(text, ("top ", "cao nhat", "thap nhat", "xep hang", "ranking")):
+    elif _mentions(text, ("top ", "cao nhat", "thap nhat", "xep hang", "ranking", "bar chart", "bieu do cot", "cot")):
         problem = "ranking"
-    elif not dimensions or _mentions(text, ("tong cong", "kpi", "toan bo")):
+    elif not dimensions or _mentions(text, ("tong cong", "kpi", "toan bo", "kpi card")):
         problem = "summary"
     else:
         problem = "compare"
@@ -398,7 +404,11 @@ def build_chart_plan(
     if problem == "forecast" and not times:
         problem, algorithm = fallback.problem, fallback.algorithm
     if algorithm not in PROBLEM_ALGORITHMS[problem]:
-        problem, algorithm = fallback.problem, fallback.algorithm
+        salvaged_problem = next((p for p, algos in PROBLEM_ALGORITHMS.items() if algorithm in algos), None)
+        if salvaged_problem:
+            problem = salvaged_problem
+        else:
+            problem, algorithm = fallback.problem, fallback.algorithm
 
     if algorithm == "scatter" and len(measures) < 2:
         problem, algorithm = fallback.problem, fallback.algorithm
@@ -457,6 +467,35 @@ def build_chart_plan(
         "correlation_heatmap", "cardinality", "violin", "donut", "outlier",
     }:
         chart_type = algorithm  # type: ignore[assignment]
+
+    # Visualization Recommendation Engine Override
+    rationale = proposed.rationale
+    cardinality = 0
+    if x_column and x_column in column_stats:
+        cardinality = column_stats[x_column].get("cardinality", 0)
+
+    if problem == "composition":
+        if cardinality <= 5 and cardinality > 0:
+            chart_type = "donut"
+            algorithm = "donut"
+            rationale += f" (Hệ thống xác nhận: Dimension có {cardinality} nhóm, Pie/Donut là lý tưởng)."
+        else:
+            chart_type = "bar"
+            if algorithm == "donut":
+                algorithm = "sum" if y_column else "count"
+            rationale += f" (Hệ thống tinh chỉnh: Có {cardinality} nhóm, quá nhiều cho Pie/Donut, chuyển sang Bar chart)."
+    elif problem == "distribution" and chart_type not in ("histogram", "box", "violin", "outlier"):
+        chart_type = "histogram"
+        algorithm = "histogram"
+        rationale += " (Hệ thống tinh chỉnh: Intent phân phối ưu tiên dùng Histogram)."
+    elif problem == "geographic" and chart_type not in ("bar",):
+        chart_type = "bar"
+        if algorithm not in ("count", "sum", "mean", "median"):
+            algorithm = "sum" if y_column else "count"
+        rationale += " (Hệ thống ghi nhận intent địa lý, tạm render bằng Bar chart)."
+    elif problem == "ranking" and chart_type != "bar":
+        chart_type = "bar"
+        rationale += " (Hệ thống xác nhận Ranking intent ưu tiên dùng Bar chart)."
 
     if problem == "forecast":
         query = {
@@ -579,7 +618,7 @@ def build_chart_plan(
 
     return {
         "question": question,
-        "title": proposed.title.strip()[:255] or question[:255],
+        "title": question.strip()[:255] or proposed.title.strip()[:255],
         "problem": problem,
         "algorithm": algorithm,
         "x_column": x_column,
@@ -593,7 +632,7 @@ def build_chart_plan(
         "query": query,
         "transforms": transforms,
         "source_columns": source_columns,
-        "rationale": proposed.rationale.strip(),
+        "rationale": rationale,
         "planning_mode": planning_mode if candidate or planning_mode == "auto_profile" else "rules_fallback",
     }
 
