@@ -167,6 +167,24 @@ def test_report_author_cannot_delete_published_report(
     assert client.get(f"/api/v1/reports/{report_id}").status_code == 200
 
 
+def test_report_export_source_uses_current_draft_before_first_snapshot(
+    client: TestClient, reviewed_profile_run: dict
+) -> None:
+    """A report detail page must be readable before the first snapshot exists."""
+    run_id = reviewed_profile_run["profile_run_id"]
+    draft_response = client.get(f"/api/v1/profile/{run_id}/report-draft")
+    assert draft_response.status_code == 200, draft_response.text
+    draft = draft_response.json()
+
+    export_response = client.get(f"/api/v1/reports/{draft['id']}/export-source")
+    assert export_response.status_code == 200, export_response.text
+    snapshot = export_response.json()["report_snapshot"]
+    assert snapshot["id"] == draft["id"]
+    assert snapshot["snapshot_hash"] == "draft"
+    assert snapshot["version"] == draft["draft_version"]
+    assert snapshot["items"] == draft["items"]
+
+
 # --------------------------------------------------------------------------- #
 # HITL
 # --------------------------------------------------------------------------- #

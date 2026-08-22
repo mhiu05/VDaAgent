@@ -377,19 +377,7 @@ export default function ReportPage() {
       {/* STICKY SIDEBAR TABLE OF CONTENTS */}
       {tocItems.length > 0 && (
         <aside className="report-toc-sidebar">
-          <div className="report-toc-container" style={{
-            position: "fixed",
-            right: "2rem",
-            top: "5rem",
-            width: "260px",
-            background: "#ffffff",
-            padding: "1.25rem",
-            borderRadius: "12px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-            border: "1px solid #e2e8f0",
-            maxHeight: "calc(100vh - 7rem)",
-            overflowY: "auto",
-          }}>
+          <div className="report-toc-container">
             <h3 className="report-toc-title" style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.75rem", borderBottom: "1px solid #f1f5f9", paddingBottom: "0.5rem" }}>
               📑 Mục Lục Báo Cáo
             </h3>

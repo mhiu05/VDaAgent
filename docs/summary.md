@@ -42,7 +42,7 @@ nhưng không phải luồng được navigation chính quảng bá.
 
 | Lớp | Thành phần hiện dùng | Trách nhiệm |
 | --- | --- | --- |
-| Web | Next.js 15, React 19, React Query | Auth phía browser, profile pages, `/charts`, SSE và PDF route cùng origin |
+| Web | Next.js 15, React 19, React Query | Auth phía browser, bootstrap workspace, profile pages, `/charts`, SSE và PDF route cùng origin |
 | API | FastAPI | Route, auth/workspace guard, capability, audit, profile, analysis, report |
 | Agent | LangGraph, native skill registry | Profiling/Q&A, structured chart-planning và trace/provenance tùy cấu hình |
 | Compute | DuckDB, pandas, NumPy, SciPy | Profiling, aggregate bounded, quality/statistics và chuẩn bị dữ liệu forecast |
@@ -51,8 +51,29 @@ nhưng không phải luồng được navigation chính quảng bá.
 | File storage | Supabase Storage, Google Drive hoặc local dev | Binary dataset; compute chỉ materialize file tạm khi cần |
 
 Frontend gọi FastAPI qua `NEXT_PUBLIC_API_URL`, gửi bearer token và
-`X-Workspace-Id`. Next.js PDF route là ngoại lệ: server Next.js lấy export
-source đã được FastAPI cấp quyền rồi render PDF.
+`X-Workspace-Id`. `frontend/next.config.ts` chỉ forward allow-list biến public
+từ root `.env`; `frontend/.env.local` có thể override frontend riêng và mọi thay
+đổi `NEXT_PUBLIC_*` cần restart Next.js. Trên Windows local, dùng nhất quán
+`http://127.0.0.1:8000/api/v1` để tránh khác biệt resolve IPv6 của `localhost`.
+Next.js PDF route là ngoại lệ: server Next.js lấy export source đã được FastAPI
+cấp quyền rồi render PDF.
+
+### Bootstrap workspace và latency
+
+Khi người dùng vào app, `GET /workspace-bootstrap` trả về session đã được xác thực,
+workspace đã chọn/role, danh sách workspace kèm effective permissions và dashboard
+summary (count và tối đa 12 report gần nhất). Nhờ đó frontend không cần chờ nhiều
+request nhánh cho thời điểm bootstrap; response cũng seed dashboard cache theo
+workspace.
+
+Dashboard cache stale sau 30 giây, được giữ 10 phút và xóa khi đổi workspace.
+Route-level loading skeleton hiển thị ngay khi chuyển trang. Backend dùng join cho
+membership/active workspace, aggregate query cho dashboard và tránh ghi lại guest
+role/status khi không thay đổi. Mỗi endpoint sau bootstrap vẫn qua workspace/capability
+guard; bootstrap không thay đổi ranh giới phân quyền.
+
+Telemetry cho các route workspace/dashboard chỉ ghi route, status, duration và
+correlation ID; token, email và request/response payload không được ghi log.
 
 Supabase Auth quản lý identity/session. PostgreSQL là nguồn sự thật cho dữ liệu
 nghiệp vụ. Không có cloud warehouse (BigQuery/Snowflake) hoặc vector database
@@ -151,11 +172,14 @@ hoặc `--offline` để tạo scorecard mà không gọi API hay gửi kết qu
 Report Draft thuộc đúng Profile Run. API đọc/tạo draft là
 `GET/POST /profile/{run_id}/report-draft`; `POST /reports/{report_id}/items`
 ghim chart/note đã hợp lệ; `POST /reports/{report_id}/snapshots` đóng băng một
-snapshot. `GET /reports/{report_id}/export-source` chỉ trả source snapshot đã
-được cấp quyền.
+snapshot. `GET /reports/{report_id}/export-source` ưu tiên source snapshot đã
+được cấp quyền. Trước snapshot đầu tiên, endpoint có thể trả current draft
+read-only với `snapshot_hash: "draft"` để trang detail vẫn mở được; trạng thái
+này không phải bản báo cáo chính thức để chia sẻ.
 
 Route Next.js `/api/reports/profile/{runId}?reportId={reportId}` render PDF từ
-snapshot. Report không đưa raw PII, raw row, preview history hoặc execution
+export source đã được FastAPI cấp quyền. Cần tạo snapshot trước khi xuất/chia sẻ
+bản chính thức. Report không đưa raw PII, raw row, preview history hoặc execution
 không chính thức vào export.
 
 ## 7. Cấu hình vận hành cần biết
@@ -163,7 +187,7 @@ không chính thức vào export.
 | Biến | Ý nghĩa |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL bắt buộc cho ứng dụng |
-| `NEXT_PUBLIC_API_URL` | Base URL FastAPI được nhúng khi build frontend |
+| `NEXT_PUBLIC_API_URL` | Base URL FastAPI được forward vào bundle frontend; `frontend/.env.local` có thể override và cần restart Next.js |
 | `UX_COMMAND_CENTER_ENABLED` / `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật contract backend và UI Command Center; biến frontend cần build lại |
 | `AUTH_MODE` | Local có thể dùng `dual`; production phải dùng `supabase` |
 | `STORAGE_PROVIDER` | `supabase`, `google_drive` hoặc `local` cho development/test |
@@ -183,7 +207,8 @@ retention riêng, không phải cơ chế lưu trữ production.
 | Charts | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
 | Explorer | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
-| Report | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots` |
+| Report | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
+| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, `GET /google-drive/callback`, `DELETE /google-drive/connection` |
 
 Mọi endpoint backend dùng prefix `/api/v1`.
@@ -191,9 +216,16 @@ Mọi endpoint backend dùng prefix `/api/v1`.
 ## 9. Kiểm thử
 
 Từ `frontend/`, chạy `pnpm typecheck`, `pnpm lint`, `pnpm test` và `pnpm build`.
-Từ root, đặt một `P170_TEST_DATABASE_URL` riêng trước khi chạy `pytest`; không
-bao giờ chạy test ghi dữ liệu vào database development/production. Smoke check
+Từ root, đặt một `P170_TEST_DATABASE_URL` riêng và khác `DATABASE_URL` trước khi
+chạy `pytest`; không bao giờ chạy test ghi dữ liệu vào database development hoặc
+production. Test có thể chạy migration và ghi fixture profile/report. Smoke check
 cho production chart flow nằm tại `scripts/chart_production_smoke.py`.
+
+Đánh giá latency workspace phải chạy trên bundle/image đã precompile (`pnpm build`
+rồi `pnpm start`, hoặc frontend container candidate). HMR và route compile của
+`pnpm dev` là chi phí development, không phải regression production. Trước release,
+smoke `/dashboard` và `/datasets` với candidate, đồng thời ghi nhận p50/p95
+bootstrap/dashboard từ telemetry; benchmark workspace tự động chưa được cung cấp.
 
 Kiểm tra LangSmith và evaluation:
 

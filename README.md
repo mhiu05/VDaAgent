@@ -1,4 +1,20 @@
-# VDaAgent — Data Profiling & Visual Analytics Workspace
+# Thông tin nhóm
+
+## Tên nhóm: VduAgents
+
+## Thành viên nhóm
+
+- NGUYỄN MINH HIẾU — 2A2202601154
+- PHẠM THẾ ĐĂNG — 2A202601766
+- PHẠM THỊ THÙY LINH — 2A202601181
+- VŨ NGUYỄN BẢO SƠN — 2A202601116
+
+## Thông tin liên hệ
+
+- SĐT: 0375049906
+- Email: minhhieuhh2k5@gmail.com
+
+# VDaAgent — Data Profiling
 
 VDaAgent giúp Analyst biến một tệp dữ liệu thành hồ sơ có thể kiểm tra, biểu đồ
 có bằng chứng và báo cáo có thể truy nguyên. **Profile Run** là đơn vị làm việc
@@ -80,8 +96,10 @@ Set-Location ..
 ```
 
 Điền `DATABASE_URL` và các biến cần thiết trong `.env`, chạy migration rồi mở
-backend/frontend theo phần [Cài đặt local](#cài-đặt-local). Không commit `.env`
-hoặc bất kỳ API key, OAuth secret hay database URL nào.
+backend/frontend theo phần [Cài đặt local](#cài-đặt-local). `frontend/next.config.ts`
+chỉ forward allow-list biến `NEXT_PUBLIC_*` từ root `.env` vào browser bundle; có
+thể dùng `frontend/.env.local` để override riêng frontend. Không commit `.env`,
+`frontend/.env.local`, API key, OAuth secret hay database URL nào.
 
 ## Tính năng hiện có
 
@@ -105,9 +123,14 @@ hoặc bất kỳ API key, OAuth secret hay database URL nào.
 - **Agent Q&A, kiểm định và drift** theo Profile Run, với trace/provenance đã
   redact khi bật runtime trace.
 - **Report Draft** lưu chart, evidence và insight; snapshot bất biến là nguồn
-  duy nhất cho export PDF/JSON.
+  chuẩn cho export/chia sẻ. Trang chi tiết vẫn có thể đọc draft hiện hành trước
+  snapshot đầu tiên và gắn nhãn `snapshot_hash: "draft"`; cần tạo snapshot trước
+  khi xem đó là bản báo cáo chính thức.
 - **Workspace, Auth và storage**: Supabase Auth/PostgreSQL/Storage, Google
   Drive tùy chọn cho file nguồn lớn và local storage cho development/test.
+- **Khởi động workspace tối ưu**: `GET /workspace-bootstrap` trả session,
+  workspace/quyền hiệu lực và dashboard summary trong một round trip; frontend
+  seed cache theo workspace còn backend vẫn kiểm tra capability ở mỗi request.
 - **MCP stdio adapter** cho trusted local clients, cung cấp tool profile/chart
   có giới hạn. Đây không phải endpoint MCP công khai.
 
@@ -124,7 +147,8 @@ hoặc bất kỳ API key, OAuth secret hay database URL nào.
 5. Promote Preview thành **Official**. Backend kiểm tra context hiện hành,
    quality gate và chạy lại kết quả; Official có `result_hash`/provenance.
 6. Chọn renderer, tạo insight nếu cần và ghim chart đã có Official evidence vào
-   Report Draft. Tạo snapshot trước khi xuất PDF/JSON.
+   Report Draft. Trang detail có thể xem draft hiện hành, nhưng tạo snapshot trước
+   khi xuất hoặc chia sẻ bản báo cáo chính thức.
 
 Trang `/profiles/{runId}` hiển thị Command Center với ba vùng: **Tổng quan**,
 **Hỏi Agent** và **Báo cáo**. Không gian **Biểu đồ** là route `/charts` riêng,
@@ -159,8 +183,37 @@ Chi tiết về data flow, ownership, API và ranh giới bảo mật nằm tron
 [ARCHITECTURE.md](ARCHITECTURE.md). Bản tóm tắt tiếng Việt tại
 [docs/summary.md](docs/summary.md).
 
-## Cấu trúc dự án
+## Hiệu năng điều hướng workspace
 
+Khi vào workspace đã đăng nhập, frontend dùng `GET /workspace-bootstrap` thay vì
+chờ nhiều request nhánh cho session, workspace và dashboard. Response gồm user đã
+xác thực, workspace đã chọn/role, danh sách workspace kèm effective permissions và
+summary dashboard (count cùng tối đa 12 report gần nhất). `/dashboard` được seed
+vào React Query cache theo workspace; cache có `staleTime` 30 giây, `gcTime` 10
+phút và bị xóa khi đổi workspace để không lộ dữ liệu chéo.
+
+Backend lấy membership/workspace bằng join và summary theo aggregate query, tránh
+N+1 query; guest không update lại role/status nếu không thay đổi. Bootstrap không
+nới lỏng security boundary: tất cả endpoint nghiệp vụ sau đó vẫn kiểm tra user,
+workspace và capability. Log telemetry chỉ ghi route, status, duration và
+correlation ID; không ghi token, email hay payload.
+
+Không dùng latency của `pnpm dev` để kết luận UX production: HMR và route compile
+là chi phí development. Trước release, đo smoke trên bundle hoặc image candidate
+đã precompile:
+
+```powershell
+Set-Location frontend
+pnpm build
+pnpm start --port 3000
+```
+
+Azure frontend image build bundle ở stage builder và runtime chạy standalone server
+từ bundle đó. Smoke candidate cần truy cập ít nhất `/dashboard` và `/datasets`,
+đồng thời ghi nhận p50/p95 của API bootstrap/dashboard từ telemetry. Chưa có script
+benchmark workspace tự động; không được coi route compile/HMR là regression production.
+
+## Cấu trúc dự án
 ```text
 backend/src/api/                 FastAPI routes và dependency guards
 backend/src/agents/              LangGraph, prompts, skill registry, trace/tools
@@ -217,6 +270,17 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 UX_COMMAND_CENTER_ENABLED=true
 NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true
 ```
+
+`NEXT_PUBLIC_API_URL` trong root `.env` được `frontend/next.config.ts` forward vào
+bundle frontend. Nếu cần override URL API chỉ cho frontend (ví dụ Windows ưu tiên
+IPv4 loopback), tạo `frontend/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
+```
+
+Mọi thay đổi `NEXT_PUBLIC_*` yêu cầu restart frontend. Dùng `127.0.0.1` nhất quán
+cho frontend và API khi chạy local để tránh khác biệt resolve IPv6 của `localhost`.
 
 Áp migration trước request đầu tiên:
 
@@ -317,8 +381,7 @@ không gọi API hay gửi kết quả lên LangSmith:
 .\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
 ```
 
-Xem chi tiết tại [kế hoạch observability & evaluation](docs/langsmith-observability-ai-evaluation-plan.md),
-[hướng dẫn evaluation](evaluations/README.md) và
+Xem chi tiết tại [hướng dẫn evaluation](evaluations/README.md) và
 [báo cáo evaluation](evaluations/results/ai_evaluation_report.md).
 ## API quan trọng
 
@@ -331,11 +394,14 @@ Mọi backend endpoint có prefix `/api/v1`.
 | Bounded analysis | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
 | Reports | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
-| Workspace | `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
+| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
 
 PDF profile report đi qua Next.js route cùng origin:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
-đã được FastAPI cấp quyền rồi render PDF ở server Next.js.
+đã được FastAPI cấp quyền rồi render PDF ở server Next.js. `GET
+/reports/{report_id}/export-source` ưu tiên snapshot mới nhất; khi report draft
+chưa có snapshot, endpoint trả draft hiện hành với `snapshot_hash: "draft"` để
+trang detail vẫn mở được. Hãy tạo snapshot trước khi dùng bản export để chia sẻ.
 
 ## Kiểm tra trước khi commit
 
@@ -346,8 +412,11 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
+pnpm start --port 3000
 ```
 
+`pnpm start` sau `pnpm build` dùng cho smoke bundle production; không đo latency
+production từ HMR hoặc route compile trong `pnpm dev`.
 Từ root, sau khi cấu hình một PostgreSQL test database riêng:
 
 ```powershell
@@ -356,8 +425,9 @@ $env:P170_TEST_DATABASE_URL = postgresql+psycopg://p170_test:<password>@localhos
 .\.venv\Scripts\python.exe -m ruff check backend tests
 ```
 
-`P170_TEST_DATABASE_URL` là bắt buộc cho test tích hợp. Không trỏ test vào
-database development hoặc production.
+`P170_TEST_DATABASE_URL` là bắt buộc cho test tích hợp và **phải khác**
+`DATABASE_URL`. Không trỏ test vào database development hoặc production; test
+có thể tạo migration, profile và report fixture.
 
 ## Giới hạn hiện tại
 
@@ -379,7 +449,6 @@ database development hoặc production.
 - [Biểu đồ & Evidence-First Analytics](<docs/Biểu Đồ.md>)
 - [Cấu hình mẫu](.env.example)
 - [Cấu hình ứng dụng](config.yaml)
-- [Kế hoạch LangSmith observability & AI evaluation](docs/langsmith-observability-ai-evaluation-plan.md)
 - [Hướng dẫn AI evaluation](evaluations/README.md)
 
 ## Checklist bàn giao

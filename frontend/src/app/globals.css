@@ -263,7 +263,7 @@ small { color: var(--muted); }
 .public-theme-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: transparent; font-size: .9rem; line-height: 1; }
 .public-theme-toggle:hover { border-color: #9aa9e8; color: var(--brand); background: #f1f4ff; }
 .public-theme-toggle small { color: inherit; font-size: .65rem; font-weight: 800; }
-.public-nav-signin { padding: 8px 4px; color: var(--ink); font-size: .82rem; font-weight: 750; }.public-nav-signin:hover { color: var(--brand); }
+.public-nav-signin { padding: 8px 4px; color: var(--ink); font-size: .82rem; font-weight: 750; background: transparent; }.public-nav-signin:hover { color: var(--brand); }
 .public-nav-signup { min-height: 36px; padding: 8px 13px; font-size: .78rem; }
 .guest-workspace { min-height: 100vh; background: var(--canvas); }
 .guest-workspace .public-navbar, .public-navbar.guest-navbar { position: sticky; z-index: 30; top: 0; max-width: none; min-height: 72px; margin: 0; padding: 12px clamp(20px, 3vw, 34px); border: 0; border-bottom: 1px solid #2a3c5d; border-radius: 0; color: #d3ddf0; background: var(--sidebar); box-shadow: none; }
@@ -2579,3 +2579,15 @@ input[type="checkbox"] { width: auto; min-height: auto; }
 [data-theme="dark"] .answer-source-card:hover {
   border-color: #475569;
 }
+
+/* Avatar Dropdown */
+.nav-avatar-container { position: relative; }
+.nav-avatar-btn { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 50%; background: var(--canvas); color: var(--brand); font-weight: 700; cursor: pointer; transition: all 0.2s; overflow: hidden; padding: 0; }
+.nav-avatar-btn:hover { border-color: var(--brand); transform: scale(1.05); }
+.nav-avatar-btn svg { width: 20px; height: 20px; color: var(--muted); }
+.nav-avatar-btn:hover svg { color: var(--brand); }
+.nav-dropdown-menu { position: absolute; right: 0; top: calc(100% + 8px); width: 200px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 8px 0; z-index: 100; opacity: 0; visibility: hidden; transform: translateY(-10px); transition: all 0.2s ease; }
+.nav-dropdown-menu.open { opacity: 1; visibility: visible; transform: translateY(0); }
+.nav-dropdown-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; border: none; background: transparent; color: var(--ink); text-align: left; font-size: 0.85rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.15s, color 0.15s; }
+.nav-dropdown-item:hover { background: rgba(49, 86, 217, 0.08); color: var(--brand); }
+.nav-dropdown-divider { height: 1px; background: var(--line); margin: 6px 0; }

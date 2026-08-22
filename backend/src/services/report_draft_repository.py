@@ -14,7 +14,6 @@ from src.services.repository import (
     agent_runs,
     analysis_sessions,
     analysis_sources,
-    evidence_items,
     query_executions,
     report_items,
     report_versions,
@@ -797,6 +796,61 @@ class ReportDraftRepository:
                 "snapshot_hash": version.get("snapshot_hash"),
                 "snapshot_at": version.get("snapshot_at"),
                 "version": version["version"],
+                "items": items,
+            }
+
+    def get_draft(
+        self, report_id: str, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """Return the current mutable draft for report export without creating one.
+
+        Exporting a report before its first snapshot is supported by rendering
+        the report's current draft. This lookup deliberately does not filter
+        by author: route-level authorization already scopes report export, and
+        repository access remains constrained to the workspace and report.
+        """
+        with self.engine.connect() as conn:
+            report = (
+                conn.execute(
+                    select(reports).where(
+                        reports.c.id == report_id,
+                        reports.c.workspace_id == workspace_id,
+                        reports.c.status == "draft",
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not report:
+                return None
+            version = (
+                conn.execute(
+                    select(report_versions)
+                    .where(
+                        report_versions.c.report_id == report_id,
+                        report_versions.c.status == "draft",
+                    )
+                    .order_by(report_versions.c.version.desc())
+                )
+                .mappings()
+                .first()
+            )
+            if not version:
+                return None
+            items = [
+                dict(row)
+                for row in conn.execute(
+                    select(report_items)
+                    .where(report_items.c.report_version_id == version["id"])
+                    .order_by(report_items.c.position)
+                ).mappings()
+            ]
+            return {
+                "id": report["id"],
+                "title": report["title"],
+                "profile_run_id": report["profile_run_id"],
+                "version": version["version"],
+                "updated_at": report.get("updated_at"),
                 "items": items,
             }
 
