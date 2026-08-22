@@ -1,175 +1,204 @@
-# VDaAgent — Technical Summary
+# VDaAgent — Tóm tắt kỹ thuật
 
-Tài liệu này mô tả kiến trúc và các contract đang dùng của VDaAgent. Hướng dẫn cài đặt và luồng sử dụng nhanh nằm tại [README.md](../README.md).
+VDaAgent là workspace profiling và phân tích trực quan theo hướng
+**evidence-first**. Đơn vị ngữ cảnh của sản phẩm là **Profile Run** thuộc một
+workspace; không phải một notebook hoặc một truy vấn độc lập.
 
-## 1. Mô hình sản phẩm
+Hướng dẫn cài đặt, cấu hình và API rút gọn: [README.md](../README.md).
+Thiết kế thành phần và data flow: [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-VDaAgent là workspace phân tích dữ liệu theo quy trình evidence-first:
+## 1. Phạm vi sản phẩm hiện tại
 
-1. Người dùng tải dữ liệu lên và tạo Profile Run.
-2. Hệ thống profile schema, chất lượng, quyền riêng tư và insight ban đầu.
-3. Sau khi xác nhận hồ sơ, người dùng làm việc trong Command Center với bốn tab: Tổng quan, Khám phá, Hỏi Agent và Báo cáo.
-4. Kết quả Explorer chính thức, câu trả lời Agent có minh chứng và nội dung trong Report Draft có thể được chụp thành snapshot để xuất PDF.
-
-`/analyses` và `/notebooks` không còn là route hoặc workflow công khai. Các session thực thi chỉ còn là chi tiết nội bộ phục vụ Explorer theo từng Profile Run.
-
-### Invariant chính
-
-- Mọi truy cập được giới hạn theo workspace và Profile Run.
-- Không hiển thị hoặc xuất giá trị PII thô.
-- Explorer và Agent chỉ mở sau khi Profile Run đã được xác nhận.
-- Preview là kết quả bị giới hạn thời gian/dữ liệu; chỉ kết quả chính thức được dùng làm bằng chứng bền vững.
-- Nội dung PDF đến từ Report Snapshot bất biến, không dựng lại từ trạng thái đang thay đổi trên màn hình.
-
-## 2. Kiến trúc runtime
-
-| Thành phần | Trách nhiệm |
-| --- | --- |
-| Next.js / React | UI, xác thực phía trình duyệt, Command Center và Report Draft |
-| FastAPI | API profile, Explorer, Agent, báo cáo, RBAC và policy che dữ liệu |
-| PostgreSQL | Workspace, Profile Run, Explorer result/evidence, report draft/snapshot và audit |
-| Object storage | Tệp tải lên, artifact profile và artifact báo cáo |
-| Worker/service nội bộ | Profiling, quality gate, thực thi Explorer, Agent và render PDF |
-
-Frontend gọi backend qua `NEXT_PUBLIC_API_URL`. Backend nhận context xác thực/workspace, sau đó tự kiểm tra quyền trước khi đọc hoặc ghi dữ liệu.
-
-## 3. Vòng đời Profile Run
+Ứng dụng nhận CSV, TSV, Parquet và JSON; tạo profile deterministic cho schema,
+quality và privacy; cho phép Analyst review proposal metadata/PII còn chờ; rồi
+sử dụng Profile Run hoàn tất làm nguồn cho biểu đồ, Agent và báo cáo.
 
 ```text
 Upload dataset
-  → Profile Run
-  → Review & confirm
-  → Command Center
-      ├─ Explorer: preview → promote thành kết quả chính thức
-      ├─ Agent: câu trả lời có evidence khi khả dụng
-      └─ Report Draft: bố cục/note → snapshot → PDF
+  → Profile Run (sample hoặc full)
+  → Review semantic type / candidate key / PII khi cần
+  → completed
+      ├─ /charts: plan → Preview → Official evidence → insight
+      ├─ /profiles/{runId}: Tổng quan, Hỏi Agent, Báo cáo
+      └─ Report Draft → snapshot bất biến → PDF/JSON
 ```
 
-Profile Run là đơn vị ngữ cảnh chính. Mỗi explorer context, agent run, report item, snapshot và export đều phải liên hệ với cùng một Profile Run trong workspace của người dùng.
+`/charts` là workspace biểu đồ riêng, dùng cùng Profile Run và Report Draft.
+Command Center tại `/profiles/{runId}` hiện có ba vùng Tổng quan, Hỏi Agent và
+Báo cáo. `/analyses` và `/notebooks` vẫn tồn tại trong compatibility window,
+nhưng không phải luồng được navigation chính quảng bá.
 
-## 4. Explorer
+### Invariant cốt lõi
 
-Explorer hỗ trợ phân tích có ràng buộc thay vì truy vấn SQL tùy ý:
+- Mỗi request nhạy cảm phải resolve user, workspace và capability ở backend.
+- Cột PII đã xác nhận bị loại khỏi context chart/Agent; raw row không được trả
+  qua Explorer, UI, report hay MCP tool.
+- Browser chỉ gửi `QuerySpec` có cấu trúc, không gửi raw SQL/Python/shell.
+- Preview là kết quả giới hạn; chỉ Official execution có `result_hash` và
+  provenance mới đủ điều kiện ghim vào report.
+- PDF/JSON lấy từ Report Snapshot bất biến, không dựng lại từ UI state live.
 
-- UI tạo hoặc khôi phục context Explorer cho Profile Run.
-- Chạy xem trước dùng ngân sách thời gian và kích thước dữ liệu giới hạn; timeout được trả về như một kết quả có thể hiểu được.
-- Chạy kết quả chính thức chỉ thực hiện từ preview/context mới nhất; backend kiểm tra context stale trước khi chạy.
-- Kết quả chính thức đi qua quality gate và tạo evidence hash/provenance bền vững.
-- Cùng một kết quả được tái sử dụng theo hash khi phù hợp; không ghi lặp nhật ký preview vào báo cáo.
+## 2. Runtime và ownership
 
-Các API profile-scoped chính:
-
-| Method | Endpoint | Mục đích |
+| Lớp | Thành phần hiện dùng | Trách nhiệm |
 | --- | --- | --- |
-| POST | `/profile/{run_id}/explorer/session` | Lấy hoặc tạo context Explorer |
-| POST | `/profile/{run_id}/explorer/previews` | Chạy preview có giới hạn |
-| POST | `/profile/{run_id}/explorer/previews/{preview_id}/promote` | Xác nhận/chạy kết quả chính thức |
+| Web | Next.js 15, React 19, React Query | Auth phía browser, profile pages, `/charts`, SSE và PDF route cùng origin |
+| API | FastAPI | Route, auth/workspace guard, capability, audit, profile, analysis, report |
+| Agent | LangGraph, native skill registry | Profiling/Q&A, structured chart-planning và trace/provenance tùy cấu hình |
+| Compute | DuckDB, pandas, NumPy, SciPy | Profiling, aggregate bounded, quality/statistics và chuẩn bị dữ liệu forecast |
+| Forecast | statsmodels/scikit-learn; dependency tùy chọn | Thực thi model khi catalog xác nhận model khả dụng |
+| Metadata | PostgreSQL/Supabase PostgreSQL | Workspace, dataset metadata, Profile Run, evidence, draft/snapshot, audit, agent trace |
+| File storage | Supabase Storage, Google Drive hoặc local dev | Binary dataset; compute chỉ materialize file tạm khi cần |
 
-Các lỗi `explorer_timeout` và `context_stale` là trạng thái nghiệp vụ có chủ đích. Frontend đặt lỗi ngay trong vùng kết quả có cùng chiều rộng với vùng preview/kết quả, đồng thời cung cấp hành động thử lại hoặc tải lại context.
+Frontend gọi FastAPI qua `NEXT_PUBLIC_API_URL`, gửi bearer token và
+`X-Workspace-Id`. Next.js PDF route là ngoại lệ: server Next.js lấy export
+source đã được FastAPI cấp quyền rồi render PDF.
 
-## 5. Agent và evidence
+Supabase Auth quản lý identity/session. PostgreSQL là nguồn sự thật cho dữ liệu
+nghiệp vụ. Không có cloud warehouse (BigQuery/Snowflake) hoặc vector database
+được triển khai như data compute backend hiện tại; knowledge-base retrieval là
+khả năng nội bộ có thể cấu hình.
 
-Agent trả lời trong phạm vi Profile Run hiện tại. Mỗi câu trả lời có thể liên kết tới execution/evidence do Explorer tạo ra.
+## 3. Profiling và review
 
-- `agent_trace_mode` mặc định là `shadow`: vẫn ghi nhận trace cần thiết nhưng không làm UI chờ vô hạn để giải thích execution.
-- Một câu trả lời chỉ được đánh dấu có minh chứng khi evidence hash tồn tại bền vững, thuộc đúng Profile Run và truy xuất được theo quyền hiện tại.
-- Câu trả lời không có evidence phải hiển thị rõ giới hạn và không được ghim vào báo cáo như một kết luận đã xác thực.
-- Composer của Agent dùng `Enter` để gửi; `Shift+Enter` để xuống dòng.
+`POST /datasets/upload` lưu file theo storage provider đã cấu hình và tạo
+metadata workspace-scoped. `POST /profile` chạy graph profiling đến checkpoint
+review. Các metric/proposal được tạo bằng compute deterministic; narrative chỉ
+là diễn giải khi LLM provider khả dụng.
 
-API Agent được phục vụ theo Profile Run, gồm endpoint hỏi/stream câu trả lời và endpoint đọc evidence liên kết với agent run. Không trả raw rows hoặc PII cho Agent/UI.
+Analyst dùng `PATCH /profile/{run_id}/confirm` để xác nhận, sửa hoặc từ chối
+proposal. Các workflow evidence như chart/Explorer yêu cầu Profile Run có
+trạng thái `completed`.
 
-## 6. Report Draft, Snapshot và PDF
+Profile giữ row/column count, scan mode, sampling metadata, column statistics,
+correlation, risk warnings, proposal, test result và provenance. Sample run
+phù hợp khám phá nhanh; `full` mới là phạm vi đầy đủ của file source đã pin.
 
-Report Draft là vùng biên tập của người dùng. Khi xuất PDF, backend lấy snapshot mới nhất của Draft thay vì tái dựng từ dữ liệu live.
+## 4. Charts, bounded analysis và forecast
 
-Nguồn PDF bao gồm các section theo thứ tự:
+### Chart workflow
 
-1. Tổng quan dataset
-2. Hồ sơ kỹ thuật
-3. Chất lượng, quyền riêng tư và giới hạn
-4. Tóm tắt từ Agent
-5. So sánh dữ liệu
-6. Snapshot báo cáo
-7. Kết quả Explorer liên quan
+1. `/charts` chọn Profile Run đã hoàn tất và gọi
+   `POST /profile/{run_id}/explorer/session` để lấy/tạo Explorer context nội
+   bộ theo profile.
+2. Người dùng nhập một hoặc nhiều câu hỏi, hoặc yêu cầu profile pack tự động.
+   `POST /profile/{run_id}/charts/auto-plan` tạo một ChartPlan;
+   `POST /profile/{run_id}/charts/auto-profile-pack` tạo nhiều plan dựa trên
+   metadata profile.
+3. Planner LLM chỉ được nhận dimension/measure đã duyệt và thống kê an toàn.
+   Nếu provider lỗi hoặc không cấu hình, planner quy tắc tạo fallback bounded.
+4. Client gửi plan qua Preview. Backend enforce allow-list, cột hợp lệ, PII
+   policy, số dimension, giới hạn thời gian/row/result và idempotency key.
+5. Promote Preview thành Official chỉ khi context không stale và quality gate
+   cho phép. Official chạy lại, lưu execution, evidence/result hash, limitation
+   và provenance.
+6. Renderer native nhận aggregate result; Agent có thể viết insight đã bind vào
+   Official execution. Chart/insight được ghim vào Report Draft sau review.
 
-Section `Kết quả Explorer liên quan` chỉ trình bày kết quả chính thức có liên quan, gộp theo evidence/result hash và diễn giải bằng ngôn ngữ tự nhiên. Không đưa ID execution kỹ thuật, lịch sử preview lặp lại hoặc mục kiểm định thống kê vào PDF.
+### Loại biểu đồ và truy vấn
 
-Các section key trong report source:
+`QuerySpec.analysis_kind` chỉ nhận aggregate, histogram, scatter, box, heatmap,
+forecast, missing bar/heatmap, correlation heatmap, cardinality, violin, donut
+và outlier. UI render 15 chart type native: line, bar, table, KPI, histogram,
+scatter, box, heatmap, missing bar/heatmap, correlation heatmap, cardinality,
+violin, donut và outlier.
 
-```text
-overview
-technical_profile
-quality
-agent_summary
-drift
-analysis
-report_snapshot
-```
+Khung Preview/Official là boundary chung cho cả Explorer và Charts. Preview có
+thể approximate hoặc hết hạn; các lỗi như `explorer_timeout`, `context_stale`,
+`preview_expired` và quality-gate block là trạng thái nghiệp vụ có chủ đích.
 
-Những API báo cáo cần chú ý:
+### Forecasting
 
-| Method | Endpoint | Mục đích |
-| --- | --- | --- |
-| GET | `/profile/{run_id}/report-draft` | Đọc cấu hình Draft hiện tại |
-| POST | `/reports/{report_id}/items` | Thêm nội dung vào Draft |
-| POST | `/reports/{report_id}/snapshots` | Lưu snapshot bất biến |
-| GET | `/api/reports/profile/{run_id}?reportId={report_id}` | Tải PDF từ snapshot mới nhất |
+Catalog gồm 30 model thuộc baseline, exponential smoothing, ARIMA, state space,
+decomposable và machine learning. `GET /profile/{run_id}/charts/algorithms`
+trả trạng thái `available` cho từng model. Model chưa cài dependency hoặc cần
+biến ngoại sinh trong tương lai không được thực thi. Forecast yêu cầu một time
+dimension, time grain, model allow-list và lịch sử đủ dài; kết quả luôn phải nêu
+interval/cảnh báo, không được xem là giá trị chắc chắn.
 
-## 7. Xác thực, workspace và quyền
+## 5. Agent, evidence và MCP
 
-Backend áp dụng workspace scope cho tất cả route nhạy cảm. Một request phải xác định người dùng, workspace và quyền thích hợp trước khi truy cập Profile Run hoặc artifact liên quan.
+Q&A hoạt động trong phạm vi Profile Run. `POST /qa` và `POST /qa/stream` chỉ
+truy cập evidence mà caller có quyền đọc; câu trả lời thiếu evidence phải được
+hiển thị như hạn chế và không được xem là kết luận đã kiểm chứng.
 
-Ứng dụng hỗ trợ cấu hình local/development và Supabase theo biến môi trường. Luồng đăng nhập phải chờ session được khôi phục, provisioning workspace hoàn tất rồi mới chuyển người dùng khỏi trang đăng nhập; không để màn hình đang mở workspace chờ vô hạn.
+Agent trace là lớp quan sát bổ sung. Config hiện đặt `AGENT_TRACE_MODE=shadow`:
+trace đã redact được ghi mà không thay đổi nguồn kết quả deterministic. Trace
+không chứa raw prompt/message, chain-of-thought, raw row, secret hay giá trị
+PII. Planner autonomy, verifier `enforce`, durable jobs và long-term memory là
+feature-gated, chưa là workflow phát hành.
 
-Không đặt secret vào biến `NEXT_PUBLIC_*`. Frontend chỉ nhận URL public và key public cần thiết; service key, database URL và storage secret chỉ ở backend/runtime server.
+`backend/src/mcp_server.py` chạy FastMCP qua **stdio** cho trusted local
+process. Tool profile/chart đều cần `profile_run_id`, dùng allow-list và không
+trả raw data. MCP stdio không thay thế route HTTP có auth/workspace context và
+không nên mở thành endpoint public.
 
-## 8. Cấu hình và vận hành
+
+### LangSmith và AI evaluation
+
+PostgreSQL là nguồn trace có thẩm quyền. Khi backend có
+`LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` và `LANGSMITH_PROJECT`, adapter
+LangSmith chỉ xuất metadata allow-list cho agent root run và model span theo cơ
+chế fail-open. Inputs/outputs gửi sang LangSmith là rỗng; prompt, raw row, PII,
+secret, đường dẫn tệp và chain-of-thought không được xuất ra ngoài.
+
+Bộ đánh giá nằm trong [`evaluations/`](../evaluations/): fixture tổng hợp, scorer
+deterministic, test và báo cáo. Chạy `--dry-run` để kiểm tra fixture/contract,
+hoặc `--offline` để tạo scorecard mà không gọi API hay gửi kết quả lên LangSmith.
+
+## 6. Báo cáo và export
+
+Report Draft thuộc đúng Profile Run. API đọc/tạo draft là
+`GET/POST /profile/{run_id}/report-draft`; `POST /reports/{report_id}/items`
+ghim chart/note đã hợp lệ; `POST /reports/{report_id}/snapshots` đóng băng một
+snapshot. `GET /reports/{report_id}/export-source` chỉ trả source snapshot đã
+được cấp quyền.
+
+Route Next.js `/api/reports/profile/{runId}?reportId={reportId}` render PDF từ
+snapshot. Report không đưa raw PII, raw row, preview history hoặc execution
+không chính thức vào export.
+
+## 7. Cấu hình vận hành cần biết
 
 | Biến | Ý nghĩa |
 | --- | --- |
-| `NEXT_PUBLIC_API_URL` | Base URL FastAPI dùng bởi frontend |
-| `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật Command Center ở frontend; đây là biến build-time nên cần build/deploy lại frontend sau khi thay đổi. |
-| `UX_COMMAND_CENTER_ENABLED` | Bật contract/router Command Center ở backend. |
-| `AGENT_TRACE_MODE` | `shadow` mặc định; dùng `off` chỉ khi cần vô hiệu trace có chủ đích |
-| `DATABASE_URL` | Kết nối PostgreSQL của backend |
-| `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | Cấu hình Supabase phía backend; frontend dùng `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. |
+| `DATABASE_URL` | PostgreSQL bắt buộc cho ứng dụng |
+| `NEXT_PUBLIC_API_URL` | Base URL FastAPI được nhúng khi build frontend |
+| `UX_COMMAND_CENTER_ENABLED` / `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật contract backend và UI Command Center; biến frontend cần build lại |
+| `AUTH_MODE` | Local có thể dùng `dual`; production phải dùng `supabase` |
+| `STORAGE_PROVIDER` | `supabase`, `google_drive` hoặc `local` cho development/test |
+| `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required`; chỉ dùng `required` khi trace DB đã được giám sát |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Bật projection LangSmith metadata-only ở backend; API key là secret server-side |
+| `GOOGLE_DRIVE_*` | OAuth client Drive riêng; callback local là `http://localhost:8000/api/v1/google-drive/callback`, production phải dùng domain backend |
 
-Sau khi đổi config backend, restart service nếu môi trường không tự reload. Migration chạy từ thư mục `backend` bằng `alembic upgrade head`; chỉ thực hiện với database đã được xác nhận là đúng môi trường.
+Không đặt database URL, Supabase secret/service key, OAuth secret, storage
+credential hay LLM key vào `NEXT_PUBLIC_*`. Guest trial là workspace tạm với
+retention riêng, không phải cơ chế lưu trữ production.
 
-## 9. Route frontend hiện hành
+## 8. API rút gọn
 
-| Route | Mục đích |
+| Domain | Endpoint |
 | --- | --- |
-| `/login` | Đăng nhập và khởi tạo session/workspace |
-| `/` | Trang chủ/workspace |
-| `/profiles/{run_id}` | Command Center của Profile Run |
-| `/guide` | Hướng dẫn sản phẩm hiện hành |
+| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `PATCH /profile/{run_id}/confirm` |
+| Charts | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
+| Explorer | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
+| Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
+| Report | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots` |
+| Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, `GET /google-drive/callback`, `DELETE /google-drive/connection` |
 
-Không thêm lại liên kết hoặc điều hướng tới `/analyses` hay `/notebooks`.
+Mọi endpoint backend dùng prefix `/api/v1`.
 
-## 10. Kiểm thử
+## 9. Kiểm thử
 
-Từ thư mục `frontend`:
+Từ `frontend/`, chạy `pnpm typecheck`, `pnpm lint`, `pnpm test` và `pnpm build`.
+Từ root, đặt một `P170_TEST_DATABASE_URL` riêng trước khi chạy `pytest`; không
+bao giờ chạy test ghi dữ liệu vào database development/production. Smoke check
+cho production chart flow nằm tại `scripts/chart_production_smoke.py`.
 
-```bash
-pnpm typecheck
-pnpm test:e2e -- report-markdown.spec.ts
+Kiểm tra LangSmith và evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_agents/test_langsmith_observability.py evaluations/test_evaluators.py
+.\.venv\Scripts\python.exe evaluations/run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
 ```
-
-Từ thư mục `backend`, dùng database test riêng trước khi chạy pytest tích hợp:
-
-```bash
-$env:P170_TEST_DATABASE_URL = postgresql+psycopg://...
-pytest
-```
-
-Không chạy test ghi dữ liệu vào database production. Với thay đổi backend nhỏ, tối thiểu xác nhận Python compile/import; với thay đổi UI, chạy typecheck và test e2e liên quan.
-
-## 11. Giới hạn có chủ đích
-
-- Không cho phép raw SQL hoặc tải raw rows qua UI Explorer/Agent.
-- Không mặc định dùng preview như bằng chứng cho báo cáo.
-- Không xuất PII thô, kể cả trong snapshot/PDF.
-- Không coi câu trả lời Agent thiếu evidence là kết luận đã kiểm chứng.
-
-Tài liệu chi tiết hơn theo lĩnh vực nằm trong thư mục [`docs/`](.).

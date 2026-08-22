@@ -16,6 +16,7 @@ python-multipart>=0.0.9      # upload CSV qua POST /datasets/upload
 # --- Agent ---
 langchain-core>=0.3.0
 langchain-openai>=0.3.0
+langsmith>=0.3.0
 langgraph>=0.2.0
 langgraph-checkpoint-postgres>=3.0.0 # HITL state bền vững trên Supabase
 psycopg[binary,pool]>=3.2.0         # SQLAlchemy + LangGraph PostgreSQL

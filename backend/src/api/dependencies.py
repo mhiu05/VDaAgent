@@ -52,7 +52,7 @@ async def get_current_workspace(
     if user.is_legacy:
         legacy_workspace_id = repo.ensure_bootstrap_workspace(user.user_id)
 
-    memberships = repo.list_active_memberships_for_user(user.user_id)
+    memberships = repo.list_active_workspace_membership_contexts(user.user_id)
     if workspace_header:
         membership = next((item for item in memberships if item["workspace_id"] == workspace_header), None)
         if not membership:
@@ -81,9 +81,6 @@ async def get_current_workspace(
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có membership workspace đang hoạt động.")
 
-    workspace = repo.get_workspace(str(membership["workspace_id"]))
-    if not workspace or workspace.get("status") != "active":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Workspace không hoạt động.")
     role = canonical_role(str(membership["role"]))
     return WorkspaceContext(
         workspace_id=str(membership["workspace_id"]),
