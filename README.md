@@ -131,6 +131,13 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **Khởi động workspace tối ưu**: `GET /workspace-bootstrap` trả session,
   workspace/quyền hiệu lực và dashboard summary trong một round trip; frontend
   seed cache theo workspace còn backend vẫn kiểm tra capability ở mỗi request.
+- **So sánh drift** tại `/compare` giữa hai Profile Run hoàn tất, hiển thị PSI,
+  cardinality, null rate và distribution do backend tính.
+- **Vận hành workspace**: quản lý thành viên/lời mời, archive/restore, cấu hình
+  AI-nghiệp vụ, giao diện, compute và chính sách PII; `/activity` hiển thị audit
+  event theo capability.
+- **Vòng đời báo cáo** ngoài Snapshot gồm submit, review, publish và archive.
+- **Chat Agent** dùng route `/chat` và chọn một Profile Run hoàn tất làm context.
 - **MCP stdio adapter** cho trusted local clients, cung cấp tool profile/chart
   có giới hạn. Đây không phải endpoint MCP công khai.
 
@@ -150,9 +157,10 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
    Report Draft. Trang detail có thể xem draft hiện hành, nhưng tạo snapshot trước
    khi xuất hoặc chia sẻ bản báo cáo chính thức.
 
-Trang `/profiles/{runId}` hiển thị Command Center với ba vùng: **Tổng quan**,
-**Hỏi Agent** và **Báo cáo**. Không gian **Biểu đồ** là route `/charts` riêng,
-nhưng dùng cùng Profile Run, Explorer session và Report Draft.
+Trang `/profiles/{runId}` là Command Center cho **Tổng quan** và **Report Draft**.
+Chat Agent được mở tại `/chat` và chọn Profile Run làm context. Không gian
+**Biểu đồ** là route `/charts` riêng, nhưng dùng cùng Profile Run, Explorer
+session và Report Draft.
 
 ## Kiến trúc ở mức cao
 
@@ -243,6 +251,11 @@ docs/Biểu Đồ.md                  Tài liệu chi tiết về Charts & Evide
 ## Cài đặt local
 
 ### Windows PowerShell
+
+Mẫu `.env.example` hướng đến production. Khi chạy local, đặt
+`APP_ENV=development`, `AUTH_MODE=dual`, `STORAGE_PROVIDER=local`,
+`GUEST_STORAGE_PROVIDER=local` và điền `DATABASE_URL` trỏ đến PostgreSQL local
+trước khi chạy migration.
 
 Từ thư mục root:
 
@@ -394,7 +407,9 @@ Mọi backend endpoint có prefix `/api/v1`.
 | Bounded analysis | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
 | Reports | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
-| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
+| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints, `GET /dashboard`, `GET /audit` |
+| Quality & drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
+| Report lifecycle | Submit, review, publish và archive sau khi tạo snapshot |
 
 PDF profile report đi qua Next.js route cùng origin:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
@@ -439,8 +454,6 @@ có thể tạo migration, profile và report fixture.
 - Các capability planner autonomy, verifier enforcement, durable jobs và
   workspace/personal memory chưa là workflow phát hành; giữ các flag tương ứng
   tắt.
-- `/analyses` và `/notebooks` vẫn tồn tại trong compatibility window, nhưng
-  navigation chính không quảng bá chúng.
 
 ## Tài liệu liên quan
 
