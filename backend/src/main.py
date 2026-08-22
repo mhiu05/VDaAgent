@@ -12,15 +12,20 @@ ngôn ngữ tự nhiên.
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import uuid4
 
 # pyrefly: ignore [missing-import]
 from fastapi import FastAPI, Request
+
 # pyrefly: ignore [missing-import]
 from fastapi.exceptions import RequestValidationError
+
 # pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
+
 # pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse
 from src.api.agent_routes import router as agent_router
@@ -41,6 +46,14 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("p170")
+
+_WORKSPACE_TIMING_PATHS = {
+    "/api/v1/session",
+    "/api/v1/workspace-bootstrap",
+    "/api/v1/dashboard",
+    "/api/v1/datasets",
+    "/api/v1/workspaces",
+}
 
 
 @asynccontextmanager
@@ -142,6 +155,37 @@ app = FastAPI(
     docs_url=None if settings.app_env == "production" else "/docs",
     redoc_url=None if settings.app_env == "production" else "/redoc",
 )
+
+
+@app.middleware("http")
+async def workspace_request_timing(request: Request, call_next: Any) -> Any:
+    """Log a PII-safe timing record for high-traffic workspace navigation."""
+    path = request.url.path
+    if path not in _WORKSPACE_TIMING_PATHS:
+        return await call_next(request)
+    correlation_id = request.headers.get("x-correlation-id") or uuid4().hex
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.info(
+            "workspace_request_timing route=%s status=500 "
+            "duration_ms=%d correlation_id=%s",
+            path,
+            round((time.perf_counter() - started) * 1000),
+            correlation_id,
+        )
+        raise
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    response.headers["X-Correlation-Id"] = correlation_id
+    logger.info(
+        "workspace_request_timing route=%s status=%d duration_ms=%d correlation_id=%s",
+        path,
+        response.status_code,
+        duration_ms,
+        correlation_id,
+    )
+    return response
 
 
 @app.exception_handler(RequestValidationError)

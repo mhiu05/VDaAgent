@@ -148,6 +148,12 @@ workspace_memberships = Table(
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
 )
+Index(
+    "ix_workspace_memberships_user_status_created",
+    workspace_memberships.c.user_id,
+    workspace_memberships.c.status,
+    workspace_memberships.c.created_at,
+)
 
 workspace_invitations = Table(
     "workspace_invitations",
@@ -1903,11 +1909,14 @@ class Repository:
                     )
                 )
             membership = conn.execute(
-                select(workspace_memberships.c.user_id).where(
+                select(
+                    workspace_memberships.c.role,
+                    workspace_memberships.c.status,
+                ).where(
                     workspace_memberships.c.workspace_id == workspace_id,
                     workspace_memberships.c.user_id == guest_user_id,
                 )
-            ).first()
+            ).mappings().first()
             if not membership:
                 conn.execute(
                     workspace_memberships.insert().values(
@@ -1919,7 +1928,9 @@ class Repository:
                         updated_at=now,
                     )
                 )
-            else:
+            elif membership["role"] != role or membership["status"] != "active":
+                # A normal guest bootstrap is read-only. Only repair a
+                # membership when it was actually changed or suspended.
                 conn.execute(
                     workspace_memberships.update()
                     .where(
@@ -2395,6 +2406,72 @@ class Repository:
                 .order_by(workspace_memberships.c.created_at)
             ).mappings()
             return [dict(row) for row in rows]
+
+    def list_active_workspace_membership_contexts(
+        self, user_id: str
+    ) -> list[dict[str, Any]]:
+        """Return selectable memberships and active workspaces in one query."""
+        with self.engine.begin() as conn:
+            rows = (
+                conn.execute(
+                    select(
+                        workspace_memberships.c.workspace_id,
+                        workspace_memberships.c.role,
+                        workspaces.c.name,
+                        workspaces.c.slug,
+                        workspaces.c.created_by_user_id,
+                        workspaces.c.settings,
+                    )
+                    .join(
+                        workspaces,
+                        workspaces.c.id == workspace_memberships.c.workspace_id,
+                    )
+                    .where(
+                        workspace_memberships.c.user_id == user_id,
+                        workspace_memberships.c.status == "active",
+                        workspaces.c.status == "active",
+                    )
+                    .order_by(workspace_memberships.c.created_at)
+                )
+                .mappings()
+                .all()
+            )
+            return [dict(row) for row in rows]
+
+    def dashboard_summary(
+        self, workspace_id: str, *, report_limit: int = 12
+    ) -> dict[str, Any]:
+        """Return the small dashboard read model with a single pool checkout."""
+        count_row = select(
+            select(func.count())
+            .select_from(datasets)
+            .where(datasets.c.workspace_id == workspace_id)
+            .scalar_subquery()
+            .label("datasets"),
+            select(func.count())
+            .select_from(profile_runs)
+            .where(profile_runs.c.workspace_id == workspace_id)
+            .scalar_subquery()
+            .label("profiles"),
+            select(func.count())
+            .select_from(reports)
+            .where(reports.c.workspace_id == workspace_id)
+            .scalar_subquery()
+            .label("reports"),
+        )
+        with self.engine.begin() as conn:
+            counts = dict(conn.execute(count_row).mappings().one())
+            recent_reports = conn.execute(
+                select(reports.c.id, reports.c.title, reports.c.status)
+                .where(reports.c.workspace_id == workspace_id)
+                .order_by(reports.c.updated_at.desc())
+                .limit(report_limit)
+            ).mappings()
+            return {
+                "kind": "analyst",
+                "counts": {name: int(value or 0) for name, value in counts.items()},
+                "reports": [dict(row) for row in recent_reports],
+            }
 
     def list_archived_workspaces_for_user(self, user_id: str) -> list[dict[str, Any]]:
         """Return archived project workspaces where the user still has access.

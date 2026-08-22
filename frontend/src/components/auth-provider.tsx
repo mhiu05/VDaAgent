@@ -17,6 +17,14 @@ export type Me = {
   workspaces: Workspace[];
 };
 
+type WorkspaceBootstrap = Me & {
+  dashboard: {
+    kind: "analyst";
+    reports?: Array<{ id: string; title: string; status: string }>;
+    counts?: Record<string, number>;
+  };
+};
+
 type AuthValue = {
   me: Me | null;
   authenticated: boolean;
@@ -206,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? requestedWorkspace ?? window.localStorage.getItem("p170-workspace-id")
           : null;
         if (saved) headers.set("X-Workspace-Id", saved);
-        let response = await fetchSessionResource(`${apiBase()}/session`, headers);
+        let response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
         // Supabase can return a locally cached token that has just expired.
         // Refresh it once at the auth boundary, then let the normal error
         // state handle a genuinely invalid or revoked session.
@@ -215,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (refreshed && refreshed !== supabaseToken) {
             tokenForRequest = refreshed;
             headers.set("Authorization", `Bearer ${tokenForRequest}`);
-            response = await fetchSessionResource(`${apiBase()}/session`, headers);
+            response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
           }
         }
         // A workspace id is persisted for convenience, but it may belong to a
@@ -223,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // treating the session as unauthorized.
         if (!response.ok && response.status === 404 && saved) {
           headers.delete("X-Workspace-Id");
-          response = await fetchSessionResource(`${apiBase()}/session`, headers);
+          response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
         }
         // Supabase Auth users can exist without an application workspace when
         // they were created from the Supabase dashboard or an older signup
@@ -245,7 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers.set("Authorization", `Bearer ${tokenForRequest}`);
           await provisionSelfSignup(role, tokenForProvision);
           if (sequence !== loadSequence.current) return false;
-          response = await fetchSessionResource(`${apiBase()}/session`, headers);
+          response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
         }
         // A guest can change role while this request is in flight. Ignore the
         // old response instead of allowing it to replace the newer workspace.
@@ -269,8 +277,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false;
         }
         if (!response.ok) throw await readWorkspaceError(response);
-        const payload = await response.json() as Me;
+        const payload = await response.json() as WorkspaceBootstrap;
         const selected = payload.workspace.id;
+        queryClient.setQueryData(["dashboard", selected], payload.dashboard);
         workspaceIdRef.current = selected;
         setWorkspaceId(selected);
         window.localStorage.setItem("p170-workspace-id", selected);
@@ -298,7 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (loadInFlight.current === task) loadInFlight.current = null;
     });
     return task;
-  }, [refresh, resetUnauthenticatedState, router, supabaseAccessToken]);
+  }, [queryClient, refresh, resetUnauthenticatedState, router, supabaseAccessToken]);
 
   useEffect(() => {
     pathnameRef.current = pathname;
