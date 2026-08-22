@@ -1,8 +1,9 @@
-name: Deploy Azure containers
+name: Deploy Azure Containers
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,66 +14,32 @@ concurrency:
   group: production-container-release
   cancel-in-progress: false
 
+env:
+  RESOURCE_GROUP: rg-p170-hieu
+  ACR_NAME: p170acr08140037
+  ACR_LOGIN_SERVER: p170acr08140037.azurecr.io
+  BACKEND_APP: p170-api-08140037
+  FRONTEND_APP: p170-web-08140019
+  BACKEND_URL: https://p170-api-08140037.azurewebsites.net
+  FRONTEND_URL: https://p170-web-08140019.azurewebsites.net
+  AZURE_CLI_IMAGE: mcr.microsoft.com/azure-cli:2.75.0
+
 jobs:
-  verify:
-    name: Verify application
-    runs-on: ubuntu-latest
+  build-and-deploy:
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Verify backend
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m compileall -q backend/src
-          # The repository has a separate formatting backlog. F catches
-          # undefined names/imports and other runtime-facing lint failures.
-          python -m ruff check --select F backend tests
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Verify frontend unit checks
-        working-directory: frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm typecheck
-          pnpm lint
-          pnpm test
-
-      - name: Verify frontend browser flows
-        working-directory: frontend
-        run: |
-          pnpm exec playwright install --with-deps chromium
-          pnpm test:e2e
-
-  deploy:
-    name: Build, migrate, and deploy
-    needs: verify
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Validate production configuration
+        shell: bash
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
+          ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
@@ -93,6 +60,7 @@ jobs:
           set -euo pipefail
           for name in \
             AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
+            ACR_PULL_USERNAME ACR_PULL_PASSWORD \
             DATABASE_URL SUPABASE_SECRET_KEY \
             LLM_API_KEY \
             AZURE_RESOURCE_GROUP AZURE_ACR_NAME AZURE_ACR_LOGIN_SERVER \
@@ -100,87 +68,117 @@ jobs:
             SUPABASE_URL SUPABASE_PUBLISHABLE_KEY AUTH_ALLOW_SIGNUP AUTH_ALLOW_GUEST; do
             test -n "${!name}" || { echo "Missing production secret or variable: $name"; exit 1; }
           done
+          if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
+            for name in \
+              GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET \
+              GOOGLE_DRIVE_FOLDER_ID GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY; do
+              test -n "${!name}" || { echo "Missing Google Drive secret: $name"; exit 1; }
+            done
+          fi
 
       - name: Azure login with OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Get ACR access token
-        id: acr
-        uses: azure/cli@v2
+        shell: bash
         env:
-          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
-        with:
-          inlineScript: |
-            token="$(az acr login --name "$AZURE_ACR_NAME" --expose-token --query accessToken --output tsv)"
-            echo "::add-mask::$token"
-            echo "token=$token" >> "$GITHUB_OUTPUT"
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          token_response="$(curl -sS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange")"
+          federated_token="$(printf '%s' "$token_response" | sed -n 's/.*"value":"\([^"]*\)".*/\1/p')"
+          if [ -z "$federated_token" ]; then
+            echo "Could not extract GitHub OIDC token response."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/azure"
+          docker pull "$AZURE_CLI_IMAGE"
+          docker run --rm \
+            -v "$RUNNER_TEMP/azure:/root/.azure" \
+            "$AZURE_CLI_IMAGE" \
+            az login \
+              --service-principal \
+              --username "$AZURE_CLIENT_ID" \
+              --tenant "$AZURE_TENANT_ID" \
+              --federated-token "$federated_token" \
+              --output none
+          docker run --rm \
+            -v "$RUNNER_TEMP/azure:/root/.azure" \
+            "$AZURE_CLI_IMAGE" \
+            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+          echo "AZURE_CONFIG_DIR_HOST=$RUNNER_TEMP/azure" >> "$GITHUB_ENV"
 
       - name: Log in to Azure Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
-          username: 00000000-0000-0000-0000-000000000000
-          password: ${{ steps.acr.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          acr_token="$(docker run --rm \
+            -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" \
+            "$AZURE_CLI_IMAGE" \
+            az acr login --name "$ACR_NAME" --expose-token --query accessToken -o tsv)"
+          printf '%s' "$acr_token" | docker login "$ACR_LOGIN_SERVER" \
+            --username 00000000-0000-0000-0000-000000000000 \
+            --password-stdin
 
       - name: Build and push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.backend.azure
-          push: true
-          tags: ${{ vars.AZURE_ACR_LOGIN_SERVER }}/backend:${{ github.sha }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            -f Dockerfile.backend.azure \
+            -t "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
+            -t "$ACR_LOGIN_SERVER/backend:latest" \
+            .
+          docker push "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
+          docker push "$ACR_LOGIN_SERVER/backend:latest"
 
       - name: Build and push frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          file: Dockerfile.frontend.azure
-          push: true
-          tags: ${{ vars.AZURE_ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.AZURE_BACKEND_URL }}/api/v1
-            NEXT_PUBLIC_SITE_URL=${{ vars.AZURE_FRONTEND_URL }}
-            NEXT_PUBLIC_SUPABASE_URL=${{ vars.SUPABASE_URL }}
-            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.SUPABASE_PUBLISHABLE_KEY }}
-            NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=${{ vars.AUTH_ALLOW_SIGNUP }}
-            NEXT_PUBLIC_AUTH_ALLOW_GUEST=${{ vars.AUTH_ALLOW_GUEST }}
-            NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true
-          cache-from: type=gha,scope=frontend
-          cache-to: type=gha,mode=max,scope=frontend
+        shell: bash
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}
+          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}
+        run: |
+          set -euo pipefail
+          docker build \
+            -f Dockerfile.frontend.azure \
+            --build-arg NEXT_PUBLIC_API_URL="$BACKEND_URL/api/v1" \
+            --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY="$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" \
+            --build-arg NEXT_PUBLIC_AUTH_ALLOW_GUEST="$NEXT_PUBLIC_AUTH_ALLOW_GUEST" \
+            --build-arg NEXT_PUBLIC_AUTH_ALLOW_SIGNUP="$NEXT_PUBLIC_AUTH_ALLOW_SIGNUP" \
+            --build-arg NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true \
+            -t "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
+            -t "$ACR_LOGIN_SERVER/frontend:latest" \
+            frontend
+          docker push "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}"
+          docker push "$ACR_LOGIN_SERVER/frontend:latest"
 
-      - name: Run Alembic migration once
+      - name: Run Alembic migrations
+        shell: bash
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
-          BACKEND_IMAGE: ${{ vars.AZURE_ACR_LOGIN_SERVER }}/backend:${{ github.sha }}
         run: |
           set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ] && [ -z "${DATABASE_MIGRATION_URL:-}" ]; then
+            echo "Skipping migrations because DATABASE_URL and DATABASE_MIGRATION_URL are not configured."
+            exit 0
+          fi
           docker run --rm \
             -e DATABASE_URL \
             -e DATABASE_MIGRATION_URL \
-            "$BACKEND_IMAGE" \
+            "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
             alembic -c alembic.ini upgrade head
-          docker run --rm \
-            -e DATABASE_URL \
-            -e DATABASE_MIGRATION_URL \
-            "$BACKEND_IMAGE" \
-            alembic -c alembic.ini current
 
-      - name: Configure and deploy backend
-        id: backend
-        uses: azure/cli@v2
+      - name: Deploy backend container
+        shell: bash
         env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_BACKEND_APP: ${{ vars.AZURE_BACKEND_APP }}
-          AZURE_ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_CHECKPOINTER_URL: ${{ secrets.DATABASE_CHECKPOINTER_URL }}
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
@@ -221,78 +219,136 @@ jobs:
           AZURE_BACKEND_URL: ${{ vars.AZURE_BACKEND_URL }}
         run: |
           set -euo pipefail
-          for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 10 "$AZURE_BACKEND_URL/health"; then exit 0; fi
-            sleep 10
-          done
-          exit 1
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp config container set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$BACKEND_APP" \
+            --container-image-name "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
+            --container-registry-url "https://$ACR_LOGIN_SERVER" \
+            --container-registry-user "$ACR_PULL_USERNAME" \
+            --container-registry-password "$ACR_PULL_PASSWORD" \
+            --enable-app-service-storage false
 
-      - name: Roll back backend when health check fails
-        if: steps.backend_health.outcome == 'failure'
-        uses: azure/cli@v2
+          settings=(
+            APP_ENV=production
+            APP_LOG_LEVEL=INFO
+            APP_HOST=0.0.0.0
+            APP_PORT=8000
+            WEBSITES_PORT=8000
+            WEBSITES_CONTAINER_START_TIME_LIMIT=1800
+            CORS_ORIGINS="$FRONTEND_URL"
+            AUTH_MODE=supabase
+            AUTH_ALLOW_GUEST="$AUTH_ALLOW_GUEST"
+            AUTH_ALLOW_SIGNUP="$AUTH_ALLOW_SIGNUP"
+            AUTH_REQUIRE_EMAIL_CONFIRMED=true
+            SUPABASE_AUTH_AUDIENCE=authenticated
+            SUPABASE_URL="$SUPABASE_URL"
+            SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
+            STORAGE_PROVIDER="$STORAGE_PROVIDER"
+            GUEST_STORAGE_PROVIDER="$GUEST_STORAGE_PROVIDER"
+            SUPABASE_STORAGE_BUCKET=p170-dataset
+            SUPABASE_STORAGE_PREFIX=datasets
+            LLM_PROVIDER=openai
+            LLM_MODEL=gpt-4o-mini
+            AGENT_TRACE_MODE=shadow
+            UX_COMMAND_CENTER_ENABLED=true
+          )
+          google_drive_redirect_uri="${GOOGLE_DRIVE_REDIRECT_URI:-$BACKEND_URL/api/v1/google-drive/callback}"
+          google_drive_frontend_url="${GOOGLE_DRIVE_FRONTEND_URL:-$FRONTEND_URL}"
+          [ -n "${DATABASE_URL:-}" ] && settings+=(DATABASE_URL="$DATABASE_URL")
+          [ -n "${DATABASE_CHECKPOINTER_URL:-}" ] && settings+=(DATABASE_CHECKPOINTER_URL="$DATABASE_CHECKPOINTER_URL")
+          [ -n "${SUPABASE_SECRET_KEY:-}" ] && settings+=(SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY")
+          [ -n "${LLM_API_KEY:-}" ] && settings+=(LLM_API_KEY="$LLM_API_KEY")
+          if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
+            settings+=(
+              GOOGLE_DRIVE_CLIENT_ID="$GOOGLE_DRIVE_CLIENT_ID"
+              GOOGLE_DRIVE_CLIENT_SECRET="$GOOGLE_DRIVE_CLIENT_SECRET"
+              GOOGLE_DRIVE_REDIRECT_URI="$google_drive_redirect_uri"
+              GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID"
+              GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY="$GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY"
+              GOOGLE_DRIVE_FRONTEND_URL="$google_drive_frontend_url"
+            )
+          fi
+
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$BACKEND_APP" \
+            --settings "${settings[@]}" \
+            --output none
+
+      - name: Deploy frontend container
+        shell: bash
         env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_BACKEND_APP: ${{ vars.AZURE_BACKEND_APP }}
-          PREVIOUS_IMAGE: ${{ steps.backend.outputs.image }}
-        with:
-          inlineScript: |
-            test -n "$PREVIOUS_IMAGE" || { echo "No previous backend image to roll back to."; exit 1; }
-            az webapp config container set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" --container-image-name "$PREVIOUS_IMAGE" --output none
-
-      - name: Stop release after backend failure
-        if: steps.backend_health.outcome == 'failure'
-        run: exit 1
-
-      - name: Configure and deploy frontend
-        id: frontend
-        uses: azure/cli@v2
-        env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_FRONTEND_APP: ${{ vars.AZURE_FRONTEND_APP }}
-          AZURE_ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
-          AZURE_BACKEND_URL: ${{ vars.AZURE_BACKEND_URL }}
-        with:
-          inlineScript: |
-            set -euo pipefail
-            previous="$(az webapp config show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" --query linuxFxVersion --output tsv)"
-            echo "image=${previous#DOCKER|}" >> "$GITHUB_OUTPUT"
-            az webapp config appsettings set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" --output none --settings \
-              WEBSITES_PORT=8080 PORT=8080 NODE_ENV=production INTERNAL_API_URL="$AZURE_BACKEND_URL/api/v1"
-            az webapp update --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" --https-only true --output none
-            plan_id="$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" --query appServicePlanId --output tsv)"
-            tier="$(az appservice plan show --ids "$plan_id" --query sku.tier --output tsv)"
-            if [ "$tier" != "Free" ] && [ "$tier" != "Shared" ]; then
-              az webapp config set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" --always-on true --health-check-path /login --output none
-            fi
-            az webapp config container set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" \
-              --container-image-name "$AZURE_ACR_LOGIN_SERVER/frontend:${{ github.sha }}" \
-              --container-registry-url "https://$AZURE_ACR_LOGIN_SERVER" --output none
-
-      - name: Wait for frontend health
-        id: frontend_health
-        continue-on-error: true
-        env:
-          AZURE_FRONTEND_URL: ${{ vars.AZURE_FRONTEND_URL }}
+          ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
+          ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
         run: |
           set -euo pipefail
-          for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 10 "$AZURE_FRONTEND_URL/login" > /dev/null; then exit 0; fi
-            sleep 10
-          done
-          exit 1
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp config container set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$FRONTEND_APP" \
+            --container-image-name "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
+            --container-registry-url "https://$ACR_LOGIN_SERVER" \
+            --container-registry-user "$ACR_PULL_USERNAME" \
+            --container-registry-password "$ACR_PULL_PASSWORD" \
+            --enable-app-service-storage false
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp config appsettings set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$FRONTEND_APP" \
+            --settings WEBSITES_PORT=8080 PORT=8080 NODE_ENV=production WEBSITES_CONTAINER_START_TIME_LIMIT=1800 INTERNAL_API_URL="$BACKEND_URL/api/v1" \
+            --output none
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp config set \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$FRONTEND_APP" \
+            --startup-file "node server.js" \
+            --output none
 
-      - name: Roll back frontend when health check fails
-        if: steps.frontend_health.outcome == 'failure'
-        uses: azure/cli@v2
-        env:
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          AZURE_FRONTEND_APP: ${{ vars.AZURE_FRONTEND_APP }}
-          PREVIOUS_IMAGE: ${{ steps.frontend.outputs.image }}
-        with:
-          inlineScript: |
-            test -n "$PREVIOUS_IMAGE" || { echo "No previous frontend image to roll back to."; exit 1; }
-            az webapp config container set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_FRONTEND_APP" --container-image-name "$PREVIOUS_IMAGE" --output none
+      - name: Restart apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp restart --resource-group "$RESOURCE_GROUP" --name "$BACKEND_APP"
+          docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
+          az webapp restart --resource-group "$RESOURCE_GROUP" --name "$FRONTEND_APP"
 
-      - name: Stop release after frontend failure
-        if: steps.frontend_health.outcome == 'failure'
-        run: exit 1
+      - name: Verify deployed endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          wait_for_url() {
+            local name="$1"
+            local url="$2"
+            local attempts="$3"
+            local body_file
+            body_file="$(mktemp)"
+
+            for attempt in $(seq 1 "$attempts"); do
+              local status
+              status="$(curl --silent --show-error --output "$body_file" --write-out "%{http_code}" --max-time 15 "$url" || true)"
+              if [ "$status" = "200" ]; then
+                echo "$name became healthy at $url."
+                cat "$body_file"
+                echo
+                rm -f "$body_file"
+                return 0
+              fi
+
+              echo "$name health attempt $attempt/$attempts returned ${status:-curl_failed} from $url."
+              if [ -s "$body_file" ]; then
+                head -c 500 "$body_file"
+                echo
+              fi
+              sleep 10
+            done
+
+            rm -f "$body_file"
+            echo "$name did not become healthy at $url."
+            return 1
+          }
+
+          wait_for_url Backend "$BACKEND_URL/health" 90
+          wait_for_url Frontend "$FRONTEND_URL/health" 60
