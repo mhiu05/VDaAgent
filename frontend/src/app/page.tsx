@@ -4,15 +4,15 @@ import Link from "next/link";
 import { PublicNavbar } from "@/components/public-navbar";
 
 const features = [
-  { icon: "01", title: "Hiểu rõ trước khi phân tích", description: "Tự động tạo hồ sơ dữ liệu: số dòng, giá trị trống, phân bố, trùng lặp và các cảnh báo chất lượng — nhanh, chính xác, không phụ thuộc nhận định chủ quan.", className: "profile" },
-  { icon: "02", title: "Mỗi kết quả đều có nguồn gốc", description: "Kết quả phân tích luôn đi kèm với số liệu cụ thể, nguồn dữ liệu và điều kiện tạo ra — để bạn có thể kiểm tra lại bất cứ lúc nào.", className: "evidence" },
-  { icon: "03", title: "Kiểm duyệt trước khi tiếp tục", description: "Bạn xác nhận kiểu dữ liệu, khóa chính và thông tin nhạy cảm trước khi hệ thống chạy phân tích sâu hơn. Không có bước nào bị bỏ qua.", className: "control" },
+  { icon: "01", title: "Tự động Profiling (Deterministic)", description: "Tính toán số liệu một cách chuẩn xác: số dòng, giá trị trống, phân bố, trùng lặp và các cảnh báo PII/chất lượng mà không phụ thuộc vào dự đoán của LLM.", className: "profile" },
+  { icon: "02", title: "Mỗi kết quả đều có nguồn gốc", description: "Kết quả phân tích (evidence) luôn được ghim kèm result hash và provenance. Bạn dễ dàng truy nguyên xem con số đó được tính thế nào.", className: "evidence" },
+  { icon: "03", title: "Agent có giới hạn an toàn", description: "Trợ lý AI chỉ giải thích và trả lời trong phạm vi evidence đã duyệt. Tuyệt đối không đọc raw rows hay cho phép gửi SQL tự do.", className: "control" },
 ];
 
 const workflow = [
-  { number: "01", title: "Tải dữ liệu lên", description: "Hỗ trợ CSV, TSV, Parquet và JSON. Chọn quét nhanh để kiểm tra sơ bộ hoặc quét toàn bộ để có số liệu đầy đủ." },
-  { number: "02", title: "Xem hồ sơ và kiểm duyệt", description: "Đọc báo cáo từng cột, xem các cảnh báo và xác nhận các đề xuất metadata trước khi đi tiếp." },
-  { number: "03", title: "Phân tích và xuất báo cáo", description: "Đặt mục tiêu phân tích, chạy các phép tính tổng hợp và xuất kết quả dưới dạng PDF hoặc JSON — mọi con số đều truy nguyên được." },
+  { number: "01", title: "Tải dữ liệu lên", description: "Hỗ trợ CSV, Parquet, JSON. File được tải lên trong không gian an toàn (workspace) và chạy profile deterministic." },
+  { number: "02", title: "Review Metadata", description: "Kiểm duyệt đề xuất semantic type, nhận diện PII và review metadata trước khi hệ thống chạy phân tích sâu." },
+  { number: "03", title: "Khám phá & Báo cáo", description: "Chạy Preview có giới hạn, ghim Official evidence và xuất Report Draft thành tài liệu PDF/JSON đóng băng bất biến." },
 ];
 
 function ProductPreview() {
@@ -40,18 +40,18 @@ export default function Home() {
   return <div className="public-page home-redesign"><PublicNavbar /><main className="home-page">
     <section className="home-new-hero">
       <div className="home-new-hero-copy">
-        <div className="home-kicker"><span className="home-kicker-pulse" /> KHÔNG GIAN LÀM VIỆC VỚI DỮ LIỆU <span>·</span> VDaAgent</div>
-        <h1>Nắm rõ dữ liệu<br /><span>trước khi ra quyết định.</span></h1>
-        <p className="home-new-hero-description">VDaAgent giúp bạn đi từ một bộ dữ liệu chưa biết chất lượng ra sao đến những báo cáo mà đồng nghiệp có thể đọc, kiểm tra và tin tưởng.</p>
-        <div className="home-new-actions"><Link className="button primary home-main-cta" href="/dashboard">Bắt đầu ngay <span aria-hidden="true">→</span></Link><Link className="home-text-cta" href="/guide">Xem cách hoạt động <span aria-hidden="true">↗</span></Link></div>
-        <div className="home-hero-assurance"><span><b>✓</b> Dùng thử không cần đăng nhập</span><span><b>✓</b> Dữ liệu thô không bị lộ ra ngoài</span><span><b>✓</b> Mỗi bước đều có số liệu kèm theo</span></div>
+        <div className="home-kicker"><span className="home-kicker-pulse" /> DATA PROFILING · VDaAgent</div>
+        <h1>Biến một tệp dữ liệu thành<br /><span>hồ sơ có thể kiểm tra.</span></h1>
+        <p className="home-new-hero-description">VDaAgent giúp Analyst đi từ một bộ dữ liệu thô đến những biểu đồ có bằng chứng và báo cáo có thể truy nguyên.</p>
+        <div className="home-new-actions"><Link className="button primary home-main-cta" href="/dashboard">Bắt đầu ngay <span aria-hidden="true">→</span></Link><Link className="home-text-cta" href="/guide">Xem quy trình <span aria-hidden="true">↗</span></Link></div>
+        <div className="home-hero-assurance"><span><b>✓</b> Không lộ giá trị PII thô</span><span><b>✓</b> Compute deterministic an toàn</span><span><b>✓</b> Trợ lý AI có giới hạn (Evidence-based)</span></div>
       </div>
       <ProductPreview />
     </section>
 
-    <section className="home-proof-strip" aria-label="Điểm mạnh của VDaAgent"><span><b>01</b> Số liệu chính xác</span><i /><span><b>02</b> Kiểm duyệt trước khi phân tích</span><i /><span><b>03</b> Cá nhân hóa workspace theo từng chủ đề </span><i /><span><b>04</b> Xuất báo cáo linh hoạt</span></section>
+    <section className="home-proof-strip" aria-label="Điểm mạnh của VDaAgent"><span><b>01</b> Profile Deterministic</span><i /><span><b>02</b> Evidence-first Workflow</span><i /><span><b>03</b> AI Giới hạn an toàn</span><i /><span><b>04</b> Xuất PDF/JSON truy nguyên</span></section>
 
-    <section className="home-new-section home-value-section"><div className="home-section-intro"><p className="home-kicker-simple">TẠI SAO CHỌN VDaAgent</p><h2>Biết rõ dữ liệu có gì,<br /><span>thiếu gì, trước khi dùng.</span></h2><p>Một quy trình liền mạch từ kiểm tra chất lượng, xác nhận metadata đến phân tích — dễ dùng cho người mới, đủ chặt chẽ cho dữ liệu thật.</p></div><div className="home-feature-grid">{features.map((feature) => <article className={`home-feature-card ${feature.className}`} key={feature.title}><span className="home-feature-number">{feature.icon}</span><div className={`home-feature-illustration ${feature.className}`} aria-hidden="true">{feature.className === "profile" ? <><i /><i /><i /><i /><b>▦</b></> : feature.className === "evidence" ? <><span>✓</span><i /><i /><i /></> : <><i /><b>PII</b><span>✓</span></>}</div><h3>{feature.title}</h3><p>{feature.description}</p><Link href="/guide">Tìm hiểu thêm <span>→</span></Link></article>)}</div></section>
+    <section className="home-new-section home-value-section"><div className="home-section-intro"><p className="home-kicker-simple">TẠI SAO CHỌN VDaAgent</p><h2>Giải quyết rủi ro<br /><span>hallucination dữ liệu.</span></h2><p>Các công cụ chatbot tự do dễ tạo ra câu trả lời không có provenance, vô tình làm lộ PII. VDaAgent chỉ cho phép AI trả lời dựa trên bằng chứng đã duyệt.</p></div><div className="home-feature-grid">{features.map((feature) => <article className={`home-feature-card ${feature.className}`} key={feature.title}><span className="home-feature-number">{feature.icon}</span><div className={`home-feature-illustration ${feature.className}`} aria-hidden="true">{feature.className === "profile" ? <><i /><i /><i /><i /><b>▦</b></> : feature.className === "evidence" ? <><span>✓</span><i /><i /><i /></> : <><i /><b>PII</b><span>✓</span></>}</div><h3>{feature.title}</h3><p>{feature.description}</p><Link href="/guide">Tìm hiểu thêm <span>→</span></Link></article>)}</div></section>
 
     <section className="home-new-section home-workflow-section"><div className="home-section-intro home-workflow-intro"><p className="home-kicker-simple">QUY TRÌNH LÀM VIỆC</p><h2>Ba bước từ file thô<br />đến báo cáo đáng tin.</h2><p>Không bỏ qua những bước quan trọng. Mỗi checkpoint giúp kết quả cuối cùng chính xác và đáng tin hơn.</p><Link className="button secondary" href="/guide">Xem hướng dẫn đầy đủ <span>→</span></Link></div><div className="home-workflow-list">{workflow.map((step, index) => <div className="home-workflow-item" key={step.number}><span className="home-workflow-number">{step.number}</span><div className="home-workflow-line"><i /></div><div><h3>{step.title}</h3><p>{step.description}</p><span className="home-workflow-tag">{index === 0 ? "NHẬP DỮ LIỆU" : index === 1 ? "KIỂM DUYỆT" : "PHÂN TÍCH"}</span></div></div>)}</div></section>
 

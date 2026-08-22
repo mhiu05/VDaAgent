@@ -44,7 +44,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
-  const isPublicPage = isHome || isGuide;
+  const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact");
   const roleNavigation = analystNavigation;
   const accountPanel = authenticated && me ? (
     <section className="sidebar-account" aria-label="Tài khoản đang đăng nhập">
