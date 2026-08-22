@@ -133,6 +133,19 @@ process. Tool profile/chart đều cần `profile_run_id`, dùng allow-list và 
 trả raw data. MCP stdio không thay thế route HTTP có auth/workspace context và
 không nên mở thành endpoint public.
 
+
+### LangSmith và AI evaluation
+
+PostgreSQL là nguồn trace có thẩm quyền. Khi backend có
+`LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` và `LANGSMITH_PROJECT`, adapter
+LangSmith chỉ xuất metadata allow-list cho agent root run và model span theo cơ
+chế fail-open. Inputs/outputs gửi sang LangSmith là rỗng; prompt, raw row, PII,
+secret, đường dẫn tệp và chain-of-thought không được xuất ra ngoài.
+
+Bộ đánh giá nằm trong [`evaluations/`](../evaluations/): fixture tổng hợp, scorer
+deterministic, test và báo cáo. Chạy `--dry-run` để kiểm tra fixture/contract,
+hoặc `--offline` để tạo scorecard mà không gọi API hay gửi kết quả lên LangSmith.
+
 ## 6. Báo cáo và export
 
 Report Draft thuộc đúng Profile Run. API đọc/tạo draft là
@@ -155,6 +168,8 @@ không chính thức vào export.
 | `AUTH_MODE` | Local có thể dùng `dual`; production phải dùng `supabase` |
 | `STORAGE_PROVIDER` | `supabase`, `google_drive` hoặc `local` cho development/test |
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required`; chỉ dùng `required` khi trace DB đã được giám sát |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Bật projection LangSmith metadata-only ở backend; API key là secret server-side |
+| `GOOGLE_DRIVE_*` | OAuth client Drive riêng; callback local là `http://localhost:8000/api/v1/google-drive/callback`, production phải dùng domain backend |
 
 Không đặt database URL, Supabase secret/service key, OAuth secret, storage
 credential hay LLM key vào `NEXT_PUBLIC_*`. Guest trial là workspace tạm với
@@ -169,6 +184,7 @@ retention riêng, không phải cơ chế lưu trữ production.
 | Explorer | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
 | Report | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots` |
+| Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, `GET /google-drive/callback`, `DELETE /google-drive/connection` |
 
 Mọi endpoint backend dùng prefix `/api/v1`.
 
@@ -178,3 +194,11 @@ Từ `frontend/`, chạy `pnpm typecheck`, `pnpm lint`, `pnpm test` và `pnpm bu
 Từ root, đặt một `P170_TEST_DATABASE_URL` riêng trước khi chạy `pytest`; không
 bao giờ chạy test ghi dữ liệu vào database development/production. Smoke check
 cho production chart flow nằm tại `scripts/chart_production_smoke.py`.
+
+Kiểm tra LangSmith và evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_agents/test_langsmith_observability.py evaluations/test_evaluators.py
+.\.venv\Scripts\python.exe evaluations/run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
+```

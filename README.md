@@ -378,8 +378,10 @@ database development hoặc production.
 - [Architecture](ARCHITECTURE.md)
 - [Biểu đồ & Evidence-First Analytics](<docs/Biểu Đồ.md>)
 - [Cấu hình mẫu](.env.example)
-- [Cấu hình ứng dụng](config.yaml)- [Kế hoạch LangSmith observability & AI evaluation](docs/langsmith-observability-ai-evaluation-plan.md)
+- [Cấu hình ứng dụng](config.yaml)
+- [Kế hoạch LangSmith observability & AI evaluation](docs/langsmith-observability-ai-evaluation-plan.md)
 - [Hướng dẫn AI evaluation](evaluations/README.md)
+
 ## Checklist bàn giao
 
 - [x] Mã nguồn backend, frontend và migration

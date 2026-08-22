@@ -92,6 +92,7 @@ flowchart LR
         Drive[Google Drive OAuth storage]
         LLM[LLM provider]
         MCP[MCP stdio trusted-local client]
+        LangSmith[LangSmith metadata-only trace projection]
     end
 
     WebAuth --> Supabase
@@ -100,12 +101,34 @@ flowchart LR
     Profile -. narrative when configured .-> LLM
     Agent -. bounded Q&A / chart planning .-> LLM
     MCP -. bounded local tools .-> API
+    Agent -. fail-open metadata projection .-> LangSmith
 ```
 
 The frontend is deployed separately and calls FastAPI through
 `NEXT_PUBLIC_API_URL`. The PDF route is server-side by design: it requests an
 authorized export source from FastAPI before rendering the document.
 
+## Deployment and integration boundaries
+
+Production deploys separate containerized frontend and backend applications on
+Azure App Service. The frontend is built with `NEXT_PUBLIC_API_URL` pointing to
+`AZURE_BACKEND_URL/api/v1`; the backend permits the deployed frontend through
+`CORS_ORIGINS`. Secrets stay in backend App Service settings or GitHub Actions
+secrets, never in `NEXT_PUBLIC_*` variables.
+
+Supabase is the identity provider: Google sign-in returns first to the Supabase
+callback and then to an allowed frontend URL. Google Drive storage is a separate
+OAuth client and its callback must be the backend endpoint
+`/api/v1/google-drive/callback`; local and production use their respective
+redirect URI values. The deployed pipeline currently selects Supabase Storage;
+Google Drive requires its own backend environment settings and an explicit
+storage-provider change.
+
+LangSmith is optional and fail-open. PostgreSQL remains the authoritative agent
+trace store. When `LANGSMITH_TRACING=true` and a server-side API key is present,
+the adapter exports only allow-listed metadata for the agent root run and model
+spans. It sends empty inputs/outputs and never exports prompts, raw rows, PII,
+secrets, file paths, or chain-of-thought.
 ## Implemented components
 
 | Component | Responsibility |
@@ -135,7 +158,8 @@ Profile Run evidence boundary.
 | Dataset binary | Supabase Storage, Google Drive, or local dev storage | PostgreSQL records source reference, hash, and metadata; it does not duplicate the blob. |
 | Profile Run and column statistics | PostgreSQL | Statistics, review decisions, quality information and provenance are tied to one dataset/workspace. |
 | Explorer session/execution | PostgreSQL | Preview and Official execution records bind query, context version, result hash and limitation. |
-| Agent run and trace | PostgreSQL | Trace records redacted operational provenance, never chain-of-thought or raw messages. |
+| Agent run and trace | PostgreSQL | Authoritative redacted provenance for agent runs; never chain-of-thought or raw messages. |
+| LangSmith projection | LangSmith (optional) | Fail-open metadata-only copy of root/model spans; not a system of record. |
 | Report Draft and snapshot | PostgreSQL | Draft is editable; snapshot is immutable and is the export source. |
 
 Remote sources are copied to a temporary local file only while DuckDB/pandas
@@ -262,6 +286,8 @@ All FastAPI endpoints use the `/api/v1` prefix.
 - `AGENT_TRACE_MODE=shadow` records redacted provenance without making it the
   source of profile/Q&A results. `required` should be enabled only after trace
   persistence has monitoring and incident handling.
+- `LANGSMITH_TRACING` is opt-in and requires a server-side `LANGSMITH_API_KEY`.
+  A LangSmith outage cannot fail a user request or replace the PostgreSQL trace.
 - `UX_COMMAND_CENTER_ENABLED` enables backend contracts; its
   `NEXT_PUBLIC_` counterpart is a frontend build-time flag and requires a new
   frontend build/deploy after it changes.
