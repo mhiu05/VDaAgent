@@ -1,4 +1,4 @@
-# API key OpenAI đặt trong file .env với OPENAI_API_KEY=...
+# API key của provider đặt trong file .env với biến tương ứng.
 # Biến môi trường có cùng tên sẽ được ưu tiên hơn các giá trị ở đây.
 
 app:
@@ -13,8 +13,8 @@ cors:
   origins: http://localhost:3000,http://127.0.0.1:3000
 
 llm:
-  provider: openai
-  model: gpt-4o-mini
+  provider: gemini
+  model: gemini-3.6-flash
   temperature: 0.2
   max_tool_rounds: 6
 
@@ -96,19 +96,20 @@ agent:
   runtime_version: 2.0.0
   trace_event_limit: 500
 
-# Command Center is an additive rollout. Keep it disabled until the migration,
-# API contract and cross-workspace tests have been verified in staging.
-ux:
-  command_center_enabled: false
-  preview_timeout_seconds: 60
-  preview_row_budget: 50000
-  preview_result_limit: 50
-  official_result_limit: 500
 
-# Command Center is an additive rollout. Keep it disabled until the migration,
-# API contract and cross-workspace tests have been verified in staging.
+# Optional, fail-open observability projection. The adapter itself uses only
+# an allow-list of metadata; prompts, messages, rows, paths and PII stay local.
+langsmith:
+  tracing: false
+  endpoint: https://api.smith.langchain.com
+  project: ""
+  data_mode: metadata_only
+  sampling_rate: 1.0
+  flush_timeout_seconds: 2.0
+# Command Center production core đã qua bounded-engine, cross-workspace và E2E
+# smoke test. Có thể override bằng UX_COMMAND_CENTER_ENABLED khi cần rollback.
 ux:
-  command_center_enabled: false
+  command_center_enabled: true
   preview_timeout_seconds: 60
   preview_row_budget: 50000
   preview_result_limit: 50

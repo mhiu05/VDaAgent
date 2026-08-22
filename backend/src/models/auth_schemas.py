@@ -90,7 +90,11 @@ class ReportSectionInput(BaseModel):
 
 
 class ReportVisualizationInput(BaseModel):
-    chart_type: Literal["kpi", "bar", "line", "table"]
+    chart_type: Literal[
+        "kpi", "bar", "line", "table", "histogram", "scatter", "box", "heatmap",
+        "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
+        "violin", "donut", "outlier",
+    ]
     title: str | None = Field(default=None, max_length=255)
     visualization_spec: dict[str, Any] = Field(default_factory=dict)
     query_execution_id: str = Field(min_length=1, max_length=64)
@@ -117,6 +121,30 @@ class ReportPublishInput(BaseModel):
     reason: str | None = Field(default=None, max_length=2_000)
 
 
+class ChartSpecInput(BaseModel):
+    chart_type: Literal[
+        "kpi", "bar", "line", "table", "histogram", "scatter", "box", "heatmap",
+        "donut", "violin", "missing_bar", "missing_heatmap", "correlation_heatmap",
+        "cardinality", "outlier",
+    ]
+    renderer: Literal[
+        "native-svg", "native-css", "native-html", "native-kpi", "native-grid"
+    ]
+    analysis_kind: Literal[
+        "aggregate", "histogram", "scatter", "box", "heatmap", "forecast",
+        "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
+        "violin", "donut", "outlier",
+    ] = "aggregate"
+    x_column: str | None = Field(default=None, max_length=255)
+    y_column: str | None = Field(default=None, max_length=255)
+    aggregation: Literal["count", "count_distinct", "sum", "mean", "median"] | None = "count"
+    time_grain: Literal["day", "week", "month", "quarter", "year"] | None = None
+    bins: int | None = Field(default=None, ge=5, le=30)
+    forecast_algorithm: str | None = Field(default=None, max_length=64)
+    forecast_horizon: int | None = Field(default=None, ge=1, le=60)
+    season_length: int | None = Field(default=None, ge=2, le=365)
+
+
 class ReportDraftItemCreate(BaseModel):
     item_type: Literal[
         "profile_section", "chart", "agent_answer", "note", "legacy_notebook"
@@ -126,6 +154,7 @@ class ReportDraftItemCreate(BaseModel):
     title: str | None = Field(default=None, max_length=255)
     note: str | None = Field(default=None, max_length=20_000)
     content: dict[str, Any] | None = None
+    chart_spec: ChartSpecInput | None = None
 
 
 class ReportDraftItemUpdate(BaseModel):

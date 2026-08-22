@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+# pyrefly: ignore [missing-import]
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -37,6 +38,7 @@ from sqlalchemy import (
     or_,
     select,
 )
+# pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
 from src.config import Settings, get_settings
 
@@ -145,6 +147,12 @@ workspace_memberships = Table(
     Column("status", String(16), nullable=False, default="active", index=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+Index(
+    "ix_workspace_memberships_user_status_created",
+    workspace_memberships.c.user_id,
+    workspace_memberships.c.status,
+    workspace_memberships.c.created_at,
 )
 
 workspace_invitations = Table(
@@ -1134,6 +1142,7 @@ class Repository:
         it, Google Drive upload succeeds and the subsequent metadata insert
         fails because SQLAlchemy includes the new nullable columns.
         """
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import text
 
         with self.engine.begin() as conn:
@@ -1182,6 +1191,7 @@ class Repository:
 
     def _migrate_semantic_description(self) -> None:
         """Bổ sung cột mô tả cho các metadata DB đã tồn tại từ phiên bản trước."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         columns = {
@@ -1198,6 +1208,7 @@ class Repository:
 
     def _migrate_review_proposal_columns(self) -> None:
         """Bổ sung dữ liệu quyết định review cho các DB local đã tồn tại."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         additions = {
@@ -1220,6 +1231,7 @@ class Repository:
 
     def _migrate_tool_v2_profile_columns(self) -> None:
         """Add aggregate Tool V2 artifacts to existing PostgreSQL databases."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         columns = {
@@ -1238,6 +1250,7 @@ class Repository:
 
     def _migrate_workflow_columns(self) -> None:
         """Add durable execution identity and terminal continuation fields."""
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         columns = {
@@ -1278,6 +1291,7 @@ class Repository:
         Alembic.  This compatibility path intentionally does not enforce the
         final NOT NULL constraints before `backfill_authz.py` has run.
         """
+        # pyrefly: ignore [missing-import]
         from sqlalchemy import inspect, text
 
         additions: dict[str, dict[str, str]] = {
@@ -1895,11 +1909,14 @@ class Repository:
                     )
                 )
             membership = conn.execute(
-                select(workspace_memberships.c.user_id).where(
+                select(
+                    workspace_memberships.c.role,
+                    workspace_memberships.c.status,
+                ).where(
                     workspace_memberships.c.workspace_id == workspace_id,
                     workspace_memberships.c.user_id == guest_user_id,
                 )
-            ).first()
+            ).mappings().first()
             if not membership:
                 conn.execute(
                     workspace_memberships.insert().values(
@@ -1911,7 +1928,9 @@ class Repository:
                         updated_at=now,
                     )
                 )
-            else:
+            elif membership["role"] != role or membership["status"] != "active":
+                # A normal guest bootstrap is read-only. Only repair a
+                # membership when it was actually changed or suspended.
                 conn.execute(
                     workspace_memberships.update()
                     .where(
@@ -2387,6 +2406,72 @@ class Repository:
                 .order_by(workspace_memberships.c.created_at)
             ).mappings()
             return [dict(row) for row in rows]
+
+    def list_active_workspace_membership_contexts(
+        self, user_id: str
+    ) -> list[dict[str, Any]]:
+        """Return selectable memberships and active workspaces in one query."""
+        with self.engine.begin() as conn:
+            rows = (
+                conn.execute(
+                    select(
+                        workspace_memberships.c.workspace_id,
+                        workspace_memberships.c.role,
+                        workspaces.c.name,
+                        workspaces.c.slug,
+                        workspaces.c.created_by_user_id,
+                        workspaces.c.settings,
+                    )
+                    .join(
+                        workspaces,
+                        workspaces.c.id == workspace_memberships.c.workspace_id,
+                    )
+                    .where(
+                        workspace_memberships.c.user_id == user_id,
+                        workspace_memberships.c.status == "active",
+                        workspaces.c.status == "active",
+                    )
+                    .order_by(workspace_memberships.c.created_at)
+                )
+                .mappings()
+                .all()
+            )
+            return [dict(row) for row in rows]
+
+    def dashboard_summary(
+        self, workspace_id: str, *, report_limit: int = 12
+    ) -> dict[str, Any]:
+        """Return the small dashboard read model with a single pool checkout."""
+        count_row = select(
+            select(func.count())
+            .select_from(datasets)
+            .where(datasets.c.workspace_id == workspace_id)
+            .scalar_subquery()
+            .label("datasets"),
+            select(func.count())
+            .select_from(profile_runs)
+            .where(profile_runs.c.workspace_id == workspace_id)
+            .scalar_subquery()
+            .label("profiles"),
+            select(func.count())
+            .select_from(reports)
+            .where(reports.c.workspace_id == workspace_id)
+            .scalar_subquery()
+            .label("reports"),
+        )
+        with self.engine.begin() as conn:
+            counts = dict(conn.execute(count_row).mappings().one())
+            recent_reports = conn.execute(
+                select(reports.c.id, reports.c.title, reports.c.status)
+                .where(reports.c.workspace_id == workspace_id)
+                .order_by(reports.c.updated_at.desc())
+                .limit(report_limit)
+            ).mappings()
+            return {
+                "kind": "analyst",
+                "counts": {name: int(value or 0) for name, value in counts.items()},
+                "reports": [dict(row) for row in recent_reports],
+            }
 
     def list_archived_workspaces_for_user(self, user_id: str) -> list[dict[str, Any]]:
         """Return archived project workspaces where the user still has access.
@@ -3708,6 +3793,14 @@ class Repository:
                 .order_by(report_visualizations.c.position)
             ).mappings()
         ]
+        payload["items"] = [
+            dict(row)
+            for row in conn.execute(
+                select(report_items)
+                .where(report_items.c.report_version_id == version_id)
+                .order_by(report_items.c.position)
+            ).mappings()
+        ]
         payload["reviews"] = [
             dict(row)
             for row in conn.execute(
@@ -3811,7 +3904,16 @@ class Repository:
 
     @staticmethod
     def _validate_visualization_spec(chart_type: str, spec: dict[str, Any]) -> None:
-        if chart_type not in {"kpi", "bar", "line", "table"}:
+        if chart_type not in {
+            "kpi",
+            "bar",
+            "line",
+            "table",
+            "histogram",
+            "scatter",
+            "box",
+            "heatmap",
+        }:
             raise ValueError("chart_type không thuộc allowlist.")
         encoded = json.dumps(spec, ensure_ascii=False)
         if len(encoded) > 20_000:
@@ -4056,6 +4158,11 @@ class Repository:
             conn.execute(
                 report_visualizations.delete().where(
                     report_visualizations.c.report_version_id.in_(version_ids)
+                )
+            )
+            conn.execute(
+                report_items.delete().where(
+                    report_items.c.report_version_id.in_(version_ids)
                 )
             )
             conn.execute(

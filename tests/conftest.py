@@ -64,10 +64,14 @@ os.environ.update(
         # This must override a developer's production AUTH_MODE in .env.
         "AUTH_MODE": "dual",
         # Không gọi LLM và không gửi trace đi đâu trong lúc test.
+        "LLM_PROVIDER": "gemini",
+        "LLM_MODEL": "gemini-3.6-flash",
         "LANGCHAIN_TRACING_V2": "false",
         "LANGSMITH_TRACING": "false",
         "OPENAI_API_KEY": "",
+        "GEMINI_API_KEY": "",
         "LLM_API_KEY": "",
+        "LANGSMITH_API_KEY": "",
         # Keep the integration suite deterministic and profile-scoped. The
         # checked-in config enables external knowledge for staging, but tests
         # must not query that optional corpus or treat it as profile evidence.

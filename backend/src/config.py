@@ -17,8 +17,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 from pydantic import AliasChoices, Field, model_validator
+# pyrefly: ignore [missing-import]
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # `src` is hosted under `backend/src`, while the runtime config and data
@@ -54,7 +57,7 @@ LLM_PROVIDERS: dict[str, dict[str, str]] = {
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "key_env": "GEMINI_API_KEY",
-        "example_model": "gemini-2.0-flash",
+        "example_model": "gemini-3.6-flash",
     },
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
@@ -125,8 +128,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # --- llm ---------------------------------------------------------------
-    llm_provider: ProviderName = "openai"
-    llm_model: str = "gpt-4o-mini"
+    llm_provider: ProviderName = "gemini"
+    llm_model: str = "gemini-3.6-flash"
     llm_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
     llm_max_tool_rounds: int = Field(default=6, ge=1, le=30)
     llm_reasoning_effort: str = ""
@@ -246,10 +249,20 @@ class Settings(BaseSettings):
     agent_runtime_version: str = "2.0.0"
     agent_trace_event_limit: int = Field(default=500, ge=1, le=2_000)
 
+    # LangSmith is a best-effort projection of the authoritative PostgreSQL trace.
+    # Do not enable global LangChain auto-tracing: it can capture prompt content.
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_project: str = ""
+    langsmith_data_mode: Literal["metadata_only", "sanitized_content"] = "metadata_only"
+    langsmith_sampling_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    langsmith_flush_timeout_seconds: float = Field(default=2.0, ge=0.1, le=30.0)
+
     # --- UX Command Center rollout ---------------------------------------
     # The backend flag is independent from the frontend flag: a browser must
     # never reach the additive API before the backend contract is enabled.
-    ux_command_center_enabled: bool = False
+    ux_command_center_enabled: bool = True
     ux_preview_timeout_seconds: int = Field(default=60, ge=1, le=60)
     ux_preview_row_budget: int = Field(default=50_000, ge=1_000, le=5_000_000)
     ux_preview_result_limit: int = Field(default=50, ge=1, le=50)
@@ -371,6 +384,11 @@ class Settings(BaseSettings):
         return bool(self.llm_api_key) or self.llm_provider == "ollama"
 
     @property
+    def langsmith_project_name(self) -> str:
+        """Use an environment-specific project without tenant identifiers."""
+
+        return self.langsmith_project or f"p170-{self.app_env}"
+
     def checkpointer_url(self) -> str:
         """DSN cho LangGraph checkpointer — Supabase PostgreSQL in production."""
         value = self.database_checkpointer_url or self.database_url

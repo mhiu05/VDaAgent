@@ -332,6 +332,14 @@ function lineCommand(commands: string[], x1: number, y1: number, x2: number, y2:
   commands.push(`q ${color} RG ${width} w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S Q`);
 }
 
+function ringSegmentCommand(commands: string[], centerX: number, centerY: number, innerRadius: number, outerRadius: number, startAngle: number, endAngle: number, color: string) {
+  const steps = Math.max(2, Math.ceil(Math.abs(endAngle - startAngle) / (Math.PI / 18)));
+  const outer = Array.from({ length: steps + 1 }, (_, index) => { const angle = startAngle + (endAngle - startAngle) * index / steps; return [centerX + Math.cos(angle) * outerRadius, centerY + Math.sin(angle) * outerRadius]; });
+  const inner = Array.from({ length: steps + 1 }, (_, index) => { const angle = endAngle - (endAngle - startAngle) * index / steps; return [centerX + Math.cos(angle) * innerRadius, centerY + Math.sin(angle) * innerRadius]; });
+  const points = [...outer, ...inner];
+  commands.push(`q ${color} rg ${points.map(([x, y], index) => `${x.toFixed(2)} ${y.toFixed(2)} ${index ? "l" : "m"}`).join(" ")} h f Q`);
+}
+
 function equalWidths(count: number): number[] {
   return Array.from({ length: count }, () => CONTENT_WIDTH / Math.max(count, 1));
 }
@@ -379,6 +387,7 @@ function buildLayout(payload: ReportPayload): string[] {
   let subHeadingNumber = 0;
   let detailHeadingNumber = 0;
   const sectionByHeading = ["overview", "technical_profile", "quality", "agent_summary", "drift", "report_snapshot", "analysis"];
+  const tocEntries: Array<{ title: string; pageIndex: number; level: number }> = [];
 
   const addParagraph = (value: string, size = 9, color = COLORS.ink, width = CONTENT_WIDTH - 10) => {
     if (!selectedSections.has(activeSection)) return;
@@ -411,6 +420,7 @@ function buildLayout(payload: ReportPayload): string[] {
     const lines = fitLines(title, CONTENT_WIDTH - 24, size, 2);
     const height = Math.max(level === 1 ? 21 : 18, 8 + lines.length * (size + 2));
     ensure(height + 10);
+    tocEntries.push({ title, pageIndex: pages.length - 1, level });
     page.y -= 8;
     const top = page.y;
     rectCommand(page.commands, MARGIN, top - height + 2, level === 1 ? 5 : 3, height, level === 1 ? COLORS.blue : COLORS.border);
@@ -457,6 +467,143 @@ function buildLayout(payload: ReportPayload): string[] {
       textCommand(page.commands, MARGIN + CONTENT_WIDTH - 31, centerY - 2, `${row.value.toFixed(1)}%`, 7.1, true, COLORS.ink);
     });
     page.y = top - height - 10;
+  };
+
+  const addEvidenceChart = (
+    title: string,
+    chartType: string,
+    rows: Array<Record<string, unknown>>,
+    dimension: string | undefined,
+    secondaryDimension?: string,
+  ) => {
+    const sourceRows = rows.some((row) => row.series === "forecast") ? rows.slice(-24) : rows.slice(0, 12);
+    const points = sourceRows.map((row) => ({
+      label: chartType === "histogram"
+        ? `${cell(row.bin_start, 10)}–${cell(row.bin_end, 10)}`
+        : dimension ? cell(row[dimension], 24) : "Kết quả",
+      value: numeric(row.value),
+      series: typeof row.series === "string" ? row.series : "actual",
+    })).filter((item): item is { label: string; value: number; series: string } => item.value !== null);
+    if (!points.length) {
+      addCallout("Biểu đồ không có giá trị số hợp lệ để vẽ.", true);
+      return;
+    }
+    if (chartType === "kpi") {
+      const height = 76;
+      ensure(height + 8);
+      const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.paleBlue, COLORS.border);
+      textCommand(page.commands, MARGIN + 14, top - 18, title, 8.5, true, COLORS.navy);
+      textCommand(page.commands, MARGIN + 14, top - 51, new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(points[0].value), 22, true, COLORS.blue);
+      page.y = top - height - 10;
+      return;
+    }
+    if (chartType === "line") {
+      const height = 176;
+      ensure(height + 8);
+      const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border);
+      textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      const plotX = MARGIN + 16;
+      const plotY = top - height + 32;
+      const plotWidth = CONTENT_WIDTH - 32;
+      const plotHeight = height - 62;
+      const values = points.map((point) => point.value);
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const spread = Math.max(maxValue - minValue, 1);
+      lineCommand(page.commands, plotX, plotY, plotX + plotWidth, plotY, COLORS.border);
+      points.forEach((point, index) => {
+        if (index === 0) return;
+        const previous = points[index - 1];
+        const x1 = plotX + (index - 1) / Math.max(points.length - 1, 1) * plotWidth;
+        const x2 = plotX + index / Math.max(points.length - 1, 1) * plotWidth;
+        const y1 = plotY + (previous.value - minValue) / spread * plotHeight;
+        const y2 = plotY + (point.value - minValue) / spread * plotHeight;
+        lineCommand(page.commands, x1, y1, x2, y2, point.series === "forecast" ? COLORS.warning : COLORS.blue, 2);
+      });
+      textCommand(page.commands, plotX, plotY - 14, points[0].label, 6.6, false, COLORS.gray);
+      const lastLabel = points.at(-1)?.label || "";
+      textCommand(page.commands, plotX + plotWidth - Math.min(95, textWidth(lastLabel, 6.6)), plotY - 14, lastLabel, 6.6, false, COLORS.gray);
+      page.y = top - height - 10;
+      return;
+    }
+    if (chartType === "scatter") {
+      const density = rows.slice(0, 36).map((row) => ({ x: numeric(row.x), y: numeric(row.y), value: numeric(row.value) })).filter((point): point is { x: number; y: number; value: number } => point.x !== null && point.y !== null && point.value !== null);
+      if (!density.length) return;
+      const height = 176; ensure(height + 8); const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border);
+      textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      const plotX = MARGIN + 24; const plotY = top - height + 24; const plotWidth = CONTENT_WIDTH - 42; const plotHeight = height - 54;
+      const minX = Math.min(...density.map((point) => point.x)); const spreadX = Math.max(Math.max(...density.map((point) => point.x)) - minX, 1);
+      const minY = Math.min(...density.map((point) => point.y)); const spreadY = Math.max(Math.max(...density.map((point) => point.y)) - minY, 1); const maxCount = Math.max(...density.map((point) => point.value), 1);
+      lineCommand(page.commands, plotX, plotY, plotX + plotWidth, plotY, COLORS.gray);
+      lineCommand(page.commands, plotX, plotY, plotX, plotY + plotHeight, COLORS.gray);
+      density.forEach((point) => { const size = 2 + Math.sqrt(point.value / maxCount) * 5; const x = plotX + (point.x - minX) / spreadX * plotWidth; const y = plotY + (point.y - minY) / spreadY * plotHeight; rectCommand(page.commands, x - size / 2, y - size / 2, size, size, COLORS.blue); });
+      page.y = top - height - 10; return;
+    }
+    if (chartType === "box") {
+      const summaries = rows.slice(0, 10).map((row, index) => ({ label: cell(row.group_label ?? `Tổng thể ${index + 1}`, 20), min: numeric(row.min), q1: numeric(row.q1), median: numeric(row.median), q3: numeric(row.q3), max: numeric(row.max) })).filter((row): row is { label: string; min: number; q1: number; median: number; q3: number; max: number } => row.min !== null && row.q1 !== null && row.median !== null && row.q3 !== null && row.max !== null);
+      if (!summaries.length) return;
+      const height = 42 + summaries.length * 22; ensure(height + 8); const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border); textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      const labelWidth = 104; const plotX = MARGIN + labelWidth; const plotWidth = CONTENT_WIDTH - labelWidth - 42; const minValue = Math.min(...summaries.map((row) => row.min)); const spread = Math.max(Math.max(...summaries.map((row) => row.max)) - minValue, 1);
+      summaries.forEach((row, index) => { const y = top - 40 - index * 22; const at = (value: number) => plotX + (value - minValue) / spread * plotWidth; textCommand(page.commands, MARGIN + 8, y - 2, row.label, 7, false, COLORS.gray); lineCommand(page.commands, at(row.min), y, at(row.max), y, COLORS.gray); rectCommand(page.commands, at(row.q1), y - 6, Math.max(at(row.q3) - at(row.q1), 1), 12, COLORS.paleBlue, COLORS.blue); lineCommand(page.commands, at(row.median), y - 7, at(row.median), y + 7, COLORS.navy, 1.2); });
+      page.y = top - height - 10; return;
+    }
+    if (chartType === "donut") {
+      const shares = points.filter((point) => point.value > 0).slice(0, 12); const total = shares.reduce((sum, point) => sum + point.value, 0);
+      if (!total) return;
+      const height = Math.max(190, 44 + shares.length * 13); ensure(height + 8); const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border); textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      const palette = [COLORS.blue, COLORS.warning, "0.15 0.66 0.54", "0.50 0.37 0.82", "0.85 0.35 0.42", "0.27 0.63 0.75", "0.48 0.60 0.22", "0.82 0.42 0.68", "0.37 0.48 0.82", "0.60 0.46 0.32", "0.35 0.40 0.48", "0.50 0.65 0.92"];
+      const centerX = MARGIN + 100; const centerY = top - height / 2 - 5; let angle = -Math.PI / 2;
+      shares.forEach((point, index) => { const next = angle + point.value / total * Math.PI * 2; ringSegmentCommand(page.commands, centerX, centerY, 28, 58, angle, next, palette[index]); angle = next; const legendY = top - 42 - index * 13; rectCommand(page.commands, MARGIN + 190, legendY - 5, 7, 7, palette[index]); textCommand(page.commands, MARGIN + 203, legendY - 3, fitLines(point.label, 150, 6.8, 1)[0], 6.8, false, COLORS.gray); textCommand(page.commands, MARGIN + CONTENT_WIDTH - 42, legendY - 3, `${(point.value / total * 100).toFixed(1)}%`, 6.8, true, COLORS.ink); });
+      textCommand(page.commands, centerX - 19, centerY + 2, "Tỷ trọng", 7, true, COLORS.navy);
+      page.y = top - height - 10; return;
+    }
+    if (chartType === "violin") {
+      const groups = [...new Set(rows.map((row) => cell(row.group_label ?? "Tổng thể", 18)))].slice(0, 6);
+      const groupRows = groups.map((label) => ({ label, bins: rows.filter((row) => cell(row.group_label ?? "Tổng thể", 18) === label).slice(0, 18) }));
+      const height = 45 + groupRows.length * 68; ensure(height + 8); const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border); textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      const centerX = MARGIN + CONTENT_WIDTH * .61; const maxHalf = CONTENT_WIDTH * .27;
+      groupRows.forEach((group, groupIndex) => { const values = group.bins.map((row) => numeric(row.value) ?? 0); const localMax = Math.max(...values, 1); const baseY = top - 44 - groupIndex * 68; textCommand(page.commands, MARGIN + 8, baseY - 22, group.label, 7, true, COLORS.gray); group.bins.forEach((row, binIndex) => { const value = numeric(row.value) ?? 0; const half = value / localMax * maxHalf; const y = baseY - binIndex * Math.max(2.6, 44 / Math.max(group.bins.length, 1)); rectCommand(page.commands, centerX - half, y, Math.max(half * 2, 1), 2.2, COLORS.blue); }); });
+      page.y = top - height - 10; return;
+    }
+    if (["heatmap", "missing_heatmap", "correlation_heatmap"].includes(chartType) && dimension && secondaryDimension) {
+      const xValues = [...new Set(rows.map((row) => cell(row[dimension], 12)))].slice(0, 7); const yValues = [...new Set(rows.map((row) => cell(row[secondaryDimension], 12)))].slice(0, 7);
+      const lookup = new Map(rows.map((row) => [`${cell(row[dimension], 12)}\u0000${cell(row[secondaryDimension], 12)}`, numeric(row.value) ?? 0])); const maxValue = Math.max(...lookup.values(), 1);
+      const cellWidth = Math.min(54, (CONTENT_WIDTH - 105) / Math.max(yValues.length, 1)); const cellHeight = 25; const height = 50 + (xValues.length + 1) * cellHeight; ensure(height + 8); const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border); textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      yValues.forEach((label, index) => textCommand(page.commands, MARGIN + 100 + index * cellWidth, top - 40, label, 6.2, true, COLORS.gray));
+      xValues.forEach((xLabel, rowIndex) => { const y = top - 54 - rowIndex * cellHeight; textCommand(page.commands, MARGIN + 8, y - 9, xLabel, 6.4, true, COLORS.gray); yValues.forEach((yLabel, columnIndex) => { const value = lookup.get(`${xLabel}\u0000${yLabel}`) ?? 0; const shade = value / maxValue > .66 ? COLORS.blue : value / maxValue > .33 ? "0.55 0.66 0.96" : COLORS.paleBlue; rectCommand(page.commands, MARGIN + 96 + columnIndex * cellWidth, y - 17, cellWidth - 3, cellHeight - 3, shade, COLORS.white); textCommand(page.commands, MARGIN + 100 + columnIndex * cellWidth, y - 10, cell(value, 7), 6.2, true, COLORS.ink); }); });
+      page.y = top - height - 10; return;
+    }
+    if (["bar", "histogram", "missing_bar", "cardinality", "outlier", "map"].includes(chartType)) {
+      const height = 42 + points.length * 20;
+      ensure(height + 8);
+      const top = page.y;
+      rectCommand(page.commands, MARGIN, top - height, CONTENT_WIDTH, height, COLORS.white, COLORS.border);
+      textCommand(page.commands, MARGIN + 12, top - 17, title, 9.2, true, COLORS.navy);
+      const labelWidth = 112;
+      const plotX = MARGIN + labelWidth;
+      const plotWidth = CONTENT_WIDTH - labelWidth - 55;
+      const values = points.map((point) => point.value);
+      const domainMin = Math.min(0, ...values);
+      const domainMax = Math.max(0, ...values);
+      const spread = Math.max(domainMax - domainMin, 1);
+      const zeroX = plotX + (0 - domainMin) / spread * plotWidth;
+      points.forEach((point, index) => {
+        const centerY = top - 39 - index * 20;
+        textCommand(page.commands, MARGIN + 8, centerY - 2, fitLines(point.label, labelWidth - 14, 7.1, 1)[0], 7.1, false, COLORS.gray);
+        const valueX = plotX + (point.value - domainMin) / spread * plotWidth;
+        rectCommand(page.commands, Math.min(zeroX, valueX), centerY - 7, Math.max(Math.abs(valueX - zeroX), 1), 10, point.value < 0 ? "0.75 0.24 0.34" : COLORS.blue);
+        textCommand(page.commands, MARGIN + CONTENT_WIDTH - 44, centerY - 2, cell(point.value, 10), 7.1, true, COLORS.ink);
+      });
+      lineCommand(page.commands, zeroX, top - height + 8, zeroX, top - 30, COLORS.gray, 0.5);
+      page.y = top - height - 10;
+    }
   };
 
   const addTable = (headers: string[], rows: string[][], widths: number[]) => {
@@ -555,16 +702,28 @@ function buildLayout(payload: ReportPayload): string[] {
       } else if (item.item_type === "chart") {
         if (item.query_spec) addParagraph(`Truy vấn: ${cell(item.query_spec, 220)}`, 8, COLORS.gray);
         const result = item.content_json?.result as { columns?: unknown; data?: unknown } | undefined;
+        const chartSpec = item.content_json?.chart_spec as { chart_type?: unknown; x_column?: unknown; y_column?: unknown } | undefined;
         const rows = Array.isArray(result?.data)
           ? result.data.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === "object" && !Array.isArray(row))
           : [];
         const columns = Array.isArray(result?.columns)
           ? result.columns.filter((column): column is string => typeof column === "string").slice(0, 6)
           : (rows[0] ? Object.keys(rows[0]).slice(0, 6) : []);
+        const chartType = typeof chartSpec?.chart_type === "string" ? chartSpec.chart_type : "table";
+        const dimension = typeof chartSpec?.x_column === "string" ? chartSpec.x_column : undefined;
+        const secondaryDimension = typeof chartSpec?.y_column === "string" ? chartSpec.y_column : undefined;
+        if (["bar", "line", "kpi", "histogram", "scatter", "box", "heatmap", "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality", "violin", "donut", "outlier", "map"].includes(chartType)) {
+          addEvidenceChart(itemTitle, chartType, rows, dimension, secondaryDimension);
+        }
         if (columns.length && rows.length) {
           addTable(columns, rows.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48))), equalWidths(columns.length));
           if (rows.length > 25) addParagraph(`Hiển thị 25 dòng đầu trên tổng số ${rows.length} dòng kết quả đã ghim.`, 8, COLORS.gray);
         } else addCallout("Kết quả Explorer đã ghim không có dữ liệu dạng bảng.");
+        const insight = item.content_json?.insight;
+        if (typeof insight === "string" && insight.trim()) {
+          addHeading("Insight đã duyệt", 3);
+          addAgentSummary(insight);
+        }
       } else {
         addParagraph(item.note || "Ghi chú này không có nội dung để xuất.");
       }
@@ -674,7 +833,48 @@ function buildLayout(payload: ReportPayload): string[] {
 
   addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với snapshot Report Draft và bằng chứng Explorer liên quan. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
 
+  // Generate Table of Contents (TOC) page
+  if (tocEntries.length > 0) {
+    const tocPage: Page = { commands: [], y: PAGE_HEIGHT - 64 };
+    rectCommand(tocPage.commands, 0, PAGE_HEIGHT - 34, PAGE_WIDTH, 34, COLORS.navy);
+    textCommand(tocPage.commands, MARGIN, PAGE_HEIGHT - 22, "VDaAgent  |  MỤC LỤC BÁO CÁO", 8, true, COLORS.white);
+    textCommand(tocPage.commands, PAGE_WIDTH - MARGIN - 126, PAGE_HEIGHT - 22, "Table of Contents", 7, false, "0.82 0.88 0.96");
+
+    rectCommand(tocPage.commands, MARGIN, PAGE_HEIGHT - 110, CONTENT_WIDTH, 36, COLORS.paleBlue, COLORS.border);
+    textCommand(tocPage.commands, MARGIN + 16, PAGE_HEIGHT - 88, "MỤC LỤC CHI TIẾT (TABLE OF CONTENTS)", 11, true, COLORS.navy);
+
+    let tocY = PAGE_HEIGHT - 140;
+    const maxTocY = BOTTOM + 20;
+
+    tocEntries.filter((entry) => entry.level <= 2).forEach((entry) => {
+      if (tocY < maxTocY) return;
+      const targetPage = entry.pageIndex + 2; // +1 (1-indexed) +1 (TOC page inserted at index 1)
+      const indent = entry.level === 1 ? 0 : 16;
+      const fontSize = entry.level === 1 ? 9 : 8;
+      const isBold = entry.level === 1;
+      const color = entry.level === 1 ? COLORS.navy : COLORS.ink;
+      
+      const maxTitleWidth = CONTENT_WIDTH - indent - 75;
+      const fitted = fitLines(entry.title, maxTitleWidth, fontSize, 1)[0] || entry.title;
+      textCommand(tocPage.commands, MARGIN + indent, tocY, fitted, fontSize, isBold, color);
+      textCommand(tocPage.commands, PAGE_WIDTH - MARGIN - 50, tocY, `Trang ${targetPage}`, fontSize, isBold, COLORS.blue);
+
+      if (entry.level === 1) {
+        lineCommand(tocPage.commands, MARGIN, tocY - 4, PAGE_WIDTH - MARGIN, tocY - 4, COLORS.border, 0.4);
+        tocY -= 22;
+      } else {
+        tocY -= 16;
+      }
+    });
+
+    // Insert TOC page directly after Cover page (index 1)
+    pages.splice(1, 0, tocPage);
+  }
+
   return pages.map((item, index) => {
+    if (index === 0) {
+      return item.commands.join("\n");
+    }
     textCommand(item.commands, MARGIN, 24, "Bảo mật  |  Bản xuất đã che PII", 7.2, false, COLORS.gray);
     textCommand(item.commands, PAGE_WIDTH - MARGIN - 62, 24, `Trang ${index + 1} / ${pages.length}`, 7.2, false, COLORS.gray);
     item.commands.push(`q ${COLORS.border} RG 0.6 w ${MARGIN} 36 m ${PAGE_WIDTH - MARGIN} 36 l S Q`);

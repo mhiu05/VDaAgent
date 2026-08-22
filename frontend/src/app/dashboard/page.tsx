@@ -38,6 +38,8 @@ export default function DashboardPage() {
     queryKey: ["dashboard", me?.workspace.id],
     queryFn: () => getDashboard<Dashboard>(),
     enabled: Boolean(me),
+    staleTime: 30_000,
+    gcTime: 10 * 60_000,
   });
 
   if (loading) return <main className="dashboard-page"><section className="dashboard-loading" aria-live="polite"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>{"\u0110ang m\u1edf workspace..."}</b><p>{"\u0110ang chu\u1ea9n b\u1ecb d\u1eef li\u1ec7u v\u00e0 quy\u1ec1n truy c\u1eadp."}</p></div></section></main>;

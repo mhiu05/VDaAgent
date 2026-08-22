@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
+# pyrefly: ignore [missing-import]
 import httpx
 from src.config import Settings, get_settings
 from src.services.tabular_source import utf8_tabular_source
@@ -68,7 +69,9 @@ class SupabaseStorage:
                 "Thiếu SUPABASE_URL hoặc SUPABASE_SECRET_KEY."
             )
         try:
+            # pyrefly: ignore [missing-import]
             from supabase import create_client
+            # pyrefly: ignore [missing-import]
             from supabase.lib.client_options import SyncClientOptions
         except ImportError as exc:  # pragma: no cover - depends on deployment extras
             raise StorageNotConfiguredError(
@@ -288,9 +291,13 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         os.close(fd)
         temp_path = Path(temp_name)
         try:
-            GoogleDriveStorage(settings).download(workspace_id, file_id, temp_path)
+            try:
+                GoogleDriveStorage(settings).download(workspace_id, file_id, temp_path)
+            except Exception as exc:
+                raise OSError(f"Lỗi tải dữ liệu từ Google Drive: {exc}") from exc
             with utf8_tabular_source(temp_path) as readable_path:
                 yield readable_path
+
         finally:
             temp_path.unlink(missing_ok=True)
         return

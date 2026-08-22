@@ -466,6 +466,7 @@ class HealthResponse(BaseModel):
     app: str
     env: str
     llm_configured: bool
+    command_center_enabled: bool
 
 
 class ErrorResponse(BaseModel):

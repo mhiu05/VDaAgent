@@ -6,7 +6,6 @@ import asyncio
 
 import httpx
 import pytest
-
 from src.api import authz_routes
 from src.config import Settings
 from src.services.auth import AuthContext, JWTVerificationError, SupabaseJWTVerifier
@@ -128,3 +127,52 @@ def test_session_provisions_personal_workspace_for_new_confirmed_user(
         "analyst",
     )
     assert response["workspace"] == {"id": "workspace-1", "role": "analyst"}
+
+
+def test_workspace_bootstrap_combines_authorized_session_and_dashboard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Repository:
+        selected_workspace_id: str | None = None
+
+        def dashboard_summary(self, workspace_id: str) -> dict[str, object]:
+            self.selected_workspace_id = workspace_id
+            return {
+                "kind": "analyst",
+                "counts": {"datasets": 0, "profiles": 0, "reports": 0},
+                "reports": [],
+            }
+
+    async def session_snapshot(
+        _user: AuthContext, _workspace_header: str | None
+    ) -> dict[str, object]:
+        return {
+            "user": {"id": "user-1", "email": "analyst@example.com"},
+            "workspace": {"id": "workspace-1", "role": "analyst"},
+            "effective_permissions": [],
+            "workspaces": [],
+        }
+
+    repository = Repository()
+    monkeypatch.setattr(authz_routes, "session", session_snapshot)
+    monkeypatch.setattr(authz_routes, "get_repository", lambda: repository)
+
+    response = asyncio.run(
+        authz_routes.workspace_bootstrap(
+            AuthContext(
+                user_id="user-1",
+                email="analyst@example.com",
+                session_id="session-1",
+                aal="aal1",
+                raw_claims={"role": "authenticated"},
+            ),
+            workspace_header=None,
+        )
+    )
+
+    assert repository.selected_workspace_id == "workspace-1"
+    assert response["dashboard"] == {
+        "kind": "analyst",
+        "counts": {"datasets": 0, "profiles": 0, "reports": 0},
+        "reports": [],
+    }

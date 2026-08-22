@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import func, select
 from src.api.dependencies import RequestContext, get_current_user, require_permission
 from src.config import get_settings
 from src.models.auth_schemas import (
@@ -44,12 +43,7 @@ from src.services.report_draft_repository import (
     IdempotencyConflictError,
     get_report_draft_repository,
 )
-from src.services.repository import (
-    datasets,
-    get_repository,
-    profile_runs,
-    reports,
-)
+from src.services.repository import get_repository
 from src.services.security import get_audit
 from src.services.workspace_configuration_repository import (
     ConfigurationStaleError,
@@ -74,23 +68,18 @@ def _require_command_center() -> None:
 
 
 def _workspace_items(repo: Any, user_id: str) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for membership in repo.list_active_memberships_for_user(user_id):
-        workspace = repo.get_workspace(str(membership["workspace_id"]))
-        if workspace and workspace.get("status") == "active":
-            settings = workspace.get("settings") or {}
-            items.append(
-                {
-                    "id": workspace["id"],
-                    "name": workspace["name"],
-                    "slug": workspace["slug"],
-                    "role": canonical_role(str(membership["role"])),
-                    "created_by_user_id": workspace["created_by_user_id"],
-                    "is_project": isinstance(settings, dict)
-                    and bool(settings.get("project_workspace")),
-                }
-            )
-    return items
+    return [
+        {
+            "id": membership["workspace_id"],
+            "name": membership["name"],
+            "slug": membership["slug"],
+            "role": canonical_role(str(membership["role"])),
+            "created_by_user_id": membership["created_by_user_id"],
+            "is_project": isinstance(membership.get("settings"), dict)
+            and bool(membership["settings"].get("project_workspace")),
+        }
+        for membership in repo.list_active_workspace_membership_contexts(user_id)
+    ]
 
 
 @router.get("/session")
@@ -145,25 +134,44 @@ async def session(
     }
 
 
+@router.get("/workspace-bootstrap")
+async def workspace_bootstrap(
+    user: AuthContext = Depends(get_current_user),
+    workspace_header: str | None = Header(default=None, alias="X-Workspace-Id"),
+) -> dict[str, Any]:
+    """Return session and dashboard data together to avoid browser waterfall."""
+    snapshot = await session(user, workspace_header)
+    if REPORT_PUBLISHED_READ not in permissions_for_role(snapshot["workspace"]["role"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "insufficient_permission",
+                "permission": REPORT_PUBLISHED_READ,
+            },
+        )
+    snapshot["dashboard"] = get_repository().dashboard_summary(
+        snapshot["workspace"]["id"]
+    )
+    return snapshot
+
+
 @router.get("/me")
 async def me(
     context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ)),
 ) -> dict[str, Any]:
     repo = get_repository()
-    memberships = repo.list_active_memberships_for_user(context.user_id)
-    workspaces = []
-    for membership in memberships:
-        workspace = repo.get_workspace(str(membership["workspace_id"]))
-        if workspace:
-            workspaces.append(
-                {
-                    "id": workspace["id"],
-                    "name": workspace["name"],
-                    "slug": workspace["slug"],
-                    "role": membership["role"],
-                    "status": membership["status"],
-                }
-            )
+    workspaces = [
+        {
+            "id": membership["workspace_id"],
+            "name": membership["name"],
+            "slug": membership["slug"],
+            "role": membership["role"],
+            "status": "active",
+        }
+        for membership in repo.list_active_workspace_membership_contexts(
+            context.user_id
+        )
+    ]
     return {
         "user": {"id": context.user_id, "email": context.actor.email},
         "workspace": {"id": context.workspace_id, "role": context.workspace.role},
@@ -591,9 +599,19 @@ async def get_published_report_export_source(
     from src.api.routes import _report_profile
 
     payload = _report_profile(run_id, str(report["workspace_id"]), sections)
-    snapshot = get_report_draft_repository().latest_snapshot(
-        report_id, context.workspace_id
-    )
+    repo = get_report_draft_repository()
+    snapshot = repo.latest_snapshot(report_id, context.workspace_id)
+    if not snapshot:
+        draft = repo.get_draft(report_id, context.workspace_id)
+        if draft:
+            snapshot = {
+                "id": draft["id"],
+                "title": draft.get("title"),
+                "version": draft.get("version", 1),
+                "snapshot_hash": "draft",
+                "snapshot_at": draft.get("updated_at"),
+                "items": draft.get("items", []),
+            }
     if snapshot:
         payload["report_snapshot"] = snapshot
     _audit(
@@ -648,7 +666,7 @@ async def pin_report_item(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit(
         context,
@@ -881,33 +899,4 @@ async def dashboard(
     context: RequestContext = Depends(require_permission(REPORT_PUBLISHED_READ)),
 ) -> dict[str, Any]:
     """Small Analyst read model; it intentionally excludes raw rows."""
-    repo = get_repository()
-    with repo.engine.begin() as conn:
-        counts = {
-            "datasets": int(
-                conn.execute(
-                    select(func.count())
-                    .select_from(datasets)
-                    .where(datasets.c.workspace_id == context.workspace_id)
-                ).scalar()
-                or 0
-            ),
-            "profiles": int(
-                conn.execute(
-                    select(func.count())
-                    .select_from(profile_runs)
-                    .where(profile_runs.c.workspace_id == context.workspace_id)
-                ).scalar()
-                or 0
-            ),
-            "reports": int(
-                conn.execute(
-                    select(func.count())
-                    .select_from(reports)
-                    .where(reports.c.workspace_id == context.workspace_id)
-                ).scalar()
-                or 0
-            ),
-        }
-    workspace_reports = repo.list_reports(context.workspace_id)
-    return {"kind": "analyst", "counts": counts, "reports": workspace_reports}
+    return get_repository().dashboard_summary(context.workspace_id)

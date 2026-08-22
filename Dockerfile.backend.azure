@@ -4,6 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8000
 
+
+    
 WORKDIR /app
 
 # curl is used by the container health check. Build tools remain only in the

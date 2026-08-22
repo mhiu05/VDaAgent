@@ -10,17 +10,18 @@ const trialRole: { value: GuestRole; label: string } = { value: "analyst", label
 
 export function PublicNavbar() {
   const pathname = usePathname();
-  const { authenticated, isGuest, guestRole, me, enterGuestRole, signOut } = useAuth();
+  const { authenticated, isGuest, guestRole, me, enterGuestRole, signOut, loading } = useAuth();
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [avatarOpen, setAvatarOpen] = useState(false);
   const currentRole = me?.workspace.role;
-  const isOverviewPage = pathname === "/" || pathname.startsWith("/guide");
+  const isOverviewPage = pathname === "/" || pathname.startsWith("/guide") || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact");
   const isHomePage = pathname === "/";
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
   // Keep the trial role switcher visible on all public entry points. This is
   // especially important on login/signup: visitors may decide to try a role
   // without completing account authentication first.
-  const showTrialRoles = isHomePage || isAuthPage || !authenticated;
-  const showRoleGroup = showTrialRoles || authenticated;
+  const showTrialRoles = !loading && !authenticated;
+  const showRoleGroup = showTrialRoles;
   const useGuestNavbar = isGuest && !isOverviewPage && !isAuthPage;
 
   useEffect(() => {
@@ -33,6 +34,16 @@ export function PublicNavbar() {
         : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     setTheme(nextTheme);
     document.documentElement.dataset.theme = nextTheme === "dark" ? "dark" : "light";
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (!(e.target as Element).closest('.nav-avatar-container')) {
+        setAvatarOpen(false);
+      }
+    }
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
   function toggleTheme() {
@@ -51,7 +62,10 @@ export function PublicNavbar() {
       <nav className="public-nav" style={{ marginLeft: 0 }}>
         <div className="public-nav-group">
           <Link className={pathname === "/" ? "active" : ""} href="/">Trang chủ</Link>
-          <Link className={pathname.startsWith("/guide") ? "active" : ""} href="/guide">Hướng dẫn sử dụng</Link>
+          <Link className={pathname.startsWith("/about") ? "active" : ""} href="/about">Giới thiệu</Link>
+          <Link className={pathname.startsWith("/guide") ? "active" : ""} href="/guide">Hướng dẫn</Link>
+          <Link className={pathname.startsWith("/docs") ? "active" : ""} href="/docs">Tài liệu</Link>
+          <Link className={pathname.startsWith("/contact") ? "active" : ""} href="/contact">Liên hệ</Link>
         </div>
         {showRoleGroup && <>
           <span className="public-nav-separator" aria-hidden="true">|</span>
@@ -68,14 +82,24 @@ export function PublicNavbar() {
     <nav className="public-nav" aria-label="Public navigation actions">
       <div className="public-nav-group public-nav-actions">
         <button type="button" className="public-theme-toggle" onClick={toggleTheme} aria-label={theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} aria-pressed={theme === "dark"}><span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span><small>{theme === "dark" ? "Sáng" : "Tối"}</small></button>
-        {authenticated ? <>
-          <Link className="public-nav-signin" href="/dashboard">Dashboard</Link>
-          <button type="button" className="button primary public-nav-signup" onClick={() => void signOut()}>Đăng xuất</button>
+        {loading ? null : authenticated ? <>
+          <Link className="button primary public-nav-signup" href="/dashboard">Workspace</Link>
+          <div className="nav-avatar-container">
+            <button type="button" className="nav-avatar-btn" onClick={() => setAvatarOpen(!avatarOpen)} aria-label="Toggle user menu">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </button>
+            <div className={`nav-dropdown-menu ${avatarOpen ? 'open' : ''}`}>
+              <Link href="/profile" className="nav-dropdown-item" onClick={() => setAvatarOpen(false)}>Hồ sơ</Link>
+              <Link href="/settings" className="nav-dropdown-item" onClick={() => setAvatarOpen(false)}>Cài đặt</Link>
+              <div className="nav-dropdown-divider"></div>
+              <button type="button" className="nav-dropdown-item" onClick={() => void signOut()}>Đăng xuất</button>
+            </div>
+          </div>
         </> : isGuest ? <>
-          <button type="button" className="public-nav-signin" onClick={() => void signOut()}>Kết thúc dùng thử</button>
+          <button type="button" className="button primary public-nav-signup" onClick={() => void signOut()}>Kết thúc dùng thử</button>
           <Link className="button primary public-nav-signup" href="/signup">Đăng ký</Link>
         </> : <>
-          <Link className="public-nav-signin" href="/login">Đăng nhập</Link>
+          <Link className="button primary public-nav-signup" href="/login">Đăng nhập</Link>
           <Link className="button primary public-nav-signup" href="/signup">Đăng ký</Link>
         </>}
       </div>

@@ -73,6 +73,7 @@ export default function NewDatasetPage() {
     };
     const handleWindowFocus = () => {
       void refreshDriveStatus();
+      setDriveConnecting(false);
     };
     window.addEventListener("message", handleDriveMessage);
     window.addEventListener("focus", handleWindowFocus);
@@ -84,7 +85,7 @@ export default function NewDatasetPage() {
 
   useEffect(() => {
     if (driveStatus?.connected) setDriveConnecting(false);
-  }, [driveStatus?.connected]);
+  }, [driveStatus]);
 
   function selectFiles(next: File[]) {
     setError(null);

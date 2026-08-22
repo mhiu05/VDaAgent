@@ -41,21 +41,32 @@ jobs:
           ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+          AZURE_ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
+          AZURE_BACKEND_APP: ${{ vars.AZURE_BACKEND_APP }}
+          AZURE_FRONTEND_APP: ${{ vars.AZURE_FRONTEND_APP }}
+          AZURE_BACKEND_URL: ${{ vars.AZURE_BACKEND_URL }}
+          AZURE_FRONTEND_URL: ${{ vars.AZURE_FRONTEND_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          AUTH_ALLOW_SIGNUP: ${{ vars.AUTH_ALLOW_SIGNUP }}
+          AUTH_ALLOW_GUEST: ${{ vars.AUTH_ALLOW_GUEST }}
         run: |
           set -euo pipefail
           for name in \
             AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
             ACR_PULL_USERNAME ACR_PULL_PASSWORD \
             DATABASE_URL SUPABASE_SECRET_KEY \
-            NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
-            test -n "${!name}" || { echo "Missing production secret: $name"; exit 1; }
+            LLM_API_KEY \
+            AZURE_RESOURCE_GROUP AZURE_ACR_NAME AZURE_ACR_LOGIN_SERVER \
+            AZURE_BACKEND_APP AZURE_FRONTEND_APP AZURE_BACKEND_URL AZURE_FRONTEND_URL \
+            SUPABASE_URL SUPABASE_PUBLISHABLE_KEY AUTH_ALLOW_SIGNUP AUTH_ALLOW_GUEST; do
+            test -n "${!name}" || { echo "Missing production secret or variable: $name"; exit 1; }
           done
           if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
             for name in \
@@ -170,18 +181,42 @@ jobs:
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}
-          AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
-          GUEST_STORAGE_PROVIDER: ${{ vars.GUEST_STORAGE_PROVIDER || 'supabase' }}
-          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
-          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
-          GOOGLE_DRIVE_REDIRECT_URI: ${{ vars.GOOGLE_DRIVE_REDIRECT_URI }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY }}
-          GOOGLE_DRIVE_FRONTEND_URL: ${{ vars.GOOGLE_DRIVE_FRONTEND_URL }}
-          ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
-          ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
+          CORS_ORIGINS: ${{ vars.AZURE_FRONTEND_URL }}
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          AUTH_ALLOW_SIGNUP: ${{ vars.AUTH_ALLOW_SIGNUP }}
+          AUTH_ALLOW_GUEST: ${{ vars.AUTH_ALLOW_GUEST }}
+        with:
+          inlineScript: |
+            set -euo pipefail
+            previous="$(az webapp config show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" --query linuxFxVersion --output tsv)"
+            echo "image=${previous#DOCKER|}" >> "$GITHUB_OUTPUT"
+            az webapp config appsettings set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" --output none --settings \
+              APP_ENV=production APP_LOG_LEVEL=INFO APP_HOST=0.0.0.0 APP_PORT=8000 WEBSITES_PORT=8000 \
+              CORS_ORIGINS="$CORS_ORIGINS" DATABASE_URL="$DATABASE_URL" DATABASE_CHECKPOINTER_URL="$DATABASE_CHECKPOINTER_URL" \
+              AUTH_MODE=supabase AUTH_ALLOW_SIGNUP="$AUTH_ALLOW_SIGNUP" AUTH_ALLOW_GUEST="$AUTH_ALLOW_GUEST" AUTH_REQUIRE_EMAIL_CONFIRMED=true \
+              SUPABASE_AUTH_AUDIENCE=authenticated SUPABASE_URL="$SUPABASE_URL" SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" \
+              STORAGE_PROVIDER=supabase GUEST_STORAGE_PROVIDER=supabase SUPABASE_STORAGE_BUCKET=p170-dataset SUPABASE_STORAGE_PREFIX=datasets \
+              LLM_PROVIDER=gemini LLM_MODEL=gemini-3.6-flash LLM_API_KEY="$LLM_API_KEY" LANGSMITH_TRACING="${LANGSMITH_TRACING:-false}" LANGSMITH_API_KEY="$LANGSMITH_API_KEY" LANGSMITH_PROJECT="${LANGSMITH_PROJECT:-p170-prod}" AGENT_TRACE_MODE=shadow \
+              UX_COMMAND_CENTER_ENABLED=true
+            az webapp update --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" --https-only true --output none
+            plan_id="$(az webapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" --query appServicePlanId --output tsv)"
+            tier="$(az appservice plan show --ids "$plan_id" --query sku.tier --output tsv)"
+            if [ "$tier" != "Free" ] && [ "$tier" != "Shared" ]; then
+              az webapp config set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" --always-on true --health-check-path /health --output none
+            fi
+            az webapp config container set --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_BACKEND_APP" \
+              --container-image-name "$AZURE_ACR_LOGIN_SERVER/backend:${{ github.sha }}" \
+              --container-registry-url "https://$AZURE_ACR_LOGIN_SERVER" --output none
+
+      - name: Wait for backend health
+        id: backend_health
+        continue-on-error: true
+        env:
+          AZURE_BACKEND_URL: ${{ vars.AZURE_BACKEND_URL }}
         run: |
           set -euo pipefail
           docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \

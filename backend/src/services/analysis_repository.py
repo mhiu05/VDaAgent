@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+# pyrefly: ignore [missing-import]
 from sqlalchemy import func, select
 from src.services.repository import (
     Repository,

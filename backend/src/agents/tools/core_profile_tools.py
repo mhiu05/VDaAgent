@@ -11,6 +11,7 @@ from src.agents.tools.common import (
     active_run,
     column_stats,
     error,
+    get_column_suggestions,
     ok,
     page,
     resolve_column,
@@ -174,12 +175,22 @@ def get_column_profile(
         return error(
             "get_column_profile", "not_found", "Active profile run was not found."
         )
-    resolved = resolve_column(column_stats(run_id), column_name)
+    stats_map = column_stats(run_id)
+    resolved = resolve_column(stats_map, column_name)
     if not resolved:
+        suggestions = get_column_suggestions(stats_map, column_name)
+        guidance = (
+            f"Column '{column_name}' was not found. Close matches: {suggestions}. "
+            "Please invoke get_column_profile with one of these names or check list_columns."
+            if suggestions
+            else f"Column '{column_name}' was not found in dataset. Use list_columns to see available columns."
+        )
         return error(
             "get_column_profile",
             "not_found",
             f"Column '{column_name}' was not found.",
+            suggestions=suggestions,
+            self_correction_guidance=guidance,
         )
     name, stats = resolved
     allowed = {

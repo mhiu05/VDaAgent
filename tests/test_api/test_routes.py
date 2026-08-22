@@ -35,13 +35,14 @@ def test_health(client: TestClient) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["env"] == "test"
+    assert body["command_center_enabled"] is True
 
 
 def test_status_reports_missing_config(client: TestClient) -> None:
     """Không có API key thì `/status` phải nói ra, không im lặng."""
     body = client.get("/api/v1/status").json()
     assert body["llm_configured"] is False
-    assert "OPENAI_API_KEY" in body["missing_config"]
+    assert "GEMINI_API_KEY" in body["missing_config"]
     # Hai mặc định an toàn của hệ (eval C-01, C-02).
     assert body["mask_pii_in_answers"] is True
     assert body["allow_raw_export"] is False
@@ -164,6 +165,24 @@ def test_report_author_cannot_delete_published_report(
     deleted = client.delete(f"/api/v1/reports/{report_id}")
     assert deleted.status_code == 409, deleted.text
     assert client.get(f"/api/v1/reports/{report_id}").status_code == 200
+
+
+def test_report_export_source_uses_current_draft_before_first_snapshot(
+    client: TestClient, reviewed_profile_run: dict
+) -> None:
+    """A report detail page must be readable before the first snapshot exists."""
+    run_id = reviewed_profile_run["profile_run_id"]
+    draft_response = client.get(f"/api/v1/profile/{run_id}/report-draft")
+    assert draft_response.status_code == 200, draft_response.text
+    draft = draft_response.json()
+
+    export_response = client.get(f"/api/v1/reports/{draft['id']}/export-source")
+    assert export_response.status_code == 200, export_response.text
+    snapshot = export_response.json()["report_snapshot"]
+    assert snapshot["id"] == draft["id"]
+    assert snapshot["snapshot_hash"] == "draft"
+    assert snapshot["version"] == draft["draft_version"]
+    assert snapshot["items"] == draft["items"]
 
 
 # --------------------------------------------------------------------------- #

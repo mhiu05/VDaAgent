@@ -72,7 +72,7 @@ MAX_DEEP_ANALYSIS = 5
 def build_checkpointer() -> Any:
     """Tạo PostgreSQL checkpointer theo `settings.checkpointer_url` (ADR-009)."""
     settings = get_settings()
-    url = settings.checkpointer_url
+    url = settings.checkpointer_url()
     if not url.startswith(("postgresql://", "postgres://")):
         raise RuntimeError(
             "DATABASE_CHECKPOINTER_URL phải là PostgreSQL cho LangGraph."

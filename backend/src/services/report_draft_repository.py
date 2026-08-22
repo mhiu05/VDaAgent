@@ -14,7 +14,6 @@ from src.services.repository import (
     agent_runs,
     analysis_sessions,
     analysis_sources,
-    evidence_items,
     query_executions,
     report_items,
     report_versions,
@@ -40,6 +39,171 @@ class ReportDraftRepository:
     def __init__(self, repository: Repository) -> None:
         self.repository = repository
         self.engine = repository.engine
+
+    @staticmethod
+    def _validated_chart_spec(
+        spec: dict[str, Any] | None, execution: dict[str, Any]
+    ) -> dict[str, Any]:
+        query = dict(execution.get("query_spec") or {})
+        dimensions = list(query.get("dimensions") or [])
+        analysis_kind = str(query.get("analysis_kind") or "aggregate")
+        if analysis_kind == "histogram":
+            expected_x = query.get("column")
+            expected_y = None
+        elif analysis_kind == "scatter":
+            expected_x = query.get("x_column")
+            expected_y = query.get("y_column")
+        elif analysis_kind == "box":
+            expected_x = str(dimensions[0]) if dimensions else query.get("column")
+            expected_y = query.get("column")
+        elif analysis_kind == "heatmap":
+            expected_x = str(dimensions[0]) if dimensions else None
+            expected_y = str(dimensions[1]) if len(dimensions) > 1 else None
+        elif analysis_kind == "forecast":
+            expected_x = str(dimensions[0]) if dimensions else None
+            expected_y = query.get("column")
+        elif analysis_kind in {"missing_bar", "cardinality", "outlier"}:
+            expected_x = "column"
+            expected_y = None
+        elif analysis_kind in {"missing_heatmap", "correlation_heatmap"}:
+            expected_x = "x"
+            expected_y = "y"
+        elif analysis_kind in {"violin", "donut"}:
+            expected_x = str(dimensions[0]) if dimensions else None
+            expected_y = query.get("column")
+        else:
+            expected_x = str(dimensions[0]) if dimensions else None
+            expected_y = query.get("column")
+        expected = {
+            "analysis_kind": analysis_kind,
+            "x_column": expected_x,
+            "y_column": expected_y,
+            "aggregation": query.get("aggregate"),
+            "time_grain": query.get("time_grain"),
+            "bins": query.get("bins")
+            if analysis_kind in {"histogram", "scatter", "violin"}
+            else None,
+            "forecast_algorithm": query.get("forecast_algorithm")
+            if analysis_kind == "forecast"
+            else None,
+            "forecast_horizon": query.get("forecast_horizon")
+            if analysis_kind == "forecast"
+            else None,
+            "season_length": query.get("season_length")
+            if analysis_kind == "forecast"
+            else None,
+        }
+        normalized = dict(spec or {})
+        chart_type = str(
+            normalized.get("chart_type") or ("bar" if dimensions else "kpi")
+        )
+        if chart_type not in {
+            "kpi",
+            "bar",
+            "line",
+            "table",
+            "histogram",
+            "scatter",
+            "box",
+            "heatmap",
+            "missing_bar",
+            "missing_heatmap",
+            "correlation_heatmap",
+            "cardinality",
+            "violin",
+            "donut",
+            "outlier",
+        }:
+            raise ValueError("chart_type is not allowed.")
+        compatible_renderers = {
+            "line": {"native-svg"},
+            "bar": {"native-css"},
+            "table": {"native-html"},
+            "kpi": {"native-kpi"},
+            "histogram": {"native-svg"},
+            "scatter": {"native-svg"},
+            "box": {"native-svg"},
+            "heatmap": {"native-grid"},
+            "missing_bar": {"native-css"},
+            "missing_heatmap": {"native-grid"},
+            "correlation_heatmap": {"native-grid"},
+            "cardinality": {"native-css"},
+            "violin": {"native-svg"},
+            "donut": {"native-svg"},
+            "outlier": {"native-css"},
+        }
+        renderer = str(normalized.get("renderer") or "")
+        if renderer not in compatible_renderers[chart_type]:
+            raise ValueError("ChartSpec renderer is not compatible with chart_type.")
+        for key, value in expected.items():
+            normalized[key] = value
+        if chart_type in {"bar", "line"} and not normalized["x_column"]:
+            normalized["x_column"] = expected_x or (dimensions[0] if dimensions else "total")
+        if chart_type == "kpi" and normalized["x_column"]:
+            normalized["x_column"] = None
+        expected_chart_type = {
+            "histogram": "histogram",
+            "scatter": "scatter",
+            "box": "box",
+            "heatmap": "heatmap",
+            "forecast": "line",
+            "missing_bar": "missing_bar",
+            "missing_heatmap": "missing_heatmap",
+            "correlation_heatmap": "correlation_heatmap",
+            "cardinality": "cardinality",
+            "violin": "violin",
+            "donut": "donut",
+            "outlier": "outlier",
+        }.get(analysis_kind)
+        if expected_chart_type and chart_type != expected_chart_type and analysis_kind != "aggregate":
+            chart_type = expected_chart_type
+        normalized["chart_type"] = chart_type
+        normalized["renderer"] = renderer or compatible_renderers.get(chart_type, {"native-css"}).copy().pop()
+        return normalized
+
+    @staticmethod
+    def _validated_chart_insight(content: Any) -> dict[str, Any]:
+        if content is None:
+            return {}
+        if not isinstance(content, dict):
+            raise TypeError("Chart insight content must be an object.")
+        insight = content.get("insight")
+        if not isinstance(insight, str) or not insight.strip():
+            return {}
+        insight = insight.strip()
+        if len(insight) > 50_000:
+            insight = insight[:50_000]
+        return {"insight": insight, "insight_reviewed": True}
+
+    @staticmethod
+    def _validated_agent(
+        conn: Any,
+        *,
+        agent_run_id: str | None,
+        workspace_id: str,
+        profile_run_id: str,
+        required_execution_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not agent_run_id:
+            return {}
+        agent = (
+            conn.execute(
+                select(agent_runs).where(
+                    agent_runs.c.id == agent_run_id,
+                    agent_runs.c.workspace_id == workspace_id,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not agent:
+            return {}
+        bindings = dict(agent["resource_bindings"] or {})
+        if bindings.get("profile_run_id") and bindings.get("profile_run_id") != profile_run_id:
+            raise ValueError(
+                "Agent insight belongs to a different profile run."
+            )
+        return dict(agent)
 
     @staticmethod
     def _configuration(
@@ -159,7 +323,8 @@ class ReportDraftRepository:
             "version_id": version["id"],
             "items": items,
             "stale_reasons": sorted(set(stale)),
-            "snapshot_hash": version.get("snapshot_hash") or (latest_snapshot or {}).get("snapshot_hash"),
+            "snapshot_hash": version.get("snapshot_hash")
+            or (latest_snapshot or {}).get("snapshot_hash"),
             "snapshot_version": (latest_snapshot or {}).get("version"),
         }
 
@@ -264,14 +429,6 @@ class ReportDraftRepository:
                 .mappings()
                 .first()
             )
-            if existing:
-                if existing["item_type"] != payload["item_type"] or existing[
-                    "query_execution_id"
-                ] != payload.get("query_execution_id"):
-                    raise IdempotencyConflictError(
-                        "idempotency_conflict: key has a different payload"
-                    )
-                return self._payload(conn, report, version)
             item_type = payload["item_type"]
             execution: dict[str, Any] | None = None
             if item_type == "chart":
@@ -304,43 +461,74 @@ class ReportDraftRepository:
                     raise ValueError(
                         "Only an official execution for this profile can be pinned."
                     )
+                chart_spec = self._validated_chart_spec(
+                    payload.get("chart_spec"), execution
+                )
+                insight_content = {}
+                if payload.get("content") is not None or payload.get("agent_run_id"):
+                    insight_content = self._validated_chart_insight(
+                        payload.get("content")
+                    )
+                    self._validated_agent(
+                        conn,
+                        agent_run_id=payload.get("agent_run_id"),
+                        workspace_id=workspace_id,
+                        profile_run_id=report["profile_run_id"],
+                        required_execution_id=execution["id"],
+                    )
+            else:
+                chart_spec = None
+                insight_content = {}
             if item_type == "agent_answer":
-                agent = (
+                self._validated_agent(
+                    conn,
+                    agent_run_id=payload.get("agent_run_id"),
+                    workspace_id=workspace_id,
+                    profile_run_id=report["profile_run_id"],
+                )
+            if item_type not in {"chart", "note", "agent_answer"}:
+                raise ValueError(
+                    "This Command Center release supports chart, agent answer and note pins only."
+                )
+
+            # Check if this exact execution is already pinned in the current draft version
+            existing_by_exec = None
+            if item_type == "chart" and payload.get("query_execution_id"):
+                existing_by_exec = (
                     conn.execute(
-                        select(agent_runs).where(
-                            agent_runs.c.id == payload.get("agent_run_id"),
-                            agent_runs.c.workspace_id == workspace_id,
-                            agent_runs.c.status == "completed",
+                        select(report_items).where(
+                            report_items.c.report_version_id == version["id"],
+                            report_items.c.query_execution_id == payload.get("query_execution_id"),
                         )
                     )
                     .mappings()
                     .first()
                 )
-                bindings = dict(agent["resource_bindings"] or {}) if agent else {}
-                evidence_exists = bool(
-                    agent
-                    and conn.execute(
-                        select(evidence_items.c.id)
-                        .where(
-                            evidence_items.c.agent_run_id == agent["id"],
-                            evidence_items.c.workspace_id == workspace_id,
-                            evidence_items.c.profile_run_id == report["profile_run_id"],
-                        )
-                        .limit(1)
-                    ).first()
-                )
-                if (
-                    not agent
-                    or bindings.get("profile_run_id") != report["profile_run_id"]
-                    or not evidence_exists
-                ):
-                    raise ValueError(
-                        "Agent answer requires a completed profile-bound evidence trace."
+
+            if existing or existing_by_exec:
+                target_item = existing or existing_by_exec
+                content_update = {
+                    **(target_item.get("content_json") or {}),
+                    **(
+                        {
+                            "result": execution["result"],
+                            "chart_spec": chart_spec,
+                            **insight_content,
+                        }
+                        if execution
+                        else (payload.get("content") or {})
+                    ),
+                }
+                conn.execute(
+                    report_items.update()
+                    .where(report_items.c.id == target_item["id"])
+                    .values(
+                        title=payload.get("title") or target_item.get("title"),
+                        content_json=content_update,
+                        agent_run_id=payload.get("agent_run_id") or target_item.get("agent_run_id"),
                     )
-            if item_type not in {"chart", "note", "agent_answer"}:
-                raise ValueError(
-                    "This Command Center release supports chart and note pins only."
                 )
+                return self._payload(conn, report, version)
             position = (
                 int(
                     conn.execute(
@@ -363,11 +551,15 @@ class ReportDraftRepository:
                 else None,
                 "query_execution_id": execution.get("id") if execution else None,
                 "agent_run_id": payload.get("agent_run_id")
-                if item_type == "agent_answer"
+                if item_type in {"chart", "agent_answer"}
                 else None,
                 "title": payload.get("title"),
                 "note": payload.get("note"),
-                "content_json": {"result": execution["result"]}
+                "content_json": {
+                    "result": execution["result"],
+                    "chart_spec": chart_spec,
+                    **insight_content,
+                }
                 if execution
                 else payload.get("content"),
                 "query_spec": execution.get("query_spec") if execution else None,
@@ -559,7 +751,6 @@ class ReportDraftRepository:
                 "next_draft_version": next_version["version"],
             }
 
-
     def latest_snapshot(
         self, report_id: str, workspace_id: str
     ) -> dict[str, Any] | None:
@@ -607,6 +798,62 @@ class ReportDraftRepository:
                 "version": version["version"],
                 "items": items,
             }
+
+    def get_draft(
+        self, report_id: str, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """Return the current mutable draft for report export without creating one.
+
+        Exporting a report before its first snapshot is supported by rendering
+        the report's current draft. This lookup deliberately does not filter
+        by author: route-level authorization already scopes report export, and
+        repository access remains constrained to the workspace and report.
+        """
+        with self.engine.connect() as conn:
+            report = (
+                conn.execute(
+                    select(reports).where(
+                        reports.c.id == report_id,
+                        reports.c.workspace_id == workspace_id,
+                        reports.c.status == "draft",
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not report:
+                return None
+            version = (
+                conn.execute(
+                    select(report_versions)
+                    .where(
+                        report_versions.c.report_id == report_id,
+                        report_versions.c.status == "draft",
+                    )
+                    .order_by(report_versions.c.version.desc())
+                )
+                .mappings()
+                .first()
+            )
+            if not version:
+                return None
+            items = [
+                dict(row)
+                for row in conn.execute(
+                    select(report_items)
+                    .where(report_items.c.report_version_id == version["id"])
+                    .order_by(report_items.c.position)
+                ).mappings()
+            ]
+            return {
+                "id": report["id"],
+                "title": report["title"],
+                "profile_run_id": report["profile_run_id"],
+                "version": version["version"],
+                "updated_at": report.get("updated_at"),
+                "items": items,
+            }
+
 
 def get_report_draft_repository() -> ReportDraftRepository:
     from src.services.repository import get_repository
