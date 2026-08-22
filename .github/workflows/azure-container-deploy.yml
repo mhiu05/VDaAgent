@@ -43,6 +43,11 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           for name in \
@@ -52,6 +57,13 @@ jobs:
             NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
             test -n "${!name}" || { echo "Missing production secret: $name"; exit 1; }
           done
+          if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
+            for name in \
+              GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET \
+              GOOGLE_DRIVE_FOLDER_ID GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY; do
+              test -n "${!name}" || { echo "Missing Google Drive secret: $name"; exit 1; }
+            done
+          fi
 
       - name: Azure login with OIDC
         shell: bash
@@ -160,6 +172,14 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}
           AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}
+          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
+          GUEST_STORAGE_PROVIDER: ${{ vars.GUEST_STORAGE_PROVIDER || 'supabase' }}
+          GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
+          GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
+          GOOGLE_DRIVE_REDIRECT_URI: ${{ vars.GOOGLE_DRIVE_REDIRECT_URI }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: ${{ secrets.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY }}
+          GOOGLE_DRIVE_FRONTEND_URL: ${{ vars.GOOGLE_DRIVE_FRONTEND_URL }}
           ACR_PULL_USERNAME: ${{ secrets.ACR_PULL_USERNAME }}
           ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
         run: |
@@ -189,8 +209,8 @@ jobs:
             SUPABASE_AUTH_AUDIENCE=authenticated
             SUPABASE_URL="$SUPABASE_URL"
             SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
-            STORAGE_PROVIDER=supabase
-            GUEST_STORAGE_PROVIDER=supabase
+            STORAGE_PROVIDER="$STORAGE_PROVIDER"
+            GUEST_STORAGE_PROVIDER="$GUEST_STORAGE_PROVIDER"
             SUPABASE_STORAGE_BUCKET=p170-dataset
             SUPABASE_STORAGE_PREFIX=datasets
             LLM_PROVIDER=openai
@@ -198,10 +218,22 @@ jobs:
             AGENT_TRACE_MODE=shadow
             UX_COMMAND_CENTER_ENABLED=true
           )
+          google_drive_redirect_uri="${GOOGLE_DRIVE_REDIRECT_URI:-$BACKEND_URL/api/v1/google-drive/callback}"
+          google_drive_frontend_url="${GOOGLE_DRIVE_FRONTEND_URL:-$FRONTEND_URL}"
           [ -n "${DATABASE_URL:-}" ] && settings+=(DATABASE_URL="$DATABASE_URL")
           [ -n "${DATABASE_CHECKPOINTER_URL:-}" ] && settings+=(DATABASE_CHECKPOINTER_URL="$DATABASE_CHECKPOINTER_URL")
           [ -n "${SUPABASE_SECRET_KEY:-}" ] && settings+=(SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY")
           [ -n "${LLM_API_KEY:-}" ] && settings+=(LLM_API_KEY="$LLM_API_KEY")
+          if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
+            settings+=(
+              GOOGLE_DRIVE_CLIENT_ID="$GOOGLE_DRIVE_CLIENT_ID"
+              GOOGLE_DRIVE_CLIENT_SECRET="$GOOGLE_DRIVE_CLIENT_SECRET"
+              GOOGLE_DRIVE_REDIRECT_URI="$google_drive_redirect_uri"
+              GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID"
+              GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY="$GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY"
+              GOOGLE_DRIVE_FRONTEND_URL="$google_drive_frontend_url"
+            )
+          fi
 
           docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" \
           az webapp config appsettings set \
