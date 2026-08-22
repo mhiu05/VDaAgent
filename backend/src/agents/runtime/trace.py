@@ -19,6 +19,7 @@ from src.agents.runtime.context import (
     execution_scope,
     get_execution_context,
 )
+from src.agents.runtime.langsmith_observability import get_langsmith_observability
 from src.agents.runtime.versioning import build_version_snapshot, stable_hash
 from src.config import get_settings
 from src.services.repository import get_repository
@@ -111,16 +112,24 @@ def start_agent_run(
     if not trace_enabled():
         return None
     try:
-        return get_repository().create_agent_run(
+        version_snapshot = build_version_snapshot()
+        agent_run_id = get_repository().create_agent_run(
             workspace_id=workspace_id,
             actor_user_id=actor_user_id,
             run_type=run_type,
             resource_bindings=redact_trace_payload(resource_bindings),
-            version_snapshot=build_version_snapshot(),
+            version_snapshot=version_snapshot,
             budget={},
             correlation_id=correlation_id or uuid4().hex,
             request_hash=stable_hash(request_for_hash or {}),
         )
+        get_langsmith_observability().start_agent_run(
+            agent_run_id=agent_run_id,
+            workspace_id=workspace_id,
+            run_type=run_type,
+            version_snapshot=version_snapshot,
+        )
+        return agent_run_id
     except Exception as exc:  # noqa: BLE001 - shadow trace must not change compatibility
         _trace_failure(exc)
         return None
@@ -142,6 +151,11 @@ def complete_agent_run(
                 if status == "completed"
                 else "Workflow đang chờ quyết định hoặc reconciliation."
             ),
+        )
+        get_langsmith_observability().finish_agent_run(
+            agent_run_id=agent_run_id,
+            workspace_id=workspace_id,
+            status=status,
         )
     except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
         _trace_failure(exc)
@@ -167,6 +181,12 @@ def fail_agent_run(
             reason_code="run_failed",
             reason_summary=summary,
             error_code=error_code,
+        )
+        get_langsmith_observability().finish_agent_run(
+            agent_run_id=agent_run_id,
+            workspace_id=workspace_id,
+            status="failed",
+            error=error_code,
         )
     except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
         _trace_failure(exc)
@@ -286,7 +306,30 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
     context = get_execution_context()
     started = time.perf_counter()
     try:
-        response = llm.invoke(messages)
+        trace_spec = get_prompt_spec(prompt_id)
+        with get_langsmith_observability().span(
+            context,
+            name=f"model.{trace_spec.id}",
+            run_type="llm",
+            metadata={
+                "prompt_id": trace_spec.id,
+                "prompt_version": trace_spec.version,
+                "prompt_hash": trace_spec.template_hash,
+                "provider": get_settings().llm_provider,
+                "model_id": get_settings().llm_model,
+            },
+        ) as langsmith_span:
+            response = llm.invoke(messages)
+            if langsmith_span is not None:
+                input_tokens, output_tokens, usage_status = _usage(response)
+                langsmith_span.metadata.update(
+                    {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "usage_status": usage_status,
+                        "duration_ms": round((time.perf_counter() - started) * 1000),
+                    }
+                )
     except Exception as exc:
         if context and trace_enabled():
             try:

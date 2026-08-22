@@ -42,7 +42,7 @@ def test_status_reports_missing_config(client: TestClient) -> None:
     """Không có API key thì `/status` phải nói ra, không im lặng."""
     body = client.get("/api/v1/status").json()
     assert body["llm_configured"] is False
-    assert "OPENAI_API_KEY" in body["missing_config"]
+    assert "GEMINI_API_KEY" in body["missing_config"]
     # Hai mặc định an toàn của hệ (eval C-01, C-02).
     assert body["mask_pii_in_answers"] is True
     assert body["allow_raw_export"] is False
