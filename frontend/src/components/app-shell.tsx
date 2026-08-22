@@ -9,6 +9,7 @@ import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
 import { PublicNavbar } from "@/components/public-navbar";
 import { InfoTip } from "@/components/ui";
+import { DraggableChatWidget } from "@/components/draggable-chat-widget";
 
 function SidebarIcon({ name }: { name: string }) {
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -28,9 +29,9 @@ function accountInitials(email: string | null) {
 
 const analystNavigation = [
   { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
-  { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
   { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
   { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
+  { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
   { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
 ] as const;
 
@@ -168,17 +169,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
           {guestWorkspacePanel}
         </div>
         <div className="sidebar-scroll">
-          {can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && <section className="chat-history" aria-label="Lịch sử chat">
-            <div className="sidebar-section-heading"><span className="sidebar-text">Lịch sử chat</span><button type="button" className="new-chat-button sidebar-text" onClick={startNewChat}>+ Chat mới</button></div>
-            <div className="chat-history-list">
-              {conversations.length === 0 && <p className="sidebar-empty sidebar-text">Chưa có cuộc trò chuyện</p>}
-              {conversations.slice(0, 5).map((conversation) => {
-                const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
-                return <div className={active ? "chat-history-row active" : "chat-history-row"} key={conversation.id}><Link className="chat-history-item sidebar-text" href={`/chat?conversation=${conversation.id}`} onClick={() => setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0)}>{conversation.title}</Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>;
-              })}
-            </div>
-            <div className="chat-history-footer"><button type="button" className="history-button sidebar-text" onClick={() => setShowAllHistory(true)} disabled={!conversations.length}>Lịch sử</button></div>
-          </section>}
           <nav className="nav-list sidebar-navigation" aria-label="Điều hướng phân tích dữ liệu">
             <span className="sidebar-section-label sidebar-text">Phân tích dữ liệu</span>
             {roleNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
@@ -190,6 +180,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
           {accountPanel}
         </div>
       </aside>
+      {can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && (
+        <DraggableChatWidget
+          conversations={conversations}
+          onNewChat={startNewChat}
+          onRemoveConversation={removeConversation}
+        />
+      )}
       {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><div className="history-modal-header-actions"><button type="button" className="history-clear-button" onClick={removeAllConversations}>Xóa tất cả</button><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div></div><div className="history-modal-list">{conversations.map((conversation) => <div className="history-modal-row" key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>)}</div></section></div>}
       <main className="main-content">{children}</main>
     </div>

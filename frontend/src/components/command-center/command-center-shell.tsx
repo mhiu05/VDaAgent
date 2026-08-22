@@ -9,11 +9,7 @@ import { getProfile } from "@/lib/api";
 import { COMMAND_CENTER_TAB_LABELS, COMMAND_CENTER_TABS, isCommandCenterTab, type CommandCenterTab } from "@/lib/command-center-types";
 import { ErrorNotice, LoadingBlock, Notice, StatusBadge } from "@/components/ui";
 
-const AgentTab = dynamic(() => import("./agent-tab").then((module) => module.AgentTab), { loading: () => <LoadingBlock label="Đang mở Agent…" /> });
 const ReportTab = dynamic(() => import("./report-tab").then((module) => module.ReportTab), { loading: () => <LoadingBlock label="Đang mở Report Draft…" /> });
-
-import { useState } from 'react';
-import type { AnalysisExecution } from '@/lib/analysis-types';
 
 type Props = { overview: ReactNode };
 
@@ -31,7 +27,6 @@ export function CommandCenterShell({ overview }: Props) {
   const activeTab = tab as CommandCenterTab;
   const tabListId = useId();
   const tabRefs = useRef<Partial<Record<CommandCenterTab, HTMLButtonElement>>>({});
-  const [selectedExecution, setSelectedExecution] = useState<AnalysisExecution | null>(null);
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
     refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 3_000 : false,
@@ -48,11 +43,6 @@ export function CommandCenterShell({ overview }: Props) {
     const index = COMMAND_CENTER_TABS.indexOf(current);
     const next = COMMAND_CENTER_TABS[(index + direction + COMMAND_CENTER_TABS.length) % COMMAND_CENTER_TABS.length];
     selectTab(next);
-  }
-
-  function explainExecution(execution: AnalysisExecution) {
-    setSelectedExecution(execution);
-    selectTab('agent');
   }
 
   if (profile.isLoading) return <LoadingBlock label="Đang tải Command Center…" />;
@@ -79,7 +69,7 @@ export function CommandCenterShell({ overview }: Props) {
     </header>
 
     {data.status === "failed" && <Notice tone="warning"><b>Profile chạy thất bại.</b><p>{data.error || "Hãy kiểm tra source và bắt đầu một profile run mới."}</p><Link className="button secondary" href={`/datasets/${data.dataset_id}/runs`}>Mở profile runs</Link></Notice>}
-    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đề xuất trước khi hỏi Agent & Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}?tab=${activeTab}`)}`}>Review đề xuất</Link></Notice>}
+    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đề xuất trước khi tạo Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}?tab=${activeTab}`)}`}>Review đề xuất</Link></Notice>}
 
     <div className="command-center-tabs" role="tablist" aria-label="Command Center tabs" id={tabListId}>
       {COMMAND_CENTER_TABS.map((item) => <button
@@ -97,7 +87,6 @@ export function CommandCenterShell({ overview }: Props) {
 
     <section id={`command-center-panel-${activeTab}`} role="tabpanel" aria-labelledby={`command-center-tab-${activeTab}`} tabIndex={0} className="command-center-panel">
       {activeTab === "overview" && overview}
-      {activeTab === 'agent' && <AgentTab runId={runId} execution={selectedExecution} />}
       {activeTab === "report" && <ReportTab runId={runId} />}
     </section>
   </main>;

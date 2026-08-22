@@ -191,11 +191,18 @@ async def workspace_request_timing(request: Request, call_next: Any) -> Any:
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.error(f"Pydantic Validation Error at {request.url.path}:\n{exc}")
-    with open("422_error.log", "w", encoding="utf-8") as f:
-        f.write(f"Path: {request.url.path}\nError: {exc}\nBody: {exc.body}")
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": exc.body},
+        content={"detail": exc.errors(), "body": str(exc.body) if hasattr(exc, "body") else None},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled error on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
     )
 
 
@@ -203,8 +210,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(router, prefix="/api/v1")

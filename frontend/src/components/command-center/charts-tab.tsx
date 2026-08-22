@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { MarkdownContent } from "@/components/markdown";
+import { EmptyState, ErrorNotice, LoadingBlock, Notice } from "@/components/ui";
+import type { AnalysisExecution, AutoChartPlan, ChartRenderer, ChartSpec, ChartType, ForecastAlgorithm, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 import {
   autoPlanChart,
   autoProfilePack,
@@ -14,10 +14,10 @@ import {
   promoteExplorerPreview,
   streamQuestion,
 } from "@/lib/api";
-import type { AnalysisExecution, AutoChartPlan, ChartRenderer, ChartSpec, ChartType, ForecastAlgorithm, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 import type { Profile } from "@/lib/types";
-import { EmptyState, ErrorNotice, LoadingBlock, Notice } from "@/components/ui";
-import { MarkdownContent } from "@/components/markdown";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { ChartEvidenceView } from "./chart-evidence-view";
 
 type ProblemType = "compare" | "trend" | "ranking" | "summary" | "distribution" | "relationship" | "quality" | "forecast" | "composition" | "geographic" | "multi_dimensional";
@@ -208,20 +208,20 @@ function chartSpec(chart: ChartDraft): ChartSpec {
     ? "column"
     : ["missing_heatmap", "correlation_heatmap"].includes(analysisKind)
       ? "x"
-    : analysisKind === "histogram"
-    ? query.column
-    : analysisKind === "scatter"
-      ? query.x_column
-      : analysisKind === "box"
-        ? query.dimensions?.[0] ?? query.column
-        : query.dimensions?.[0];
+      : analysisKind === "histogram"
+        ? query.column
+        : analysisKind === "scatter"
+          ? query.x_column
+          : analysisKind === "box"
+            ? query.dimensions?.[0] ?? query.column
+            : query.dimensions?.[0];
   const yColumn = analysisKind === "scatter"
     ? query.y_column
     : ["missing_heatmap", "correlation_heatmap"].includes(analysisKind)
       ? "y"
-    : analysisKind === "heatmap"
-      ? query.dimensions?.[1]
-      : query.column;
+      : analysisKind === "heatmap"
+        ? query.dimensions?.[1]
+        : query.column;
   return {
     chart_type: chart.chart_type,
     renderer: chart.renderer,
@@ -377,48 +377,48 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
       </div>
     </header>
     <fieldset className="chart-workflow-fieldset" disabled={!enabled}>
-    {chart.problem && chart.algorithm && chart.chart_type && chart.renderer && <div className="chart-auto-decision"><div className="chart-auto-decision-chips"><span className="chip">{PROBLEMS.find((item) => item.value === chart.problem)?.label}</span><span className="chip">{ALGORITHM_LABELS[chart.algorithm]}</span><span className="chip">{CHART_LABELS[chart.chart_type]}</span><span className="chip">{RENDERER_LABELS[chart.renderer]}</span>{chart.planning_mode && <span className={`chip ${chart.planning_mode === "agent" ? "success" : "warning"}`}>{chart.planning_mode === "agent" ? "Agent đã lập kế hoạch" : "Kế hoạch dự phòng"}</span>}</div>{chart.rationale && <p>{chart.rationale}</p>}{chart.transforms && chart.transforms.length > 0 && <div className="chart-formulation-pipeline" style={{ marginTop: "0.5rem", padding: "0.4rem 0.6rem", background: "rgba(99, 102, 241, 0.08)", borderRadius: "6px", fontSize: "0.8rem" }}><div style={{ fontWeight: 600, color: "#4338ca", marginBottom: "0.25rem" }}>⚡ Data Formulation Pipeline (AI Wrangling)</div><div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>{chart.transforms.map((t, idx) => <span key={idx} className="chip" style={{ fontSize: "0.75rem", background: "#e0e7ff", color: "#3730a3" }}>{idx + 1}. {t.detail}</span>)}</div></div>}</div>}
-    <details className="chart-advanced" open={!chart.problem}>
-    <summary>Tùy chỉnh nâng cao · xem hoặc thay đổi quyết định kỹ thuật</summary>
-    <div className="chart-flow-section"><span className="chart-flow-number">3</span><div><b>Chọn bài toán</b><p>Nhập câu hỏi và xác nhận loại bài toán cần giải quyết.</p></div></div>
-    <div className="chart-config-fields chart-step-fields">
-      <label>Câu hỏi kinh doanh<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
-      <label>Bài toán<select value={chart.problem} onChange={(event) => onChange({ problem: event.target.value as ProblemType, algorithm: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn bài toán</option>{PROBLEMS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
-      {chart.problem && <p className="chart-step-hint">{PROBLEMS.find((item) => item.value === chart.problem)?.detail}</p>}
-    </div>
-    <div className="chart-flow-section"><span className="chart-flow-number">4</span><div><b>Chọn thuật toán</b><p>Chỉ các phép tính nằm trong bounded allow-list được hiển thị.</p></div></div>
-    <div className="chart-config-fields chart-step-fields">
-      <label>Thuật toán<select value={chart.algorithm} disabled={!chart.problem} onChange={(event) => onChange({ algorithm: event.target.value as AnalysisMethod, x_column: "", y_column: "", second_dimension: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn thuật toán</option>{algorithms.map((item) => { const capability = chart.problem === "forecast" ? forecastAlgorithms.find((entry) => entry.id === item) : undefined; return <option value={item} key={item} disabled={chart.problem === "forecast" ? !capability?.available : false}>{ALGORITHM_LABELS[item]}{chart.problem === "forecast" && capability && !capability.available ? ` · chưa khả dụng (${capability.dependency || "cần dữ liệu ngoại sinh"})` : ""}</option>; })}</select></label>
-      <label>{chart.algorithm === "scatter" ? "Measure trục X" : chart.algorithm === "heatmap" ? "Dimension trục X" : "Dimension / nhóm"}<select value={chart.x_column} disabled={!chart.problem || chart.problem === "summary" || chart.algorithm === "histogram"} onChange={(event) => onChange({ x_column: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">{chart.algorithm === "box" ? "Không chia nhóm" : "Chọn trường"}</option>{(chart.algorithm === "scatter" ? measures : dimensions).map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-      {chart.algorithm === "heatmap" && <label>Dimension trục Y<select value={chart.second_dimension} onChange={(event) => onChange({ second_dimension: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn dimension thứ hai</option>{dimensions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
-      <label>{chart.algorithm === "scatter" ? "Measure trục Y" : "Measure"}<select value={chart.y_column} disabled={!chart.algorithm || chart.algorithm === "count" || chart.algorithm === "heatmap"} onChange={(event) => onChange({ y_column: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">{chart.algorithm === "count" || chart.algorithm === "heatmap" ? "Không cần measure" : "Chọn measure"}</option>{measures.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-      {["trend", "forecast"].includes(chart.problem) && <label>Mức thời gian<select value={chart.time_grain} onChange={(event) => onChange({ time_grain: event.target.value as ChartDraft["time_grain"], status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn mức thời gian</option><option value="day">Theo ngày</option><option value="week">Theo tuần</option><option value="month">Theo tháng</option><option value="quarter">Theo quý</option><option value="year">Theo năm</option></select></label>}
-      {chart.problem === "forecast" && <label>Số kỳ cần dự báo<input type="number" min={1} max={60} value={chart.forecast_horizon} onChange={(event) => onChange({ forecast_horizon: Number(event.target.value), status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-      {chart.problem === "forecast" && <label>Độ dài mùa vụ<input type="number" min={2} max={365} value={chart.season_length} onChange={(event) => onChange({ season_length: Number(event.target.value), status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-      {chart.problem === "trend" && <label>Từ ngày (không bắt buộc)<input type="date" value={chart.date_from} onChange={(event) => onChange({ date_from: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-      {chart.problem === "trend" && <label>Đến ngày (không bắt buộc)<input type="date" value={chart.date_to} onChange={(event) => onChange({ date_to: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-      {validation && <p className="chart-validation">{validation}</p>}
-      {chart.error && <p className="chart-validation">{chart.error}</p>}
-    </div>
-    <div className="chart-flow-section"><span className="chart-flow-number">5</span><div><b>Phân tích kết quả</b><p>Chạy Preview, kiểm tra kết quả rồi xác nhận Official evidence.</p></div></div>
-    {chart.execution ? <div className="chart-analysis-summary"><span className={official ? "chip success" : "chip warning"}>{official ? "Official" : "Preview"}</span><span>{chart.execution.query_summary}</span><code>{chart.execution.result_hash.slice(0, 12)}</code></div> : <div className="chart-empty-stage">Kết quả sẽ xuất hiện sau khi chạy Preview tất cả.</div>}
-    <div className="chart-flow-section"><span className="chart-flow-number">6</span><div><b>Chọn loại biểu đồ</b><p>Loại chart chỉ được chọn sau khi có Official result.</p></div></div>
-    <div className="chart-config-fields chart-step-fields"><label>Loại biểu đồ<select value={chart.chart_type} disabled={!official} onChange={(event) => { const chartType = event.target.value as ChartType; onChange({ chart_type: chartType, renderer: "", generated: false, insight: undefined }); }}><option value="">Chọn loại biểu đồ</option>{chartTypes.map((item) => <option value={item} key={item}>{CHART_LABELS[item]}</option>)}</select></label></div>
-    <div className="chart-flow-section"><span className="chart-flow-number">7</span><div><b>Chọn tool vẽ</b><p>Renderer được giới hạn theo loại biểu đồ để kết quả tái tạo được.</p></div></div>
-    <div className="chart-config-fields chart-step-fields"><label>Renderer<select value={chart.renderer} disabled={!chart.chart_type} onChange={(event) => onChange({ renderer: event.target.value as ChartRenderer, generated: false, insight: undefined })}><option value="">Chọn renderer</option>{chart.chart_type && <option value={RENDERER_FOR_CHART[chart.chart_type]}>{RENDERER_LABELS[RENDERER_FOR_CHART[chart.chart_type]]}</option>}</select></label></div>
-    </details>
-    <div className="chart-flow-section">
-      <span className="chart-flow-number chart-flow-icon" aria-hidden="true" title="Biểu đồ & Insight">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="18" y1="20" x2="18" y2="10" />
-          <line x1="12" y1="20" x2="12" y2="4" />
-          <line x1="6" y1="20" x2="6" y2="14" />
-        </svg>
-      </span>
-      <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div>
-      <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
-    </div>
-    {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
+      {chart.problem && chart.algorithm && chart.chart_type && chart.renderer && <div className="chart-auto-decision"><div className="chart-auto-decision-chips"><span className="chip">{PROBLEMS.find((item) => item.value === chart.problem)?.label}</span><span className="chip">{ALGORITHM_LABELS[chart.algorithm]}</span><span className="chip">{CHART_LABELS[chart.chart_type]}</span><span className="chip">{RENDERER_LABELS[chart.renderer]}</span>{chart.planning_mode && <span className={`chip ${chart.planning_mode === "agent" ? "success" : "warning"}`}>{chart.planning_mode === "agent" ? "Agent đã lập kế hoạch" : "Kế hoạch dự phòng"}</span>}</div>{chart.rationale && <p>{chart.rationale}</p>}{chart.transforms && chart.transforms.length > 0 && <div className="chart-formulation-pipeline" style={{ marginTop: "0.5rem", padding: "0.4rem 0.6rem", background: "rgba(99, 102, 241, 0.08)", borderRadius: "6px", fontSize: "0.8rem" }}><div style={{ fontWeight: 600, color: "#4338ca", marginBottom: "0.25rem" }}>⚡ Data Formulation Pipeline (AI Wrangling)</div><div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>{chart.transforms.map((t, idx) => <span key={idx} className="chip" style={{ fontSize: "0.75rem", background: "#e0e7ff", color: "#3730a3" }}>{idx + 1}. {t.detail}</span>)}</div></div>}</div>}
+      <details className="chart-advanced" open={!chart.problem}>
+        <summary>Tùy chỉnh nâng cao · xem hoặc thay đổi quyết định kỹ thuật</summary>
+        <div className="chart-flow-section"><span className="chart-flow-number">3</span><div><b>Chọn bài toán</b><p>Nhập câu hỏi và xác nhận loại bài toán cần giải quyết.</p></div></div>
+        <div className="chart-config-fields chart-step-fields">
+          <label>Câu hỏi kinh doanh<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
+          <label>Bài toán<select value={chart.problem} onChange={(event) => onChange({ problem: event.target.value as ProblemType, algorithm: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn bài toán</option>{PROBLEMS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
+          {chart.problem && <p className="chart-step-hint">{PROBLEMS.find((item) => item.value === chart.problem)?.detail}</p>}
+        </div>
+        <div className="chart-flow-section"><span className="chart-flow-number">4</span><div><b>Chọn thuật toán</b><p>Chỉ các phép tính nằm trong bounded allow-list được hiển thị.</p></div></div>
+        <div className="chart-config-fields chart-step-fields">
+          <label>Thuật toán<select value={chart.algorithm} disabled={!chart.problem} onChange={(event) => onChange({ algorithm: event.target.value as AnalysisMethod, x_column: "", y_column: "", second_dimension: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn thuật toán</option>{algorithms.map((item) => { const capability = chart.problem === "forecast" ? forecastAlgorithms.find((entry) => entry.id === item) : undefined; return <option value={item} key={item} disabled={chart.problem === "forecast" ? !capability?.available : false}>{ALGORITHM_LABELS[item]}{chart.problem === "forecast" && capability && !capability.available ? ` · chưa khả dụng (${capability.dependency || "cần dữ liệu ngoại sinh"})` : ""}</option>; })}</select></label>
+          <label>{chart.algorithm === "scatter" ? "Measure trục X" : chart.algorithm === "heatmap" ? "Dimension trục X" : "Dimension / nhóm"}<select value={chart.x_column} disabled={!chart.problem || chart.problem === "summary" || chart.algorithm === "histogram"} onChange={(event) => onChange({ x_column: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">{chart.algorithm === "box" ? "Không chia nhóm" : "Chọn trường"}</option>{(chart.algorithm === "scatter" ? measures : dimensions).map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+          {chart.algorithm === "heatmap" && <label>Dimension trục Y<select value={chart.second_dimension} onChange={(event) => onChange({ second_dimension: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn dimension thứ hai</option>{dimensions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
+          <label>{chart.algorithm === "scatter" ? "Measure trục Y" : "Measure"}<select value={chart.y_column} disabled={!chart.algorithm || chart.algorithm === "count" || chart.algorithm === "heatmap"} onChange={(event) => onChange({ y_column: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">{chart.algorithm === "count" || chart.algorithm === "heatmap" ? "Không cần measure" : "Chọn measure"}</option>{measures.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+          {["trend", "forecast"].includes(chart.problem) && <label>Mức thời gian<select value={chart.time_grain} onChange={(event) => onChange({ time_grain: event.target.value as ChartDraft["time_grain"], status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn mức thời gian</option><option value="day">Theo ngày</option><option value="week">Theo tuần</option><option value="month">Theo tháng</option><option value="quarter">Theo quý</option><option value="year">Theo năm</option></select></label>}
+          {chart.problem === "forecast" && <label>Số kỳ cần dự báo<input type="number" min={1} max={60} value={chart.forecast_horizon} onChange={(event) => onChange({ forecast_horizon: Number(event.target.value), status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
+          {chart.problem === "forecast" && <label>Độ dài mùa vụ<input type="number" min={2} max={365} value={chart.season_length} onChange={(event) => onChange({ season_length: Number(event.target.value), status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
+          {chart.problem === "trend" && <label>Từ ngày (không bắt buộc)<input type="date" value={chart.date_from} onChange={(event) => onChange({ date_from: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
+          {chart.problem === "trend" && <label>Đến ngày (không bắt buộc)<input type="date" value={chart.date_to} onChange={(event) => onChange({ date_to: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
+          {validation && <p className="chart-validation">{validation}</p>}
+          {chart.error && <p className="chart-validation">{chart.error}</p>}
+        </div>
+        <div className="chart-flow-section"><span className="chart-flow-number">5</span><div><b>Phân tích kết quả</b><p>Chạy Preview, kiểm tra kết quả rồi xác nhận Official evidence.</p></div></div>
+        {chart.execution ? <div className="chart-analysis-summary"><span className={official ? "chip success" : "chip warning"}>{official ? "Official" : "Preview"}</span><span>{chart.execution.query_summary}</span><code>{chart.execution.result_hash.slice(0, 12)}</code></div> : <div className="chart-empty-stage">Kết quả sẽ xuất hiện sau khi chạy Preview tất cả.</div>}
+        <div className="chart-flow-section"><span className="chart-flow-number">6</span><div><b>Chọn loại biểu đồ</b><p>Loại chart chỉ được chọn sau khi có Official result.</p></div></div>
+        <div className="chart-config-fields chart-step-fields"><label>Loại biểu đồ<select value={chart.chart_type} disabled={!official} onChange={(event) => { const chartType = event.target.value as ChartType; onChange({ chart_type: chartType, renderer: "", generated: false, insight: undefined }); }}><option value="">Chọn loại biểu đồ</option>{chartTypes.map((item) => <option value={item} key={item}>{CHART_LABELS[item]}</option>)}</select></label></div>
+        <div className="chart-flow-section"><span className="chart-flow-number">7</span><div><b>Chọn tool vẽ</b><p>Renderer được giới hạn theo loại biểu đồ để kết quả tái tạo được.</p></div></div>
+        <div className="chart-config-fields chart-step-fields"><label>Renderer<select value={chart.renderer} disabled={!chart.chart_type} onChange={(event) => onChange({ renderer: event.target.value as ChartRenderer, generated: false, insight: undefined })}><option value="">Chọn renderer</option>{chart.chart_type && <option value={RENDERER_FOR_CHART[chart.chart_type]}>{RENDERER_LABELS[RENDERER_FOR_CHART[chart.chart_type]]}</option>}</select></label></div>
+      </details>
+      <div className="chart-flow-section">
+        <span className="chart-flow-number chart-flow-icon" aria-hidden="true" title="Biểu đồ & Insight">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+          </svg>
+        </span>
+        <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div>
+        <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
+      </div>
+      {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
     </fieldset>
   </article>;
 }
@@ -442,7 +442,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
-    } catch {}
+    } catch { }
     return [draftChart()];
   });
   const [message, setMessage] = useState("");
@@ -461,14 +461,14 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     if (typeof window === "undefined" || !runId) return;
     try {
       localStorage.setItem(`p170_charts_state_${runId}`, JSON.stringify(charts));
-    } catch {}
+    } catch { }
   }, [charts, runId]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !runId) return;
     try {
       localStorage.setItem(`p170_charts_question_${runId}`, businessQuestion);
-    } catch {}
+    } catch { }
   }, [businessQuestion, runId]);
 
   useEffect(() => {
@@ -476,7 +476,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     try {
       if (understanding) localStorage.setItem(`p170_charts_understanding_${runId}`, understanding);
       if (understandingRunId) localStorage.setItem(`p170_charts_understanding_run_${runId}`, understandingRunId);
-    } catch {}
+    } catch { }
   }, [understanding, understandingRunId, runId]);
 
   const understand = useMutation({
@@ -571,16 +571,16 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
           const stepPrefix = total > 1 ? `[${index + 1}/${total}] ` : "";
           setAutoQuestionProgress({ percent: basePercent + Math.round((0.15 / total) * 100), step: `${stepPrefix}Đang lập kế hoạch: "${question.slice(0, 45)}…"` });
           setAutoStage(`${stepPrefix}Agent đang phân tích câu hỏi: "${question.slice(0, 45)}…"`);
-          
+
           const plan = await autoPlanChart(runId, question);
           const planned = chartFromPlan(plan);
           chartId = planned.id;
-          
+
           if (index === 0 || total === 1) {
             setUnderstanding(`**Agent đã hiểu yêu cầu:** ${plan.rationale}\n\nKế hoạch: ${PROBLEMS.find((item) => item.value === plan.problem)?.label} → ${ALGORITHM_LABELS[plan.algorithm]} → ${CHART_LABELS[plan.chart_type]} → ${RENDERER_LABELS[plan.renderer]}.`);
             setUnderstandingRunId(plan.agent_run_id ?? null);
           }
-          
+
           setCharts((current) => current.length === 1 && !current[0].question ? [planned] : [planned, ...current]);
 
           setAutoQuestionProgress({ percent: basePercent + Math.round((0.45 / total) * 100), step: `${stepPrefix}Đang chạy DuckDB Preview: ${planned.title || planned.algorithm}` });
@@ -775,36 +775,36 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
               Hỗ trợ nhập danh sách nhiều câu hỏi cùng lúc
             </small>
           </div>
-          <textarea 
+          <textarea
             className="chart-business-question-input"
             rows={6}
-            maxLength={4000} 
-            value={businessQuestion} 
-            onChange={(event) => setBusinessQuestion(event.target.value)} 
+            maxLength={4000}
+            value={businessQuestion}
+            onChange={(event) => setBusinessQuestion(event.target.value)}
             placeholder={`Bạn có thể dán 1 hoặc nhiều câu hỏi, ví dụ:
 1. So sánh số lượng tin tuyển dụng giữa các ngành công nghiệp (Industry) hàng đầu
 2. Phân phối điểm đánh giá Rating của các công ty
-3. Tỷ trọng phân bổ loại hình công ty Type of ownership`} 
-            disabled={busy} 
+3. Tỷ trọng phân bổ loại hình công ty Type of ownership`}
+            disabled={busy}
           />
         </label>
 
         <div style={{ display: "flex", gap: "12px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <div className="chart-action-buttons" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="button primary chart-auto-submit chart-action-button"
-              onClick={() => automate.mutate()} 
+              onClick={() => automate.mutate()}
               disabled={busy || businessQuestion.trim().length < 3 || charts.filter((chart) => chart.question).length >= MAX_CHARTS}
               style={{ fontWeight: 800 }}
             >
               {automate.isPending ? `Agent đang xử lý (${autoQuestionProgress?.percent ?? 0}%)` : "✨ Agent tự động tạo biểu đồ"}
             </button>
 
-            <button 
-              type="button" 
+            <button
+              type="button"
               className="button secondary chart-action-button"
-              onClick={() => autoProfile.mutate()} 
+              onClick={() => autoProfile.mutate()}
               disabled={busy}
               style={{ fontWeight: 700, border: "1px solid #b2cbfd", background: "#f0f5ff" }}
             >
@@ -835,13 +835,13 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         </div>
 
         <div style={{ fontSize: "0.78rem", color: "var(--muted)", paddingTop: "4px" }}>
-          💡 Gợi ý bấm nhanh: 
+          💡 Gợi ý bấm nhanh:
           <button type="button" className="button link-button" style={{ marginLeft: 6, fontWeight: 600 }} onClick={() => setBusinessQuestion("So sánh số lượng tin tuyển dụng giữa các ngành công nghiệp (Industry) hàng đầu")}>
             "So sánh theo Industry"
-          </button> · 
+          </button> ·
           <button type="button" className="button link-button" style={{ marginLeft: 4, fontWeight: 600 }} onClick={() => setBusinessQuestion("Phân phối điểm đánh giá Rating của các công ty")}>
             "Phân phối Rating"
-          </button> · 
+          </button> ·
           <button type="button" className="button link-button" style={{ marginLeft: 4, fontWeight: 600 }} onClick={() => setBusinessQuestion("Tỷ trọng loại hình công ty Type of ownership")}>
             "Tỷ trọng Type of ownership"
           </button>
@@ -861,9 +861,9 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
             </div>
           </div>
           <div className="chart-progress-track">
-            <div 
-              className="chart-progress-fill" 
-              style={{ width: `${autoQuestionProgress.percent}%` }} 
+            <div
+              className="chart-progress-fill"
+              style={{ width: `${autoQuestionProgress.percent}%` }}
             />
           </div>
           <div className="chart-progress-footer">
@@ -885,9 +885,9 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
             </div>
           </div>
           <div className="chart-progress-track">
-            <div 
-              className="chart-progress-fill" 
-              style={{ width: `${autoProfileProgress.percent}%` }} 
+            <div
+              className="chart-progress-fill"
+              style={{ width: `${autoProfileProgress.percent}%` }}
             />
           </div>
           <div className="chart-progress-footer">
