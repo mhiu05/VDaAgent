@@ -19,14 +19,16 @@ Upload dataset
   → Review semantic type / candidate key / PII khi cần
   → completed
       ├─ /charts: plan → Preview → Official evidence → insight
-      ├─ /profiles/{runId}: Tổng quan, Hỏi Agent, Báo cáo
+      ├─ /chat: hỏi Agent theo Profile Run đã chọn
+      ├─ /compare: so sánh drift giữa hai Profile Run
       └─ Report Draft → snapshot bất biến → PDF/JSON
 ```
 
 `/charts` là workspace biểu đồ riêng, dùng cùng Profile Run và Report Draft.
-Command Center tại `/profiles/{runId}` hiện có ba vùng Tổng quan, Hỏi Agent và
-Báo cáo. `/analyses` và `/notebooks` vẫn tồn tại trong compatibility window,
-nhưng không phải luồng được navigation chính quảng bá.
+Command Center tại `/profiles/{runId}` hiển thị tổng quan Profile Run và Report
+Draft. Chat Agent là màn hình `/chat`, yêu cầu chọn Profile Run hoàn tất làm
+context. Navigation workspace hiện có thêm `/compare` để đối chiếu drift và
+`/activity` để xem audit event theo quyền.
 
 ### Invariant cốt lõi
 
@@ -177,6 +179,11 @@ snapshot. `GET /reports/{report_id}/export-source` ưu tiên source snapshot đ�
 read-only với `snapshot_hash: "draft"` để trang detail vẫn mở được; trạng thái
 này không phải bản báo cáo chính thức để chia sẻ.
 
+Sau snapshot, report hỗ trợ vòng đời submit, review, publish và archive.
+Workspace cũng hỗ trợ quản lý thành viên/lời mời, archive/restore và cấu hình
+ngữ cảnh AI-nghiệp vụ, theme, compute/statistics và PII policy. `/activity` đọc
+audit event đã được lọc theo workspace/capability, không hiển thị raw question.
+
 Route Next.js `/api/reports/profile/{runId}?reportId={reportId}` render PDF từ
 export source đã được FastAPI cấp quyền. Cần tạo snapshot trước khi xuất/chia sẻ
 bản chính thức. Report không đưa raw PII, raw row, preview history hoặc execution
@@ -203,12 +210,13 @@ retention riêng, không phải cơ chế lưu trữ production.
 
 | Domain | Endpoint |
 | --- | --- |
-| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `PATCH /profile/{run_id}/confirm` |
+| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `PATCH /profile/{run_id}/confirm`, `POST /profile/{run_id}/test` |
+| Drift | `POST /profile/{run_id}/drift`; UI `/compare` chỉ nhận Profile Run hoàn tất |
 | Charts | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
 | Explorer | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
 | Report | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
-| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
+| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints, `GET /dashboard`, `GET /audit` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, `GET /google-drive/callback`, `DELETE /google-drive/connection` |
 
 Mọi endpoint backend dùng prefix `/api/v1`.

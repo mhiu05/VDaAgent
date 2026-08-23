@@ -15,7 +15,7 @@ import {
   streamQuestion,
 } from "@/lib/api";
 import type { Profile } from "@/lib/types";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChartEvidenceView } from "./chart-evidence-view";
@@ -424,6 +424,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
 }
 
 export function ChartsTab({ runId, profile, onExplain }: Props) {
+  const queryClient = useQueryClient();
   const explorer = useQuery({ queryKey: ["command-center", runId, "explorer-session"], queryFn: () => ensureExplorerSession(runId) });
   const forecastCatalog = useQuery({ queryKey: ["command-center", runId, "forecast-algorithms"], queryFn: () => listForecastAlgorithms(runId) });
   const [understanding, setUnderstanding] = useState(() => {
@@ -703,6 +704,8 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     onSuccess: ({ ids, errors }) => {
       setCharts((current) => current.map((chart) => ids.includes(chart.id) ? { ...chart, pinned: true, insight_reviewed: true } : chart));
       setMessage(errors.length ? `Đã ghim ${ids.length} biểu đồ; ${errors.length} biểu đồ lỗi.` : `Đã ghim thành công toàn bộ ${ids.length} biểu đồ kèm insight vào Report Draft.`);
+      queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
+      queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
     },
   });
 
@@ -720,6 +723,8 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       );
       setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, pinned: true, insight_reviewed: true } : item));
       setMessage(`Đã ghim "${chartDisplayTitle(chart)}" vào Báo cáo thành công!`);
+      queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
+      queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Không thể ghim biểu đồ.");
     }
@@ -930,7 +935,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     {message && <Notice tone="info">{message}</Notice>}
     {[autoProfile, automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
     <details className="panel chart-model-catalog"><summary>Danh mục thuật toán dự báo · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
-    <div className="chart-toolbar"><details className="chart-manual-tools"><summary>Tùy chỉnh nâng cao / chạy thủ công</summary><div className="inline-actions"><button type="button" className="button secondary" onClick={() => understand.mutate()} disabled={busy}>{understand.isPending ? "Agent đang đọc Profile…" : "Đọc riêng Profile"}</button><button type="button" className="button secondary" onClick={() => setCharts((current) => current.length >= MAX_CHARTS ? current : [...current, draftChart()])} disabled={charts.length >= MAX_CHARTS || busy}>+ Bài phân tích thủ công</button><button type="button" className="button secondary" onClick={() => preview.mutate()} disabled={busy || !validCharts.length}>{preview.isPending ? "Đang chạy Preview…" : "Chạy Preview"}</button><button type="button" className="button secondary" onClick={() => promote.mutate()} disabled={busy || !charts.some((chart) => chart.execution?.execution_kind === "preview")}>{promote.isPending ? "Đang tạo Official…" : "Tạo Official"}</button></div></details><div className="inline-actions"><button type="button" className="button primary" onClick={() => pin.mutate()} disabled={busy || !charts.some(generatedReady)}>{pin.isPending ? "Đang ghim…" : "Ghim chart + insight đã duyệt"}</button><Link className="button secondary" href={`/profiles/${runId}?tab=report`}>Report Draft / Xuất</Link></div></div>
+
     <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
     {charts.filter((chart) => chart.question).length > 0 && (
       <aside className="report-toc-sidebar">

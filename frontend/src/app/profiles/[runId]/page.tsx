@@ -7,118 +7,10 @@ import { getProfile } from "@/lib/api";
 import { formatNumber, formatPercent, toTitle } from "@/lib/format";
 import { MarkdownContent } from "@/components/markdown";
 import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, Metric, Notice, PageHeader, StatusBadge } from "@/components/ui";
-import type { ColumnStat } from "@/lib/types";
 import { CommandCenterShell } from "@/components/command-center/command-center-shell";
+import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
 
-type TopValueRow = { value: string; count: number | null; note: string | null };
 
-function displayTopValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "(trống)";
-  if (typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .map(([key, item]) => `${key}: ${displayTopValue(item)}`)
-      .join(" · ");
-  }
-  return String(value);
-}
-
-function topValueRows(raw: unknown): TopValueRow[] {
-  if (Array.isArray(raw)) {
-    return raw.slice(0, 5).map((item) => {
-      if (typeof item !== "object" || item === null || Array.isArray(item)) {
-        return { value: displayTopValue(item), count: null, note: null };
-      }
-      const record = item as Record<string, unknown>;
-      const value = Object.prototype.hasOwnProperty.call(record, "value")
-        ? record.value
-        : Object.prototype.hasOwnProperty.call(record, "label") ? record.label : record;
-      const parsedCount = Number(record.count);
-      return {
-        value: displayTopValue(value),
-        count: Number.isFinite(parsedCount) ? parsedCount : null,
-        note: typeof record.label === "string" && !Number.isFinite(parsedCount) ? record.label : null,
-      };
-    });
-  }
-  if (typeof raw === "object" && raw !== null) {
-    return Object.entries(raw as Record<string, unknown>).slice(0, 5).map(([value, count]) => {
-      const parsedCount = Number(count);
-      return { value: displayTopValue(value), count: Number.isFinite(parsedCount) ? parsedCount : null, note: null };
-    });
-  }
-  return [{ value: displayTopValue(raw), count: null, note: null }];
-}
-
-function TopValues({ stat }: { stat: ColumnStat }) {
-  if (stat.pii_masked) return <span className="chip pii">Đã ẩn PII</span>;
-  if (!stat.top_k_values) return <span className="muted">—</span>;
-  const rows = topValueRows(stat.top_k_values);
-  if (!rows.length) return <span className="muted">—</span>;
-  const total = Number(stat.row_count);
-  return <div className="top-values-wrap"><table className="top-values-table"><thead><tr><th>Giá trị</th><th>Số lượng</th><th>Ghi chú</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.value}-${index}`}><td className="top-values-value" title={row.value}>{row.value}</td><td>{row.count === null ? "—" : <>{formatNumber(row.count)}{total > 0 && <small> · {formatPercent(row.count / total, 1)}</small>}</>}</td><td>{row.note || "—"}</td></tr>)}</tbody></table></div>;
-}
-
-function Distribution({ stat, totalRows }: { stat: ColumnStat; totalRows?: number | null }) {
-  if (stat.pii_masked || !stat.top_k_values || typeof stat.top_k_values !== "object") return <span className="muted">Không có phân phối an toàn để hiển thị.</span>;
-  const entries = (Array.isArray(stat.top_k_values)
-    ? stat.top_k_values
-      .filter((item): item is { value?: unknown; count?: unknown } => typeof item === "object" && item !== null)
-      .map((item) => ({ label: String(item.value ?? "—"), count: Number(item.count) }))
-    : Object.entries(stat.top_k_values as Record<string, unknown>)
-      .map(([label, count]) => ({ label, count: Number(count) })))
-    .filter((entry) => Number.isFinite(entry.count))
-    .slice(0, 5);
-  if (!entries.length) return <span className="muted">Chưa có phân phối danh mục (category) an toàn để hiển thị.</span>;
-  const max = Math.max(...entries.map((entry) => entry.count), 1);
-  const total = Number(totalRows) || Number(stat.row_count) || null;
-  return <div className="chart-bars">{entries.map((entry) => <div className="bar-row" key={entry.label}><span className="truncate" title={entry.label}>{entry.label}</span><span className="bar-track"><span className="bar-fill" style={{ width: `${(entry.count / max) * 100}%` }} /></span><b>{formatNumber(entry.count)} {total ? <small>({formatPercent(entry.count / total, 2)})</small> : null}</b></div>)}</div>;
-}
-
-function metricPercent(value: number | null | undefined, ratio: boolean): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  const percent = ratio && Math.abs(value) <= 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, percent));
-}
-
-function MetricChart({ title, columns, metric, ratio = false, warning = false }: {
-  title: string;
-  columns: ColumnStat[];
-  metric: "null_pct" | "uniqueness_ratio";
-  ratio?: boolean;
-  warning?: boolean;
-}) {
-  const rows = columns
-    .map((stat) => ({ name: stat.column_name, value: metricPercent(stat[metric] as number | null | undefined, ratio) }))
-    .filter((item): item is { name: string; value: number } => item.value !== null)
-    .sort((left, right) => right.value - left.value)
-    .slice(0, 10);
-  if (!rows.length) return null;
-  return <section className="panel metric-chart"><div className="panel-title"><div><h2>{title}</h2><small>Top {rows.length} cột · thang đo 0–100%</small></div><span className="chip">Biểu đồ</span></div><div className="chart-bars">{rows.map((row) => <div className="bar-row" key={row.name}><span className="truncate" title={row.name}>{row.name}</span><span className="bar-track"><span className={`bar-fill ${warning ? "warning" : ""}`} style={{ width: `${row.value}%` }} /></span><b>{formatNumber(row.value, 1)}%</b></div>)}</div><div className="metric-chart-scale"><span>0%</span><span>100%</span></div></section>;
-}
-
-function correlationStrength(value: number): string {
-  const absolute = Math.abs(value);
-  if (absolute >= 0.8) return "Rất mạnh";
-  if (absolute >= 0.6) return "Mạnh";
-  if (absolute >= 0.4) return "Vừa";
-  if (absolute >= 0.2) return "Yếu";
-  return "Rất yếu";
-}
-
-function CorrelationPanel({ matrix }: { matrix: Record<string, Record<string, number>> }) {
-  const pairs = Object.entries(matrix)
-    .flatMap(([left, values]) => Object.entries(values).filter(([right]) => left < right).map(([right, value]) => ({ left, right, value: Number(value) })))
-    .filter((pair) => Number.isFinite(pair.value))
-    .sort((left, right) => Math.abs(right.value) - Math.abs(left.value));
-
-  if (!pairs.length) return <p className="muted">Không đủ cột dữ liệu số (numeric) để tính độ tương quan (correlation).</p>;
-
-  return <>
-    <div className="correlation-legend"><span><i className="correlation-swatch positive" /> Dương</span><span><i className="correlation-swatch negative" /> Âm</span><span>Gần 0 = ít liên hệ tuyến tính</span></div>
-    <div className="correlation">{pairs.map((pair) => <div className={`correlation-cell ${pair.value >= 0 ? "positive" : "negative"}`} key={`${pair.left}-${pair.right}`}><div className="correlation-pair" title={`${pair.left} × ${pair.right}`}>{pair.left} <span>×</span> {pair.right}</div><div className="correlation-score"><b>r = {formatNumber(pair.value, 3)}</b><small>{pair.value >= 0 ? "Dương" : "Âm"} · {correlationStrength(pair.value)}</small></div></div>)}</div>
-    <p className="muted correlation-note">Pearson r chỉ phản ánh tương quan tuyến tính; không chứng minh quan hệ nhân quả.</p>
-  </>;
-}
 
 function provenanceScanCopy(scanMode?: string | null, approximate?: boolean) {
   if (scanMode === "sample" || approximate) return {
@@ -165,22 +57,6 @@ function ProfileOverview() {
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}
     <section className="panel compact" style={{ marginBottom: 18 }}><div className="inline-actions"><StatusBadge status={data.status} /><span className="chip">{data.scan_mode || "—"} scan {data.is_approximate && "· sampled"}</span>{data.is_approximate && <span className="chip">≈ Có uncertainty (độ bất định)</span>}</div></section>
     
-    {/* BƯỚC TIẾP THEO ĐẶT LÊN TRÊN ĐẦU CHO DỄ THẤY */}
-    {(!hasReview && runComplete) && (
-      <section className="panel report-actions-panel" style={{ marginBottom: 18, background: "linear-gradient(135deg, rgba(2, 132, 199, 0.12) 0%, rgba(14, 165, 233, 0.06) 100%)", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
-        <div>
-          <p className="eyebrow" style={{ color: "#0284c7" }}>Bước tiếp theo</p>
-          <h2 style={{ color: "#0369a1" }}>Tạo biểu đồ & phân tích</h2>
-          <p className="muted">Tạo biểu đồ trực quan từ dữ liệu đã profile, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo hoàn chỉnh.</p>
-        </div>
-        <div className="inline-actions">
-          <Link href="/charts" className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "10px 20px", fontSize: "0.95rem" }}>
-            📊 Tạo biểu đồ & phân tích →
-          </Link>
-        </div>
-      </section>
-    )}
-
     {(hasReview || !runComplete) && <section className="panel report-actions-panel report-next-actions">
       {hasReview ? <>
         <div><p className="eyebrow">Bước cần hoàn tất</p><h2>Review đề xuất trước</h2><p className="muted">Còn {formatNumber(data.pending_proposals)} đề xuất cần được xác nhận, chỉnh sửa hoặc từ chối. Profile sẽ tiếp tục hoàn thành sau khi Review xong.</p></div>
@@ -219,6 +95,21 @@ function ProfileOverview() {
     <div id="metric_charts" className="grid two" style={{ marginTop: 18 }}><MetricChart title="Tỷ lệ null theo cột" columns={columns} metric="null_pct" warning /><MetricChart title="Tỷ lệ unique theo cột" columns={columns} metric="uniqueness_ratio" ratio /></div>
     <div id="distribution_correlation" className="grid two" style={{ marginTop: 18 }}><section className="panel"><div className="panel-title"><h2>Phân phối</h2><small>Top-k non-PII · tỷ lệ trên toàn bộ dòng</small></div>{columns.filter((stat) => !stat.pii_masked).slice(0, 3).map((stat) => <div className="distribution-column" key={stat.column_name}><h3>{stat.column_name}</h3><Distribution stat={stat} totalRows={data.row_count} /></div>)}</section><section className="panel"><div className="panel-title"><h2>Tương quan</h2><small>Pearson r · các cột số</small></div><CorrelationPanel matrix={data.correlation_matrix} /></section></div>
     
+    {(!hasReview && runComplete) && (
+      <section className="panel report-actions-panel" style={{ marginTop: 18, background: "linear-gradient(135deg, rgba(2, 132, 199, 0.12) 0%, rgba(14, 165, 233, 0.06) 100%)", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
+        <div>
+          <p className="eyebrow" style={{ color: "#0284c7" }}>Bước tiếp theo</p>
+          <h2 style={{ color: "#0369a1" }}>Tạo biểu đồ & phân tích</h2>
+          <p className="muted">Tạo biểu đồ trực quan từ dữ liệu đã profile, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo hoàn chỉnh.</p>
+        </div>
+        <div className="inline-actions">
+          <Link href="/charts" className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "10px 20px", fontSize: "0.95rem" }}>
+            📊 Tạo biểu đồ & phân tích →
+          </Link>
+        </div>
+      </section>
+    )}
+
     {tocItems.length > 0 && (
       <aside className="report-toc-sidebar">
         <div className="report-toc-container">

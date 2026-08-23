@@ -67,3 +67,9 @@ playwright-report/
 
 # Codex CLI cache
 .tmp-openai-docs-cache/
+
+# Temporary and output files
+tmp/
+output/
+report_data.json
+docs/plan_pdf.txt

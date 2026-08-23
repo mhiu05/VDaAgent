@@ -1,4 +1,4 @@
-export const COMMAND_CENTER_TABS = ["overview", "report"] as const;
+export const COMMAND_CENTER_TABS = ["overview"] as const;
 
 export type CommandCenterTab = (typeof COMMAND_CENTER_TABS)[number];
 export type CommandCenterProfileState = "queued" | "running" | "pending_review" | "completed" | "failed" | "cancelled";
@@ -8,7 +8,6 @@ export type CommandCenterReportState = "empty" | "draft" | "stale" | "snapshotti
 
 export const COMMAND_CENTER_TAB_LABELS: Record<CommandCenterTab, string> = {
   overview: "Tổng quan",
-  report: "Báo cáo",
 };
 
 export function isCommandCenterTab(value: string | null): value is CommandCenterTab {
