@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "@/app/globals.css";
+import "@/app/public.css";
 import { AppShell } from "@/components/app-shell";
 import { Providers } from "@/app/providers";
 

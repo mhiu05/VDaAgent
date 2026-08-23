@@ -1,33 +1,232 @@
 :root {
-  --ink: #17253d;
-  --muted: #66758d;
-  --line: #dce4ef;
-  --canvas: #f5f7fb;
-  --panel: #ffffff;
-  --brand: #3156d9;
-  --brand-dark: #203aa8;
-  --mint: #1b9b7a;
-  --amber: #c67a12;
-  --danger: #c8415a;
+  --background: #f6f8fc;
+  --background-subtle: #eef3f8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-muted: #f1f5f9;
+  --surface-interactive: #eaf0ff;
+  --text-primary: #14213d;
+  --text-secondary: #40516a;
+  --text-muted: #5d6b80;
+  --text-disabled: #7e8ba0;
+  --text-inverse: #ffffff;
+  --border: #c9d4e2;
+  --border-strong: #8999b0;
+  --primary: #3158d5;
+  --primary-hover: #2446b8;
+  --primary-active: #19399e;
+  --primary-foreground: #ffffff;
+  --success: #0f765e;
+  --success-background: #e9f7f2;
+  --success-foreground: #0b5c49;
+  --success-border: #9ed9c5;
+  --warning: #8a5708;
+  --warning-background: #fff5df;
+  --warning-foreground: #714600;
+  --warning-border: #e8c77d;
+  --danger: #a52d48;
+  --danger-background: #fff0f3;
+  --danger-foreground: #8c203a;
+  --danger-border: #e5a9b6;
+  --info: #1b4f9b;
+  --info-background: #ebf2ff;
+  --info-foreground: #163f7d;
+  --info-border: #abc1ee;
+  --neutral-background: #edf1f6;
+  --neutral-foreground: #43536b;
+  --focus-ring: #4268df;
+  --chart-1: #3f6ee8;
+  --chart-2: #0e9f9a;
+  --chart-3: #8a62d6;
+  --chart-4: #d18a18;
+  --chart-5: #d05268;
+  --shadow-color: 20 35 57;
   --sidebar: #111d34;
+  /* Compatibility aliases for existing feature-level styles. */
+  --ink: var(--text-primary);
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --canvas: var(--background);
+  --panel: var(--surface);
+  --brand: var(--primary);
+  --brand-dark: var(--primary-hover);
+  --mint: var(--success);
+  --amber: var(--warning);
   --radius: 14px;
   color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------
+   Theme contract
+   --------------------------------------------------------------------------
+   Feature styles above predate the shared token system. These rules keep
+   their structure intact while ensuring the important interactive surfaces,
+   forms, statuses, tables, and charts consume the same accessible palette in
+   both themes.
+*/
+html, body { background: var(--background); color: var(--text-primary); }
+::selection { color: var(--text-inverse); background: var(--primary); }
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.main-content, .public-page, .auth-screen { background: var(--background); color: var(--text-primary); }
+.panel, .dashboard-stat-card, .dashboard-loading, .workspace-auth-loading-card,
+.metric-card, .activity-entry, .report-card, .auth-card, .profile-modal,
+.history-modal, .table-wrap, .chart-result-canvas, .chart-empty-canvas {
+  border-color: var(--border);
+  background: var(--surface);
+}
+.chart-auto-profile-pack { border: 1px solid var(--border-strong) !important; background: linear-gradient(145deg, var(--surface), var(--surface-muted)) !important; }
+.chart-business-question-panel { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--info-border); border-radius: 12px; background: var(--surface-raised); box-shadow: 0 2px 8px rgb(var(--shadow-color) / .06); }
+.panel, .dashboard-stat-card, .activity-entry, .report-card, .auth-card,
+.workspace-auth-loading-card { box-shadow: 0 8px 24px rgb(var(--shadow-color) / .06); }
+
+.button.primary, .send-trigger {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  box-shadow: 0 5px 14px rgb(var(--shadow-color) / .14);
+}
+.button.primary:hover, .send-trigger:hover:not(:disabled) { background: var(--primary-hover); }
+.button.secondary, .upload-trigger {
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  background: var(--surface-muted);
+}
+.button.secondary:hover:not(:disabled), .upload-trigger:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-interactive); }
+.button.danger { border: 1px solid var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.button.workspace-archive { border: 1px solid var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+.button[disabled], button:disabled, input:disabled, select:disabled, textarea:disabled { color: var(--text-disabled); }
+
+input, select, textarea {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  background: var(--surface-raised);
+}
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) { border-color: var(--primary); }
+input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+
+table { color: var(--text-primary); background: var(--surface); }
+th { color: var(--text-secondary); background: var(--surface-muted); }
+td { border-color: var(--border); }
+tbody tr:hover { background: var(--surface-interactive); }
+.muted, small, .page-description, .reports-hero-description { color: var(--text-muted); }
+
+.status { border: 1px solid var(--border); color: var(--neutral-foreground); background: var(--neutral-background); }
+.status-pending_review, .status-queued, .status-resuming { border-color: var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+.status-completed { border-color: var(--success-border); color: var(--success-foreground); background: var(--success-background); }
+.status-failed, .status-cancelled { border-color: var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.status-running { border-color: var(--info-border); color: var(--info-foreground); background: var(--info-background); }
+.notice { border-color: var(--info-border); color: var(--info-foreground); background: var(--info-background); }
+.notice.warning { border-color: var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+.notice.error { border-color: var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.notice.success { border-color: var(--success-border); color: var(--success-foreground); background: var(--success-background); }
+.empty-state, .loading-block { border-color: var(--border-strong); color: var(--text-muted); background: var(--surface-muted); }
+
+.dashboard-stat-icon, .dashboard-empty > span, .report-card-icon, .activity-entry-icon {
+  color: var(--primary); background: var(--surface-interactive);
+}
+.dashboard-reports li, .history-modal-row, .top-values-wrap { background: var(--surface-muted); }
+.report-card-meta, .chart-result-meta { border-color: var(--border); }
+
+/* Workspace chrome is a dark analytical rail in both themes. */
+.sidebar { color: #d9e3f2; background: linear-gradient(180deg, #111d34 0%, #0c172b 100%); }
+.sidebar .nav-link { color: #b8c7dd; }
+.sidebar .nav-link:hover { color: #ffffff; background: #1b2b48; border-color: #40577f; }
+.sidebar .nav-link.active { color: #ffffff; background: linear-gradient(135deg, #3f68d9 0%, #2c4fbc 100%); border-color: #6d8de9; }
+.sidebar-section-label, .sidebar-section-heading, .sidebar-workspace-label { color: #a7b8d2; }
+.sidebar-workspace, .chat-history-row, .chat-history-item { border-color: #405471; background: #172840; }
+.sidebar-workspace select { border-color: #5a7090; color: #e5edfa; background: #14233b; }
+
+/* Analytical chart palette: series are distinct in luminance as well as hue. */
+.chart-actual-line, .chart-line-svg .actual-point, .chart-forecast-legend i { stroke: var(--chart-1); background: var(--chart-1); }
+.chart-forecast-line, .chart-line-svg .forecast-point, .chart-forecast-legend i.forecast { stroke: var(--chart-4); }
+.chart-forecast-band, .chart-forecast-legend i.interval { fill: color-mix(in srgb, var(--chart-4) 22%, transparent); background: color-mix(in srgb, var(--chart-4) 22%, transparent); }
+.chart-line-svg { color: var(--chart-2); filter: none; }
+.chart-line-svg circle { fill: var(--chart-2); stroke: var(--surface); }
+.chart-workspace-count, .chart-toolbar, .chart-workflow-map li, .chart-step-fields,
+.chart-model-groups section, .chart-advanced, .chart-analysis-summary, .chart-agent-facts span {
+  border-color: var(--border); background: var(--surface-muted);
+}
+.chart-workflow-map li.done, .chart-model-chip.available { color: var(--success-foreground); border-color: var(--success-border); background: var(--success-background); }
+.chart-workflow-map li.active { color: var(--info-foreground); background: var(--info-background); }
+.chart-auto-stage, .chart-auto-decision, .chart-agent-understanding { color: var(--info-foreground); border-color: var(--info-border); background: var(--info-background); }
+.chart-model-chip.unavailable { color: var(--warning-foreground); border-color: var(--warning-border); background: var(--warning-background); }
+.chart-type-badge, .chart-fit-badge.high { color: var(--success-foreground); background: var(--success-background); }
+.chart-fit-badge.review, .chart-selection-note.review { color: var(--warning-foreground); background: var(--warning-background); }
+.chart-config-fields input, .chart-config-fields select, .chart-insight-editor textarea { border-color: var(--border-strong); color: var(--text-primary); background: var(--surface-raised); }
+.chart-insight-panel { border-color: var(--border); color: var(--text-primary); background: var(--surface-raised); }
+.chart-insight-panel .report { color: var(--text-primary); }
+.chart-insight-review { color: var(--text-secondary); }
+.chart-result-bars .bar-row:hover { background: var(--surface-interactive); }
+.chart-result-bars .bar-track { background: var(--surface-muted); }
+.chart-result-bars:not(.has-negative-values) .bar-fill { background: linear-gradient(90deg, var(--chart-2), var(--chart-1)); }
+.chart-diverging-track .bar-fill.negative { background: linear-gradient(90deg, var(--chart-5), var(--danger)); }
+.chart-zero-line { background: var(--border-strong); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
 
 /* Analyst is the only workspace role, so keep the role explainer compact. */
 .home-new-role-grid { grid-template-columns: minmax(0, 420px); }
 
 [data-theme="dark"] {
-  --ink: #e7eef9;
-  --muted: #9aaac1;
-  --line: #30415d;
-  --canvas: #0e1728;
-  --panel: #17243a;
-  --brand: #8298ff;
-  --brand-dark: #a0b0ff;
-  --mint: #48caa2;
-  --amber: #e1a34d;
-  --danger: #f18198;
+  --background: #0b1220;
+  --background-subtle: #101a2b;
+  --surface: #111c2e;
+  --surface-raised: #16243a;
+  --surface-muted: #1b2a42;
+  --surface-interactive: #22345b;
+  --text-primary: #edf2f9;
+  --text-secondary: #c1cddd;
+  --text-muted: #9aabc2;
+  --text-disabled: #718199;
+  --text-inverse: #0b1220;
+  --border: #2b3d59;
+  --border-strong: #5a6f8d;
+  --primary: #8da2ff;
+  --primary-hover: #a9b8ff;
+  --primary-active: #c0cbff;
+  --primary-foreground: #101a34;
+  --success: #76d7b6;
+  --success-background: #153a32;
+  --success-foreground: #9ae5c9;
+  --success-border: #3f806b;
+  --warning: #f2c36d;
+  --warning-background: #3a2b18;
+  --warning-foreground: #f6d58f;
+  --warning-border: #8d6b31;
+  --danger: #ff9bae;
+  --danger-background: #3d202b;
+  --danger-foreground: #ffb7c5;
+  --danger-border: #96506a;
+  --info: #a9baff;
+  --info-background: #1a2b54;
+  --info-foreground: #c1ceff;
+  --info-border: #5570b0;
+  --neutral-background: #263651;
+  --neutral-foreground: #c5d0df;
+  --focus-ring: #a9b8ff;
+  --chart-1: #8daeff;
+  --chart-2: #65d7c9;
+  --chart-3: #c39cff;
+  --chart-4: #f2c36d;
+  --chart-5: #ff9bae;
+  --shadow-color: 5 12 28;
+  --ink: var(--text-primary);
+  --muted: var(--text-muted);
+  --line: var(--border);
+  --canvas: var(--background);
+  --panel: var(--surface);
+  --brand: var(--primary);
+  --brand-dark: var(--primary-hover);
+  --mint: var(--success);
+  --amber: var(--warning);
   --sidebar: #0a1220;
   color-scheme: dark;
 }
@@ -2676,4 +2875,78 @@ input[type="checkbox"] { width: auto; min-height: auto; }
     margin-bottom: 1.5rem !important;
     border-radius: 0 !important;
   }
+}
+
+/* Final token pass: this intentionally follows legacy feature overrides. */
+html, body { background: var(--background); color: var(--text-primary); }
+.main-content, .public-page, .auth-screen { background: var(--background); color: var(--text-primary); }
+.panel, .dashboard-stat-card, .dashboard-loading, .workspace-auth-loading-card,
+.metric-card, .activity-entry, .report-card, .auth-card, .profile-modal,
+.history-modal, .table-wrap, .chart-result-canvas, .chart-empty-canvas {
+  border-color: var(--border);
+  background: var(--surface);
+}
+.panel, .dashboard-stat-card, .activity-entry, .report-card, .auth-card,
+.workspace-auth-loading-card { box-shadow: 0 8px 24px rgb(var(--shadow-color) / .06); }
+.button.primary, .send-trigger { color: var(--primary-foreground); background: var(--primary); box-shadow: 0 5px 14px rgb(var(--shadow-color) / .14); }
+.button.primary:hover, .send-trigger:hover:not(:disabled) { background: var(--primary-hover); }
+.button.secondary, .upload-trigger { border: 1px solid var(--border); color: var(--text-primary); background: var(--surface-muted); }
+.button.secondary:hover:not(:disabled), .upload-trigger:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-interactive); }
+.button.danger { border: 1px solid var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.button.workspace-archive { border: 1px solid var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+input, select, textarea { border-color: var(--border-strong); color: var(--text-primary); background: var(--surface-raised); }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled), input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+table { color: var(--text-primary); background: var(--surface); }
+th { color: var(--text-secondary); background: var(--surface-muted); }
+td { border-color: var(--border); }
+tbody tr:hover { background: var(--surface-interactive); }
+.muted, small, .page-description, .reports-hero-description { color: var(--text-muted); }
+.status { border: 1px solid var(--border); color: var(--neutral-foreground); background: var(--neutral-background); }
+.status-pending_review, .status-queued, .status-resuming { border-color: var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+.status-completed { border-color: var(--success-border); color: var(--success-foreground); background: var(--success-background); }
+.status-failed, .status-cancelled { border-color: var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.status-running { border-color: var(--info-border); color: var(--info-foreground); background: var(--info-background); }
+.notice { border-color: var(--info-border); color: var(--info-foreground); background: var(--info-background); }
+.notice.warning { border-color: var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+.notice.error { border-color: var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.notice.success { border-color: var(--success-border); color: var(--success-foreground); background: var(--success-background); }
+.empty-state, .loading-block { border-color: var(--border-strong); color: var(--text-muted); background: var(--surface-muted); }
+.dashboard-stat-icon, .dashboard-empty > span, .report-card-icon, .activity-entry-icon { color: var(--primary); background: var(--surface-interactive); }
+.dashboard-reports li, .history-modal-row, .top-values-wrap { background: var(--surface-muted); }
+.report-card-meta, .chart-result-meta { border-color: var(--border); }
+
+.sidebar { color: #d9e3f2; background: linear-gradient(180deg, #111d34 0%, #0c172b 100%); }
+.sidebar .nav-link { color: #b8c7dd; }
+.sidebar .nav-link:hover { color: #ffffff; background: #1b2b48; border-color: #40577f; }
+.sidebar .nav-link.active { color: #ffffff; background: linear-gradient(135deg, #3f68d9 0%, #2c4fbc 100%); border-color: #6d8de9; }
+.sidebar-section-label, .sidebar-section-heading, .sidebar-workspace-label { color: #a7b8d2; }
+.sidebar-workspace, .chat-history-row, .chat-history-item { border-color: #405471; background: #172840; }
+.sidebar-workspace select { border-color: #5a7090; color: #e5edfa; background: #14233b; }
+
+.chart-actual-line, .chart-line-svg .actual-point, .chart-forecast-legend i { stroke: var(--chart-1); background: var(--chart-1); }
+.chart-forecast-line, .chart-line-svg .forecast-point, .chart-forecast-legend i.forecast { stroke: var(--chart-4); }
+.chart-forecast-band, .chart-forecast-legend i.interval { fill: color-mix(in srgb, var(--chart-4) 22%, transparent); background: color-mix(in srgb, var(--chart-4) 22%, transparent); }
+.chart-line-svg { color: var(--chart-2); filter: none; }
+.chart-line-svg circle { fill: var(--chart-2); stroke: var(--surface); }
+.chart-workspace-count, .chart-toolbar, .chart-workflow-map li, .chart-step-fields,
+.chart-model-groups section, .chart-advanced, .chart-analysis-summary, .chart-agent-facts span { border-color: var(--border); background: var(--surface-muted); }
+.chart-workflow-map li.done, .chart-model-chip.available { color: var(--success-foreground); border-color: var(--success-border); background: var(--success-background); }
+.chart-workflow-map li.active, .chart-auto-stage, .chart-auto-decision, .chart-agent-understanding { color: var(--info-foreground); border-color: var(--info-border); background: var(--info-background); }
+.chart-model-chip.unavailable, .chart-fit-badge.review, .chart-selection-note.review { color: var(--warning-foreground); border-color: var(--warning-border); background: var(--warning-background); }
+.chart-type-badge, .chart-fit-badge.high { color: var(--success-foreground); background: var(--success-background); }
+.chart-config-fields input, .chart-config-fields select, .chart-insight-editor textarea { border-color: var(--border-strong); color: var(--text-primary); background: var(--surface-raised); }
+.chart-insight-panel { border-color: var(--border); color: var(--text-primary); background: var(--surface-raised); }
+.chart-insight-panel .report { color: var(--text-primary); }
+.chart-insight-review { color: var(--text-secondary); }
+.chart-result-bars .bar-row:hover { background: var(--surface-interactive); }
+.chart-result-bars .bar-track { background: var(--surface-muted); }
+.chart-result-bars:not(.has-negative-values) .bar-fill { background: linear-gradient(90deg, var(--chart-2), var(--chart-1)); }
+.chart-diverging-track .bar-fill.negative { background: linear-gradient(90deg, var(--chart-5), var(--danger)); }
+.chart-zero-line { background: var(--border-strong); }
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }

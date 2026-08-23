@@ -1,4 +1,4 @@
-﻿{
+{
   "openapi": "3.1.0",
   "info": {
     "title": "VDaAgent — AI Data Profiling Agent",
@@ -8234,9 +8234,7 @@
                   "ets",
                   "arima",
                   "sarima",
-                  "sarimax",
                   "auto_arima",
-                  "arimax",
                   "structural_time_series",
                   "local_level",
                   "local_linear_trend",
