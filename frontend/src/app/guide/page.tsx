@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { PublicNavbar } from "@/components/public-navbar";
 import { PublicFooter } from "@/components/public-footer";
 
@@ -10,7 +11,8 @@ const steps = [
     title: "1. Tải dữ liệu (Upload)",
     desc: "Khởi tạo Profile Run bằng cách tải tệp tin của bạn.",
     content: "Bắt đầu bằng cách kéo thả tệp dữ liệu (CSV, Parquet, JSON) vào Workspace. Ngay khi tải lên, hệ thống sẽ tự động khởi chạy tiến trình Profiling deterministic để quét toàn bộ cấu trúc và chất lượng dữ liệu của bạn trong vài giây.",
-    callout: { type: "tip", text: "Nếu file quá lớn, hệ thống sẽ tự động tối ưu hóa tài nguyên để đảm bảo không bị gián đoạn quá trình." }
+    callout: { type: "tip", text: "Nếu file quá lớn, hệ thống sẽ tự động tối ưu hóa tài nguyên để đảm bảo không bị gián đoạn quá trình. Đợi khoảng 2-3 phút để hoàn thành quá trình." },
+    mockup: { type: "upload" }
   },
   {
     id: "step-2",
@@ -46,13 +48,13 @@ export default function GuidePage() {
   return (
     <div className="public-page">
       <PublicNavbar />
-      
+
       <main style={{ flex: 1, position: "relative" }}>
-        
+
         {/* Banner Global AI Chat */}
         <div style={{ background: "var(--pub-brand)", color: "#fff", padding: "16px", textAlign: "center", position: "sticky", top: 0, zIndex: 10 }}>
           <p style={{ margin: 0, fontSize: "15px", fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
             Lưu ý: Chat Agent (Trợ lý AI) luôn túc trực và bạn có thể hỏi đáp xuyên suốt mọi bước trong quá trình phân tích!
           </p>
         </div>
@@ -68,7 +70,7 @@ export default function GuidePage() {
                 Làm chủ VDaAgent thông qua 5 bước tiêu chuẩn trong Workspace. Từ lúc tải file cho đến khi xuất báo cáo hoàn chỉnh.
               </p>
             </div>
-            
+
             <div className="pub-guide-layout">
               <aside className="pub-guide-sidebar">
                 <nav>
@@ -80,7 +82,7 @@ export default function GuidePage() {
                   ))}
                 </nav>
               </aside>
-              
+
               <div className="pub-guide-content">
                 {steps.map((step, index) => (
                   <div key={step.id} id={step.id} className="pub-guide-step">
@@ -88,21 +90,22 @@ export default function GuidePage() {
                     <p style={{ fontSize: "16px", color: "var(--pub-ink)", lineHeight: 1.7, marginBottom: "24px" }}>
                       {step.content}
                     </p>
-                    
-                    {step.callout && (
-                      <div style={{ background: step.callout.type === "tip" ? "rgba(49, 88, 231, 0.05)" : "rgba(200, 65, 90, 0.05)", padding: "16px", borderRadius: "8px", borderLeft: `4px solid ${step.callout.type === "tip" ? "var(--pub-brand)" : "var(--pub-danger)"}`, marginBottom: "32px", fontSize: "15px", color: "var(--pub-ink)" }}>
-                        <strong style={{ color: step.callout.type === "tip" ? "var(--pub-brand)" : "var(--pub-danger)" }}>
-                          {step.callout.type === "tip" ? "Mẹo nhỏ: " : "Lưu ý: "}
-                        </strong>
-                        {step.callout.text}
-                      </div>
-                    )}
-                    
+
+
                     {step.mockup && (
                       <div className="pub-mockup" style={{ marginBottom: "32px" }}>
                         <div className="pub-mockup-header">
                           <h3>VDaAgent / step-0{index + 1}</h3>
                         </div>
+                        {step.mockup.type === "upload" && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "16px", background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                              <Image src="/img/guilde/upload_data1.png" alt="Upload Step 1" width={400} height={200} style={{ width: '100%', height: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }} />
+                              <Image src="/img/guilde/upload_data2.png" alt="Upload Step 2" width={400} height={200} style={{ width: '100%', height: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }} />
+                            </div>
+                            <Image src="/img/guilde/upload_data3.png" alt="Upload Step 3" width={800} height={400} style={{ width: '100%', height: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }} />
+                          </div>
+                        )}
                         {step.mockup.type === "review" && (
                           <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "12px" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", background: "rgba(255,255,255,0.05)", padding: "12px", borderRadius: "8px" }}>
@@ -128,7 +131,7 @@ export default function GuidePage() {
                         )}
                         {step.mockup.type === "export" && (
                           <div style={{ padding: "24px", textAlign: "center" }}>
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--pub-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--pub-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "12px" }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>
                             <h4 style={{ color: "#fff", marginBottom: "8px" }}>Báo cáo đã đóng băng</h4>
                             <div style={{ display: "flex", justifyContent: "center", gap: "12px", marginTop: "16px" }}>
                               <span style={{ padding: "6px 12px", background: "var(--pub-brand)", color: "#fff", borderRadius: "4px", fontSize: "13px", fontWeight: 500 }}>Xuất PDF</span>
@@ -138,7 +141,16 @@ export default function GuidePage() {
                         )}
                       </div>
                     )}
-                    
+
+                    {step.callout && (
+                      <div style={{ background: step.callout.type === "tip" ? "rgba(49, 88, 231, 0.05)" : "rgba(200, 65, 90, 0.05)", padding: "16px", borderRadius: "8px", borderLeft: `4px solid ${step.callout.type === "tip" ? "var(--pub-brand)" : "var(--pub-danger)"}`, marginBottom: "32px", fontSize: "15px", color: "var(--pub-ink)" }}>
+                        <strong style={{ color: step.callout.type === "tip" ? "var(--pub-brand)" : "var(--pub-danger)" }}>
+                          {step.callout.type === "tip" ? "Mẹo nhỏ: " : "Lưu ý: "}
+                        </strong>
+                        {step.callout.text}
+                      </div>
+                    )}
+
                     {index < steps.length - 1 && <hr style={{ border: 0, borderBottom: "1px solid var(--pub-border)", margin: "48px 0" }} />}
                   </div>
                 ))}
@@ -157,7 +169,7 @@ export default function GuidePage() {
           </div>
         </section>
       </main>
-      
+
       <PublicFooter />
     </div>
   );

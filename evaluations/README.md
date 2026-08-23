@@ -4,10 +4,14 @@ Bộ đánh giá theo hướng evidence-first cho VDaAgent. Fixture chỉ dùng 
 
 ## Thành phần
 
-- `fixtures/v1.json`: bộ dữ liệu `p170-ai-eval-v1` với các split `dev`, `test`, `security`, `regression`.
-- `run_evaluation.py`: kiểm tra cấu trúc, scorecard offline và target API thật qua `LangSmith aevaluate()`.
-- `test_evaluators.py`: unit test cho các hard gate.
-- `results/`: báo cáo baseline và kết quả chạy đánh giá.
+- `fixtures/v1.json`: bộ dữ liệu `p170-ai-eval-v1` với các suite Q&A, groundedness, insufficient evidence, safety, forecast và chart planning.
+- `evaluation_core.py`: hard gate deterministic dùng contract Pydantic thật `QAResponse` và `QuerySpec`.
+- `run_evaluation.py`: kiểm tra cấu trúc, scorecard offline, release gate/baseline comparison và target API thật qua `LangSmith aevaluate()`.
+- `release_gates.json`: ngưỡng provisional, tập trung và cần owner phê duyệt.
+- `test_evaluators.py`: unit test cho fixture, schema, groundedness, safety và gate.
+- `results/latest_scorecard.{json,md}`: artifact offline đã redact.
+
+Thiết kế, trạng thái thực tế, giới hạn và action của owner: [docs/eval.md](../docs/eval.md).
 
 ## Hard gate
 
@@ -23,6 +27,7 @@ Tại thư mục gốc repository:
 .\.venv\Scripts\python.exe evaluations\run_evaluation.py --dry-run
 .\.venv\Scripts\python.exe evaluations\run_evaluation.py --offline
 .\.venv\Scripts\python.exe -m pytest -q evaluations\test_evaluators.py
+.\.venv\Scripts\python.exe evaluations\run_evaluation.py --offline --baseline evaluations\results\approved_baseline.json
 ```
 
 Live mode gọi API staging/test với một Profile Run synthetic:

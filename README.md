@@ -23,8 +23,8 @@ trung tâm: mọi phân tích, biểu đồ, câu trả lời của Agent và re
 một Profile Run trong một workspace cụ thể.
 
 ```text
-Tải dataset → Profile deterministic → Review metadata
-       → Profile Run hoàn tất
+Tải dataset → tạo Profile Run dạng job → worker profiling deterministic
+       → Review metadata/PII (nếu có) → worker tiếp tục → Profile Run hoàn tất
        ├─ Biểu đồ: plan → Preview → Official evidence → insight
        ├─ Hỏi Agent: trả lời theo evidence đã được phép đọc
        └─ Report Draft → snapshot bất biến → PDF/JSON
@@ -107,6 +107,10 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **Data profiling** cho CSV, TSV, Parquet và JSON: schema, kiểu dữ liệu,
   missingness, cardinality, uniqueness, duplicate, outlier, top values và
   correlation.
+- **Profile job bền vững**: API nhận request và trả `202 Accepted`; worker riêng
+  claim job từ PostgreSQL, gia hạn lease, tự phục hồi lease hết hạn và xử lý lại
+  lỗi tạm thời trong giới hạn số lần thử. UI theo dõi trạng thái qua
+  `GET /profiling-jobs/{job_id}`.
 - **Human-in-the-loop review** cho semantic type, candidate key và đề xuất PII
   còn chờ quyết định trước khi dùng chúng làm ngữ cảnh evidence.
 - **Biểu đồ & phân tích trực quan** tại `/charts`: chọn Profile Run đã hoàn
@@ -145,10 +149,12 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 ## Luồng sử dụng
 
 1. Vào **Tải dữ liệu**, tải một dataset và tạo Profile Run ở chế độ `sample`
-   hoặc `full`.
-2. Review, chỉnh sửa hoặc từ chối proposal metadata/PII còn chờ. Khi Profile
-   Run hoàn tất, trạng thái chuyển sang `completed`.
-3. Vào **Biểu đồ** (`/charts`), chọn đúng Profile Run, rồi nhập câu hỏi kinh
+   hoặc `full`. API xếp request vào hàng đợi; giao diện theo dõi job cho đến khi
+   profiling dừng ở bước review hoặc hoàn tất.
+2. Nếu có proposal metadata/PII, review, chỉnh sửa hoặc từ chối. Backend lưu
+   quyết định và xếp continuation vào hàng đợi; worker tiếp tục từ checkpoint.
+   Khi không còn bước chờ, Profile Run chuyển sang `completed`.
+3. Vào **Biểu đồ** (`/charts`), chọn Profile Run đã `completed`, rồi nhập câu hỏi kinh
    doanh hoặc tạo bộ biểu đồ profile tự động.
 4. Kiểm tra **Preview**. Đây là kết quả có ngân sách thời gian và có thể dùng
    sample nên chưa phải evidence báo cáo.
@@ -173,13 +179,13 @@ Next.js / React :3000
                          ↓
 FastAPI :8000/api/v1
   ├─ Auth, workspace/capability guard và audit
-  ├─ LangGraph profiling/Q&A, native skill registry và trace
+  ├─ Nhận profile job, Q&A, native skill registry và trace
   ├─ Chart planner, bounded AnalysisEngine và forecasting registry
   ├─ DuckDB, pandas, NumPy, SciPy, statsmodels/scikit-learn khi có
   └─ Repository + storage adapter
-                         ↓
-PostgreSQL                 Object storage
-workspace/profile/evidence Supabase Storage | Google Drive | local dev
+                         ↓                     ↑
+PostgreSQL ── claim/lease ── Profiling worker  Object storage
+workspace/profile/evidence   LangGraph         Supabase Storage | Google Drive | local dev
 report/audit/trace
 ```
 
@@ -228,6 +234,7 @@ backend/src/api/                 FastAPI routes và dependency guards
 backend/src/agents/              LangGraph, prompts, skill registry, trace/tools
 backend/src/services/            profiling, analysis, chart planner, forecast,
                                  report, storage, auth và retrieval
+backend/src/workers/             worker claim/lease và xử lý Profile Run bất đồng bộ
 backend/src/mcp_server.py        MCP stdio adapter với bounded tools
 backend/src/models/              Pydantic contracts
 backend/migrations/              Alembic migrations
@@ -236,7 +243,7 @@ frontend/src/components/         UI, profile, charts và report components
 frontend/src/lib/                API client, auth, types và SSE transport
 scripts/chart_production_smoke.py Smoke check cho chart production flow
 tests/                           Backend/API/compute/security/frontend tests
-docs/Biểu Đồ.md                  Tài liệu chi tiết về Charts & Evidence
+docs/azure-deploy-cicd.md        Quy trình CI/CD và triển khai Azure App Service
 ```
 
 ## Yêu cầu
@@ -411,7 +418,7 @@ Mọi backend endpoint có prefix `/api/v1`.
 
 | Nhóm | Endpoint tiêu biểu |
 | --- | --- |
-| Dataset & profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
+| Dataset & profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202 Accepted`), `GET /profiling-jobs/{job_id}`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
 | Chart planning | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
 | Bounded analysis | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
@@ -465,15 +472,18 @@ có thể tạo migration, profile và report fixture.
 - Preview bị giới hạn thời gian, dữ liệu và số kết quả; Preview không thể ghim
   trực tiếp vào Report Draft.
 - Forecast là ước lượng có interval/limitation, không phải giá trị chắc chắn.
-- Các capability planner autonomy, verifier enforcement, durable jobs và
-  workspace/personal memory chưa là workflow phát hành; giữ các flag tương ứng
-  tắt.
+- Hủy Profile Run chưa được hỗ trợ: pandas/DuckDB/LangGraph chưa có điểm dừng
+  hợp tác an toàn. Worker sẽ phục hồi job có lease hết hạn thay vì UI giả định
+  rằng thao tác ẩn job đã hủy compute.
+- Planner autonomy, verifier enforcement và workspace/personal memory vẫn là
+  capability feature-gated, chưa là workflow phát hành.
 
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
 - [Architecture](ARCHITECTURE.md)
-- [Biểu đồ & Evidence-First Analytics](<docs/Biểu Đồ.md>)
+- [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
+- [AI Evaluation](docs/eval.md)
 - [Cấu hình mẫu](.env.example)
 - [Cấu hình ứng dụng](config.yaml)
 - [Hướng dẫn AI evaluation](evaluations/README.md)

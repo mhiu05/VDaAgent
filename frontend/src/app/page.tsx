@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { PublicNavbar } from "@/components/public-navbar";
 import { PublicFooter } from "@/components/public-footer";
 
@@ -11,58 +12,7 @@ const features = [
   { icon: "04", title: "Trực quan hóa", description: "Gợi ý và tạo các biểu đồ Histogram, Bar chart trực quan dựa trên đặc tính ngữ nghĩa của biến số." },
 ];
 
-function ProductPreview() {
-  return (
-    <div className="pub-mockup">
-      <div className="pub-mockup-header">
-        <h3>VDaAgent / profile-run-042</h3>
-        <span className="pub-mockup-badge">Hoàn tất</span>
-      </div>
-      
-      <div className="pub-mockup-stats">
-        <div className="pub-mockup-stat-card">
-          <small>Số dòng</small>
-          <b>84,270</b>
-        </div>
-        <div className="pub-mockup-stat-card">
-          <small>Số cột</small>
-          <b>18</b>
-        </div>
-        <div className="pub-mockup-stat-card">
-          <small>Chất lượng</small>
-          <b style={{ color: "var(--pub-mint)" }}>92.8%</b>
-        </div>
-      </div>
-      
-      <p style={{ fontSize: "14px", fontWeight: 600, margin: "0 0 16px 0", color: "#fff" }}>Mức độ đầy đủ theo cột</p>
-      
-      <div className="pub-mockup-chart">
-        <div className="pub-mockup-bar" style={{ height: "100%" }}></div>
-        <div className="pub-mockup-bar" style={{ height: "60%" }}></div>
-        <div className="pub-mockup-bar" style={{ height: "95%" }}></div>
-        <div className="pub-mockup-bar" style={{ height: "82%" }}></div>
-        <div className="pub-mockup-bar mint" style={{ height: "92%" }}></div>
-        <div className="pub-mockup-bar" style={{ height: "40%" }}></div>
-        <div className="pub-mockup-bar" style={{ height: "88%" }}></div>
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "12px", color: "rgba(255,255,255,0.6)", fontSize: "12px" }}>
-        <span>customer_id</span>
-        <span>order_date</span>
-        <span>total_value</span>
-      </div>
 
-      <div className="pub-floating-tag tag-1">
-        <span className="pub-icon-check">✓</span>
-        <div>Kiểm tra chất lượng<br /><span style={{ color: "var(--pub-muted)", fontSize: "12px" }}>Sẵn sàng phân tích</span></div>
-      </div>
-      
-      <div className="pub-floating-tag tag-2">
-        <span className="pub-icon-spark">✦</span>
-        <div>Trả lời từ hệ thống<br /><span style={{ color: "var(--pub-muted)", fontSize: "12px" }}>Có số liệu kèm theo</span></div>
-      </div>
-    </div>
-  );
-}
 
 export default function Home() {
   return (
@@ -89,7 +39,7 @@ export default function Home() {
             </div>
             
             <div style={{ position: "relative" }}>
-              <ProductPreview />
+              <Image src="/img/home/home1.png" alt="VDaAgent Preview" width={800} height={600} style={{ width: '100%', height: 'auto', borderRadius: '16px', boxShadow: '0 24px 64px rgba(0,0,0,0.1)' }} priority />
             </div>
           </div>
         </section>
