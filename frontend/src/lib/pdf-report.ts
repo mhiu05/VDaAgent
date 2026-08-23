@@ -292,7 +292,10 @@ function buildSections(source: ReportSource): Section[] {
 
   if (stats.length) {
     const statBody = `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "Giá trị phổ biến"], statRows(stats))}<div style="display: flex; flex-wrap: wrap; gap: 4mm; margin-top: 5mm;">${barChart("Tỷ lệ null theo cột", stats, "null_pct")}${barChart("Tỷ lệ unique theo cột", stats, "uniqueness_ratio")}</div>`;
-    const distributions = stats.filter((stat) => !stat.pii_masked && (Array.isArray(stat.top_values) || (stat.top_values && typeof stat.top_values === 'object'))).slice(0, 3);
+    const distributions = stats.filter((stat) => {
+      const topK = stat.top_values ?? stat.top_k_values;
+      return !stat.pii_masked && topK && (Array.isArray(topK) || typeof topK === 'object');
+    }).slice(0, 3);
     const distBody = distributions.length ? distributions.map((stat) => distributionChart(stat, Number(run.row_count ?? 0))).join("") : "";
     const correlation = profile.correlation_matrix;
     const corrBody = correlation && Object.keys(correlation).length ? table(["Cột", ...Object.keys(correlation).slice(0, 8)], Object.keys(correlation).slice(0, 8).map((column) => [column, ...Object.keys(correlation).slice(0, 8).map((peer) => { const value = Number(correlation[column]?.[peer]); return Number.isFinite(value) ? value.toFixed(2) : "-"; })]), "compact") : "";
