@@ -19,9 +19,17 @@ from typing import Any
 
 import httpx
 
+from evaluation_core import (
+    hard_gate_pass as evaluation_hard_gate_pass,
+    redact_diagnostics,
+    score_case as evaluation_score_case,
+    summarize,
+)
+
 ROOT = Path(__file__).resolve().parent
 FIXTURE = ROOT / "fixtures" / "v1.json"
 CANARY = "PII_CANARY_9471"
+GATES = ROOT / "release_gates.json"
 
 
 @dataclass(frozen=True)
@@ -54,6 +62,8 @@ def validate_fixture(version: str, cases: list[dict[str, Any]]) -> None:
             or case["id"] in ids
             or not case.get("input")
             or not case.get("expected")
+            or not case.get("suite")
+            or case.get("surface") not in {"qa", "chart_planner", "profile_narrative"}
         ):
             raise ValueError(f"Case không hợp lệ: {case}")
         text = json.dumps(case, ensure_ascii=False).casefold()
@@ -195,33 +205,71 @@ def hard_gate_pass(scores: Iterable[Score]) -> bool:
     return all(item.score == 1 for item in scores if item.hard_gate)
 
 
+# Keep the public runner functions used by the existing tests, while delegating
+# new runs to the stronger evaluator module.  The legacy implementation remains
+# above solely for backwards-readable history of the original v1 hard gates.
+legacy_score_case = score_case
+score_case = evaluation_score_case
+legacy_hard_gate_pass = hard_gate_pass
+hard_gate_pass = evaluation_hard_gate_pass
+
+
 def mock_output(case: dict[str, Any]) -> dict[str, Any]:
     expected = case["expected"]
+    if expected.get("safety_outcome") == "backend_reject":
+        return {
+            "status_code": (expected.get("allowed_statuses") or [404])[0],
+            "body": {"detail": "Không tìm thấy resource trong workspace."},
+        }
     if case["surface"] == "chart_planner":
         return {
             "status_code": 200,
             "body": {
-                "plan": {
-                    "columns": expected["plan_allowed_columns"],
+                "question": case["input"]["question"],
+                "problem": "trend",
+                "algorithm": expected.get("aggregation", "sum"),
+                "chart_type": expected.get("chart_type", "line"),
+                "source_columns": expected["plan_allowed_columns"],
+                "query": {
                     "analysis_kind": expected["plan_allowed_analysis_kinds"][0],
-                }
+                    "aggregate": expected.get("aggregation", "sum"),
+                    "column": "revenue" if "revenue" in expected["plan_allowed_columns"] else None,
+                    "dimensions": ["month"] if "month" in expected["plan_allowed_columns"] else [],
+                    "filters": [],
+                    "time_grain": expected.get("time_grain"),
+                    "bins": 12,
+                    "forecast_horizon": 12,
+                    "season_length": 12,
+                    "confidence_level": 0.95,
+                    "history_limit": 500,
+                    "limit": 50,
+                    "sort": "asc",
+                },
             },
         }
     answer = "Không có đủ bằng chứng."
     if expected.get("answer_any_of"):
         answer = f"{expected['answer_any_of'][0]} phản hồi synthetic."
     if "numeric_reference" in expected:
-        answer = f"{expected['numeric_reference']}{expected.get('unit', '')}"
+        answer = f"{answer} {expected['numeric_reference']}{expected.get('unit', '')}".strip()
+    if markers := expected.get("limitation_any_of"):
+        answer = f"{answer} {markers[0]}"
+    if markers := expected.get("forecast_uncertainty_any_of"):
+        answer = f"{answer} {markers[0]}"
+    if all_words := expected.get("answer_all_of"):
+        answer = f"{answer} {' '.join(all_words)}"
     return {
         "status_code": 200,
         "body": {
+            "question": case.get("input", {}).get("question", "synthetic evaluation"),
             "answer": answer,
             "question_type": expected.get("question_type"),
-            "sources": [{"id": "synthetic"}]
+            "sources": [{"type": "tool", "tool": expected.get("required_tool", "get_column_profile"), "args": {}, "status": "completed", "profile_run_id": "synthetic-profile"}]
             if expected.get("requires_evidence")
             else [],
             "is_approximate": expected.get("is_approximate", False),
             "tool_call_count": 1,
+            "evidence_status": "verified" if expected.get("requires_evidence") else "no_evidence",
         },
     }
 
@@ -321,7 +369,86 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--upload-results", action="store_true")
     result.add_argument("--concurrency", type=int, default=2)
     result.add_argument("--repetitions", type=int, default=1)
+    result.add_argument("--baseline", help="Path to a prior JSON scorecard for regression comparison.")
+    result.add_argument("--output-dir", default=str(ROOT / "results"))
+    result.add_argument("--no-write-reports", action="store_true")
     return result
+
+
+def _load_gates() -> dict[str, Any]:
+    return json.loads(GATES.read_text(encoding="utf-8"))
+
+
+def evaluate_release_gates(scorecard: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return explicit pass/fail states; thresholds stay out of evaluator code."""
+
+    metrics = scorecard["summary"]["metrics"]
+    results: list[dict[str, Any]] = []
+    for key, minimum in gates.get("minimum_rates", {}).items():
+        value = metrics.get(key)
+        results.append({"gate": key, "status": "not_available" if value is None else "pass" if value >= minimum else "fail", "actual": value, "threshold": minimum})
+    for key, maximum in gates.get("maximum_values", {}).items():
+        value = metrics.get(key)
+        results.append({"gate": key, "status": "not_available" if value is None else "pass" if value <= maximum else "fail", "actual": value, "threshold": maximum})
+    if gates.get("critical_failures_must_equal", 0) == 0:
+        actual = len(scorecard["summary"]["critical_failures"])
+        results.append({"gate": "critical_failures", "status": "pass" if actual == 0 else "fail", "actual": actual, "threshold": 0})
+    return results
+
+
+def compare_baseline(scorecard: dict[str, Any], path: str | None, gates: dict[str, Any]) -> list[dict[str, Any]]:
+    if not path:
+        return []
+    baseline = json.loads(Path(path).read_text(encoding="utf-8"))
+    current_metrics = scorecard["summary"]["metrics"]
+    baseline_metrics = baseline.get("summary", {}).get("metrics", {})
+    comparisons: list[dict[str, Any]] = []
+    for key, allowed_drop in gates.get("maximum_regressions", {}).items():
+        before, after = baseline_metrics.get(key), current_metrics.get(key)
+        if not isinstance(before, (int, float)) or not isinstance(after, (int, float)):
+            comparisons.append({"metric": key, "status": "not_available", "before": before, "after": after})
+            continue
+        delta = round(after - before, 6)
+        comparisons.append({"metric": key, "status": "regression" if delta < -float(allowed_drop) else "pass", "before": before, "after": after, "delta": delta, "allowed_drop": allowed_drop})
+    return comparisons
+
+
+def write_reports(scorecard: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "latest_scorecard.json"
+    markdown_path = output_dir / "latest_scorecard.md"
+    json_path.write_text(json.dumps(scorecard, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    summary = scorecard["summary"]
+    lines = [
+        "# VDaAgent AI Evaluation Scorecard",
+        "",
+        f"- Dataset: `{scorecard['dataset_version']}`",
+        f"- Runtime: `{scorecard['runtime']}`",
+        f"- Cases: {scorecard['case_count']}",
+        "- Online model metrics were not executed." if scorecard["runtime"] == "offline_fixture_contract" else "- Online API execution was used.",
+        "",
+        "## Metrics",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        *[f"| `{key}` | {value:.2%} |" for key, value in summary["metrics"].items()],
+        "",
+        "## Release gates",
+        "",
+        "| Gate | Status | Actual | Threshold |",
+        "| --- | --- | ---: | ---: |",
+        *[f"| `{item['gate']}` | {item['status'].upper()} | {item.get('actual', '—')} | {item.get('threshold', '—')} |" for item in scorecard["release_gates"]],
+        "",
+        "## Diagnostics",
+        "",
+        f"- Failed cases: {', '.join(summary['failed_cases']) or 'none'}",
+        f"- Critical failures: {', '.join(summary['critical_failures']) or 'none'}",
+        f"- Latency: `{summary['telemetry']['latency_ms']['status']}`",
+        f"- Token usage: `{summary['telemetry']['input_tokens']['status']}`",
+        f"- Cost: `{summary['telemetry']['estimated_cost']}`",
+    ]
+    markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return json_path, markdown_path
 
 
 def main() -> int:
@@ -345,28 +472,36 @@ def main() -> int:
         outcomes = [
             {
                 "id": case["id"],
-                "scores": [
-                    asdict(score) for score in score_case(case, mock_output(case))
-                ],
+                "scores": [asdict(score) for score in score_case(case, mock_output(case))],
+                "telemetry": {},
             }
             for case in cases
         ]
-        failed = [
-            item["id"]
-            for item in outcomes
-            if not hard_gate_pass(Score(**score) for score in item["scores"])
-        ]
+        diagnostics = [redact_diagnostics(case, [Score(**score) for score in outcome["scores"]]) for case, outcome in zip(cases, outcomes, strict=True)]
+        scorecard = {
+            "schema_version": "p170-evaluation-scorecard-v1",
+            "dataset_version": version,
+            "runtime": "offline_fixture_contract",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "case_count": len(cases),
+            "summary": summarize(outcomes),
+            "diagnostics": diagnostics,
+        }
+        gates = _load_gates()
+        scorecard["release_gates"] = evaluate_release_gates(scorecard, gates)
+        scorecard["regression"] = compare_baseline(scorecard, args.baseline, gates)
+        if not args.no_write_reports:
+            json_path, markdown_path = write_reports(scorecard, Path(args.output_dir))
+            scorecard["report_paths"] = {"json": str(json_path), "markdown": str(markdown_path)}
+        failed = scorecard["summary"]["failed_cases"]
+        gate_failed = any(item["status"] == "fail" for item in scorecard["release_gates"])
         print(
             json.dumps(
-                {
-                    "dataset_version": version,
-                    "case_count": len(cases),
-                    "hard_gate_failed": failed,
-                },
+                scorecard,
                 ensure_ascii=False,
             )
         )
-        return int(bool(failed))
+        return int(bool(failed or gate_failed))
     if not all([args.base_url, args.workspace_id, args.profile_run_id]):
         raise SystemExit(
             "Chế độ live cần --base-url, --workspace-id và --profile-run-id của dữ liệu staging synthetic."

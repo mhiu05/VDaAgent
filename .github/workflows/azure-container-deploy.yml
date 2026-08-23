@@ -67,6 +67,11 @@ jobs:
       - name: Test backend
         run: python -m pytest -q
 
+      - name: Validate offline AI evaluation contracts
+        run: |
+          python evaluations/run_evaluation.py --dry-run
+          python evaluations/run_evaluation.py --offline
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
