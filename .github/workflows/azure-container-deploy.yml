@@ -90,7 +90,7 @@ jobs:
 
       - name: Install Playwright browser
         working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install chromium
 
       - name: Test and build frontend
         working-directory: frontend
