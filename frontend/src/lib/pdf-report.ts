@@ -121,7 +121,7 @@ function distributionChart(stat: DataRecord, totalRows: number): string {
     return `<text x="0" y="${y + 9}" class="chart-label">${shortLabel}</text><rect x="125" y="${y}" width="200" height="10" rx="3" fill="#f1f5f9"/>${width > 0 ? `<rect x="125" y="${y}" width="${width}" height="10" rx="3" fill="#2563eb"/>` : ""}<text x="335" y="${y + 9}" class="chart-value"><tspan font-weight="bold">${number(item.count)}</tspan>${pctStr}</text>`;
   }).join("");
   
-  return `<div style="margin-bottom: 6mm;"><h4 style="margin: 0 0 2mm 0; color: #1e293b; font-size: 10pt;">${escapeHtml(String(stat.column_name))}</h4><svg viewBox="0 0 430 ${height}" role="img" style="display:block;width:100%;max-width:430px;">${bars}</svg></div>`;
+  return `<div style="flex: 1; min-width: 300px; margin-bottom: 6mm; box-sizing: border-box;"><h4 style="margin: 0 0 2mm 0; color: #1e293b; font-size: 10pt;">${escapeHtml(String(stat.column_name))}</h4><svg viewBox="0 0 430 ${height}" role="img" style="display:block;width:100%;max-width:430px;">${bars}</svg></div>`;
 }
 function evidenceChart(title: string, item: DataRecord): string {
   const content = item.content_json as DataRecord | undefined;
@@ -296,7 +296,7 @@ function buildSections(source: ReportSource): Section[] {
       const topK = stat.top_values ?? stat.top_k_values;
       return !stat.pii_masked && topK && (Array.isArray(topK) || typeof topK === 'object');
     }).slice(0, 3);
-    const distBody = distributions.length ? distributions.map((stat) => distributionChart(stat, Number(run.row_count ?? 0))).join("") : "";
+    const distBody = distributions.length ? `<div style="display: flex; flex-wrap: wrap; gap: 4mm;">${distributions.map((stat) => distributionChart(stat, Number(run.row_count ?? 0))).join("")}</div>` : "";
     const correlation = profile.correlation_matrix;
     const corrBody = correlation && Object.keys(correlation).length ? table(["Cột", ...Object.keys(correlation).slice(0, 8)], Object.keys(correlation).slice(0, 8).map((column) => [column, ...Object.keys(correlation).slice(0, 8).map((peer) => { const value = Number(correlation[column]?.[peer]); return Number.isFinite(value) ? value.toFixed(2) : "-"; })]), "compact") : "";
     sections.push({ title: "Hồ sơ kỹ thuật", body: statBody + (distBody ? `<h4>Phân phối dữ liệu</h4>${distBody}` : "") + (corrBody ? `<h4>Tương quan</h4>${corrBody}` : "") });
