@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import { ProfileRunPicker } from "@/components/profile-run-picker";
 import { ChartsTab } from "@/components/command-center/charts-tab";
@@ -85,5 +86,22 @@ export default function ChartsPage() {
         </Notice>
       </div>
     )}
+
+    {/* BƯỚC TIẾP THEO MỞ RỘNG (Navigation Links) */}
+    <section className="panel" style={{ marginTop: "1.5rem", padding: "1.5rem", background: "linear-gradient(135deg, rgba(248, 250, 252, 1) 0%, rgba(241, 245, 249, 1) 100%)", border: "1px solid #e2e8f0", display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+      <div>
+        <p className="eyebrow" style={{ color: "#475569" }}>Lựa chọn tiếp theo</p>
+        <h2 style={{ margin: "0.25rem 0 0 0", color: "#1e293b", fontSize: "1.25rem" }}>Đã phân tích xong?</h2>
+        <p className="muted" style={{ margin: "0.25rem 0 0 0" }}>Bạn có thể so sánh sự thay đổi dữ liệu hoặc xem lại tất cả báo cáo hoàn chỉnh.</p>
+      </div>
+      <div style={{ display: "flex", gap: "10px" }}>
+        <Link href="/compare" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+          ⚖️ So sánh dữ liệu
+        </Link>
+        <Link href="/reports" className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+          📖 Xem báo cáo →
+        </Link>
+      </div>
+    </section>
   </>;
 }
