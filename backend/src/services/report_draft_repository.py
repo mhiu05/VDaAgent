@@ -167,6 +167,11 @@ class ReportDraftRepository:
             return {}
         if not isinstance(content, dict):
             raise TypeError("Chart insight content must be an object.")
+        unsupported = set(content) - {"insight", "insight_reviewed"}
+        if unsupported:
+            raise ValueError("Chart insight contains unsupported fields.")
+        if content.get("insight_reviewed") is not True:
+            raise ValueError("Chart insight must be reviewed before it is pinned.")
         insight = content.get("insight")
         if not isinstance(insight, str) or not insight.strip():
             return {}

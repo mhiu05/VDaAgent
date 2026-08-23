@@ -235,7 +235,6 @@ def _fallback_candidate(
     dimensions = list(context.get("dimensions") or [])
     measures = list(context.get("measures") or [])
     times = _time_columns(context, column_stats)
-    filters = _relative_time_filters(question, times[0] if times else None, column_stats)
 
     explicit_forecast = (
         "du bao", "forecast", "predict", "tien doan",
@@ -391,13 +390,28 @@ def build_chart_plan(
     """Normalize an agent proposal into a bounded executable chart plan."""
 
     fallback = _fallback_candidate(question, context, column_stats)
-    proposed = candidate or fallback
     dimensions = list(context.get("dimensions") or [])
     measures = list(context.get("measures") or [])
     profile_columns = list(
         dict.fromkeys([*dimensions, *measures, *(context.get("keys") or [])])
     )
     times = _time_columns(context, column_stats)
+    candidate_accepted = candidate is not None
+    if candidate and (
+        candidate.algorithm not in PROBLEM_ALGORITHMS[candidate.problem]
+        or any(
+            column is not None and column not in profile_columns
+            for column in (
+                candidate.x_column,
+                candidate.y_column,
+                candidate.second_dimension,
+            )
+        )
+    ):
+        proposed = fallback
+        candidate_accepted = False
+    else:
+        proposed = candidate or fallback
 
     problem = proposed.problem
     algorithm = proposed.algorithm
@@ -633,7 +647,9 @@ def build_chart_plan(
         "transforms": transforms,
         "source_columns": source_columns,
         "rationale": rationale,
-        "planning_mode": planning_mode if candidate or planning_mode == "auto_profile" else "rules_fallback",
+        "planning_mode": planning_mode
+        if candidate_accepted or planning_mode == "auto_profile"
+        else "rules_fallback",
     }
 
 
