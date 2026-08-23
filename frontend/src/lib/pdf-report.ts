@@ -84,13 +84,44 @@ function markdown(value: unknown): string {
   flush();
   return content.join("") || "<p>Không có nội dung diễn giải được lưu.</p>";
 }
-function barChart(title: string, rows: DataRecord[]): string {
-  const values = rows.slice(0, 10).map((row) => ({ label: text(row.column_name ?? row.label ?? row.name, "Khác"), value: Number(row.null_pct ?? row.value ?? row.count ?? 0) })).filter((item) => Number.isFinite(item.value));
+function barChart(title: string, rows: DataRecord[], metric: string = "null_pct", fill: string = "#2563eb"): string {
+  const values = rows.slice(0, 10).map((row) => ({ label: text(row.column_name ?? row.label ?? row.name, "Khác"), value: Number(row[metric] ?? row.null_pct ?? row.value ?? row.count ?? 0) })).filter((item) => Number.isFinite(item.value));
   if (!values.length) return "";
   const max = Math.max(...values.map((item) => item.value), 1);
-  const height = Math.max(180, values.length * 26 + 46);
-  const bars = values.map((item, index) => { const y = 28 + index * 26; const width = Math.max(1, (item.value / max) * 270); return `<text x="0" y="${y + 12}" class="chart-label">${escapeHtml(item.label).slice(0, 22)}</text><rect x="145" y="${y}" width="${width}" height="15" rx="3" fill="#2563eb"/><text x="${150 + width}" y="${y + 12}" class="chart-value">${escapeHtml(percentage(item.value))}</text>`; }).join("");
-  return `<figure class="chart"><figcaption>${escapeHtml(title)}</figcaption><svg viewBox="0 0 430 ${height}" role="img" aria-label="${escapeHtml(title)}">${bars}</svg></figure>`;
+  const height = Math.max(80, values.length * 26 + 46);
+  const bars = values.map((item, index) => { 
+    const y = 28 + index * 26; 
+    const width = (item.value / max) * 200; 
+    const labelStr = escapeHtml(item.label);
+    const shortLabel = labelStr.length > 22 ? labelStr.slice(0, 22) + "..." : labelStr;
+    return `<text x="0" y="${y + 11}" class="chart-label">${shortLabel}</text><rect x="125" y="${y}" width="200" height="10" rx="3" fill="#f1f5f9"/>${width > 0 ? `<rect x="125" y="${y}" width="${width}" height="10" rx="3" fill="${fill}"/>` : ""}<text x="335" y="${y + 11}" class="chart-value" font-weight="bold">${escapeHtml(percentage(item.value))}</text>`; 
+  }).join("");
+  return `<figure class="chart" style="flex: 1; min-width: 300px; margin: 0;"><figcaption>${escapeHtml(title)}</figcaption><svg viewBox="0 0 430 ${height}" role="img" aria-label="${escapeHtml(title)}">${bars}</svg></figure>`;
+}
+function distributionChart(stat: DataRecord, totalRows: number): string {
+  const topK = stat.top_values ?? stat.top_k_values;
+  let entries: {label: string, count: number}[] = [];
+  if (Array.isArray(topK)) {
+    entries = topK.map(v => typeof v === 'object' && v !== null ? { label: String(v.value), count: Number(v.count ?? v.frequency) } : { label: String(v), count: 0 });
+  } else if (topK && typeof topK === 'object') {
+    entries = Object.entries(topK).map(([k, v]) => ({ label: k, count: Number(v) }));
+  }
+  entries = entries.slice(0, 10).filter(e => Number.isFinite(e.count));
+  if (!entries.length) return "";
+  
+  const max = Math.max(...entries.map(e => e.count), 1);
+  const height = entries.length * 26 + 30;
+  
+  const bars = entries.map((item, index) => {
+    const y = 16 + index * 26;
+    const width = (item.count / max) * 200;
+    const pctStr = totalRows > 0 ? ` <tspan fill="#64748b" font-weight="normal">(${percentage(item.count / totalRows)})</tspan>` : "";
+    const labelStr = escapeHtml(item.label);
+    const shortLabel = labelStr.length > 22 ? labelStr.slice(0, 22) + "..." : labelStr;
+    return `<text x="0" y="${y + 9}" class="chart-label">${shortLabel}</text><rect x="125" y="${y}" width="200" height="10" rx="3" fill="#f1f5f9"/>${width > 0 ? `<rect x="125" y="${y}" width="${width}" height="10" rx="3" fill="#2563eb"/>` : ""}<text x="335" y="${y + 9}" class="chart-value"><tspan font-weight="bold">${number(item.count)}</tspan>${pctStr}</text>`;
+  }).join("");
+  
+  return `<div style="margin-bottom: 6mm;"><h4 style="margin: 0 0 2mm 0; color: #1e293b; font-size: 10pt;">${escapeHtml(String(stat.column_name))}</h4><svg viewBox="0 0 430 ${height}" role="img" style="display:block;width:100%;max-width:430px;">${bars}</svg></div>`;
 }
 function evidenceChart(title: string, item: DataRecord): string {
   const content = item.content_json as DataRecord | undefined;
@@ -223,9 +254,9 @@ function buildSections(source: ReportSource): Section[] {
   }
 
   if (stats.length) {
-    const statBody = `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "Giá trị phổ biến"], statRows(stats))}${barChart("Tỷ lệ null theo cột", stats)}`;
-    const distributions = stats.filter((stat) => !stat.pii_masked && Array.isArray(stat.top_values)).slice(0, 3);
-    const distBody = distributions.length ? distributions.map((stat) => table([text(stat.column_name), "Số lượng"], (stat.top_values as DataRecord[]).slice(0, 10).map((entry) => [entry.value, number(entry.count ?? entry.frequency)]))).join("") : "";
+    const statBody = `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "Giá trị phổ biến"], statRows(stats))}<div style="display: flex; flex-wrap: wrap; gap: 4mm; margin-top: 5mm;">${barChart("Tỷ lệ null theo cột", stats, "null_pct")}${barChart("Tỷ lệ unique theo cột", stats, "uniqueness_ratio")}</div>`;
+    const distributions = stats.filter((stat) => !stat.pii_masked && (Array.isArray(stat.top_values) || (stat.top_values && typeof stat.top_values === 'object'))).slice(0, 3);
+    const distBody = distributions.length ? distributions.map((stat) => distributionChart(stat, Number(run.row_count ?? 0))).join("") : "";
     const correlation = profile.correlation_matrix;
     const corrBody = correlation && Object.keys(correlation).length ? table(["Cột", ...Object.keys(correlation).slice(0, 8)], Object.keys(correlation).slice(0, 8).map((column) => [column, ...Object.keys(correlation).slice(0, 8).map((peer) => { const value = Number(correlation[column]?.[peer]); return Number.isFinite(value) ? value.toFixed(2) : "-"; })]), "compact") : "";
     sections.push({ title: "Hồ sơ kỹ thuật", body: statBody + (distBody ? `<h4>Phân phối dữ liệu</h4>${distBody}` : "") + (corrBody ? `<h4>Tương quan</h4>${corrBody}` : "") });
