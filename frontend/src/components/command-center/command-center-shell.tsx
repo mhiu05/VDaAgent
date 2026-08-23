@@ -1,11 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode } from "react";
-import { getProfile } from "@/lib/api";
+import { getProfile, getProfilingJob } from "@/lib/api";
 import { ErrorNotice, LoadingBlock, Notice, StatusBadge } from "@/components/ui";
 
 type Props = { overview: ReactNode };
@@ -20,6 +19,13 @@ export function CommandCenterShell({ overview }: Props) {
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
     refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 3_000 : false,
+  });
+  const job = useQuery({
+    queryKey: ["profiling-job", runId],
+    queryFn: ({ signal }) => getProfilingJob(runId, signal),
+    enabled: Boolean(runId),
+    retry: false,
+    refetchInterval: (query) => ["queued", "running"].includes(query.state.data?.status || "") ? 3_000 : false,
   });
 
   if (profile.isLoading) return <LoadingBlock label="Đang tải Command Center…" />;
@@ -45,6 +51,9 @@ export function CommandCenterShell({ overview }: Props) {
       </div>
     </header>
 
+    {job.data?.status === "queued" && <Notice><b>Profiling đã được xếp hàng.</b><p>Worker sẽ bắt đầu khi còn dung lượng xử lý. Bạn có thể đóng trang và quay lại bằng profile run này.</p></Notice>}
+    {job.data?.status === "running" && <Notice><b>Profiling đang chạy.</b><p>Hệ thống đang tính thống kê và chuẩn bị đề xuất. Trang tự cập nhật; không cần gửi lại yêu cầu.</p></Notice>}
+    {job.data?.status === "failed" && <Notice tone="warning"><b>Profiling không hoàn thành.</b><p>{job.data.error?.message || "Hãy kiểm tra dataset rồi tạo một profile run mới."}</p></Notice>}
     {data.status === "failed" && <Notice tone="warning"><b>Profile chạy thất bại.</b><p>{data.error || "Hãy kiểm tra source và bắt đầu một profile run mới."}</p><Link className="button secondary" href={`/datasets/${data.dataset_id}/runs`}>Mở profile runs</Link></Notice>}
     {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đề xuất trước khi tạo Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}`)}`}>Review đề xuất</Link></Notice>}
 

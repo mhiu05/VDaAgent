@@ -40,6 +40,7 @@ from sqlalchemy import (
 )
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 
 metadata = MetaData()
@@ -271,6 +272,41 @@ profile_runs = Table(
     Column("quasi_identifiers", JSON, nullable=True),
     Column("is_approximate", Boolean, nullable=False, default=False),
     Column("error", String(1024), nullable=True),
+    # The profile run is also the durable identity of its initial profiling
+    # job.  Domain status (pending_review/completed) remains separate from the
+    # worker lifecycle so reaching the HITL checkpoint can finish the job
+    # without falsely marking the profile itself completed.
+    Column("created_by_user_id", String(36), nullable=True),
+    Column("agent_run_id", String(32), nullable=True),
+    Column("job_status", String(16), nullable=True),
+    Column("job_stage", String(32), nullable=True),
+    Column("job_idempotency_key", String(255), nullable=True),
+    Column("job_request_hash", String(64), nullable=True),
+    Column("job_correlation_id", String(128), nullable=True),
+    Column("job_attempt_count", Integer, nullable=False, default=0),
+    Column("job_max_attempts", Integer, nullable=False, default=3),
+    Column("job_available_at", DateTime(timezone=True), nullable=True),
+    Column("job_started_at", DateTime(timezone=True), nullable=True),
+    Column("job_finished_at", DateTime(timezone=True), nullable=True),
+    Column("job_heartbeat_at", DateTime(timezone=True), nullable=True),
+    Column("job_lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("job_claim_token", String(64), nullable=True),
+    Column("job_worker_id", String(128), nullable=True),
+    Column("job_error_code", String(64), nullable=True),
+    Column("job_error_message", String(512), nullable=True),
+    Column("job_payload", JSON, nullable=True),
+    UniqueConstraint(
+        "workspace_id",
+        "created_by_user_id",
+        "job_idempotency_key",
+        name="uq_profile_runs_workspace_actor_idempotency",
+    ),
+)
+Index(
+    "ix_profile_runs_job_claim",
+    profile_runs.c.job_status,
+    profile_runs.c.job_available_at,
+    profile_runs.c.created_at,
 )
 
 column_stats = Table(
@@ -524,73 +560,6 @@ query_executions = Table(
     Column("idempotency_key", String(255), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
 )
-
-# Notebook LLM is a durable, bounded working document.  Cells store prompts,
-# markdown and sanitized Agent outputs; they never store raw dataset rows.
-notebooks = Table(
-    "notebooks",
-    metadata,
-    Column("id", String(32), primary_key=True),
-    Column(
-        "workspace_id",
-        String(36),
-        ForeignKey("workspaces.id"),
-        nullable=False,
-        index=True,
-    ),
-    Column(
-        "profile_run_id",
-        String(32),
-        ForeignKey("profile_runs.id"),
-        nullable=False,
-        index=True,
-    ),
-    Column("title", String(255), nullable=False),
-    Column("description", Text, nullable=True),
-    Column("visibility", String(16), nullable=False, default="private"),
-    Column("status", String(16), nullable=False, default="active"),
-    Column("created_by_user_id", String(36), nullable=False),
-    Column("shared_by_user_id", String(36), nullable=True),
-    Column("shared_at", DateTime(timezone=True), nullable=True),
-    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
-    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
-)
-Index(
-    "ix_notebooks_workspace_updated_at",
-    notebooks.c.workspace_id,
-    notebooks.c.updated_at,
-)
-
-notebook_cells = Table(
-    "notebook_cells",
-    metadata,
-    Column("id", String(32), primary_key=True),
-    Column(
-        "notebook_id",
-        String(32),
-        ForeignKey("notebooks.id"),
-        nullable=False,
-        index=True,
-    ),
-    Column("position", Integer, nullable=False),
-    Column("kind", String(16), nullable=False),  # markdown | prompt
-    Column("title", String(255), nullable=True),
-    Column("source", Text, nullable=False),
-    Column("result", JSON, nullable=True),
-    Column("status", String(16), nullable=False, default="draft"),
-    Column("created_by_user_id", String(36), nullable=False),
-    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
-    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
-)
-Index(
-    "ix_notebook_cells_notebook_position",
-    notebook_cells.c.notebook_id,
-    notebook_cells.c.position,
-)
-# Notebook persistence is retired. Excluding these historical declarations
-# from active metadata prevents local bootstrap from recreating the tables.
-metadata.remove(notebook_cells)
-metadata.remove(notebooks)
 
 retrieval_documents = Table(
     "retrieval_documents",
@@ -1129,10 +1098,58 @@ class Repository:
             self._migrate_tool_v2_profile_columns()
             self._migrate_workflow_columns()
             self._migrate_authz_columns()
-        # Upload metadata is required by the current repository projection.
-        # Keep this additive compatibility step for already-running production
-        # databases whose release job has not applied the latest Alembic head.
-        self._migrate_upload_provenance_columns()
+            self._migrate_upload_provenance_columns()
+            self._migrate_profile_job_columns()
+
+    def _migrate_profile_job_columns(self) -> None:
+        """Keep existing development/test databases aligned with Alembic head."""
+        # pyrefly: ignore [missing-import]
+        from sqlalchemy import inspect, text
+
+        columns = {
+            item["name"] for item in inspect(self.engine).get_columns("profile_runs")
+        }
+        additions = {
+            "created_by_user_id": "VARCHAR(36)",
+            "agent_run_id": "VARCHAR(32)",
+            "job_status": "VARCHAR(16)",
+            "job_stage": "VARCHAR(32)",
+            "job_idempotency_key": "VARCHAR(255)",
+            "job_request_hash": "VARCHAR(64)",
+            "job_correlation_id": "VARCHAR(128)",
+            "job_attempt_count": "INTEGER NOT NULL DEFAULT 0",
+            "job_max_attempts": "INTEGER NOT NULL DEFAULT 3",
+            "job_available_at": "TIMESTAMP WITH TIME ZONE",
+            "job_started_at": "TIMESTAMP WITH TIME ZONE",
+            "job_finished_at": "TIMESTAMP WITH TIME ZONE",
+            "job_heartbeat_at": "TIMESTAMP WITH TIME ZONE",
+            "job_lease_expires_at": "TIMESTAMP WITH TIME ZONE",
+            "job_claim_token": "VARCHAR(64)",
+            "job_worker_id": "VARCHAR(128)",
+            "job_error_code": "VARCHAR(64)",
+            "job_error_message": "VARCHAR(512)",
+            "job_payload": "JSON",
+        }
+        with self.engine.begin() as conn:
+            for name, sql_type in additions.items():
+                if name not in columns:
+                    conn.execute(
+                        text(f"ALTER TABLE profile_runs ADD COLUMN {name} {sql_type}")
+                    )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_profile_runs_workspace_actor_idempotency "
+                    "ON profile_runs "
+                    "(workspace_id, created_by_user_id, job_idempotency_key)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_profile_runs_job_claim "
+                    "ON profile_runs (job_status, job_available_at, created_at)"
+                )
+            )
 
     def _migrate_upload_provenance_columns(self) -> None:
         """Ensure upload provenance columns exist before dataset writes.
@@ -1298,7 +1315,6 @@ class Repository:
             "datasets": {"workspace_id": "VARCHAR(36)"},
             "profile_runs": {"workspace_id": "VARCHAR(36)"},
             "analysis_sessions": {"workspace_id": "VARCHAR(36)"},
-            "notebooks": {"workspace_id": "VARCHAR(36)"},
             "retrieval_documents": {"workspace_id": "VARCHAR(36)"},
             "audit_events": {
                 "workspace_id": "VARCHAR(36)",
@@ -3001,62 +3017,344 @@ class Repository:
             }
 
     # --- ProfileRun ----------------------------------------------------- #
-    def create_profile_run(
+    def create_profile_job(
         self,
         dataset_id: str,
         scan_mode: str,
+        *,
+        workspace_id: str,
+        created_by_user_id: str,
+        idempotency_key: str,
+        request_hash: str,
+        max_attempts: int,
+        source_content_sha256: str | None = None,
+        source_version: str | None = None,
+        correlation_id: str | None = None,
         sampling_strategy: str | None = None,
         sample_size: int | None = None,
         random_seed: int | None = None,
-        graph_thread_id: str | None = None,
         initial_question: str | None = None,
-        workspace_id: str | None = None,
         run_name: str | None = None,
-    ) -> str:
+    ) -> dict[str, Any]:
+        """Create one queued run without serializing unrelated submissions."""
         with self.engine.begin() as conn:
-            dataset_query = select(
-                datasets.c.workspace_id,
-                datasets.c.content_sha256,
-                datasets.c.source_version,
-            ).where(datasets.c.id == dataset_id)
-            if workspace_id is not None:
-                dataset_query = dataset_query.where(
-                    datasets.c.workspace_id == workspace_id
-                )
-            dataset = conn.execute(dataset_query).mappings().first()
-            if dataset is None:
-                raise LookupError("Không tìm thấy dataset trong workspace.")
-            version = (
-                conn.execute(
-                    select(func.coalesce(func.max(profile_runs.c.version), 0)).where(
-                        profile_runs.c.dataset_id == dataset_id
-                    )
-                ).scalar()
-                or 0
-            ) + 1
             run_id = _uuid()
-            conn.execute(
-                profile_runs.insert().values(
+            now = _now()
+            created = conn.execute(
+                pg_insert(profile_runs).values(
                     id=run_id,
                     dataset_id=dataset_id,
-                    workspace_id=str(dataset["workspace_id"]),
-                    source_content_sha256=dataset.get("content_sha256"),
-                    source_version=dataset.get("source_version"),
-                    version=version,
+                    workspace_id=workspace_id,
+                    source_content_sha256=source_content_sha256,
+                    source_version=source_version,
+                    # Positive, user-visible versions are allocated atomically
+                    # when a worker claims the job. Queued submissions therefore
+                    # never contend on max(version).
+                    version=0,
                     run_name=run_name,
-                    created_at=_now(),
+                    created_at=now,
                     scan_mode=scan_mode,
                     sampling_strategy=sampling_strategy,
                     sample_size=sample_size,
                     random_seed=random_seed,
-                    status="created",
-                    graph_thread_id=graph_thread_id,
+                    status="queued",
+                    graph_thread_id=f"profile:{run_id}",
                     initial_question=initial_question,
                     resume_count=0,
                     is_approximate=scan_mode == "sample",
+                    created_by_user_id=created_by_user_id,
+                    job_status="queued",
+                    job_stage="queued",
+                    job_idempotency_key=idempotency_key,
+                    job_request_hash=request_hash,
+                    job_correlation_id=correlation_id,
+                    job_attempt_count=0,
+                    job_max_attempts=max_attempts,
+                    job_available_at=now,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        profile_runs.c.workspace_id,
+                        profile_runs.c.created_by_user_id,
+                        profile_runs.c.job_idempotency_key,
+                    ]
+                )
+                .returning(*profile_runs.c)
+            ).mappings().first()
+            if created:
+                return {
+                    "run": dict(created),
+                    "duplicate": False,
+                    "conflict": False,
+                }
+            existing = conn.execute(
+                select(profile_runs).where(
+                    profile_runs.c.workspace_id == workspace_id,
+                    profile_runs.c.created_by_user_id == created_by_user_id,
+                    profile_runs.c.job_idempotency_key == idempotency_key,
+                )
+            ).mappings().one()
+            return {
+                "run": dict(existing),
+                "duplicate": True,
+                "conflict": existing.get("job_request_hash") != request_hash,
+            }
+
+    def get_profile_job(
+        self, job_id: str, *, workspace_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Return queue metadata without weakening workspace ownership checks."""
+        with self.engine.begin() as conn:
+            query = select(profile_runs).where(
+                profile_runs.c.id == job_id,
+                profile_runs.c.job_status.is_not(None),
+            )
+            if workspace_id is not None:
+                query = query.where(profile_runs.c.workspace_id == workspace_id)
+            row = conn.execute(query).mappings().first()
+            return dict(row) if row else None
+
+    def claim_profile_job(
+        self, *, worker_id: str, lease_seconds: int
+    ) -> dict[str, Any] | None:
+        """Atomically claim one available job using PostgreSQL SKIP LOCKED."""
+        now = _now()
+        with self.engine.begin() as conn:
+            candidate = conn.execute(
+                select(
+                    profile_runs.c.id,
+                    profile_runs.c.dataset_id,
+                    profile_runs.c.version,
+                    profile_runs.c.job_payload,
+                )
+                .where(
+                    profile_runs.c.job_status == "queued",
+                    or_(
+                        profile_runs.c.job_available_at.is_(None),
+                        profile_runs.c.job_available_at <= now,
+                    ),
+                )
+                .order_by(profile_runs.c.created_at, profile_runs.c.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            ).mappings().first()
+            if candidate is None:
+                return None
+            allocated_version = int(candidate["version"] or 0)
+            if allocated_version <= 0:
+                conn.execute(
+                    select(datasets.c.id)
+                    .where(datasets.c.id == candidate["dataset_id"])
+                    .with_for_update()
+                ).scalar_one()
+                allocated_version = int(
+                    conn.execute(
+                        select(func.coalesce(func.max(profile_runs.c.version), 0)).where(
+                            profile_runs.c.dataset_id == candidate["dataset_id"],
+                            profile_runs.c.version > 0,
+                        )
+                    ).scalar()
+                    or 0
+                ) + 1
+            claim_token = secrets.token_hex(16)
+            row = conn.execute(
+                profile_runs.update()
+                .where(
+                    profile_runs.c.id == candidate["id"],
+                    profile_runs.c.job_status == "queued",
+                )
+                .values(
+                    version=allocated_version,
+                    error=None,
+                    job_status="running",
+                    job_stage="resuming"
+                    if candidate.get("job_payload")
+                    else "profiling",
+                    job_attempt_count=profile_runs.c.job_attempt_count + 1,
+                    job_started_at=func.coalesce(profile_runs.c.job_started_at, now),
+                    job_heartbeat_at=now,
+                    job_lease_expires_at=now + timedelta(seconds=lease_seconds),
+                    job_claim_token=claim_token,
+                    job_worker_id=worker_id,
+                    job_error_code=None,
+                    job_error_message=None,
+                )
+                .returning(*profile_runs.c)
+            ).mappings().one()
+            return dict(row)
+
+    def heartbeat_profile_job(
+        self,
+        job_id: str,
+        *,
+        claim_token: str,
+        lease_seconds: int,
+    ) -> bool:
+        now = _now()
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                profile_runs.update()
+                .where(
+                    profile_runs.c.id == job_id,
+                    profile_runs.c.job_status == "running",
+                    profile_runs.c.job_claim_token == claim_token,
+                )
+                .values(
+                    job_heartbeat_at=now,
+                    job_lease_expires_at=now + timedelta(seconds=lease_seconds),
                 )
             )
-            return run_id
+            return result.rowcount == 1
+
+    def complete_profile_job(self, job_id: str, *, claim_token: str) -> bool:
+        now = _now()
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                profile_runs.update()
+                .where(
+                    profile_runs.c.id == job_id,
+                    profile_runs.c.job_status == "running",
+                    profile_runs.c.job_claim_token == claim_token,
+                )
+                .values(
+                    job_status="succeeded",
+                    job_stage="completed",
+                    job_finished_at=now,
+                    job_heartbeat_at=now,
+                    job_lease_expires_at=None,
+                    job_claim_token=None,
+                    job_error_code=None,
+                    job_error_message=None,
+                    job_payload=None,
+                )
+            )
+            return result.rowcount == 1
+
+    def fail_profile_job(
+        self,
+        job_id: str,
+        *,
+        claim_token: str,
+        error_code: str,
+        safe_message: str,
+        retryable: bool,
+    ) -> str | None:
+        """Fail or requeue a claimed job and return its resulting job status."""
+        now = _now()
+        with self.engine.begin() as conn:
+            job = conn.execute(
+                select(profile_runs)
+                .where(
+                    profile_runs.c.id == job_id,
+                    profile_runs.c.job_status == "running",
+                    profile_runs.c.job_claim_token == claim_token,
+                )
+                .with_for_update()
+            ).mappings().first()
+            if not job:
+                return None
+            can_retry = retryable and int(job["job_attempt_count"] or 0) < int(
+                job["job_max_attempts"] or 1
+            )
+            if can_retry:
+                delay_seconds = min(60, 2 ** int(job["job_attempt_count"] or 1))
+                is_resume = bool(job.get("job_payload"))
+                conn.execute(
+                    profile_runs.update()
+                    .where(profile_runs.c.id == job_id)
+                    .values(
+                        status="resuming" if is_resume else "queued",
+                        error=None,
+                        job_status="queued",
+                        job_stage="resume_retry_wait" if is_resume else "retry_wait",
+                        job_available_at=now + timedelta(seconds=delay_seconds),
+                        job_lease_expires_at=None,
+                        job_claim_token=None,
+                        job_worker_id=None,
+                        job_error_code=error_code,
+                        job_error_message=safe_message,
+                    )
+                )
+                return "queued"
+            conn.execute(
+                profile_runs.update()
+                .where(profile_runs.c.id == job_id)
+                .values(
+                    status="failed",
+                    error=safe_message,
+                    job_status="failed",
+                    job_stage="failed",
+                    job_finished_at=now,
+                    job_heartbeat_at=now,
+                    job_lease_expires_at=None,
+                    job_claim_token=None,
+                    job_error_code=error_code,
+                    job_error_message=safe_message,
+                )
+            )
+            return "failed"
+
+    def recover_stale_profile_jobs(self, *, limit: int = 100) -> list[dict[str, str]]:
+        """Requeue expired leases or terminally fail exhausted jobs."""
+        now = _now()
+        recovered: list[dict[str, str]] = []
+        with self.engine.begin() as conn:
+            stale = list(
+                conn.execute(
+                    select(profile_runs)
+                    .where(
+                        profile_runs.c.job_status == "running",
+                        profile_runs.c.job_lease_expires_at < now,
+                    )
+                    .order_by(profile_runs.c.job_lease_expires_at)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                ).mappings()
+            )
+            for job in stale:
+                exhausted = int(job["job_attempt_count"] or 0) >= int(
+                    job["job_max_attempts"] or 1
+                )
+                next_status = "failed" if exhausted else "queued"
+                domain_status = str(job.get("status") or "")
+                is_resume = bool(job.get("job_payload"))
+                values: dict[str, Any] = {
+                    "status": domain_status
+                    if domain_status in {"pending_review", "completed"}
+                    else "resuming"
+                    if is_resume and not exhausted
+                    else next_status,
+                    "error": "Profiling worker stopped before completion."
+                    if exhausted
+                    else None,
+                    "job_status": next_status,
+                    "job_stage": "failed"
+                    if exhausted
+                    else "resume_recovered"
+                    if is_resume
+                    else "recovered",
+                    "job_available_at": now,
+                    "job_lease_expires_at": None,
+                    "job_claim_token": None,
+                    "job_worker_id": None,
+                    "job_error_code": "worker_interrupted",
+                    "job_error_message": "Profiling worker stopped before completion.",
+                }
+                if exhausted:
+                    values["job_finished_at"] = now
+                conn.execute(
+                    profile_runs.update()
+                    .where(profile_runs.c.id == job["id"])
+                    .values(**values)
+                )
+                recovered.append(
+                    {
+                        "job_id": str(job["id"]),
+                        "workspace_id": str(job["workspace_id"]),
+                        "status": next_status,
+                    }
+                )
+        return recovered
 
     def transition_profile_run(
         self,
@@ -3098,6 +3396,8 @@ class Repository:
         confirmed_by: str,
         idempotency_key: str | None = None,
         workspace_id: str | None = None,
+        resume_payload: dict[str, Any] | None = None,
+        max_attempts: int = 3,
     ) -> dict[str, Any]:
         """Validate/apply one review atomically, then claim the run for resume."""
         with self.engine.begin() as conn:
@@ -3200,6 +3500,29 @@ class Repository:
             }
             if idempotency_key:
                 update_values["last_resume_key"] = idempotency_key
+            if resume_payload is not None:
+                update_values.update(
+                    {
+                        "created_by_user_id": func.coalesce(
+                            profile_runs.c.created_by_user_id, confirmed_by
+                        ),
+                        "job_status": "queued",
+                        "job_stage": "resume_queued",
+                        "job_payload": resume_payload,
+                        "job_attempt_count": 0,
+                        "job_max_attempts": max_attempts,
+                        "job_available_at": _now(),
+                        "job_started_at": None,
+                        "job_finished_at": None,
+                        "job_heartbeat_at": None,
+                        "job_lease_expires_at": None,
+                        "job_claim_token": None,
+                        "job_worker_id": None,
+                        "job_error_code": None,
+                        "job_error_message": None,
+                        "error": None,
+                    }
+                )
             result = conn.execute(
                 profile_runs.update()
                 .where(profile_runs.c.id == run_id)
@@ -4400,8 +4723,6 @@ __all__ = [
     "column_stats",
     "get_repository",
     "metadata",
-    "notebook_cells",
-    "notebooks",
     "query_executions",
     "report_items",
     "reports",

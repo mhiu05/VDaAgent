@@ -14,12 +14,14 @@ nhìn hệ thống ở cùng một trạng thái.
 from __future__ import annotations
 
 import csv
+import asyncio
 import os
 import random
 import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from uuid import uuid4
 
 from dotenv import dotenv_values
 
@@ -101,6 +103,47 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from src.main import app
+from src.workers.profiling_worker import ProfilingWorker
+
+
+def submit_and_run_profile(
+    client: TestClient,
+    payload: dict,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict:
+    """Exercise the real async contract and dedicated worker in integration tests."""
+    request_headers = {**(headers or {}), "Idempotency-Key": uuid4().hex}
+    submitted = client.post("/api/v1/profile", json=payload, headers=request_headers)
+    assert submitted.status_code == 202, submitted.text
+    job = submitted.json()
+    terminal = run_worker_until_job_terminal(
+        client, job["job_id"], headers=request_headers
+    )
+    assert terminal["status"] == "succeeded", terminal
+    profile = client.get(
+        f"/api/v1/profile/{job['profiling_run_id']}", headers=request_headers
+    )
+    assert profile.status_code == 200, profile.text
+    return profile.json()
+
+
+def run_worker_until_job_terminal(
+    client: TestClient,
+    job_id: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> dict:
+    worker = ProfilingWorker(worker_id=f"pytest-{uuid4().hex[:8]}")
+    for _ in range(100):
+        status = client.get(
+            f"/api/v1/profiling-jobs/{job_id}", headers=headers or {}
+        )
+        assert status.status_code == 200, status.text
+        if status.json()["status"] in {"succeeded", "failed"}:
+            return status.json()
+        assert asyncio.run(worker.run_once())
+    raise AssertionError("Profiling job did not reach a terminal state.")
 
 
 @pytest.fixture(scope="session")
@@ -170,32 +213,28 @@ def profile_run(client: TestClient, sample_csv: Path) -> dict:
     Nhiều test cần một run có sẵn nhưng profiling khá tốn thời gian, nên chạy
     một lần cho cả session và chia sẻ kết quả.
     """
-    response = client.post(
-        "/api/v1/profile",
-        json={
+    return submit_and_run_profile(
+        client,
+        {
             "dataset_ref": str(sample_csv),
             "dataset_name": "users_test",
             "run_name": "Kiểm tra dữ liệu gốc",
             "scan_mode": "full",
         },
     )
-    assert response.status_code == 201, response.text
-    return response.json()
 
 
 @pytest.fixture(scope="session")
 def reviewed_profile_run(client: TestClient, sample_csv: Path) -> dict:
     """Run riêng đã qua HITL, dùng cho QA đúng với contract HTTP 409 hiện tại."""
-    created_response = client.post(
-        "/api/v1/profile",
-        json={
+    created = submit_and_run_profile(
+        client,
+        {
             "dataset_ref": str(sample_csv),
             "dataset_name": "users_reviewed",
             "scan_mode": "full",
         },
     )
-    assert created_response.status_code == 201, created_response.text
-    created = created_response.json()
 
     decisions = [
         {"kind": kind, "proposal_id": proposal["id"], "decision": "confirm"}
@@ -208,6 +247,10 @@ def reviewed_profile_run(client: TestClient, sample_csv: Path) -> dict:
         json={"confirmed_by": "qa-test", "decisions": decisions, "resume": True},
     )
     assert confirmed.status_code == 200, confirmed.text
+    terminal = run_worker_until_job_terminal(
+        client, created["profile_run_id"]
+    )
+    assert terminal["status"] == "succeeded", terminal
 
     profile = client.get(f"/api/v1/profile/{created['profile_run_id']}")
     assert profile.status_code == 200, profile.text

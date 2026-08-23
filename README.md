@@ -303,7 +303,8 @@ $env:PYTHONPATH = backend
 alembic upgrade head
 ```
 
-Mở hai terminal:
+Mở ba terminal. API chỉ nhận và lưu job; cả profiling ban đầu lẫn continuation
+sau HITL đều do worker riêng claim từ PostgreSQL:
 
 ```powershell
 # Terminal 1 — từ root
@@ -312,6 +313,12 @@ Mở hai terminal:
 
 ```powershell
 # Terminal 2 — từ root
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python.exe -m src.workers.profiling_worker
+```
+
+```powershell
+# Terminal 3 — từ root
 Set-Location frontend
 pnpm dev --port 3000
 ```
@@ -328,8 +335,9 @@ corepack enable
 (cd frontend && pnpm install)
 ```
 
-Áp `alembic upgrade head` với `PYTHONPATH=backend`, sau đó chạy backend bằng
-`.venv/bin/python -m uvicorn src.main:app --app-dir backend --reload` và
+Áp `alembic upgrade head` với `PYTHONPATH=backend`, sau đó chạy API bằng
+`.venv/bin/python -m uvicorn src.main:app --app-dir backend --reload`, worker
+bằng `PYTHONPATH=backend .venv/bin/python -m src.workers.profiling_worker`, và
 frontend bằng `pnpm dev --port 3000` từ thư mục `frontend`.
 
 Sau khi khởi động:

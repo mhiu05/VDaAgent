@@ -73,7 +73,7 @@ class QuerySpec(BaseModel):
     forecast_algorithm: Literal[
         "naive", "seasonal_naive", "drift", "moving_average",
         "weighted_moving_average", "ses", "holt_linear", "holt_winters", "ets",
-        "arima", "sarima", "sarimax", "auto_arima", "arimax",
+        "arima", "sarima", "auto_arima",
         "structural_time_series", "local_level", "local_linear_trend",
         "kalman_filter", "dynamic_linear_model", "unobserved_components",
         "prophet", "neuralprophet", "linear_regression", "ridge", "lasso",

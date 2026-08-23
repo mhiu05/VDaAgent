@@ -94,7 +94,7 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
     dataset = repo.get_dataset(dataset_id)
     if not run or run.get("dataset_id") != dataset_id or not dataset:
         return {"error": "Profile run không còn ánh xạ an toàn tới dataset."}
-    repo.transition_profile_run(run_id, {"created", "running"}, "running")
+    repo.transition_profile_run(run_id, {"created", "queued", "running"}, "running")
     dataset_ref = dataset["source_ref"]
     scan_mode = state.get("scan_mode", settings.profiling_default_scan_mode)
     config = dict(state.get("sampling_config") or {})

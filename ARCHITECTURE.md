@@ -6,7 +6,7 @@ agent answer, report item, snapshot, audit record, and execution evidence must
 all resolve back to that Profile Run and its workspace.
 
 ```text
-Dataset upload → Profile Run → metadata/PII review when needed → completed profile
+Dataset upload → queued Profile Run → profiling worker → metadata/PII review → completed profile
                                                 ├─ Charts workspace
                                                 │   plan → Preview → Official evidence
                                                 ├─ Agent Q&A
@@ -20,8 +20,8 @@ The current product surface has two related workspaces:
 - `/charts` selects a completed Profile Run and creates evidence-backed charts
   with the same Explorer context and Report Draft.
 
-`/analyses` and `/notebooks` remain compatibility routes. They are not the
-primary navigation or the main data model for new work.
+The former `/analyses` and `/notebooks` compatibility surfaces are retired;
+the Profile Run Command Center is the supported workflow.
 
 ## Design boundaries
 
@@ -62,18 +62,28 @@ flowchart LR
     subgraph Service[FastAPI :8000/api/v1]
         API[Routes]
         Guard[Authentication, workspace resolution\nand capability checks]
-        Profile[LangGraph profiling\nand metadata review]
+        ProfileJobs[Durable profile job submission\nand status]
+        ProfileReview[Metadata review / durable continuation enqueue]
         Charts[Chart planner and bounded\nAnalysisEngine]
         Agent[Q&A, skills and redacted trace]
         Reports[Draft, snapshot and export source]
         Compute[DuckDB, pandas, NumPy, SciPy\nforecast adapters]
         Repo[Repositories]
         API --> Guard
-        Guard --> Profile & Charts & Agent & Reports
-        Profile --> Compute & Repo
+        Guard --> ProfileJobs & ProfileReview & Charts & Agent & Reports
+        ProfileJobs --> Repo
+        ProfileReview --> Repo
         Charts --> Compute & Repo
         Agent --> Repo
         Reports --> Repo
+    end
+
+    subgraph Worker[Dedicated profiling worker]
+        Claim[SKIP LOCKED claim\nbounded concurrency]
+        Lease[Heartbeat / lease recovery]
+        Profile[Existing LangGraph profiling\ninitial run and HITL resume]
+        Claim --> Profile
+        Lease --> Claim
     end
 
     subgraph Persistence[Persistence]
@@ -83,6 +93,8 @@ flowchart LR
     end
 
     Repo --> DB
+    DB --> Claim
+    Profile --> Repo & Compute
     Profile --> Storage
     Charts --> Storage
     Storage --> Temp --> Compute
@@ -110,11 +122,19 @@ authorized export source from FastAPI before rendering the document.
 
 ## Deployment and integration boundaries
 
-Production deploys separate containerized frontend and backend applications on
-Azure App Service. The frontend is built with `NEXT_PUBLIC_API_URL` pointing to
+Production deploys separate frontend, API, and profiling-worker processes on
+Azure App Service. API and worker reuse the same immutable backend image with
+different startup commands. The frontend is built with `NEXT_PUBLIC_API_URL` pointing to
 `AZURE_BACKEND_URL/api/v1`; the backend permits the deployed frontend through
 `CORS_ORIGINS`. Secrets stay in backend App Service settings or GitHub Actions
 secrets, never in `NEXT_PUBLIC_*` variables.
+
+Profiling cancellation is intentionally not exposed in this release. The
+existing pandas/DuckDB/LangGraph computation does not yet provide cooperative
+safe boundaries, and forcefully terminating a Python thread could leave result
+or checkpoint persistence inconsistent. Queued-job cancellation and
+cooperative cancellation checkpoints are a future product/engine decision;
+the UI never pretends that hiding a running job has cancelled its computation.
 
 Supabase is the identity provider: Google sign-in returns first to the Supabase
 callback and then to an allowed frontend URL. Google Drive storage is a separate
@@ -135,6 +155,7 @@ secrets, file paths, or chain-of-thought.
 | --- | --- |
 | Next.js / React | Browser UI, Supabase session transport, Charts workspace, report UI and PDF route |
 | FastAPI | REST/SSE API, CORS, auth, workspace/capability enforcement, audit and business workflows |
+| Profiling worker | Atomically claims durable Profile Runs and HITL continuations, renews leases, and invokes the existing LangGraph with bounded concurrency |
 | LangGraph + native skills | Profiling/Q&A orchestration; bounded tool registry and optional redacted trace |
 | `AnalysisEngine` | Validates `QuerySpec`, runs bounded aggregates, profile-derived analysis and forecasts |
 | Chart planner | Turns an approved-profile question into a structured ChartPlan; uses a rule fallback if LLM planning fails |

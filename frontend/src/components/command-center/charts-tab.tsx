@@ -77,7 +77,7 @@ const PROBLEMS: Array<{ value: ProblemType; label: string; detail: string }> = [
 const FORECAST_LABELS: Record<ForecastAlgorithm, string> = {
   naive: "Naive Forecast", seasonal_naive: "Seasonal Naive", drift: "Drift Method", moving_average: "Moving Average", weighted_moving_average: "Weighted Moving Average",
   ses: "Simple Exponential Smoothing (SES)", holt_linear: "Holt’s Linear Trend", holt_winters: "Holt-Winters", ets: "ETS",
-  arima: "ARIMA", sarima: "SARIMA", sarimax: "SARIMAX", auto_arima: "Auto-ARIMA", arimax: "ARIMAX",
+  arima: "ARIMA", sarima: "SARIMA", auto_arima: "Auto-ARIMA",
   structural_time_series: "Structural Time Series", local_level: "Local Level Model", local_linear_trend: "Local Linear Trend", kalman_filter: "Kalman Filter", dynamic_linear_model: "Dynamic Linear Model", unobserved_components: "Unobserved Components Model",
   prophet: "Prophet", neuralprophet: "NeuralProphet", linear_regression: "Linear Regression", ridge: "Ridge Regression", lasso: "Lasso", random_forest: "Random Forest", extra_trees: "Extra Trees", xgboost: "XGBoost", lightgbm: "LightGBM", catboost: "CatBoost",
 };
@@ -382,7 +382,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
         <summary>Tùy chỉnh nâng cao · xem hoặc thay đổi quyết định kỹ thuật</summary>
         <div className="chart-flow-section"><span className="chart-flow-number">3</span><div><b>Chọn bài toán</b><p>Nhập câu hỏi và xác nhận loại bài toán cần giải quyết.</p></div></div>
         <div className="chart-config-fields chart-step-fields">
-          <label>Câu hỏi kinh doanh<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
+          <label>Câu hỏi<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
           <label>Bài toán<select value={chart.problem} onChange={(event) => onChange({ problem: event.target.value as ProblemType, algorithm: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn bài toán</option>{PROBLEMS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
           {chart.problem && <p className="chart-step-hint">{PROBLEMS.find((item) => item.value === chart.problem)?.detail}</p>}
         </div>
@@ -758,10 +758,10 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
 
   return <section className="command-charts">
     {/* Unified Hero Panel: Question Input + 1-Click Auto Analysis Pack */}
-    <section className="panel chart-auto-profile-pack" style={{ border: "2px solid #315efb", padding: "14px 18px", background: "linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)" }}>
+    <section className="panel chart-auto-profile-pack">
       <div className="panel-title" style={{ marginBottom: 10 }}>
         <div>
-          <span className="eyebrow" style={{ color: "#315efb", fontWeight: 800 }}>AI ANALYTICS WORKSPACE · PHÂN TÍCH TỰ ĐỘNG</span>
+          <span className="eyebrow" style={{ color: "#315efb", fontWeight: 800 }}>VDaAgent · PHÂN TÍCH CHUYÊN SÂU THÔNG QUA BIỂU ĐỒ</span>
           <h3 style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "#0c1a3a" }}>Bạn muốn phân tích câu hỏi gì từ dữ liệu?</h3>
           <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.78rem" }}>
             Nhập câu hỏi bằng ngôn ngữ tự nhiên hoặc nhấn nút phân tích trọn gói. Agent sẽ tự động tính toán qua DuckDB, vẽ biểu đồ và viết AI insight.
@@ -770,7 +770,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       </div>
 
       {/* Primary Input: Business Question */}
-      <div className="chart-business-question-panel" style={{ display: "grid", gap: "10px", background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #c9dafb", boxShadow: "0 2px 8px rgba(49, 94, 251, 0.06)" }}>
+          <div className="chart-business-question-panel">
         <label className="chart-business-question" style={{ margin: 0 }}>
           <div className="chart-business-question-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "#14254b" }}>
@@ -858,7 +858,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         <div className="chart-progress-card" role="status" aria-live="polite">
           <div className="chart-progress-header">
             <div>
-              <span className="eyebrow">TIẾN ĐỘ XỬ LÝ CÂU HỎI KINH DOANH</span>
+              <span className="eyebrow">TIẾN ĐỘ XỬ LÝ CÂU HỎI</span>
               <h4>{autoQuestionProgress.step}</h4>
             </div>
             <div className="chart-progress-badge">
@@ -924,7 +924,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     {/* Header & Workspace */}
     <header className="command-charts-header">
       <div>
-        <p className="eyebrow">CÂU HỎI KINH DOANH → BIỂU ĐỒ → INSIGHT</p>
+        <p className="eyebrow">CÂU HỎI → BIỂU ĐỒ → INSIGHT</p>
         <h2>Workspace Biểu đồ</h2>
       </div>
       <div className="chart-workspace-count">

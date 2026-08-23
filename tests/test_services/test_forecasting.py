@@ -26,9 +26,7 @@ def test_catalog_contains_every_requested_forecast_family() -> None:
         "ets",
         "arima",
         "sarima",
-        "sarimax",
         "auto_arima",
-        "arimax",
         "structural_time_series",
         "local_level",
         "local_linear_trend",
@@ -46,7 +44,6 @@ def test_catalog_contains_every_requested_forecast_family() -> None:
         "lightgbm",
         "catboost",
     } <= ids
-    assert next(item for item in catalog if item["id"] == "sarimax")["available"] is False
 
 
 @pytest.mark.parametrize(

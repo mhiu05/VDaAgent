@@ -629,17 +629,12 @@ async def create_report(
     payload: ReportCreate,
     context: RequestContext = Depends(require_permission(REPORT_DRAFT_WRITE)),
 ) -> dict[str, Any]:
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
     try:
-        report = get_repository().create_report(
-            context.workspace_id, context.user_id, payload.model_dump()
-        )
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    _audit(context, "report_created", resource_type="report", resource_id=report["id"])
-    return report
-
+        return service.create_report(payload.model_dump(), context.workspace_id, context.user_id)
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.post("/reports/{report_id}/items", status_code=201)
 async def pin_report_item(
@@ -776,63 +771,36 @@ async def update_report(
     payload: ReportCreate,
     context: RequestContext = Depends(require_permission(REPORT_DRAFT_WRITE)),
 ) -> dict[str, Any]:
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
     try:
-        report = get_repository().update_report_draft(
-            report_id, context.workspace_id, context.user_id, payload.model_dump()
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if not report:
-        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_updated", resource_type="report", resource_id=report_id)
-    return report
-
+        return service.update_report(report_id, payload.model_dump(), context.workspace_id, context.user_id)
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.delete("/reports/{report_id}")
 async def delete_report(
     report_id: str,
     context: RequestContext = Depends(require_permission(REPORT_DRAFT_WRITE)),
 ) -> dict[str, Any]:
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
     try:
-        deleted = get_repository().delete_report_draft(
-            report_id, context.workspace_id, context.user_id
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_deleted", resource_type="report", resource_id=report_id)
-    return {"deleted": True, "report_id": report_id}
-
+        service.delete_report(report_id, context.workspace_id, context.user_id)
+        return {"deleted": True, "report_id": report_id}
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.post("/reports/{report_id}/submit")
 async def submit_report(
     report_id: str, context: RequestContext = Depends(require_permission(REPORT_SUBMIT))
 ) -> dict[str, Any]:
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
     try:
-        # Keep the legacy endpoint for old clients, but publishing is now
-        # immediate for Analyst-owned reports and never waits for Admin.
-        report = get_repository().publish_report(
-            report_id,
-            context.workspace_id,
-            context.user_id,
-            reason="Tự động xuất bản report do Analyst tạo.",
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not report:
-        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_published", resource_type="report", resource_id=report_id)
-    return report
-
+        return service.submit_report(report_id, context.workspace_id, context.user_id)
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.post("/reports/{report_id}/review")
 async def review_report(
@@ -840,28 +808,12 @@ async def review_report(
     payload: ReportReviewInput,
     context: RequestContext = Depends(require_permission(REPORT_REVIEW)),
 ) -> dict[str, Any]:
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
     try:
-        report = get_repository().review_report(
-            report_id,
-            context.workspace_id,
-            context.user_id,
-            payload.decision,
-            payload.comment,
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not report:
-        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(
-        context,
-        f"report_{payload.decision}",
-        resource_type="report",
-        resource_id=report_id,
-    )
-    return report
-
+        return service.review_report(report_id, payload.model_dump(), context.workspace_id, context.user_id)
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.post("/reports/{report_id}/publish")
 async def publish_report(
@@ -869,30 +821,25 @@ async def publish_report(
     payload: ReportPublishInput,
     context: RequestContext = Depends(require_permission(REPORT_PUBLISH)),
 ) -> dict[str, Any]:
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
     try:
-        report = get_repository().publish_report(
-            report_id, context.workspace_id, context.user_id, reason=payload.reason
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if not report:
-        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_published", resource_type="report", resource_id=report_id)
-    return report
-
+        return service.publish_report(report_id, payload.model_dump(), context.workspace_id, context.user_id)
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.post("/reports/{report_id}/archive")
 async def archive_report(
     report_id: str,
     context: RequestContext = Depends(require_permission(REPORT_ARCHIVE)),
 ) -> dict[str, bool]:
-    if not get_repository().archive_report(report_id, context.workspace_id):
-        raise HTTPException(status_code=404, detail="Không tìm thấy report.")
-    _audit(context, "report_archived", resource_type="report", resource_id=report_id)
-    return {"archived": True}
-
+    from src.services.report_service import ReportError, ReportService
+    service = ReportService(get_repository(), get_audit())
+    try:
+        service.archive_report(report_id, context.workspace_id, context.user_id)
+        return {"archived": True}
+    except ReportError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
 
 @router.get("/dashboard")
 async def dashboard(

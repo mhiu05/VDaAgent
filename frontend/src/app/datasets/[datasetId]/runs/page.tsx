@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createProfile, createProfileReport, listRuns } from "@/lib/api";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -19,6 +19,7 @@ export default function DatasetRunsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [profiling, setProfiling] = useState(false);
   const [profileError, setProfileError] = useState<unknown>(null);
+  const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
   const runs = useQuery({ queryKey: ["runs", datasetId], queryFn: ({ signal }) => listRuns(datasetId, signal), enabled: Boolean(datasetId) });
 
   function openCreateModal() {
@@ -26,6 +27,7 @@ export default function DatasetRunsPage() {
     setRunName(`Phiên bản v${nextVersion}`);
     setScanMode("sample");
     setProfileError(null);
+    profileSubmission.current = null;
     setIsCreateModalOpen(true);
   }
 
@@ -39,14 +41,20 @@ export default function DatasetRunsPage() {
     setProfiling(true);
     setProfileError(null);
     try {
-      const profile = await createProfile({
+      const payload = {
         dataset_id: datasetId,
         run_name: normalizedRunName,
         scan_mode: scanMode,
-        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" } } : {}),
-      });
+        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" as const } } : {}),
+      } as const;
+      const signature = JSON.stringify(payload);
+      if (profileSubmission.current?.signature !== signature) {
+        profileSubmission.current = { signature, key: crypto.randomUUID() };
+      }
+      const job = await createProfile(payload, profileSubmission.current.key);
+      profileSubmission.current = null;
       setIsCreateModalOpen(false);
-      router.push(`/profiles/${profile.profile_run_id}`);
+      router.push(`/profiles/${job.profiling_run_id}`);
     } catch (error) {
       setProfileError(error);
       setProfiling(false);

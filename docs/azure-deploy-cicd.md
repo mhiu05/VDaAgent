@@ -12,6 +12,7 @@ CI/CD được cấu hình bằng GitHub Actions trên nhánh `main`. Khi có co
 - App Service Plan: `asp-p170-hieu`
 - Azure Container Registry: `p170acr08140037`
 - Backend Web App: `p170-api-08140037`
+- Profiling Worker Web App: cấu hình qua repository variable `AZURE_PROFILING_WORKER_APP`
 - Frontend Web App: `p170-web-08140019`
 
 ## Endpoint truy cập
@@ -76,6 +77,17 @@ Backend được chạy bằng Uvicorn:
 ```text
 python -m uvicorn src.main:app --app-dir backend --host 0.0.0.0 --port 8000
 ```
+
+Profiling worker dùng cùng backend image nhưng là process role riêng:
+
+```text
+PYTHONPATH=/app/backend
+python -m src.workers.profiling_worker --health-port 8000
+```
+
+Worker không phục vụ API nghiệp vụ. Cổng health chỉ dùng cho readiness của App
+Service. `PROFILING_WORKER_CONCURRENCY` mặc định là `1`; PostgreSQL lưu queue,
+lease và trạng thái nên deployment/restart không làm mất job.
 
 ## Cấu hình frontend trên Azure
 
