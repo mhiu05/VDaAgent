@@ -42,6 +42,13 @@ function table(headers: string[], rows: Array<Array<unknown>>, className = ""): 
   if (!rows.length) return "";
   return `<div class="table-wrap ${className}"><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(text(value))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
+function inlineMarkdown(text: string): string {
+  let html = escapeHtml(text);
+  html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return html;
+}
 function markdown(value: unknown): string {
   const content: string[] = [];
   let list: Array<{ level: number; text: string }> = [];
@@ -56,7 +63,7 @@ function markdown(value: unknown): string {
         html += "</ul>".repeat(currentLevel - item.level);
       }
       currentLevel = item.level;
-      html += `<li>${escapeHtml(item.text)}</li>`;
+      html += `<li>${item.text}</li>`;
     }
     html += "</ul>".repeat(currentLevel + 1);
     content.push(html);
@@ -66,14 +73,13 @@ function markdown(value: unknown): string {
     const listMatch = raw.match(/^(\s*)[-*+]\s+(.*)$/);
     if (listMatch) {
       const level = Math.floor(listMatch[1].length / 2);
-      const text = listMatch[2].replace(/\*\*(.*?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
-      list.push({ level, text });
+      list.push({ level, text: inlineMarkdown(listMatch[2]) });
       continue;
     }
-    const line = raw.trim().replace(/\*\*(.*?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
+    const line = raw.trim();
     if (!line || line === "---") { flush(); continue; }
-    if (/^#{1,6}\s+/.test(line)) { flush(); content.push(`<h4>${escapeHtml(line.replace(/^#{1,6}\s+/, ""))}</h4>`); }
-    else { flush(); content.push(`<p>${escapeHtml(line)}</p>`); }
+    if (/^#{1,6}\s+/.test(line)) { flush(); content.push(`<h4>${inlineMarkdown(line.replace(/^#{1,6}\s+/, ""))}</h4>`); }
+    else { flush(); content.push(`<p>${inlineMarkdown(line)}</p>`); }
   }
   flush();
   return content.join("") || "<p>Không có nội dung diễn giải được lưu.</p>";
