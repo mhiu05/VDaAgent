@@ -363,11 +363,9 @@ export default function ReportPage() {
         {run.risk_warnings && run.risk_warnings.length > 0 && (
           <section id="sec-quality" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
             <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>{tocItems.find(t => t.id === 'sec-quality')?.title}</h2>
-            <ul style={{ paddingLeft: "1.25rem", margin: "0.5rem 0", color: "#b45309", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-              {run.risk_warnings.map((warning: string, index: number) => (
-                <li key={index} style={{ background: "#fffbeb", padding: "0.75rem 1rem", borderRadius: "6px", border: "1px solid #fde68a" }}>⚠️ {warning}</li>
-              ))}
-            </ul>
+            <div style={{ background: "rgba(59, 130, 246, 0.04)", borderLeft: "4px solid #3b82f6", padding: "1.25rem", borderRadius: "0 8px 8px 0" }}>
+              <MarkdownContent text={run.risk_warnings.map((w: string) => `- ⚠️ ${w.replace(/'([^']+)'/g, '\`$1\`')}`).join('\n')} className="report report-markdown" />
+            </div>
           </section>
         )}
 

@@ -111,7 +111,10 @@ function buildSections(source: ReportSource): Section[] {
   sections.push({ title: "Tổng quan Dataset", body: table(["Trường", "Giá trị"], [["Tên dataset", text(profile.dataset?.name)], ["Profile run", text(run.id)], ["Trạng thái", text(run.status)], ["Số dòng", number(run.row_count)], ["Chế độ quét", text(run.scan_mode)], ["Ngày profiling", date(run.created_at)]]) });
   
   const warnings = Array.isArray(run.risk_warnings) ? run.risk_warnings : [];
-  if (warnings.length) sections.push({ title: "Rủi ro và giới hạn", body: `<div class="callout warning"><strong>Lưu ý dữ liệu</strong><ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></div>` });
+  if (warnings.length) {
+    const md = warnings.map((warning) => `- ⚠️ ${String(warning).replace(/'([^']+)'/g, '\`$1\`')}`).join('\n');
+    sections.push({ title: "Rủi ro và giới hạn", body: `<div class="narrative">${markdown(md)}</div>` });
+  }
   
   if (run.narrative_report) sections.push({ title: "Tóm tắt từ Agent", body: `<div class="narrative">${markdown(run.narrative_report)}</div>` });
   
