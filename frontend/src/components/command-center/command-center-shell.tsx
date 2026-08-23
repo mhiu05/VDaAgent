@@ -9,8 +9,6 @@ import { getProfile } from "@/lib/api";
 import { COMMAND_CENTER_TAB_LABELS, COMMAND_CENTER_TABS, isCommandCenterTab, type CommandCenterTab } from "@/lib/command-center-types";
 import { ErrorNotice, LoadingBlock, Notice, StatusBadge } from "@/components/ui";
 
-const ReportTab = dynamic(() => import("./report-tab").then((module) => module.ReportTab), { loading: () => <LoadingBlock label="Đang mở Report Draft…" /> });
-
 type Props = { overview: ReactNode };
 
 function confidenceLabel(scanMode?: string | null, approximate?: boolean) {
@@ -87,7 +85,6 @@ export function CommandCenterShell({ overview }: Props) {
 
     <section id={`command-center-panel-${activeTab}`} role="tabpanel" aria-labelledby={`command-center-tab-${activeTab}`} tabIndex={0} className="command-center-panel">
       {activeTab === "overview" && overview}
-      {activeTab === "report" && <ReportTab runId={runId} />}
     </section>
   </main>;
 }

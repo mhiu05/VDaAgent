@@ -795,43 +795,9 @@ function buildLayout(payload: ReportPayload): string[] {
 
   addHeading("Snapshot báo cáo");
   addReportSnapshot();
+  // Remove Explorer Results section as it is deprecated
 
-  addHeading("Kết quả Explorer liên quan");
-  const seenResults = new Set<string>();
-  const officialResults = sessions.flatMap((session) => session.executions || [])
-    .filter((execution) => execution.execution_kind === "official" && execution.status === "ready")
-    .filter((execution) => {
-      const identity = String(execution.result_hash || execution.id || "");
-      if (seenResults.has(identity)) return false;
-      seenResults.add(identity);
-      return true;
-    });
-  if (!officialResults.length) {
-    addCallout("Chưa có kết quả Explorer chính thức để đưa vào phần tham khảo. Các lượt xem trước không được dùng làm bằng chứng trong báo cáo.");
-  } else {
-    addParagraph(`Báo cáo chỉ giữ ${officialResults.length} kết quả chính thức, đã loại các lượt xem trước và kết quả trùng lặp.`);
-    officialResults.forEach((execution, index) => {
-      const result = (execution.result || {}) as { columns?: string[]; data?: Array<Record<string, unknown>> };
-      const columns = (result.columns || (result.data?.[0] ? Object.keys(result.data[0]) : [])).slice(0, 6);
-      const data = result.data || [];
-      const query = (execution.query_spec || {}) as { aggregate?: string };
-      const title = query.aggregate === "count" ? "Quy mô dữ liệu đã xác nhận" : `Kết quả Explorer đã xác nhận ${index + 1}`;
-      addHeading(title, 2);
-      if (columns.length === 1 && data.length === 1) {
-        const value = data[0][columns[0]];
-        const displayed = typeof value === "number" && Number.isFinite(value) ? new Intl.NumberFormat("vi-VN").format(value) : cell(value, 48);
-        const label = query.aggregate === "count" ? "Tổng số dòng dữ liệu" : "Kết quả đã tính";
-        addTable(["Nội dung", "Kết quả"], [[label, displayed]], [250, 257]);
-      } else if (columns.length && data.length) {
-        addTable(columns, data.slice(0, 25).map((row) => columns.map((column) => cell(row[column], 48))), equalWidths(columns.length));
-        if (data.length > 25) addParagraph(`Hiển thị 25 dòng đầu trên tổng số ${data.length} dòng kết quả.`, 8, COLORS.gray);
-      } else addCallout("Kết quả này không có dữ liệu dạng bảng để hiển thị.");
-      const scope = execution.is_approximate ? "Ước lượng từ mẫu dữ liệu" : "Được tính trên toàn bộ dữ liệu";
-      addParagraph(`${scope} · Mã đối chiếu: ${cell(execution.result_hash, 12)}`, 8, COLORS.gray);
-    });
-  }
-
-  addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với snapshot Report Draft và bằng chứng Explorer liên quan. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
+  addCallout("Chính sách export: báo cáo kết hợp hồ sơ kỹ thuật với snapshot Report Draft và bằng chứng đã ghim. Báo cáo không chứa dữ liệu dòng thô hoặc PII chưa che.");
 
   // Generate Table of Contents (TOC) page
   if (tocEntries.length > 0) {

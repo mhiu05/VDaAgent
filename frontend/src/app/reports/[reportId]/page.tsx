@@ -9,6 +9,7 @@ import type { AnalysisExecution, ChartSpec, QuerySpec } from "@/lib/analysis-typ
 import { ErrorNotice } from "@/components/ui";
 import { MarkdownContent } from "@/components/markdown";
 import { ChartEvidenceView } from "@/components/command-center/chart-evidence-view";
+import { ReportTab } from "@/components/command-center/report-tab";
 
 type ReportItem = {
   id: string;
@@ -53,7 +54,24 @@ type ExportSourcePayload = {
     };
     column_stats: ColumnStat[];
     proposals?: Record<string, Array<Record<string, unknown>>>;
+    drift_reports?: Array<{
+      profile_run_id_a?: string;
+      profile_run_id_b?: string;
+      summary?: string;
+    }>;
   };
+  analysis_sessions?: Array<{
+    id: string;
+    executions?: Array<{
+      id: string;
+      execution_kind: string;
+      status: string;
+      is_approximate?: boolean;
+      result_hash?: string;
+      query_spec?: { aggregate?: string; [key: string]: unknown };
+      result?: { columns?: string[]; data?: Array<Record<string, unknown>> };
+    }>;
+  }>;
   report_snapshot?: {
     id: string;
     title?: string;
@@ -68,6 +86,7 @@ export default function ReportPage() {
   const params = useParams<{ reportId: string }>();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<unknown>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const reportQuery = useQuery({
     queryKey: ["report-export-source", params.reportId],
@@ -117,25 +136,38 @@ export default function ReportPage() {
     );
   }
 
-  const { profile, report_snapshot } = reportQuery.data;
+  const { profile, report_snapshot, analysis_sessions } = reportQuery.data;
   const items = report_snapshot?.items ?? [];
   const run = profile.run;
   const datasetName = profile.dataset?.name || "Tập dữ liệu chưa đặt tên";
 
+  const driftReports = profile.drift_reports || [];
+  
+  const officialResults = (analysis_sessions || [])
+    .flatMap((session) => session.executions || [])
+    .filter((execution) => execution.execution_kind === "official" && execution.status === "ready")
+    .filter((execution, index, self) => {
+      const identity = String(execution.result_hash || execution.id || "");
+      return self.findIndex((e) => String(e.result_hash || e.id || "") === identity) === index;
+    });
+
   const tocItems: Array<{ id: string; title: string }> = [
-    { id: "sec-overview", title: "1. Tổng quan Dataset & Hồ sơ Scan" },
+    { id: "sec-overview", title: "1. Tổng quan Dataset" },
   ];
-  if (run.narrative_report) {
-    tocItems.push({ id: "sec-narrative", title: "2. Đánh giá tổng quát từ AI Agent" });
+  if (profile.column_stats && profile.column_stats.length > 0) {
+    tocItems.push({ id: "sec-columns", title: "2. Hồ sơ kỹ thuật" });
   }
   if (run.risk_warnings && run.risk_warnings.length > 0) {
-    tocItems.push({ id: "sec-quality", title: "3. Cảnh báo chất lượng dữ liệu" });
+    tocItems.push({ id: "sec-quality", title: "3. Chất lượng & Giới hạn" });
   }
-  if (profile.column_stats && profile.column_stats.length > 0) {
-    tocItems.push({ id: "sec-columns", title: "4. Thống kê đặc trưng các cột" });
+  if (run.narrative_report) {
+    tocItems.push({ id: "sec-narrative", title: "4. Tóm tắt từ Agent" });
+  }
+  if (driftReports.length > 0) {
+    tocItems.push({ id: "sec-drift", title: "5. So sánh dữ liệu" });
   }
   if (items.length > 0) {
-    tocItems.push({ id: "sec-charts", title: "5. Bằng chứng Biểu đồ & Insight chuyên sâu" });
+    tocItems.push({ id: "sec-charts", title: "6. Snapshot báo cáo" });
   }
 
   return (
@@ -147,21 +179,33 @@ export default function ReportPage() {
             <Link className="button secondary" href="/reports">← Danh sách báo cáo</Link>
             <span className="chip success">Bản tổng hợp hoàn chỉnh</span>
           </div>
-          {run.id && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <button
               type="button"
-              className="button primary"
-              onClick={() => void exportFullPdf(run.id)}
-              disabled={exporting}
-              style={{
-                background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-                boxShadow: "0 4px 12px rgba(37,99,235,0.25)",
-                fontWeight: 700,
-              }}
+              className={`button ${isEditing ? 'primary' : 'secondary'}`}
+              onClick={() => setIsEditing(!isEditing)}
+              style={{ fontWeight: 600 }}
             >
-              {exporting ? "⏳ Đang tạo PDF chuẩn xuất bản…" : "📄 Xuất bản file PDF đầy đủ"}
+              {isEditing ? "Hoàn tất chỉnh sửa" : "✏️ Chỉnh sửa nội dung"}
             </button>
-          )}
+            {run.id && (
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => void exportFullPdf(run.id)}
+                disabled={exporting || isEditing}
+                style={{
+                  background: isEditing ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                  boxShadow: isEditing ? "none" : "0 4px 12px rgba(37,99,235,0.25)",
+                  fontWeight: 700,
+                  cursor: isEditing ? "not-allowed" : "pointer"
+                }}
+                title={isEditing ? "Vui lòng hoàn tất chỉnh sửa trước khi xuất PDF" : "Xuất bản file PDF đầy đủ"}
+              >
+                {exporting ? "⏳ Đang tạo PDF chuẩn xuất bản…" : "📄 Xuất bản file PDF đầy đủ"}
+              </button>
+            )}
+          </div>
         </div>
 
         {exportError !== null && <ErrorNotice error={exportError} />}
@@ -216,14 +260,76 @@ export default function ReportPage() {
           </div>
         </section>
 
-        {/* 2. AGENT NARRATIVE SUMMARY */}
-        {run.narrative_report && (
-          <section id="sec-narrative" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
+        {/* 2. TECHNICAL PROFILE */}
+        {profile.column_stats && profile.column_stats.length > 0 && (
+          <section id="sec-columns" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
             <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>
-              2. Đánh giá tổng quát từ AI Agent
+              2. Hồ sơ kỹ thuật
             </h2>
-            <div style={{ background: "rgba(59, 130, 246, 0.04)", borderLeft: "4px solid #3b82f6", padding: "1.25rem", borderRadius: "0 8px 8px 0" }}>
-              <MarkdownContent text={run.narrative_report} className="report report-markdown" />
+            <div style={{ overflowX: "auto", marginBottom: "2rem" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
+                <thead>
+                  <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
+                    <th style={{ padding: "0.75rem" }}>Cột</th>
+                    <th style={{ padding: "0.75rem" }}>Kiểu</th>
+                    <th style={{ padding: "0.75rem" }}>% null</th>
+                    <th style={{ padding: "0.75rem" }}>Cardinality</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profile.column_stats.map((col, idx) => (
+                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                      <td style={{ padding: "0.75rem", fontWeight: 600 }}>{col.column_name}</td>
+                      <td style={{ padding: "0.75rem", color: "#64748b" }}><code>{col.inferred_type || "string"}</code></td>
+                      <td style={{ padding: "0.75rem", color: (col.null_percentage || 0) > 0.2 ? "#dc2626" : "#475569" }}>
+                        {((col.null_percentage || 0) * 100).toFixed(1)}%
+                      </td>
+                      <td style={{ padding: "0.75rem", color: "#475569" }}>
+                        {col.distinct_count ? col.distinct_count.toLocaleString("vi-VN") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2rem" }}>
+              <div>
+                <h3 style={{ fontSize: "1rem", color: "#1e293b", marginBottom: "1rem" }}>Tỷ lệ null theo cột (10 cột cao nhất)</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {profile.column_stats
+                    .map(col => ({ label: col.column_name, value: (col.null_percentage || 0) * 100 }))
+                    .sort((a, b) => b.value - a.value)
+                    .slice(0, 10)
+                    .map((item, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", fontSize: "0.8rem" }}>
+                        <div style={{ width: "120px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#64748b" }} title={item.label}>{item.label}</div>
+                        <div style={{ flex: 1, background: "#f1f5f9", height: "12px", borderRadius: "2px", margin: "0 10px", position: "relative" }}>
+                          <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${item.value}%`, background: "#eab308", borderRadius: "2px" }}></div>
+                        </div>
+                        <div style={{ width: "40px", textAlign: "right", fontWeight: 600 }}>{item.value.toFixed(1)}%</div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+              <div>
+                <h3 style={{ fontSize: "1rem", color: "#1e293b", marginBottom: "1rem" }}>Tỷ lệ unique theo cột (10 cột cao nhất)</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {profile.column_stats
+                    .map(col => ({ label: col.column_name, value: col.distinct_count && run.row_count ? (col.distinct_count / run.row_count) * 100 : 0 }))
+                    .sort((a, b) => b.value - a.value)
+                    .slice(0, 10)
+                    .map((item, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", fontSize: "0.8rem" }}>
+                        <div style={{ width: "120px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#64748b" }} title={item.label}>{item.label}</div>
+                        <div style={{ flex: 1, background: "#f1f5f9", height: "12px", borderRadius: "2px", margin: "0 10px", position: "relative" }}>
+                          <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${Math.min(item.value, 100)}%`, background: "#3b82f6", borderRadius: "2px" }}></div>
+                        </div>
+                        <div style={{ width: "40px", textAlign: "right", fontWeight: 600 }}>{item.value.toFixed(1)}%</div>
+                      </div>
+                    ))}
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -232,7 +338,7 @@ export default function ReportPage() {
         {run.risk_warnings && run.risk_warnings.length > 0 && (
           <section id="sec-quality" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
             <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>
-              3. Cảnh báo chất lượng dữ liệu & Rủi ro
+              3. Chất lượng, quyền riêng tư và giới hạn
             </h2>
             <ul style={{ paddingLeft: "1.25rem", margin: "0.5rem 0", color: "#b45309", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               {run.risk_warnings.map((warning, index) => (
@@ -244,33 +350,39 @@ export default function ReportPage() {
           </section>
         )}
 
-        {/* 4. COLUMN STATISTICS TABLE */}
-        {profile.column_stats && profile.column_stats.length > 0 && (
-          <section id="sec-columns" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
+        {/* 4. AGENT NARRATIVE SUMMARY */}
+        {run.narrative_report && (
+          <section id="sec-narrative" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
             <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>
-              4. Thống kê đặc trưng các cột
+              4. Tóm tắt từ Agent
+            </h2>
+            <div style={{ background: "rgba(59, 130, 246, 0.04)", borderLeft: "4px solid #3b82f6", padding: "1.25rem", borderRadius: "0 8px 8px 0" }}>
+              <MarkdownContent text={run.narrative_report} className="report report-markdown" />
+            </div>
+          </section>
+        )}
+
+        {/* 5. DATA DRIFT */}
+        {driftReports.length > 0 && (
+          <section id="sec-drift" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
+            <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>
+              5. So sánh dữ liệu
             </h2>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
                 <thead>
                   <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
-                    <th style={{ padding: "0.75rem" }}>Tên Cột</th>
-                    <th style={{ padding: "0.75rem" }}>Kiểu dữ liệu</th>
-                    <th style={{ padding: "0.75rem" }}>Tỷ lệ thiếu (Null%)</th>
-                    <th style={{ padding: "0.75rem" }}>Số giá trị duy nhất</th>
+                    <th style={{ padding: "0.75rem" }}>Profile A</th>
+                    <th style={{ padding: "0.75rem" }}>Profile B</th>
+                    <th style={{ padding: "0.75rem" }}>Tóm tắt</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {profile.column_stats.map((col, idx) => (
-                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0", background: idx % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
-                      <td style={{ padding: "0.75rem", fontWeight: 600 }}>{col.column_name}</td>
-                      <td style={{ padding: "0.75rem", color: "#64748b" }}><code>{col.inferred_type || "string"}</code></td>
-                      <td style={{ padding: "0.75rem", color: (col.null_percentage || 0) > 20 ? "#dc2626" : "#475569" }}>
-                        {((col.null_percentage || 0) * 100).toFixed(1)}%
-                      </td>
-                      <td style={{ padding: "0.75rem", color: "#475569" }}>
-                        {col.distinct_count ? col.distinct_count.toLocaleString("vi-VN") : "—"}
-                      </td>
+                  {driftReports.map((drift, idx) => (
+                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
+                      <td style={{ padding: "0.75rem", color: "#475569" }}>{drift.profile_run_id_a}</td>
+                      <td style={{ padding: "0.75rem", color: "#475569" }}>{drift.profile_run_id_b}</td>
+                      <td style={{ padding: "0.75rem", color: "#1e293b" }}>{drift.summary}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -279,97 +391,111 @@ export default function ReportPage() {
           </section>
         )}
 
-        {/* 5. PINNED CHARTS & AGENT INSIGHTS */}
+        {/* 6. PINNED CHARTS & AGENT INSIGHTS */}
         <section id="sec-charts" style={{ marginTop: "2rem" }}>
           <div style={{ marginBottom: "1rem" }}>
             <span className="eyebrow" style={{ color: "#2563eb", fontWeight: 700, textTransform: "uppercase", fontSize: "0.8rem" }}>
               CHUYÊN ĐỀ PHÂN TÍCH CHUYÊN SÂU
             </span>
             <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#0f172a", margin: "0.25rem 0" }}>
-              5. Bằng chứng Biểu đồ & AI Insight đã ghim ({items.length} mục)
+              6. Snapshot báo cáo ({items.length} mục đã ghim)
             </h2>
           </div>
 
-          {items.length === 0 ? (
-            <div className="panel" style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
-              Chưa có biểu đồ nào được ghim vào báo cáo này. Hãy vào Workspace Biểu đồ và ghim các bài phân tích để hiển thị ở đây.
+          {isEditing ? (
+            <div style={{ marginTop: "1rem", background: "#f8fafc", padding: "1.5rem", borderRadius: "12px", border: "1px dashed #cbd5e1" }}>
+              <ReportTab runId={run.id} />
+              <div style={{ marginTop: "1.5rem", textAlign: "right" }}>
+                <button className="button primary" onClick={() => {
+                  setIsEditing(false);
+                  reportQuery.refetch(); // Refetch to get the latest snapshot after editing
+                }}>
+                  Hoàn tất chỉnh sửa & Cập nhật trang
+                </button>
+              </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
-              {items.map((item, index) => (
-                <article
-                  id={`item-${item.id}`}
-                  className="panel report-detail-section"
-                  key={item.id}
-                  style={{
-                    padding: "2rem",
-                    borderRadius: "12px",
-                    boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05)",
-                  }}
-                >
-                  <header style={{ marginBottom: "1.25rem", borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span className="eyebrow" style={{ textTransform: "uppercase", fontSize: "0.75rem", color: "#2563eb", fontWeight: 700 }}>
-                        {item.item_type === "chart" ? `BẰNG CHỨNG #${index + 1}` : `GHI CHÚ #${index + 1}`}
-                      </span>
-                      {item.query_spec && (
-                        <span style={{ fontSize: "0.75rem", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px" }}>
-                          {item.query_spec.aggregate} · {item.query_spec.analysis_kind}
+            items.length === 0 ? (
+              <div className="panel" style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>
+                Chưa có biểu đồ nào được ghim vào báo cáo này. Hãy vào Workspace Biểu đồ và ghim các bài phân tích để hiển thị ở đây.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+                {items.map((item, index) => (
+                  <article
+                    id={`item-${item.id}`}
+                    className="panel report-detail-section"
+                    key={item.id}
+                    style={{
+                      padding: "2rem",
+                      borderRadius: "12px",
+                      boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <header style={{ marginBottom: "1.25rem", borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="eyebrow" style={{ textTransform: "uppercase", fontSize: "0.75rem", color: "#2563eb", fontWeight: 700 }}>
+                          {item.item_type === "chart" ? `BẰNG CHỨNG #${index + 1}` : `GHI CHÚ #${index + 1}`}
                         </span>
-                      )}
-                    </div>
-                    <h3 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0.5rem 0", color: "#1e293b" }}>
-                      {item.title || (item.item_type === "chart" ? "Biểu đồ Phân tích" : "Kết luận từ Agent")}
-                    </h3>
-                  </header>
+                        {item.query_spec && (
+                          <span style={{ fontSize: "0.75rem", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px" }}>
+                            {item.query_spec.aggregate} · {item.query_spec.analysis_kind}
+                          </span>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0.5rem 0", color: "#1e293b" }}>
+                        {item.title || (item.item_type === "chart" ? "Biểu đồ Phân tích" : "Kết luận từ Agent")}
+                      </h3>
+                    </header>
 
-                  {/* CHART RENDERER */}
-                  {item.item_type === "chart" && item.content_json?.result && item.content_json.chart_spec && item.query_spec && (
-                    <div className="report-chart-box" style={{ margin: "1.5rem 0", background: "#ffffff", padding: "1rem", borderRadius: "8px", border: "1px solid #f1f5f9" }}>
-                      <ChartEvidenceView
-                        chartSpec={item.content_json.chart_spec}
-                        result={item.content_json.result}
-                        querySpec={item.query_spec}
-                        title={item.title || undefined}
-                      />
-                    </div>
-                  )}
+                    {/* CHART RENDERER */}
+                    {item.item_type === "chart" && item.content_json?.result && item.content_json.chart_spec && item.query_spec && (
+                      <div className="report-chart-box" style={{ margin: "1.5rem 0", background: "#ffffff", padding: "1rem", borderRadius: "8px", border: "1px solid #f1f5f9" }}>
+                        <ChartEvidenceView
+                          chartSpec={item.content_json.chart_spec}
+                          result={item.content_json.result}
+                          querySpec={item.query_spec}
+                          title={item.title || undefined}
+                        />
+                      </div>
+                    )}
 
-                  {/* AGENT INSIGHT BOX */}
-                  {item.content_json?.insight && (
-                    <div
-                      className="report-insight-box"
-                      style={{
-                        background: "rgba(99, 102, 241, 0.04)",
-                        borderLeft: "4px solid #6366f1",
-                        padding: "1.25rem 1.5rem",
-                        borderRadius: "0 8px 8px 0",
-                        marginTop: "1.25rem",
-                      }}
-                    >
-                      <span className="eyebrow" style={{ fontSize: "0.75rem", fontWeight: 700, color: "#4f46e5", display: "block", marginBottom: "0.5rem" }}>
-                        💡 INSIGHT & KẾT LUẬN TỪ AI AGENT
-                      </span>
-                      <MarkdownContent text={item.content_json.insight} className="report report-markdown" />
-                    </div>
-                  )}
+                    {/* AGENT INSIGHT BOX */}
+                    {item.content_json?.insight && (
+                      <div
+                        className="report-insight-box"
+                        style={{
+                          background: "rgba(99, 102, 241, 0.04)",
+                          borderLeft: "4px solid #6366f1",
+                          padding: "1.25rem 1.5rem",
+                          borderRadius: "0 8px 8px 0",
+                          marginTop: "1.25rem",
+                        }}
+                      >
+                        <span className="eyebrow" style={{ fontSize: "0.75rem", fontWeight: 700, color: "#4f46e5", display: "block", marginBottom: "0.5rem" }}>
+                          💡 INSIGHT & KẾT LUẬN TỪ AI AGENT
+                        </span>
+                        <MarkdownContent text={item.content_json.insight} className="report report-markdown" />
+                      </div>
+                    )}
 
-                  {/* AGENT ANSWER */}
-                  {item.content_json?.answer && (
-                    <div className="report-answer-box" style={{ padding: "1.25rem", background: "#f8fafc", borderRadius: "8px", marginTop: "1rem", border: "1px solid #e2e8f0" }}>
-                      <MarkdownContent text={item.content_json.answer} className="report report-markdown" />
-                    </div>
-                  )}
+                    {/* AGENT ANSWER */}
+                    {item.content_json?.answer && (
+                      <div className="report-answer-box" style={{ padding: "1.25rem", background: "#f8fafc", borderRadius: "8px", marginTop: "1rem", border: "1px solid #e2e8f0" }}>
+                        <MarkdownContent text={item.content_json.answer} className="report report-markdown" />
+                      </div>
+                    )}
 
-                  {/* USER NOTE */}
-                  {item.note && (
-                    <div className="report-note-box" style={{ marginTop: "1rem", padding: "0.75rem 1rem", background: "#fefce8", border: "1px solid #fef08a", borderRadius: "6px", fontStyle: "italic", color: "#854d0e", fontSize: "0.85rem" }}>
-                      <b>Ghi chú người dùng:</b> {item.note}
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
+                    {/* USER NOTE */}
+                    {item.note && (
+                      <div className="report-note-box" style={{ marginTop: "1rem", padding: "0.75rem 1rem", background: "#fefce8", border: "1px solid #fef08a", borderRadius: "6px", fontStyle: "italic", color: "#854d0e", fontSize: "0.85rem" }}>
+                        <b>Ghi chú người dùng:</b> {item.note}
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            )
           )}
         </section>
       </main>
