@@ -4,9 +4,8 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useId, useRef } from "react";
+import { type ReactNode } from "react";
 import { getProfile } from "@/lib/api";
-import { COMMAND_CENTER_TAB_LABELS, COMMAND_CENTER_TABS, isCommandCenterTab, type CommandCenterTab } from "@/lib/command-center-types";
 import { ErrorNotice, LoadingBlock, Notice, StatusBadge } from "@/components/ui";
 
 type Props = { overview: ReactNode };
@@ -18,30 +17,10 @@ function confidenceLabel(scanMode?: string | null, approximate?: boolean) {
 
 export function CommandCenterShell({ overview }: Props) {
   const { runId } = useParams<{ runId: string }>();
-  const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const tab = isCommandCenterTab(searchParams.get("tab")) ? searchParams.get("tab") : "overview";
-  const activeTab = tab as CommandCenterTab;
-  const tabListId = useId();
-  const tabRefs = useRef<Partial<Record<CommandCenterTab, HTMLButtonElement>>>({});
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
     refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 3_000 : false,
   });
-
-  function selectTab(next: CommandCenterTab) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", next);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-    requestAnimationFrame(() => tabRefs.current[next]?.focus());
-  }
-
-  function moveTab(current: CommandCenterTab, direction: -1 | 1) {
-    const index = COMMAND_CENTER_TABS.indexOf(current);
-    const next = COMMAND_CENTER_TABS[(index + direction + COMMAND_CENTER_TABS.length) % COMMAND_CENTER_TABS.length];
-    selectTab(next);
-  }
 
   if (profile.isLoading) return <LoadingBlock label="Đang tải Command Center…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
@@ -67,24 +46,10 @@ export function CommandCenterShell({ overview }: Props) {
     </header>
 
     {data.status === "failed" && <Notice tone="warning"><b>Profile chạy thất bại.</b><p>{data.error || "Hãy kiểm tra source và bắt đầu một profile run mới."}</p><Link className="button secondary" href={`/datasets/${data.dataset_id}/runs`}>Mở profile runs</Link></Notice>}
-    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đề xuất trước khi tạo Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}?tab=${activeTab}`)}`}>Review đề xuất</Link></Notice>}
+    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đề xuất trước khi tạo Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}`)}`}>Review đề xuất</Link></Notice>}
 
-    <div className="command-center-tabs" role="tablist" aria-label="Command Center tabs" id={tabListId}>
-      {COMMAND_CENTER_TABS.map((item) => <button
-        key={item} ref={(node) => { tabRefs.current[item] = node ?? undefined; }} type="button" role="tab"
-        id={`command-center-tab-${item}`} aria-selected={activeTab === item} aria-controls={`command-center-panel-${item}`}
-        className={activeTab === item ? "command-center-tab active" : "command-center-tab"} onClick={() => selectTab(item)}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowRight') moveTab(item, 1);
-          if (event.key === 'ArrowLeft') moveTab(item, -1);
-          if (event.key === 'Home') selectTab(COMMAND_CENTER_TABS[0]);
-          if (event.key === 'End') selectTab(COMMAND_CENTER_TABS[COMMAND_CENTER_TABS.length - 1]);
-        }}
-      >{COMMAND_CENTER_TAB_LABELS[item]}</button>)}
-    </div>
-
-    <section id={`command-center-panel-${activeTab}`} role="tabpanel" aria-labelledby={`command-center-tab-${activeTab}`} tabIndex={0} className="command-center-panel">
-      {activeTab === "overview" && overview}
+    <section className="command-center-panel">
+      {overview}
     </section>
   </main>;
 }
