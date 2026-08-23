@@ -7,7 +7,7 @@ import Link from "next/link";
 
 import { ProfileRunPicker } from "@/components/profile-run-picker";
 import { ChartsTab } from "@/components/command-center/charts-tab";
-import { getProfile } from "@/lib/api";
+import { getProfile, getProfileReportDraft } from "@/lib/api";
 import { LoadingBlock, Notice, PageHeader } from "@/components/ui";
 
 export default function ChartsPage() {
@@ -31,6 +31,12 @@ export default function ChartsPage() {
   const profile = useQuery({
     queryKey: ["profile", runId],
     queryFn: ({ signal }) => getProfile(runId, signal),
+    enabled: Boolean(runId),
+  });
+
+  const reportDraft = useQuery({
+    queryKey: ["report-draft", runId],
+    queryFn: () => getProfileReportDraft(runId),
     enabled: Boolean(runId),
   });
 
@@ -98,8 +104,8 @@ export default function ChartsPage() {
         <Link href="/compare" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
           ⚖️ So sánh dữ liệu
         </Link>
-        <Link href="/reports" className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-          📖 Xem báo cáo →
+        <Link href={runId && reportDraft.data?.id ? `/reports/${reportDraft.data.id}` : "/reports"} className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+          📖 {runId && reportDraft.data?.id ? "Xem báo cáo phiên này →" : "Xem tất cả báo cáo →"}
         </Link>
       </div>
     </section>
