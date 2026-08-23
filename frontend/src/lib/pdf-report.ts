@@ -8,7 +8,7 @@ type ReportSource = {
   profile?: { dataset?: { name?: unknown }; run?: DataRecord; column_stats?: DataRecord[]; drift_reports?: DataRecord[]; correlation_matrix?: Record<string, Record<string, unknown>> };
   report_snapshot?: { title?: unknown; items?: DataRecord[] } | null;
 };
-type Section = { title: string; body: string; children?: Section[]; number?: string };
+type Section = { title: string; body: string; children?: Section[]; number?: string; isPart?: boolean };
 
 const MAX_CONCURRENT_EXPORTS = 2;
 let activeExports = 0;
@@ -83,43 +83,55 @@ function buildSections(source: ReportSource): Section[] {
   const run = profile.run || {};
   const stats = Array.isArray(profile.column_stats) ? profile.column_stats : [];
   const snapshotItems = Array.isArray(source.report_snapshot?.items) ? source.report_snapshot.items : [];
-  const overviewChildren: Section[] = [{ title: "Thông tin dataset", body: table(["Trường", "Giá trị"], [["Tên dataset", text(profile.dataset?.name)], ["Profile run", text(run.id)], ["Trạng thái", text(run.status)], ["Số dòng", number(run.row_count)], ["Chế độ quét", text(run.scan_mode)], ["Ngày profiling", date(run.created_at)]]) }];
+  const sections: Section[] = [];
+  
+  sections.push({ title: "PHẦN 1: HỒ SƠ & CHẤT LƯỢNG", body: "", isPart: true });
+  sections.push({ title: "Tổng quan Dataset", body: table(["Trường", "Giá trị"], [["Tên dataset", text(profile.dataset?.name)], ["Profile run", text(run.id)], ["Trạng thái", text(run.status)], ["Số dòng", number(run.row_count)], ["Chế độ quét", text(run.scan_mode)], ["Ngày profiling", date(run.created_at)]]) });
+  
   const warnings = Array.isArray(run.risk_warnings) ? run.risk_warnings : [];
-  if (warnings.length) overviewChildren.push({ title: "Rủi ro và giới hạn", body: `<div class="callout warning"><strong>Lưu ý dữ liệu</strong><ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></div>` });
-  if (run.narrative_report) overviewChildren.push({ title: "Tóm tắt từ Agent", body: `<div class="narrative">${markdown(run.narrative_report)}</div>` });
+  if (warnings.length) sections.push({ title: "Rủi ro và giới hạn", body: `<div class="callout warning"><strong>Lưu ý dữ liệu</strong><ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></div>` });
+  
+  if (run.narrative_report) sections.push({ title: "Tóm tắt từ Agent", body: `<div class="narrative">${markdown(run.narrative_report)}</div>` });
+  
   if (stats.length) {
-    overviewChildren.push({ title: "Hồ sơ kỹ thuật", body: `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "PII"], statRows(stats))}${barChart("Tỷ lệ null theo cột", stats)}` });
+    const statBody = `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "PII"], statRows(stats))}${barChart("Tỷ lệ null theo cột", stats)}`;
     const distributions = stats.filter((stat) => !stat.pii_masked && Array.isArray(stat.top_values)).slice(0, 3);
-    if (distributions.length) overviewChildren.push({ title: "Phân phối dữ liệu", body: distributions.map((stat) => table([text(stat.column_name), "Số lượng"], (stat.top_values as DataRecord[]).slice(0, 10).map((entry) => [entry.value, number(entry.count ?? entry.frequency)]))).join("") });
+    const distBody = distributions.length ? distributions.map((stat) => table([text(stat.column_name), "Số lượng"], (stat.top_values as DataRecord[]).slice(0, 10).map((entry) => [entry.value, number(entry.count ?? entry.frequency)]))).join("") : "";
+    const correlation = profile.correlation_matrix;
+    const corrBody = correlation && Object.keys(correlation).length ? table(["Cột", ...Object.keys(correlation).slice(0, 8)], Object.keys(correlation).slice(0, 8).map((column) => [column, ...Object.keys(correlation).slice(0, 8).map((peer) => { const value = Number(correlation[column]?.[peer]); return Number.isFinite(value) ? value.toFixed(2) : "-"; })]), "compact") : "";
+    sections.push({ title: "Hồ sơ kỹ thuật", body: statBody + (distBody ? `<h4>Phân phối dữ liệu</h4>${distBody}` : "") + (corrBody ? `<h4>Tương quan</h4>${corrBody}` : "") });
   }
-  const correlation = profile.correlation_matrix;
-  if (correlation && Object.keys(correlation).length) {
-    const columns = Object.keys(correlation).slice(0, 8);
-    overviewChildren.push({ title: "Tương quan", body: table(["Cột", ...columns], columns.map((column) => [column, ...columns.map((peer) => { const value = Number(correlation[column]?.[peer]); return Number.isFinite(value) ? value.toFixed(2) : "-"; })]), "compact") });
+
+  if (snapshotItems.length) {
+    sections.push({ title: "PHẦN 2: CHUYÊN ĐỀ PHÂN TÍCH", body: "", isPart: true });
+    sections.push({ title: "Biểu đồ đã ghim", body: "", children: snapshotItems.map((item, index) => {
+      const content = item.content_json as DataRecord | undefined;
+      const result = content?.result as DataRecord | undefined;
+      const data = Array.isArray(result?.data) ? result.data.filter((row): row is DataRecord => Boolean(row) && typeof row === "object") : [];
+      const reportedColumns = Array.isArray(result?.columns) ? result.columns.filter((column): column is string => typeof column === "string").slice(0, 7) : (data[0] ? Object.keys(data[0]).slice(0, 7) : []);
+      const hasReportedValues = reportedColumns.some((column) => data.some((row) => row[column] !== undefined));
+      const columns = hasReportedValues ? reportedColumns : (data.length ? ["Nhãn", "Giá trị"] : []);
+      const tableRows = hasReportedValues
+        ? data.slice(0, 40).map((row) => reportedColumns.map((column) => row[column]))
+        : data.slice(0, 40).map((row) => [row.label ?? row.name ?? row.category ?? row.x, row.value ?? row.count ?? row.y]);
+      const body = [item.note ? `<div class="callout"><strong>Ghi chú</strong><p>${escapeHtml(item.note)}</p></div>` : "", evidenceChart(text(item.title, `Phân tích ${index + 1}`), item), columns.length ? table(columns, tableRows) : "", content?.insight ? `<div class="narrative"><strong>Insight đã lưu</strong>${markdown(content.insight)}</div>` : "", content?.answer ? `<div class="narrative">${markdown(content.answer)}</div>` : ""].join("");
+      return { title: text(item.title, `Phân tích ${index + 1}`), body: body || "<p>Không có nội dung có thể xuất cho mục này.</p>" };
+    }) });
   }
-  const sections: Section[] = [{ title: "Tổng quan dữ liệu", body: "", children: overviewChildren }];
-  if (snapshotItems.length) sections.push({ title: "Phân tích chuyên sâu", body: "", children: snapshotItems.map((item, index) => {
-    const content = item.content_json as DataRecord | undefined;
-    const result = content?.result as DataRecord | undefined;
-    const data = Array.isArray(result?.data) ? result.data.filter((row): row is DataRecord => Boolean(row) && typeof row === "object") : [];
-    const reportedColumns = Array.isArray(result?.columns) ? result.columns.filter((column): column is string => typeof column === "string").slice(0, 7) : (data[0] ? Object.keys(data[0]).slice(0, 7) : []);
-    const hasReportedValues = reportedColumns.some((column) => data.some((row) => row[column] !== undefined));
-    const columns = hasReportedValues ? reportedColumns : (data.length ? ["Nhãn", "Giá trị"] : []);
-    const tableRows = hasReportedValues
-      ? data.slice(0, 40).map((row) => reportedColumns.map((column) => row[column]))
-      : data.slice(0, 40).map((row) => [row.label ?? row.name ?? row.category ?? row.x, row.value ?? row.count ?? row.y]);
-    const body = [item.note ? `<div class="callout"><strong>Ghi chú</strong><p>${escapeHtml(item.note)}</p></div>` : "", evidenceChart(text(item.title, `Phân tích ${index + 1}`), item), columns.length ? table(columns, tableRows) : "", content?.insight ? `<div class="narrative"><strong>Insight đã lưu</strong>${markdown(content.insight)}</div>` : "", content?.answer ? `<div class="narrative">${markdown(content.answer)}</div>` : ""].join("");
-    return { title: text(item.title, `Phân tích ${index + 1}`), body: body || "<p>Không có nội dung có thể xuất cho mục này.</p>" };
-  }) });
+
   const drifts = Array.isArray(profile.drift_reports) ? profile.drift_reports : [];
-  if (drifts.length) sections.push({ title: "So sánh biến động dữ liệu", body: table(["Profile A", "Profile B", "Tóm tắt"], drifts.map((drift) => [drift.profile_run_id_a, drift.profile_run_id_b, drift.summary])) });
+  if (drifts.length) {
+    sections.push({ title: "PHẦN 3: SO SÁNH DỮ LIỆU", body: "", isPart: true });
+    sections.push({ title: "Data Drift", body: table(["Profile A", "Profile B", "Tóm tắt"], drifts.map((drift) => [drift.profile_run_id_a, drift.profile_run_id_b, drift.summary])) });
+  }
+
   return sections;
 }
-function numberSections(sections: Section[], prefix = ""): void { sections.forEach((section, index) => { const number = prefix ? `${prefix}.${index + 1}` : String(index + 1); section.number = number; if (section.children) numberSections(section.children, number); }); }
-function renderSection(section: Section, level = 2): string { const heading = `h${Math.min(level, 4)}`; return `<section class="report-section level-${level}"><${heading}>${escapeHtml(section.number)}. ${escapeHtml(section.title)}</${heading}>${section.body}${section.children?.map((child) => renderSection(child, level + 1)).join("") || ""}</section>`; }
-function toc(sections: Section[]): string { const entries = (nodes: Section[]): string => nodes.map((section) => `<li class="toc-level-${section.number?.split(".").length || 1}"><span>${escapeHtml(section.number)}. ${escapeHtml(section.title)}</span></li>${section.children ? `<ol>${entries(section.children)}</ol>` : ""}`).join(""); return `<section class="toc"><p class="kicker">CẤU TRÚC BÁO CÁO</p><h1>Mục lục</h1><ol>${entries(sections)}</ol></section>`; }
+function numberSections(sections: Section[], prefix = ""): void { let counter = 1; sections.forEach((section) => { if (section.isPart) return; const number = prefix ? `${prefix}.${counter}` : String(counter); section.number = number; counter++; if (section.children) numberSections(section.children, number); }); }
+function renderSection(section: Section, level = 2): string { if (section.isPart) return `<div class="part-divider"><h2>${escapeHtml(section.title)}</h2></div>`; const heading = `h${Math.min(level, 4)}`; return `<section class="report-section level-${level}"><${heading}>${escapeHtml(section.number)}. ${escapeHtml(section.title)}</${heading}>${section.body}${section.children?.map((child) => renderSection(child, level + 1)).join("") || ""}</section>`; }
+function toc(sections: Section[]): string { const entries = (nodes: Section[]): string => nodes.map((section) => { if (section.isPart) return `<li class="toc-part"><span>${escapeHtml(section.title)}</span></li>`; return `<li class="toc-level-${section.number?.split(".").length || 1}"><span>${escapeHtml(section.number)}. ${escapeHtml(section.title)}</span></li>${section.children ? `<ol>${entries(section.children)}</ol>` : ""}`; }).join(""); return `<section class="toc"><p class="kicker">CẤU TRÚC BÁO CÁO</p><h1>Mục lục</h1><ol>${entries(sections)}</ol></section>`; }
 function styles(): string {
-  return `<style>@page { size: A4; margin: 18mm 16mm 18mm; }* { box-sizing: border-box; }body { color: #172033; font-family: "Noto Sans", Arial, sans-serif; font-size: 10pt; line-height: 1.52; margin: 0; }h1,h2,h3,h4 { color: #102a43; line-height: 1.25; break-after: avoid; }h2 { border-bottom: 2px solid #2563eb; font-size: 18pt; margin: 11mm 0 5mm; padding-bottom: 2.5mm; }h3 { color: #1d4ed8; font-size: 13pt; margin: 8mm 0 3mm; }h4 { font-size: 11pt; margin: 5mm 0 2mm; }p { margin: 0 0 3mm; }ul { margin: 2mm 0 4mm; padding-left: 5mm; }.toc { min-height: 220mm; }.toc h1 { font-size: 25pt; margin: 0 0 8mm; }.toc .kicker { color: #2563eb; font-size: 8pt; font-weight: 700; letter-spacing: .12em; }.toc ol { list-style: none; margin: 0; padding: 0; }.toc li { border-bottom: 1px solid #e2e8f0; padding: 2.5mm 0; }.toc ol ol { margin-left: 6mm; }.toc-level-1 { color: #102a43; font-weight: 700; }.toc-level-2 { font-size: 9.5pt; }.toc-level-3 { color: #526075; font-size: 9pt; }table { border-collapse: collapse; font-size: 8.3pt; width: 100%; }.table-wrap { margin: 3mm 0 6mm; overflow: hidden; }th { background: #eaf2ff; color: #173d6b; font-weight: 700; text-align: left; }th,td { border: 1px solid #d9e2ec; overflow-wrap: anywhere; padding: 2.1mm 2.4mm; vertical-align: top; }tr { break-inside: avoid; }thead { display: table-header-group; }.compact table { font-size: 7.5pt; }.callout { background: #eff6ff; border-left: 3px solid #2563eb; break-inside: avoid; margin: 3mm 0 5mm; padding: 3.5mm 4mm; }.warning { background: #fffbeb; border-color: #d97706; }.narrative { background: #f8fafc; border: 1px solid #e2e8f0; break-inside: avoid; margin: 3mm 0 5mm; padding: 4mm; }.chart { break-inside: avoid; margin: 5mm 0 7mm; }.chart figcaption { color: #102a43; font-size: 9pt; font-weight: 700; margin-bottom: 2mm; }.chart svg { display: block; max-height: 180mm; max-width: 100%; width: 100%; }.chart-label { fill: #526075; font-family: Arial, sans-serif; font-size: 10px; }.chart-value { fill: #173d6b; font-family: Arial, sans-serif; font-size: 10px; }</style>`;
+  return `<style>@page { size: A4; margin: 18mm 16mm 18mm; }* { box-sizing: border-box; }body { color: #172033; font-family: "Noto Sans", Arial, sans-serif; font-size: 10pt; line-height: 1.52; margin: 0; }h1,h2,h3,h4 { color: #102a43; line-height: 1.25; break-after: avoid; }h2 { border-bottom: 2px solid #2563eb; font-size: 18pt; margin: 11mm 0 5mm; padding-bottom: 2.5mm; }h3 { color: #1d4ed8; font-size: 13pt; margin: 8mm 0 3mm; }h4 { font-size: 11pt; margin: 5mm 0 2mm; }p { margin: 0 0 3mm; }ul { margin: 2mm 0 4mm; padding-left: 5mm; }.toc { min-height: 220mm; }.toc h1 { font-size: 25pt; margin: 0 0 8mm; }.toc .kicker { color: #2563eb; font-size: 8pt; font-weight: 700; letter-spacing: .12em; }.toc ol { list-style: none; margin: 0; padding: 0; }.toc li { border-bottom: 1px solid #e2e8f0; padding: 2.5mm 0; }.toc ol ol { margin-left: 6mm; }.toc-level-1 { color: #102a43; font-weight: 700; }.toc-level-2 { font-size: 9.5pt; }.toc-level-3 { color: #526075; font-size: 9pt; }table { border-collapse: collapse; font-size: 8.3pt; width: 100%; }.table-wrap { margin: 3mm 0 6mm; overflow: hidden; }th { background: #eaf2ff; color: #173d6b; font-weight: 700; text-align: left; }th,td { border: 1px solid #d9e2ec; overflow-wrap: anywhere; padding: 2.1mm 2.4mm; vertical-align: top; }tr { break-inside: avoid; }thead { display: table-header-group; }.compact table { font-size: 7.5pt; }.callout { background: #eff6ff; border-left: 3px solid #2563eb; break-inside: avoid; margin: 3mm 0 5mm; padding: 3.5mm 4mm; }.warning { background: #fffbeb; border-color: #d97706; }.narrative { background: #f8fafc; border: 1px solid #e2e8f0; break-inside: avoid; margin: 3mm 0 5mm; padding: 4mm; }.chart { break-inside: avoid; margin: 5mm 0 7mm; }.chart figcaption { color: #102a43; font-size: 9pt; font-weight: 700; margin-bottom: 2mm; }.chart svg { display: block; max-height: 180mm; max-width: 100%; width: 100%; }.chart-label { fill: #526075; font-family: Arial, sans-serif; font-size: 10px; }.chart-value { fill: #173d6b; font-family: Arial, sans-serif; font-size: 10px; }.part-divider { border-bottom: 3px solid #2563eb; margin: 15mm 0 5mm; padding-bottom: 2mm; break-after: avoid; }.part-divider h2 { border: none; font-size: 16pt; font-weight: 900; color: #1e293b; margin: 0; padding: 0; }.toc-part { color: #0f172a; font-size: 11pt; font-weight: 800; margin-top: 5mm; text-transform: uppercase; border-bottom: none !important; padding-bottom: 0 !important; }</style>`;
 }
 function coverHtml(source: ReportSource): string {
   const profile = source.profile || {}; const run = profile.run || {};

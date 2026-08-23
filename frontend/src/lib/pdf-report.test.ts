@@ -18,10 +18,10 @@ describe("profiling PDF document model", () => {
     const document = __test__.bodyHtml(source, sections);
     const toc = __test__.tocHtml(sections);
 
-    expect(sections.map((section) => section.number)).toEqual(["1", "2"]);
-    expect(sections[0].children?.map((section) => section.number)).toEqual(["1.1", "1.2", "1.3"]);
+    expect(sections.map((section) => section.number)).toEqual([undefined, "1", "2", "3", undefined, "4"]);
+    expect(sections[5].children?.map((section) => section.number)).toEqual(["4.1"]);
     expect(toc).toContain("Mục lục");
-    expect(document).toContain("1.1. Thông tin dataset");
+    expect(document).toContain("1. Tổng quan Dataset");
     expect(document).toContain("<svg");
     expect(__test__.coverHtml(source)).toContain("DATA PROFILING REPORT");
     expect(__test__.backCoverHtml(source)).toContain("KẾT THÚC BÁO CÁO");
