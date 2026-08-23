@@ -693,8 +693,8 @@ function buildLayout(payload: ReportPayload): string[] {
       return;
     }
     snapshot.items.forEach((item, index) => {
-      const itemTitle = item.title || (item.item_type === "chart" ? "Kết quả Explorer đã ghim" : item.item_type === "agent_answer" ? "Tóm tắt từ Agent đã ghim" : "Ghi chú đã ghim");
-      addHeading(`${index + 1}. ${itemTitle}`, 2);
+      const itemTitle = item.title || (item.item_type === "chart" ? "Câu hỏi phân tích" : item.item_type === "agent_answer" ? "Tóm tắt từ Agent đã ghim" : "Ghi chú đã ghim");
+      addHeading(`Câu hỏi #${index + 1}: ${itemTitle}`, 2);
       if (item.item_type === "agent_answer") {
         const answer = item.content_json?.answer;
         if (typeof answer === "string" && answer.trim()) addAgentSummary(answer);
@@ -793,7 +793,7 @@ function buildLayout(payload: ReportPayload): string[] {
   if (profile.drift_reports.length) addTable(["Profile A", "Profile B", "Tóm tắt"], profile.drift_reports.map((item) => [cell(item.profile_run_id_a), cell(item.profile_run_id_b), cell(item.summary)]), [112, 112, 283]);
   else addCallout("Chưa có dữ liệu so sánh nào được ghi nhận.");
 
-  addHeading("Snapshot báo cáo");
+  addHeading("Biểu đồ trực quan & Phân tích chuyên sâu");
   addReportSnapshot();
   // Remove Explorer Results section as it is deprecated
 

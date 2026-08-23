@@ -167,7 +167,7 @@ export default function ReportPage() {
     tocItems.push({ id: "sec-drift", title: "5. So sánh dữ liệu" });
   }
   if (items.length > 0) {
-    tocItems.push({ id: "sec-charts", title: "6. Snapshot báo cáo" });
+    tocItems.push({ id: "sec-charts", title: "6. Biểu đồ trực quan & Phân tích chuyên sâu" });
   }
 
   return (
@@ -398,7 +398,7 @@ export default function ReportPage() {
               CHUYÊN ĐỀ PHÂN TÍCH CHUYÊN SÂU
             </span>
             <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#0f172a", margin: "0.25rem 0" }}>
-              6. Snapshot báo cáo ({items.length} mục đã ghim)
+              6. Biểu đồ trực quan & Phân tích chuyên sâu ({items.length} mục đã ghim)
             </h2>
           </div>
 
@@ -435,7 +435,7 @@ export default function ReportPage() {
                     <header style={{ marginBottom: "1.25rem", borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span className="eyebrow" style={{ textTransform: "uppercase", fontSize: "0.75rem", color: "#2563eb", fontWeight: 700 }}>
-                          {item.item_type === "chart" ? `BẰNG CHỨNG #${index + 1}` : `GHI CHÚ #${index + 1}`}
+                          {item.item_type === "chart" ? `CÂU HỎI #${index + 1}` : `GHI CHÚ #${index + 1}`}
                         </span>
                         {item.query_spec && (
                           <span style={{ fontSize: "0.75rem", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px" }}>
