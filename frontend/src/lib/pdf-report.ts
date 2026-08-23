@@ -40,7 +40,7 @@ function percentage(value: unknown): string {
 }
 function table(headers: string[], rows: Array<Array<unknown>>, className = ""): string {
   if (!rows.length) return "";
-  return `<div class="table-wrap ${className}"><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${escapeHtml(text(value))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return `<div class="table-wrap ${className}"><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((value) => `<td>${typeof value === 'object' && value !== null && '__html' in value ? String((value as any).__html) : escapeHtml(text(value))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 function inlineMarkdown(text: string): string {
   let html = escapeHtml(text);
@@ -133,7 +133,7 @@ function statRows(stats: DataRecord[]): Array<Array<unknown>> {
       }
     }
     
-    return [`<strong>${escapeHtml(stat.column_name)}</strong>${piiTag}`, stat.inferred_type ?? stat.dtype, percentage(stat.null_pct ?? stat.null_percentage), number(stat.cardinality ?? stat.distinct_count), percentage(stat.uniqueness_ratio), topValuesHtml];
+    return [{ __html: `<strong>${escapeHtml(stat.column_name)}</strong>${piiTag}` }, stat.inferred_type ?? stat.dtype, percentage(stat.null_pct ?? stat.null_percentage), number(stat.cardinality ?? stat.distinct_count), percentage(stat.uniqueness_ratio), { __html: topValuesHtml }];
   });
 }
 function buildSections(source: ReportSource): Section[] {
