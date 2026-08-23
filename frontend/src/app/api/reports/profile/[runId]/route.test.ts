@@ -1,64 +1,49 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const renderer = vi.hoisted(() => ({ generate: vi.fn() }));
+
+vi.mock("@/lib/pdf-report", () => ({
+  PdfExportError: class PdfExportError extends Error {
+    status = 503;
+  },
+  generateProfilingPdf: renderer.generate,
+}));
 
 import { GET } from "./route";
 
-function payload(items: Array<Record<string, unknown>>) {
-  return {
-    profile: {
-      dataset: { name: "Production chart test" },
-      run: { id: "run-1", status: "completed", row_count: 100 },
-      column_stats: [],
-      proposals: {},
-      drift_reports: [],
-    },
-    analysis_sessions: [],
-    report_snapshot: {
-      id: "report-1",
-      version: 1,
-      snapshot_hash: "hash",
-      items,
-    },
-    export_sections: ["report_snapshot"],
-  };
-}
+describe("profiling PDF export route", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    renderer.generate.mockReset();
+  });
 
-function chartItem(chartType: string, renderer: string, x: string, y: string | undefined, data: Array<Record<string, unknown>>) {
-  return {
-    id: `chart-${chartType}`,
-    item_type: "chart",
-    title: chartType,
-    result_hash: `${chartType}-hash`,
-    query_spec: { analysis_kind: chartType, aggregate: "count", dimensions: y ? [x, y] : [] },
-    content_json: {
-      chart_spec: { chart_type: chartType, renderer, x_column: x, y_column: y },
-      result: { columns: Object.keys(data[0]), data },
-      insight: "Insight đã được review từ Official evidence.",
-    },
-  };
-}
+  it("uses the authorized report source and returns a downloadable PDF", async () => {
+    renderer.generate.mockResolvedValueOnce(new Uint8Array([37, 80, 68, 70]));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ profile: { run: { id: "run-1" } } }));
 
-describe("chart PDF export", () => {
-  it("draws every advanced chart and keeps its evidence table", async () => {
-    const items = [
-      chartItem("histogram", "native-svg", "sales", undefined, [{ bin_start: 0, bin_end: 10, value: 5 }]),
-      chartItem("scatter", "native-svg", "sales", "cost", [{ x: 10, y: 4, value: 3 }]),
-      chartItem("box", "native-svg", "region", "sales", [{ group_label: "North", min: 1, q1: 2, median: 3, q3: 4, max: 5, value: 3 }]),
-      chartItem("heatmap", "native-grid", "region", "channel", [{ region: "North", channel: "Online", value: 8 }]),
-    ];
+    const response = await GET(
+      new Request("http://localhost/api/reports/profile/run-1?reportId=report-1", { headers: { Authorization: "Bearer token", "X-Workspace-Id": "workspace-1" } }),
+      { params: Promise.resolve({ runId: "run-1" }) },
+    );
 
-    const render = async (snapshotItems: Array<Record<string, unknown>>) => {
-      vi.stubGlobal("fetch", vi.fn(async () => Response.json(payload(snapshotItems))));
-      const response = await GET(
-        new Request("http://localhost/api/reports/profile/run-1"),
-        { params: Promise.resolve({ runId: "run-1" }) },
-      );
-      return new Uint8Array(await response.arrayBuffer());
-    };
-    const empty = await render([]);
-    const advanced = await render(items);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/pdf");
+    expect(response.headers.get("content-disposition")).toContain("attachment;");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/reports/report-1/export-source?sections="),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer token", "X-Workspace-Id": "workspace-1" }) }),
+    );
+  });
 
-    expect(new TextDecoder().decode(advanced.slice(0, 8))).toContain("%PDF-1.4");
-    expect(advanced.byteLength).toBeGreaterThan(empty.byteLength + 2_000);
-    vi.unstubAllGlobals();
+  it("preserves authorization failures from the report source", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 403 }));
+    const response = await GET(new Request("http://localhost/api/reports/profile/run-1?reportId=report-1"), { params: Promise.resolve({ runId: "run-1" }) });
+    expect(response.status).toBe(403);
+    expect(renderer.generate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid profile identifier before fetching", async () => {
+    const response = await GET(new Request("http://localhost/api/reports/profile/../etc"), { params: Promise.resolve({ runId: "../etc" }) });
+    expect(response.status).toBe(400);
   });
 });

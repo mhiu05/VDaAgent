@@ -2591,3 +2591,89 @@ input[type="checkbox"] { width: auto; min-height: auto; }
 .nav-dropdown-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 16px; border: none; background: transparent; color: var(--ink); text-align: left; font-size: 0.85rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.15s, color 0.15s; }
 .nav-dropdown-item:hover { background: rgba(49, 86, 217, 0.08); color: var(--brand); }
 .nav-dropdown-divider { height: 1px; background: var(--line); margin: 6px 0; }
+
+@media print {
+  @page {
+    margin: 12mm 15mm;
+    size: A4 portrait;
+  }
+  
+  /* Hide UI elements */
+  .public-navbar,
+  .app-shell-sidebar,
+  .report-toc-sidebar,
+  .report-detail-toolbar,
+  .draggable-chat-widget,
+  .nav-avatar-container,
+  button,
+  .button,
+  header {
+    display: none !important;
+  }
+  
+  /* Reset container widths and remove scrolling */
+  body, html, main, .app-shell-content, .page, .report-detail-page {
+    height: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+  
+  /* Ensure backgrounds print correctly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Handle pagination gracefully */
+  .report-detail-section,
+  .report-insight-box,
+  .report-answer-box,
+  .notebook-cell-result,
+  .panel {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 24px !important;
+  }
+  
+  /* Do not avoid break for huge tables, but avoid for rows */
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  
+  thead {
+    display: table-header-group;
+  }
+  
+  /* Expand tables to prevent scrolling */
+  .table-wrap,
+  .report-markdown-table-wrap,
+  .table-responsive {
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Adjust typography for print */
+  body {
+    font-size: 11pt !important;
+    line-height: 1.5;
+  }
+  
+  /* Fix chart canvas overlapping */
+  canvas {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  
+  /* Don't put huge gaps */
+  .report-hero-banner {
+    padding: 1.5rem !important;
+    margin-bottom: 1.5rem !important;
+    border-radius: 0 !important;
+  }
+}

@@ -419,6 +419,11 @@ PDF profile report đi qua Next.js route cùng origin:
 chưa có snapshot, endpoint trả draft hiện hành với `snapshot_hash: "draft"` để
 trang detail vẫn mở được. Hãy tạo snapshot trước khi dùng bản export để chia sẻ.
 
+Renderer dùng Playwright Core với Chromium server-side; PDF giữ text/SVG vector,
+không dùng screenshot hay browser print dialog. Image frontend Azure đã cài Chromium
+và Noto fonts. Với môi trường local khác, đặt
+`PDF_CHROMIUM_EXECUTABLE_PATH` tới executable Chromium trước khi gọi export.
+
 ## Kiểm tra trước khi commit
 
 Từ thư mục `frontend`:
