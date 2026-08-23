@@ -45,8 +45,30 @@ export function TopValues({ stat }: { stat: ColumnStat }) {
   if (!stat.top_k_values) return <span className="muted">—</span>;
   const rows = topValueRows(stat.top_k_values);
   if (!rows.length) return <span className="muted">—</span>;
-  const total = Number(stat.row_count);
-  return <div className="top-values-wrap"><table className="top-values-table"><thead><tr><th>Giá trị</th><th>Số lượng</th><th>Ghi chú</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.value}-${index}`}><td className="top-values-value" title={row.value}>{row.value}</td><td>{row.count === null ? "—" : <>{formatNumber(row.count)}{total > 0 && <small> · {formatPercent(row.count / total, 1)}</small>}</>}</td><td>{row.note || "—"}</td></tr>)}</tbody></table></div>;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+      {rows.map((row, index) => (
+        <span 
+          key={`${row.value}-${index}`} 
+          style={{ 
+            background: "#f8fafc", 
+            border: "1px solid #e2e8f0", 
+            borderRadius: "4px", 
+            padding: "2px 6px", 
+            fontSize: "0.85em",
+            display: "inline-block",
+            whiteSpace: "nowrap"
+          }}
+          title={row.note ? String(row.note) : undefined}
+        >
+          <strong style={{ color: "#334155" }}>{String(row.value)}</strong>
+          {row.count !== null && (
+            <span style={{ color: "#64748b", marginLeft: "4px" }}>({formatNumber(row.count)})</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 export function Distribution({ stat, totalRows }: { stat: ColumnStat; totalRows?: number | null }) {

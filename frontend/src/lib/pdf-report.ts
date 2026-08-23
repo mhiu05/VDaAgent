@@ -104,7 +104,37 @@ function evidenceChart(title: string, item: DataRecord): string {
   return `<figure class="chart evidence-chart"><figcaption>${escapeHtml(title)}</figcaption><svg viewBox="0 0 440 195" role="img" aria-label="${escapeHtml(title)}"><line x1="45" y1="160" x2="420" y2="160" stroke="#cbd5e1"/>${bars}</svg></figure>`;
 }
 function statRows(stats: DataRecord[]): Array<Array<unknown>> {
-  return stats.map((stat) => [stat.column_name, stat.inferred_type ?? stat.dtype, percentage(stat.null_pct ?? stat.null_percentage), number(stat.cardinality ?? stat.distinct_count), percentage(stat.uniqueness_ratio), stat.pii_masked ? "Đã che" : "Không"]);
+  return stats.map((stat) => {
+    const piiTag = stat.pii_masked ? `<br/><span style="color:#b1324c;font-size:0.85em;background:#fff4f5;padding:2px 4px;border-radius:4px;display:inline-block;margin-top:2px;border:1px solid #f0c7d0;">Đã ẩn PII</span>` : "";
+    let topValuesHtml = '<span style="color:#64748b">—</span>';
+    
+    if (stat.pii_masked) {
+      topValuesHtml = `<span style="color:#b1324c;font-size:0.85em;background:#fff4f5;padding:2px 4px;border-radius:4px;display:inline-block;border:1px solid #f0c7d0;">Đã ẩn PII</span>`;
+    } else {
+      const topK = stat.top_values ?? stat.top_k_values;
+      if (Array.isArray(topK) && topK.length > 0) {
+        const topRows = topK.map(v => typeof v === 'object' && v !== null ? v : { value: String(v) }).slice(0, 5);
+        if (topRows.length > 0) {
+          topValuesHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;max-width:220px;">` + topRows.map(row => {
+            const val = escapeHtml(String(row.value));
+            const countStr = row.count !== undefined && row.count !== null ? number(row.count) : (row.frequency !== undefined && row.frequency !== null ? number(row.frequency) : "");
+            const count = countStr ? ` <span style="color:#64748b;">(${countStr})</span>` : "";
+            return `<span style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:2px 4px;font-size:0.85em;display:inline-block;white-space:nowrap;color:#334155;font-weight:600;">${val}${count}</span>`;
+          }).join("") + `</div>`;
+        }
+      } else if (topK && typeof topK === 'object') {
+        const entries = Object.entries(topK).slice(0, 5);
+        if (entries.length > 0) {
+          topValuesHtml = `<div style="display:flex;flex-wrap:wrap;gap:4px;max-width:220px;">` + entries.map(([key, val]) => {
+            const count = val !== undefined && val !== null ? ` <span style="color:#64748b;">(${number(val)})</span>` : "";
+            return `<span style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:2px 4px;font-size:0.85em;display:inline-block;white-space:nowrap;color:#334155;font-weight:600;">${escapeHtml(key)}${count}</span>`;
+          }).join("") + `</div>`;
+        }
+      }
+    }
+    
+    return [`<strong>${escapeHtml(stat.column_name)}</strong>${piiTag}`, stat.inferred_type ?? stat.dtype, percentage(stat.null_pct ?? stat.null_percentage), number(stat.cardinality ?? stat.distinct_count), percentage(stat.uniqueness_ratio), topValuesHtml];
+  });
 }
 function buildSections(source: ReportSource): Section[] {
   const profile = source.profile || {};
@@ -193,7 +223,7 @@ function buildSections(source: ReportSource): Section[] {
   }
 
   if (stats.length) {
-    const statBody = `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "PII"], statRows(stats))}${barChart("Tỷ lệ null theo cột", stats)}`;
+    const statBody = `${table(["Cột", "Kiểu", "Null", "Cardinality", "Uniqueness", "Giá trị phổ biến"], statRows(stats))}${barChart("Tỷ lệ null theo cột", stats)}`;
     const distributions = stats.filter((stat) => !stat.pii_masked && Array.isArray(stat.top_values)).slice(0, 3);
     const distBody = distributions.length ? distributions.map((stat) => table([text(stat.column_name), "Số lượng"], (stat.top_values as DataRecord[]).slice(0, 10).map((entry) => [entry.value, number(entry.count ?? entry.frequency)]))).join("") : "";
     const correlation = profile.correlation_matrix;
