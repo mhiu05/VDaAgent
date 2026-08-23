@@ -44,13 +44,35 @@ function table(headers: string[], rows: Array<Array<unknown>>, className = ""): 
 }
 function markdown(value: unknown): string {
   const content: string[] = [];
-  let list: string[] = [];
-  const flush = () => { if (list.length) content.push(`<ul>${list.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`); list = []; };
+  let list: Array<{ level: number; text: string }> = [];
+  const flush = () => {
+    if (!list.length) return;
+    let html = "";
+    let currentLevel = -1;
+    for (const item of list) {
+      if (item.level > currentLevel) {
+        html += "<ul>".repeat(item.level - currentLevel);
+      } else if (item.level < currentLevel) {
+        html += "</ul>".repeat(currentLevel - item.level);
+      }
+      currentLevel = item.level;
+      html += `<li>${escapeHtml(item.text)}</li>`;
+    }
+    html += "</ul>".repeat(currentLevel + 1);
+    content.push(html);
+    list = [];
+  };
   for (const raw of text(value, "").split(/\r?\n/)) {
+    const listMatch = raw.match(/^(\s*)[-*+]\s+(.*)$/);
+    if (listMatch) {
+      const level = Math.floor(listMatch[1].length / 2);
+      const text = listMatch[2].replace(/\*\*(.*?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
+      list.push({ level, text });
+      continue;
+    }
     const line = raw.trim().replace(/\*\*(.*?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
     if (!line || line === "---") { flush(); continue; }
     if (/^#{1,6}\s+/.test(line)) { flush(); content.push(`<h4>${escapeHtml(line.replace(/^#{1,6}\s+/, ""))}</h4>`); }
-    else if (/^[-*+]\s+/.test(line)) list.push(line.replace(/^[-*+]\s+/, ""));
     else { flush(); content.push(`<p>${escapeHtml(line)}</p>`); }
   }
   flush();
