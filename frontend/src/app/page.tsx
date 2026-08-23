@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { PublicNavbar } from "@/components/public-navbar";
 
 const features = [
@@ -22,7 +23,7 @@ function ProductPreview() {
     <div className="home-product-window">
       <div className="home-window-top"><span className="home-window-dots"><i /><i /><i /></span><span>VDaAgent / profile-run-042</span><b>● Đang hoạt động</b></div>
       <div className="home-window-body">
-        <aside className="home-window-sidebar"><img src="/img/logo.png" className="home-window-logo" alt="Logo" style={{ width: 32, height: 32, objectFit: 'contain', background: 'transparent' }} /><i /><i /><i /><i /><small>v1.4</small></aside>
+        <aside className="home-window-sidebar"><Image src="/img/logo.png" className="home-window-logo" alt="Logo" width={32} height={32} style={{ objectFit: "contain", background: "transparent" }} /><i /><i /><i /><i /><small>v1.4</small></aside>
         <div className="home-window-content">
           <div className="home-window-heading"><div><small>HỒ SƠ DỮ LIỆU</small><h3>orders_2025.csv</h3></div><span className="home-window-status">hoàn tất</span></div>
           <div className="home-mini-metrics"><span><small>Số dòng</small><b>84,270</b><em>+12.4%</em></span><span><small>Số cột</small><b>18</b><em>ổn định</em></span><span><small>Chất lượng</small><b>92.8</b><em>tốt</em></span></div>
@@ -62,7 +63,7 @@ export default function Home() {
     <footer className="home-footer">
       <div className="home-footer-inner">
         <div className="home-footer-brand">
-          <img src="/img/logo.png" alt="VDaAgent" style={{ width: 30, height: 30, objectFit: 'contain' }} />
+          <Image src="/img/logo.png" alt="VDaAgent" width={30} height={30} style={{ objectFit: "contain" }} />
           <span>VDaAgent</span>
         </div>
         <nav className="home-footer-links" aria-label="Footer navigation">

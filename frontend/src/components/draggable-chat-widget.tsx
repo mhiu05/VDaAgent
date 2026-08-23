@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type Poin
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { listDatasets, listRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource } from "@/lib/types";
@@ -19,9 +20,11 @@ const starters = [
 
 function DataAnalyticsIcon({ size = 26 }: { size?: number; color?: string }) {
   return (
-    <img
+    <Image
       src="/img/logo.png"
       alt="VDaAgent Icon"
+      width={size}
+      height={size}
       style={{ width: size, height: size, objectFit: "contain" }}
     />
   );

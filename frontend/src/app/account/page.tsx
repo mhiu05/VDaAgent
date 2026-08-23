@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/components/auth-provider";
 import { PageHeader, LoadingBlock, StatusBadge, Notice } from "@/components/ui";
 
@@ -154,9 +155,12 @@ export default function AccountPage() {
             >
               <div style={{ position: "relative" }}>
                 {displayAvatar ? (
-                  <img
+                  <Image
                     src={displayAvatar}
                     alt="Ảnh đại diện"
+                    width={72}
+                    height={72}
+                    unoptimized
                     style={{
                       width: "72px",
                       height: "72px",
