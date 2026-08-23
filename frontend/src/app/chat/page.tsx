@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError, createProfile, getProfile, listDatasets, listRuns, streamQuestion, uploadDataset, type QAHistoryMessage } from "@/lib/api";
+import { ApiError, createProfile, getProfile, listDatasets, listRuns, streamQuestion, uploadDataset, waitForProfilingJob, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource, Profile } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
@@ -17,6 +17,7 @@ const starters = [
   "Cột nào có rủi ro PII cao nhất?",
   "Có cột nào phù hợp làm candidate key không?",
 ];
+const ACTIVE_PROFILE_JOB_KEY = "p170_active_profile_job";
 
 function makeMessage(role: ChatMessage["role"], text: string, label?: string, sources?: AnswerSource[]): ChatMessage {
   return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources };
@@ -142,6 +143,7 @@ export default function ChatPage() {
   const responseSourcesRef = useRef<AnswerSource[]>([]);
   const hydrated = useRef(false);
   const activeConversationRef = useRef<string | null>(null);
+  const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
   const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
   const runs = useQuery({ queryKey: ["chat-runs", selectedDatasetId], queryFn: () => listRuns(selectedDatasetId), enabled: Boolean(selectedDatasetId) });
   const completedRuns = runs.data?.filter((run) => run.status === "completed") || [];
@@ -190,6 +192,30 @@ export default function ChatPage() {
     if (saved?.sources) setSources(saved.sources);
     refreshConversationProfile(current.id, saved?.profile || null, saved?.profileRunId);
     hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    const jobId = localStorage.getItem(ACTIVE_PROFILE_JOB_KEY);
+    if (!jobId) return;
+    const abort = new AbortController();
+    setState("profiling");
+    setProfileLoading(true);
+    void waitForProfilingJob(jobId, abort.signal).then(() => getProfile(jobId, abort.signal)).then((result) => {
+      setProfile(result);
+      setSelectedDatasetId(result.dataset_id);
+      setSelectedRunId(result.profile_run_id);
+      setState("ready");
+      setError(null);
+      localStorage.removeItem(ACTIVE_PROFILE_JOB_KEY);
+    }).catch((reason) => {
+      if (reason instanceof Error && reason.name === "AbortError") return;
+      setError(reason instanceof Error ? reason.message : "Không thể khôi phục profiling đang chạy.");
+      setState("error");
+      if (reason instanceof ApiError && [404, 409].includes(reason.status)) {
+        localStorage.removeItem(ACTIVE_PROFILE_JOB_KEY);
+      }
+    }).finally(() => setProfileLoading(false));
+    return () => abort.abort();
   }, []);
 
   useEffect(() => {
@@ -290,13 +316,23 @@ export default function ChatPage() {
       const upload = await uploadDataset(selectedFile, undefined);
       addMessage("agent", `Đã nhận ${upload.filename}. Tôi đang chạy ingest và compute engine — các số liệu sẽ được tính từ dữ liệu thật, không do LLM bịa ra.`, "VDaAgent");
       setState("profiling");
-      const result = await createProfile({
+      const payload = {
         ...(upload.dataset_id ? { dataset_id: upload.dataset_id } : { dataset_ref: upload.dataset_ref }),
         dataset_name: upload.suggested_name || upload.filename,
         run_name: `${upload.suggested_name || upload.filename} · ${scanMode === "full" ? "Full scan" : "Sample scan"}`,
         scan_mode: scanMode,
-        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir", sample_size: 10_000, random_seed: 42 } } : {}),
-      });
+        ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" as const, sample_size: 10_000, random_seed: 42 } } : {}),
+      } as const;
+      const signature = JSON.stringify(payload);
+      if (profileSubmission.current?.signature !== signature) {
+        profileSubmission.current = { signature, key: crypto.randomUUID() };
+      }
+      const job = await createProfile(payload, profileSubmission.current.key);
+      localStorage.setItem(ACTIVE_PROFILE_JOB_KEY, job.job_id);
+      await waitForProfilingJob(job.job_id);
+      const result = await getProfile(job.profiling_run_id);
+      localStorage.removeItem(ACTIVE_PROFILE_JOB_KEY);
+      profileSubmission.current = null;
       setProfile(result); setProfileLoading(false); setSelectedFile(null); setSelectedDatasetId(result.dataset_id); setSelectedRunId(result.profile_run_id);
       addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} dòng và ${result.column_count} cột. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metric và có thể trả lời câu hỏi của bạn dựa trên evidence.", "VDaAgent");
       setState("ready");
@@ -378,7 +414,7 @@ export default function ChatPage() {
     <div className="agent-layout">
       <section className="agent-chat-panel">
         <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Nguồn đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.run_name?.trim() || `Phiên bản v${profile.version ?? "—"}`}</span>}</div>
-        <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Phiên profiling đã hoàn tất</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || !completedRuns.length || runs.isPending || busy}><option value="">Chọn theo tên phiên…</option>{completedRuns.map((run) => <option value={run.id} key={run.id}>{profileRunOptionLabel(run)}</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.isPending && !completedRuns.length ? "Dataset này chưa có profile run hoàn tất để hỏi Agent." : "Agent chỉ trả lời theo phiên profiling bạn đã chọn; ID được hệ thống xử lý ngầm."}</div>{selectedRunId && process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true" && <Link className="button secondary agent-open-charts" href={`/profiles/${encodeURIComponent(selectedRunId)}?tab=charts`}>Mở Biểu đồ →</Link>}</section>
+        <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Phiên profiling đã hoàn tất</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || !completedRuns.length || runs.isPending || busy}><option value="">Chọn theo tên phiên…</option>{completedRuns.map((run) => <option value={run.id} key={run.id}>{profileRunOptionLabel(run)}</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.isPending && !completedRuns.length ? "Dataset này chưa có profile run hoàn tất để hỏi Agent." : "Agent chỉ trả lời theo phiên profiling bạn đã chọn; ID được hệ thống xử lý ngầm."}</div>{selectedRunId && process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true" && <Link className="button secondary agent-open-charts" href={`/charts?runId=${encodeURIComponent(selectedRunId)}`}>Mở Biểu đồ →</Link>}</section>
         <div ref={messageListRef} className="agent-message-list" aria-live="polite">
           {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p>{message.text}</p>}</div></article>)}
           {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">VDaAgent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}

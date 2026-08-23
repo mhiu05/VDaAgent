@@ -15,7 +15,9 @@ export default function ChartsPage() {
   const [runId, setRunId] = useState(() => {
     if (typeof window === "undefined") return "";
     try {
-      return localStorage.getItem("p170_selected_chart_run_id") || "";
+      return new URLSearchParams(window.location.search).get("runId")
+        || localStorage.getItem("p170_selected_chart_run_id")
+        || "";
     } catch {
       return "";
     }
@@ -68,7 +70,7 @@ export default function ChartsPage() {
         <ChartsTab
           runId={runId}
           profile={profile.data}
-          onExplain={() => router.push(`/profiles/${runId}?tab=agent`)}
+          onExplain={() => router.push("/chat")}
         />
       ) : (
         <Notice tone="warning">Không tìm thấy thông tin phiên profiling này.</Notice>

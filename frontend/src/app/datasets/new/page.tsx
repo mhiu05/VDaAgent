@@ -33,6 +33,7 @@ export default function NewDatasetPage() {
   const abortRef = useRef<AbortController | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const driveStatusSequence = useRef(0);
+  const profileSubmissionKeys = useRef(new Map<string, string>());
 
   useEffect(() => {
     // React's DOM typings do not expose the non-standard directory picker
@@ -211,16 +212,21 @@ export default function NewDatasetPage() {
         if (completed[index]) continue;
         const upload = uploadResults[index];
         if (!upload) continue;
-        const profile = await createProfile({
+        const payload = {
           ...(upload.dataset_id ? { dataset_id: upload.dataset_id } : { dataset_ref: upload.dataset_ref }),
           dataset_name: upload.suggested_name || upload.filename,
           scan_mode: scanMode,
-          ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" } } : {}),
-        });
+          ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" as const } } : {}),
+        } as const;
+        const signature = JSON.stringify(payload);
+        const idempotencyKey = profileSubmissionKeys.current.get(signature) || crypto.randomUUID();
+        profileSubmissionKeys.current.set(signature, idempotencyKey);
+        const job = await createProfile(payload, idempotencyKey);
+        profileSubmissionKeys.current.delete(signature);
         completed[index] = true;
         setProfiled([...completed]);
         if (files.length === 1) {
-          router.push(`/profiles/${profile.profile_run_id}`);
+          router.push(`/profiles/${job.profiling_run_id}`);
           return;
         }
       }
