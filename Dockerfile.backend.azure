@@ -1,23 +1,36 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.azure.txt ./requirements.txt
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8000 \
+    PATH="/opt/venv/bin:$PATH"
 
-
-    
 WORKDIR /app
 
-# curl is used by the container health check. Build tools remain only in the
-# image layer that installs Python wheels; the application never runs as root.
+# curl serves the health check; libgomp is required by scientific wheels.
+# Compilers remain in the discarded builder stage.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl gcc g++ \
+    && apt-get install -y --no-install-recommends curl libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && addgroup --system app \
     && adduser --system --ingroup app app
 
-COPY requirements.azure.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=builder /opt/venv /opt/venv
 
 # Alembic runs from this same immutable image during the release gate.
 COPY --chown=app:app alembic.ini config.yaml ./
