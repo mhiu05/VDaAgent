@@ -1,0 +1,15 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+include = ["backend/**/*.py", "tests/**/*.py", "evaluations/**/*.py"]
+
+[tool.ruff.lint]
+# Keep the executable quality gate stable across Ruff releases. FastAPI uses
+# dependency calls in parameter defaults by design, so blanket rule sets make
+# every route fail B008 without identifying a defect.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# This fixture must establish sys.path and isolated environment variables
+# before importing the application and its cached settings.
+"tests/conftest.py" = ["E402"]

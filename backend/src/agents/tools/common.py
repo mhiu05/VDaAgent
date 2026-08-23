@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 from typing import Any
 
 from src.agents.tools.context import current_run_id
@@ -37,9 +38,6 @@ def active_run(tool_name: str) -> tuple[str, dict[str, Any] | None]:
     """Return the dispatcher-injected run and its repository record."""
     run_id = current_run_id()
     return run_id, get_repository().get_profile_run(run_id)
-
-
-import difflib
 
 
 def get_column_suggestions(stats: dict[str, dict[str, Any]], name: str, n: int = 3) -> list[str]:
