@@ -96,7 +96,7 @@ function barChart(title: string, rows: DataRecord[], metric: string = "null_pct"
     const shortLabel = labelStr.length > 22 ? labelStr.slice(0, 22) + "..." : labelStr;
     return `<text x="0" y="${y + 11}" class="chart-label">${shortLabel}</text><rect x="125" y="${y}" width="200" height="10" rx="3" fill="#f1f5f9"/>${width > 0 ? `<rect x="125" y="${y}" width="${width}" height="10" rx="3" fill="${fill}"/>` : ""}<text x="335" y="${y + 11}" class="chart-value" font-weight="bold">${escapeHtml(percentage(item.value))}</text>`; 
   }).join("");
-  return `<figure class="chart" style="flex: 1; min-width: 300px; margin: 0;"><figcaption>${escapeHtml(title)}</figcaption><svg viewBox="0 0 430 ${height}" role="img" aria-label="${escapeHtml(title)}">${bars}</svg></figure>`;
+  return `<figure class="chart" style="flex: 1; min-width: 300px; margin: 0; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 8px; padding: 4mm; background: #ffffff;"><figcaption style="margin-top: 0; margin-bottom: 2mm; font-size: 10.5pt; font-weight: 700; color: #0f172a;">${escapeHtml(title)}</figcaption><svg viewBox="0 0 430 ${height}" role="img" aria-label="${escapeHtml(title)}" style="display: block; width: 100%; max-width: 430px;">${bars}</svg></figure>`;
 }
 function distributionChart(stat: DataRecord, totalRows: number): string {
   const topK = stat.top_values ?? stat.top_k_values;
@@ -121,7 +121,7 @@ function distributionChart(stat: DataRecord, totalRows: number): string {
     return `<text x="0" y="${y + 9}" class="chart-label">${shortLabel}</text><rect x="125" y="${y}" width="200" height="10" rx="3" fill="#f1f5f9"/>${width > 0 ? `<rect x="125" y="${y}" width="${width}" height="10" rx="3" fill="#2563eb"/>` : ""}<text x="335" y="${y + 9}" class="chart-value"><tspan font-weight="bold">${number(item.count)}</tspan>${pctStr}</text>`;
   }).join("");
   
-  return `<div style="flex: 1; min-width: 300px; margin-bottom: 6mm; box-sizing: border-box;"><h4 style="margin: 0 0 2mm 0; color: #1e293b; font-size: 10pt;">${escapeHtml(String(stat.column_name))}</h4><svg viewBox="0 0 430 ${height}" role="img" style="display:block;width:100%;max-width:430px;">${bars}</svg></div>`;
+  return `<div style="flex: 1; min-width: 300px; margin-bottom: 6mm; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 8px; padding: 4mm; background: #ffffff;"><h4 style="margin: 0 0 2mm 0; color: #0f172a; font-size: 10.5pt; font-weight: 700;">${escapeHtml(String(stat.column_name))}</h4><svg viewBox="0 0 430 ${height}" role="img" style="display:block;width:100%;max-width:430px;">${bars}</svg></div>`;
 }
 function evidenceChart(title: string, item: DataRecord): string {
   const content = item.content_json as DataRecord | undefined;
