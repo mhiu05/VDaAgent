@@ -127,6 +127,43 @@ function evidenceChart(title: string, item: DataRecord): string {
   const content = item.content_json as DataRecord | undefined;
   const result = content?.result as DataRecord | undefined;
   const rows = Array.isArray(result?.data) ? result.data.filter((row): row is DataRecord => Boolean(row) && typeof row === "object") : [];
+  
+  const chartSpec = content?.chart_spec as DataRecord | undefined;
+  const querySpec = item.query_spec as DataRecord | undefined;
+  
+  if (chartSpec?.chart_type === "scatter" || content?.chart_type === "scatter" || querySpec?.analysis_kind === "scatter") {
+    const points = rows.map((row) => ({ x: Number(row.x), y: Number(row.y), count: Number(row.value ?? row.count ?? 1) })).filter(p => Number.isFinite(p.x) && Number.isFinite(p.y));
+    if (!points.length) return "";
+    
+    const xMin = Math.min(...points.map(p => p.x));
+    const xMax = Math.max(...points.map(p => p.x));
+    const yMin = Math.min(...points.map(p => p.y));
+    const yMax = Math.max(...points.map(p => p.y));
+    const countMax = Math.max(...points.map(p => p.count), 1);
+    
+    const xSpread = xMax > xMin ? xMax - xMin : 1;
+    const ySpread = yMax > yMin ? yMax - yMin : 1;
+    
+    const width = 440;
+    const height = 195;
+    const padding = 20;
+    
+    const colors = ["#06b6d4", "#3b82f6", "#a855f7", "#ec4899", "#f59e0b", "#84cc16"];
+    
+    const circles = points.map((point, index) => {
+      const cx = padding + (point.x - xMin) / xSpread * (width - padding * 2);
+      const cy = height - padding - (point.y - yMin) / ySpread * (height - padding * 2);
+      const color = colors[index % colors.length];
+      const r = 4 + Math.sqrt(point.count / countMax) * 10;
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" fill-opacity="0.75" stroke="${color}" stroke-width="1.5" />`;
+    }).join("");
+    
+    const xCol = escapeHtml(String(querySpec?.x_column ?? "Trục X"));
+    const yCol = escapeHtml(String(querySpec?.y_column ?? "Trục Y"));
+    
+    return `<figure class="chart evidence-chart" style="margin-bottom: 6mm;"><figcaption>${escapeHtml(title)}</figcaption><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}" style="border: 1px solid #f1f5f9; border-radius: 8px; padding: 10px; background: #fafafa;"><line x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}" stroke="#cbd5e1" stroke-dasharray="4 4" /><line x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}" stroke="#cbd5e1" stroke-dasharray="4 4" />${circles}</svg><div style="display:flex;justify-content:space-between;color:#64748b;font-size:8pt;margin-top:2mm;padding: 0 10px;"><span>${yCol}</span><span>${xCol}</span></div><div style="text-align:right;color:#94a3b8;font-size:7pt;margin-top:1mm;">Mỗi điểm là một ô mật độ tổng hợp, không phải dòng dữ liệu thô.</div></figure>`;
+  }
+
   const values = rows.slice(0, 10).map((row) => ({ label: text(row.label ?? row.name ?? row.category ?? row.x ?? Object.values(row)[0], "Khác"), value: Number(row.value ?? row.count ?? row.y ?? Object.values(row).find((cell) => typeof cell === "number") ?? 0) })).filter((entry) => Number.isFinite(entry.value));
   if (!values.length) return "";
   const max = Math.max(...values.map((entry) => entry.value), 1);
