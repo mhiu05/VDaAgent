@@ -14,7 +14,7 @@ test("removes a rejected guest session without retrying the workspace bootstrap"
       JSON.stringify({ id: "a4e3e2c8-4d8d-4d55-91c3-4d72a0abc123", role: "analyst" }),
     );
   });
-  await page.route("**/api/v1/session", async (route) => {
+  await page.route("**/api/v1/workspace-bootstrap", async (route) => {
     sessionRequests += 1;
     await route.fulfill({
       status: 401,
