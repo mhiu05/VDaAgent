@@ -207,15 +207,6 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     )
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-)
-
 app.include_router(router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 app.include_router(skill_router, prefix="/api/v1")
@@ -251,6 +242,21 @@ async def health() -> HealthResponse:
         llm_configured=settings.llm_configured,
         command_center_enabled=settings.ux_command_center_enabled,
     )
+
+
+# Keep CORS as the outermost ASGI layer.  FastAPI's regular middleware stack
+# can bypass an inner CORSMiddleware when an unhandled exception escapes; the
+# browser would then report a misleading CORS error instead of the real API
+# response.  Wrapping after all routes/handlers are registered also covers
+# errors raised by authentication and external service integrations.
+app = CORSMiddleware(
+    app,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 
 if __name__ == "__main__":

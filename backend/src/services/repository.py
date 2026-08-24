@@ -3269,6 +3269,15 @@ class Repository:
                     conn.execute(
                         table.delete().where(table.c.profile_run_id.in_(run_ids))
                     )
+                # Analysis sources are a non-nullable link from the analysis
+                # workspace to a profile run.  They must be removed before the
+                # immutable profile snapshot, otherwise PostgreSQL correctly
+                # rejects the delete with a foreign-key violation.
+                conn.execute(
+                    analysis_sources.delete().where(
+                        analysis_sources.c.profile_run_id.in_(run_ids)
+                    )
+                )
                 conn.execute(
                     column_stats.delete().where(
                         column_stats.c.profile_run_id.in_(run_ids)
@@ -3284,6 +3293,25 @@ class Repository:
                         (drift_reports.c.profile_run_id_a.in_(run_ids))
                         | (drift_reports.c.profile_run_id_b.in_(run_ids))
                     )
+                )
+                # These references are nullable because reports/evidence may
+                # outlive the technical profile.  Detach them instead of
+                # deleting the user's saved artifacts, while still allowing
+                # the profile run itself to be removed.
+                conn.execute(
+                    reports.update()
+                    .where(reports.c.profile_run_id.in_(run_ids))
+                    .values(profile_run_id=None)
+                )
+                conn.execute(
+                    report_items.update()
+                    .where(report_items.c.profile_run_id.in_(run_ids))
+                    .values(profile_run_id=None)
+                )
+                conn.execute(
+                    evidence_items.update()
+                    .where(evidence_items.c.profile_run_id.in_(run_ids))
+                    .values(profile_run_id=None)
                 )
                 conn.execute(
                     profile_runs.delete().where(profile_runs.c.id.in_(run_ids))

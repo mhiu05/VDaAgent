@@ -84,11 +84,27 @@ async function authHeaders(headers?: HeadersInit): Promise<Headers> {
   return next;
 }
 
+async function fetchWithLocalFallback(path: string, init: RequestInit): Promise<Response> {
+  let lastConnectionError: unknown;
+  // `localhost` can resolve to a different loopback protocol on Windows.
+  // Give every fetch request the same 127.0.0.1 fallback already used by XHR
+  // uploads, but never retry an HTTP response (including 4xx/5xx responses).
+  for (const baseUrl of apiBaseCandidates()) {
+    try {
+      return await fetch(`${baseUrl}${path}`, init);
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") throw reason;
+      lastConnectionError = reason;
+    }
+  }
+  throw lastConnectionError;
+}
+
 async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   let response: Response;
   const headers = await authHeaders(init.headers);
   try {
-    response = await fetch(`${apiBase()}${path}`, {
+    response = await fetchWithLocalFallback(path, {
       ...init,
       headers,
       credentials: "include",
@@ -800,4 +816,3 @@ export function deleteAdminUser(userId: string): Promise<{ user_id: string; dele
     method: "DELETE",
   });
 }
-
