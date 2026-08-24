@@ -1509,6 +1509,10 @@ export interface components {
             test_results?: {
                 [key: string]: unknown;
             }[];
+            /** Proposals */
+            proposals?: {
+                [key: string]: components["schemas"]["ProposalOut"][];
+            };
         };
         /**
          * DatasetCollectionUpdate

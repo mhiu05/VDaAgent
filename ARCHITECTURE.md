@@ -120,9 +120,12 @@ flowchart LR
 
 The frontend is deployed separately and calls FastAPI through
 `NEXT_PUBLIC_API_URL`. Profile submission returns `202 Accepted` and the client
-polls `GET /profiling-jobs/{jobId}`; no HTTP request runs the profiling graph.
-The PDF route is server-side by design: it requests an authorized export source
-from FastAPI before rendering the document.
+polls `GET /profiling-jobs/{jobId}` for the queue state
+`queued`/`running`/`succeeded`/`failed`. That queue state is separate from the
+Profile Run domain state: a succeeded job can leave a run `pending_review`, and
+only the continuation after review makes it `completed`. No HTTP request runs
+the profiling graph. The PDF route is server-side by design: it requests an
+authorized export source from FastAPI before rendering the document.
 
 ## Deployment and integration boundaries
 
@@ -132,6 +135,14 @@ different startup commands. The frontend is built with `NEXT_PUBLIC_API_URL` poi
 `AZURE_BACKEND_URL/api/v1`; the backend permits the deployed frontend through
 `CORS_ORIGINS`. Secrets stay in backend App Service settings or GitHub Actions
 secrets, never in `NEXT_PUBLIC_*` variables.
+
+The GitHub Actions workflow runs a quality job on pull requests and before a
+`main` deployment: Ruff, pytest against a PostgreSQL service, deterministic
+offline AI-evaluation contracts, Vitest, typecheck, lint, Playwright E2E and a
+frontend build. A `main` push or manual dispatch then builds/pushes immutable
+images to ACR, runs Alembic migrations, deploys/restarts frontend, API and
+worker, and health-checks all three. Public frontend variables are build-time
+inputs, so changing a `NEXT_PUBLIC_*` value requires a new frontend build.
 
 Profiling cancellation is intentionally not exposed in this release. The
 existing pandas/DuckDB/LangGraph computation does not yet provide cooperative

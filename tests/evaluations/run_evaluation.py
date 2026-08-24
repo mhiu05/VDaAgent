@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 
 from evaluation_core import (
     hard_gate_pass as evaluation_hard_gate_pass,
@@ -27,6 +28,8 @@ from evaluation_core import (
 )
 
 ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = ROOT.parents[1]
+load_dotenv(PROJECT_ROOT / ".env")
 FIXTURE = ROOT / "fixtures" / "v1.json"
 CANARY = "PII_CANARY_9471"
 GATES = ROOT / "release_gates.json"
@@ -275,37 +278,89 @@ def mock_output(case: dict[str, Any]) -> dict[str, Any]:
 
 
 async def api_target(
-    inputs: dict[str, Any], base_url: str, headers: dict[str, str], profile_run_id: str
+    inputs: dict[str, Any],
+    base_url: str,
+    headers: dict[str, str],
+    profile_run_id: str,
+    request_timeout: float,
 ) -> dict[str, Any]:
     if inputs["surface"] == "qa":
-        path, payload = (
+        method, path, payload = (
+            "POST",
             "/qa",
             {"profile_run_id": profile_run_id, "question": inputs["input"]["question"]},
         )
     elif inputs["surface"] == "chart_planner":
-        path, payload = (
+        method, path, payload = (
+            "POST",
             f"/profile/{profile_run_id}/charts/auto-plan",
             {"question": inputs["input"]["question"]},
         )
+    elif inputs["surface"] == "profile_narrative":
+        method, path, payload = "GET", f"/profile/{profile_run_id}/report", None
     else:
         return {"status_code": 422, "body": {"detail": "surface_chưa_bật_live"}}
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{base_url.rstrip('/')}{path}", headers=headers, json=payload
-        )
-        try:
-            return {"status_code": response.status_code, "body": response.json()}
-        except ValueError:
-            return {
-                "status_code": response.status_code,
-                "body": {"detail": "phản_hồi_không_phải_json"},
-            }
+    try:
+        async with httpx.AsyncClient(timeout=request_timeout) as client:
+            response = await client.request(
+                method,
+                f"{base_url.rstrip('/')}{path}",
+                headers=headers,
+                json=payload,
+            )
+            try:
+                body = response.json()
+                if inputs["surface"] == "profile_narrative" and response.is_success:
+                    body = {
+                        "answer": _profile_report_text(body),
+                        "sources": [{"type": "profile_report", "status": "completed"}],
+                    }
+                return {"status_code": response.status_code, "body": body}
+            except ValueError:
+                return {
+                    "status_code": response.status_code,
+                    "body": {"detail": "phản_hồi_không_phải_json"},
+                }
+    except httpx.TimeoutException:
+        return {
+            "status_code": 504,
+            "body": {"detail": "evaluation_target_timeout"},
+        }
+    except httpx.HTTPError:
+        return {
+            "status_code": 502,
+            "body": {"detail": "evaluation_target_transport_error"},
+        }
+
+
+def _profile_report_text(value: Any) -> str:
+    """Project a report response to the narrative text used by the fixture scorer."""
+
+    preferred_keys = ("narrative_report", "summary", "text", "content")
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in preferred_keys:
+            if key in value:
+                text = _profile_report_text(value[key])
+                if text:
+                    return text
+        for item in value.values():
+            text = _profile_report_text(item)
+            if text:
+                return text
+    if isinstance(value, list):
+        for item in value:
+            text = _profile_report_text(item)
+            if text:
+                return text
+    return ""
 
 
 def _git_sha() -> str:
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT.parent, text=True
+            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "không_khả_dụng"
@@ -321,7 +376,13 @@ async def run_live(
         headers["Authorization"] = f"Bearer {args.bearer_token}"
 
     async def target(inputs: dict[str, Any]) -> dict[str, Any]:
-        return await api_target(inputs, args.base_url, headers, args.profile_run_id)
+        return await api_target(
+            inputs,
+            args.base_url,
+            headers,
+            args.profile_run_id,
+            args.request_timeout,
+        )
 
     def hard_gate(run: Any, example: Any) -> dict[str, Any]:
         outputs = getattr(run, "outputs", None) or {}
@@ -340,15 +401,27 @@ async def run_live(
         "generated_at": datetime.now(UTC).isoformat(),
         "repetitions": args.repetitions,
     }
-    results = aevaluate(
+    client = Client()
+    dataset_name = f"p170-ai-eval-{version}"
+    if not client.has_dataset(dataset_name=dataset_name):
+        dataset = client.create_dataset(
+            dataset_name,
+            description="Synthetic-only P170 evaluation fixture; no production rows or PII.",
+            metadata={"dataset_version": version, "source": "repository_fixture"},
+        )
+        client.create_examples(
+            dataset_id=dataset.id,
+            examples=[{"inputs": case} for case in cases],
+        )
+    results = await aevaluate(
         target,
-        data=cases,
+        data=dataset_name,
         evaluators=[hard_gate],
         metadata=metadata,
         experiment_prefix="p170-evidence-first",
         max_concurrency=args.concurrency,
         num_repetitions=args.repetitions,
-        client=Client(),
+        client=client,
         upload_results=args.upload_results,
     )
     async for _ in results:
@@ -369,8 +442,14 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--upload-results", action="store_true")
     result.add_argument("--concurrency", type=int, default=2)
     result.add_argument("--repetitions", type=int, default=1)
+    result.add_argument(
+        "--request-timeout",
+        type=float,
+        default=120.0,
+        help="Per-request API timeout in seconds for live evaluation.",
+    )
     result.add_argument("--baseline", help="Path to a prior JSON scorecard for regression comparison.")
-    result.add_argument("--output-dir", default=str(ROOT / "results"))
+    result.add_argument("--output-dir", default=str(PROJECT_ROOT / "evaluations" / "results"))
     result.add_argument("--no-write-reports", action="store_true")
     return result
 
@@ -383,12 +462,31 @@ def evaluate_release_gates(scorecard: dict[str, Any], gates: dict[str, Any]) -> 
     """Return explicit pass/fail states; thresholds stay out of evaluator code."""
 
     metrics = scorecard["summary"]["metrics"]
+    telemetry = scorecard.get("summary", {}).get("telemetry", {})
+    telemetry_metric_paths = {
+        "latency_p95_ms": ("latency_ms", "p95"),
+        "total_tokens_per_run": ("total_tokens", "total"),
+        "estimated_cost_usd_per_run": ("estimated_cost_usd", "total"),
+    }
+
+    def metric_value(key: str) -> Any:
+        if key in metrics:
+            return metrics[key]
+        path = telemetry_metric_paths.get(key)
+        if not path:
+            return None
+        section = telemetry.get(path[0]) or {}
+        if section.get("status") != "available":
+            return None
+        value = section.get(path[1])
+        return value if isinstance(value, (int, float)) else None
+
     results: list[dict[str, Any]] = []
     for key, minimum in gates.get("minimum_rates", {}).items():
         value = metrics.get(key)
         results.append({"gate": key, "status": "not_available" if value is None else "pass" if value >= minimum else "fail", "actual": value, "threshold": minimum})
     for key, maximum in gates.get("maximum_values", {}).items():
-        value = metrics.get(key)
+        value = metric_value(key)
         results.append({"gate": key, "status": "not_available" if value is None else "pass" if value <= maximum else "fail", "actual": value, "threshold": maximum})
     if gates.get("critical_failures_must_equal", 0) == 0:
         actual = len(scorecard["summary"]["critical_failures"])
@@ -505,6 +603,10 @@ def main() -> int:
     if not all([args.base_url, args.workspace_id, args.profile_run_id]):
         raise SystemExit(
             "Chế độ live cần --base-url, --workspace-id và --profile-run-id của dữ liệu staging synthetic."
+        )
+    if not args.bearer_token:
+        raise SystemExit(
+            "Live evaluation requires P170_EVAL_BEARER_TOKEN for the synthetic staging environment."
         )
     asyncio.run(run_live(cases, args, version))
     return 0

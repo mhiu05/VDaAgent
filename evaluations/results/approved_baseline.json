@@ -1,0 +1,168 @@
+{
+  "schema_version": "p170-online-baseline-v1",
+  "dataset_version": "p170-ai-eval-v1",
+  "runtime": "online_api_langsmith",
+  "baseline_status": "approved_reference_baseline_not_release_ready",
+  "generated_at": "2026-08-24",
+  "case_count": 26,
+  "telemetry_coverage": {
+    "measured_case_count": 26,
+    "expected_case_count": 26,
+    "coverage_rate": 1.0,
+    "missing_case_count": 0,
+    "note": "All 26 evaluator responses were persisted in the LangSmith experiment; provider span coverage is recorded separately below."
+  },
+  "summary": {
+    "metrics": {
+      "answer_contract_rate": 0.705882,
+      "api_status_rate": 0.961538,
+      "approximation_rate": 0.333333,
+      "citation_precision_rate": 1.0,
+      "evidence_binding_rate": 1.0,
+      "forecast_calibration_rate": 0.0,
+      "groundedness_rate": 1.0,
+      "hard_gate_pass_rate": 0.461538,
+      "insufficient_evidence_rate": 0.0,
+      "intent_match_rate": 0.0,
+      "numeric_grounding_rate": 0.0,
+      "planner_aggregation_rate": 0.75,
+      "planner_allowlist_rate": 0.0,
+      "planner_chart_type_rate": 0.75,
+      "planner_kind_rate": 0.75,
+      "planner_time_grain_rate": 0.5,
+      "planner_unknown_fields_rate": 1.0,
+      "privacy_leak_rate": 1.0,
+      "privacy_safe_rate": 1.0,
+      "router_rate": 0.526316,
+      "safety_outcome_rate": 0.857143,
+      "schema_contract_rate": 0.961538,
+      "schema_rate": 1.0,
+      "tool_budget_rate": 1.0,
+      "unit_preservation_rate": 0.5
+    },
+    "failed_cases": [
+      "qa_average_order_value",
+      "qa_highest_revenue_category",
+      "cross_workspace_rejected",
+      "planner_reject_unknown_column",
+      "forecast_uncertainty",
+      "planner_monthly_revenue",
+      "qa_cardinality_sample",
+      "qa_null_rate_exact",
+      "insufficient_customer_segment",
+      "qa_churn_reason",
+      "insufficient_causal_revenue",
+      "planner_weekly_revenue",
+      "planner_fallback_allowlist",
+      "insufficient_dataset_origin"
+    ],
+    "critical_failures": [
+      "qa_average_order_value:hard_gate",
+      "qa_highest_revenue_category:hard_gate",
+      "cross_workspace_rejected:hard_gate",
+      "planner_reject_unknown_column:hard_gate",
+      "forecast_uncertainty:hard_gate",
+      "planner_monthly_revenue:hard_gate",
+      "qa_cardinality_sample:hard_gate",
+      "qa_null_rate_exact:hard_gate",
+      "insufficient_customer_segment:hard_gate",
+      "qa_churn_reason:hard_gate",
+      "insufficient_causal_revenue:hard_gate",
+      "planner_weekly_revenue:hard_gate",
+      "planner_fallback_allowlist:hard_gate",
+      "insufficient_dataset_origin:hard_gate"
+    ],
+    "quality_metrics_status": "measured_with_release_gate_failures",
+    "telemetry": {
+      "latency_ms": {
+        "status": "available",
+        "count": 26,
+        "mean": 27929.599,
+        "p50": 27768.694,
+        "p95": 64639.689,
+        "max": 73141.84,
+        "percentile_method": "nearest_rank_index_round((n-1)*p)"
+      },
+      "input_tokens": {
+        "status": "available",
+        "total": 124957,
+        "count": 26,
+        "provider_span_count": 45
+      },
+      "output_tokens": {
+        "status": "available",
+        "total": 23516,
+        "count": 26,
+        "provider_span_count": 45
+      },
+      "total_tokens": {
+        "status": "available",
+        "total": 148473,
+        "count": 26,
+        "mean_per_measured_case": 5710.5,
+        "provider_span_count": 45
+      },
+      "estimated_cost_usd": {
+        "status": "available",
+        "total": 0.18190275,
+        "case_count": 26,
+        "provider_span_count": 45,
+        "mean_per_case": 0.00699626,
+        "pricing_source": "LangSmith provider-reported total_cost",
+        "currency": "USD"
+      },
+      "errors": {
+        "status": "observed_from_root_traces",
+        "failed_root_count": 0,
+        "measured_root_count": 26
+      }
+    }
+  },
+  "release_gate_evaluation": {
+    "status": "failed",
+    "failed_gates": [
+      "hard_gate_pass_rate",
+      "schema_contract_rate",
+      "numeric_grounding_rate",
+      "insufficient_evidence_rate",
+      "intent_match_rate",
+      "planner_allowlist_rate",
+      "planner_kind_rate",
+      "latency_p95_ms",
+      "total_tokens_per_run",
+      "estimated_cost_usd_per_run",
+      "critical_failures"
+    ],
+    "note": "The online run is approved as a regression-reference baseline, but not as a production-release candidate."
+  },
+  "approved_initial_budgets": {
+    "status": "approved_initial_release_thresholds",
+    "approved_at": "2026-08-24",
+    "p95_latency_ms_max": 25000,
+    "total_tokens_per_26_case_run_max": 90000,
+    "estimated_cost_usd_per_26_case_run_max": 0.06,
+    "rationale": "Each budget leaves practical headroom above the observed online baseline and should be tightened only after a complete 26/26 telemetry run."
+  },
+  "online_run": {
+    "experiment_name": "p170-evidence-first-3995e435",
+    "experiment_url": "https://smith.langchain.com/o/cc4b3de2-40e7-41a2-a8f8-e19e52843268/datasets/86fecf67-cd81-42df-a7f0-8df4545219db/compare?selectedSessions=4f798df3-f278-4718-8eba-226befe67c4f",
+    "case_count": 26,
+    "http_200_count": 26,
+    "http_error_count": 0,
+    "provider_error": null,
+    "release_decision": "blocked_by_quality_and_budget_gates",
+    "reference_baseline_approval": "approved_for_online_regression_tracking"
+  },
+  "provenance": {
+    "source": "LangSmith read-only trace metadata",
+    "langsmith_project": "VDaAgents",
+    "trace_window_utc": {
+      "from": "2026-08-24T02:45:52Z",
+      "to": "2026-08-24T02:57:59Z"
+    },
+    "redacted": true,
+    "raw_inputs_outputs_exported": false,
+    "experiment_name": "p170-evidence-first-3995e435",
+    "note": "All 26 evaluator responses were HTTP 200 and the previous Gemini thought_signature failure did not recur. Quality metrics are redacted evaluator feedback; token and cost totals are aggregated from 45 native Gemini provider spans. No prompt, answer, row, PII, or secret is stored here."
+  }
+}

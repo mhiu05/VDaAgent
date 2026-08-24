@@ -40,6 +40,8 @@ from sqlalchemy import (
 )
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
+# pyrefly: ignore [missing-import]
+from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 
@@ -3230,6 +3232,40 @@ class Repository:
             )
             return result.rowcount == 1
 
+    def complete_resumed_profile_run(self, run_id: str) -> bool:
+        """Project a successfully resumed graph into the terminal domain state."""
+        with self.engine.begin() as conn:
+            # Keep the pending check in Python so this works across the same
+            # PostgreSQL/SQLite test repository schema without a dialect-only
+            # UNION expression.
+            row = conn.execute(
+                select(profile_runs.c.status).where(profile_runs.c.id == run_id)
+            ).scalar()
+            if row != "resuming":
+                return False
+            pending_count = 0
+            for table in PROPOSAL_TABLES.values():
+                pending_count += int(
+                    conn.execute(
+                        select(func.count())
+                        .select_from(table)
+                        .where(
+                            table.c.profile_run_id == run_id,
+                            table.c.status == "pending",
+                        )
+                    ).scalar()
+                    or 0
+                )
+            if pending_count:
+                return False
+            result = conn.execute(
+                profile_runs.update()
+                .where(profile_runs.c.id == run_id)
+                .where(profile_runs.c.status == "resuming")
+                .values(status="completed")
+            )
+            return result.rowcount == 1
+
     def fail_profile_job(
         self,
         job_id: str,
@@ -3354,6 +3390,75 @@ class Repository:
                         "status": next_status,
                     }
                 )
+        return recovered
+
+    def recover_orphaned_profile_resumes(
+        self, *, max_attempts: int, limit: int = 100
+    ) -> list[dict[str, str]]:
+        """Queue resumes left behind by pre-durable-review clients.
+
+        Older clients could atomically mark a run ``resuming`` without writing
+        the durable job payload.  Such runs have a checkpoint waiting at the
+        HITL boundary but no queue row for the worker to claim.  Reconstructing
+        the small, deterministic confirm payload makes the transition safe and
+        idempotent; newer runs (which already have ``job_payload``) are not
+        touched.
+        """
+        now = _now()
+        recovered: list[dict[str, str]] = []
+        with self.engine.begin() as conn:
+            rows = list(
+                conn.execute(
+                    select(profile_runs)
+                    .where(
+                        profile_runs.c.status == "resuming",
+                        profile_runs.c.job_status.is_(None),
+                        profile_runs.c.job_payload.is_(None),
+                        profile_runs.c.resume_count > 0,
+                    )
+                    .order_by(profile_runs.c.last_resume_at, profile_runs.c.id)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                ).mappings()
+            )
+            for run in rows:
+                action = str(run.get("last_resume_action") or "confirm")
+                payload = {
+                    "action": action,
+                    "test_requests": [],
+                    "legacy_resume": True,
+                }
+                result = conn.execute(
+                    profile_runs.update()
+                    .where(profile_runs.c.id == run["id"])
+                    .where(profile_runs.c.status == "resuming")
+                    .where(profile_runs.c.job_status.is_(None))
+                    .values(
+                        job_status="queued",
+                        job_stage="resume_recovered",
+                        job_payload=payload,
+                        job_attempt_count=0,
+                        job_max_attempts=max_attempts,
+                        job_available_at=now,
+                        job_started_at=None,
+                        job_finished_at=None,
+                        job_heartbeat_at=None,
+                        job_lease_expires_at=None,
+                        job_claim_token=None,
+                        job_worker_id=None,
+                        job_error_code=None,
+                        job_error_message=None,
+                        error=None,
+                    )
+                )
+                if result.rowcount:
+                    recovered.append(
+                        {
+                            "job_id": str(run["id"]),
+                            "workspace_id": str(run["workspace_id"]),
+                            "status": "queued",
+                        }
+                    )
         return recovered
 
     def transition_profile_run(
@@ -4686,11 +4791,22 @@ def build_engine(settings: Settings | None = None) -> Engine:
     url = make_url(cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
         raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
-    # Supabase session-mode poolers enforce a hard client limit. SQLAlchemy's
-    # defaults (pool_size=5 + max_overflow=10) can consume all 15 sessions from
-    # one backend process before LangGraph's checkpointer is counted. Keep the
-    # metadata pool deliberately small and bounded; pre_ping/recycle also avoid
-    # handing a stale idle connection to a request.
+    # Supabase's session-mode pooler has a small hard client limit. Keeping an
+    # SQLAlchemy pool alive on top of that pooler makes every API/worker process
+    # reserve idle sessions and eventually produces EMAXCONNSESSION. Let the
+    # pooler own pooling for remote Supabase URLs; each request gets one short-
+    # lived connection which is returned immediately at transaction end.
+    is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
+    if is_supabase_pooler:
+        return create_engine(
+            url,
+            future=True,
+            poolclass=NullPool,
+            pool_pre_ping=True,
+        )
+
+    # Local PostgreSQL benefits from a small bounded pool. Never use SQLAlchemy
+    # defaults (5 + 10 overflow), which can consume all sessions in a small DB.
     return create_engine(
         url,
         future=True,

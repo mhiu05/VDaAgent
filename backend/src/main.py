@@ -29,6 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse
+# pyrefly: ignore [missing-import]
+from sqlalchemy.exc import OperationalError
 from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import (
     profile_router as command_center_router,
@@ -214,6 +216,28 @@ async def validation_exception_handler(
     return JSONResponse(
         status_code=422,
         content={"detail": errors},
+    )
+
+
+@app.exception_handler(OperationalError)
+async def database_exception_handler(
+    request: Request, exc: OperationalError
+) -> JSONResponse:
+    """Return a retryable response when PostgreSQL is temporarily unavailable."""
+    correlation_id = _request_correlation_id(request)
+    logger.warning(
+        "Database unavailable path=%s correlation_id=%s error_type=%s",
+        request.url.path,
+        correlation_id,
+        type(exc).__name__,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database đang tạm thời hết kết nối. Hãy thử lại sau ít giây.",
+            "request_id": correlation_id,
+        },
+        headers={"X-Correlation-Id": correlation_id, "Retry-After": "3"},
     )
 
 

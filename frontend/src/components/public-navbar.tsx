@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import type { GuestRole } from "@/lib/auth/guest-session";
 
@@ -87,9 +87,9 @@ export function PublicNavbar() {
             <small>{theme === "dark" ? "Sáng" : "Tối"}</small>
           </button>
           
-          {loading ? null : authenticated ? (
+          {authenticated ? (
             <>
-              <Link className="pub-btn pub-btn-primary" href="/dashboard">Workspace</Link>
+              <Link className="pub-btn pub-btn-primary" href="/workspaces">Workspace</Link>
               <div className="nav-avatar-container">
                 <button type="button" className="nav-avatar-btn" onClick={() => setAvatarOpen(!avatarOpen)} aria-label="Mở menu tài khoản" aria-expanded={avatarOpen}>
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -107,6 +107,8 @@ export function PublicNavbar() {
               <button type="button" className="pub-btn pub-btn-secondary" onClick={() => void signOut()}>Kết thúc</button>
               <Link className="pub-btn pub-btn-primary" href="/signup">Đăng ký</Link>
             </>
+          ) : loading ? (
+            <span className="pub-nav-auth-pending" role="status" aria-label="Đang xác định phiên đăng nhập" />
           ) : (
             <>
               <Link className="pub-btn pub-btn-ghost" href="/login">Đăng nhập</Link>

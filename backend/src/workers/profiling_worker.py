@@ -56,7 +56,21 @@ class ProfilingWorker:
             )
         if recovered:
             logger.warning("profile_jobs_recovered count=%d", len(recovered))
-        return len(recovered)
+        orphaned = await asyncio.to_thread(
+            self.repo.recover_orphaned_profile_resumes,
+            max_attempts=self.settings.profiling_worker_max_attempts,
+        )
+        for item in orphaned:
+            get_audit().log(
+                "profile_resume_recovered",
+                workspace_id=item["workspace_id"],
+                profile_run_id=item["job_id"],
+                job_id=item["job_id"],
+                recovered_status=item["status"],
+            )
+        if orphaned:
+            logger.warning("orphaned_profile_resumes_recovered count=%d", len(orphaned))
+        return len(recovered) + len(orphaned)
 
     async def run_once(self) -> bool:
         """Claim and fully process at most one job; useful for tests and tooling."""
@@ -224,6 +238,10 @@ class ProfilingWorker:
                 claim_token=claim_token,
             )
             if completed:
+                # Older checkpoints can finish the graph without projecting
+                # the domain status. Reconcile that status only after the
+                # durable job itself has completed and no proposals remain.
+                await asyncio.to_thread(self.repo.complete_resumed_profile_run, job_id)
                 execution_ms = round((time.perf_counter() - started) * 1000)
                 get_audit().log(
                     "profile_job_succeeded",

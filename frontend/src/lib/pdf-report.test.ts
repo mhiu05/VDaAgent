@@ -26,4 +26,36 @@ describe("profiling PDF document model", () => {
     expect(__test__.coverHtml(source)).toContain("DATA PROFILING REPORT");
     expect(__test__.backCoverHtml(source)).toContain("KẾT THÚC BÁO CÁO");
   });
+  it("includes detailed drift evidence in the final report", () => {
+    const source = {
+      profile: {
+        dataset: { name: "sales" },
+        run: { id: "run-1", row_count: 10 },
+        column_stats: [],
+        drift_reports: [{
+          profile_run_id_a: "run-a",
+          profile_run_id_b: "run-b",
+          summary: "Revenue shifted",
+          drift_columns: [{
+            column_name: "revenue",
+            drift_type: "numeric_shift",
+            severity: "major",
+            metric: "mean",
+            baseline_value: 10,
+            current_value: 20,
+            detail: "Mean increased",
+          }],
+        }],
+      },
+      report_snapshot: { items: [] },
+    };
+    const sections = __test__.buildSections(source);
+    const document = __test__.bodyHtml(source, sections);
+
+    expect(document).toContain("revenue");
+    expect(document).toContain("Mean increased");
+    expect(document).toContain("Baseline");
+    expect(document).toContain("Current");
+    expect(document).toContain("Revenue shifted");
+  });
 });

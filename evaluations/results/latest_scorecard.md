@@ -2,7 +2,7 @@
 
 - Dataset: `p170-ai-eval-v1`
 - Runtime: `offline_fixture_contract`
-- Cases: 21
+- Cases: 26
 - Online model metrics were not executed.
 
 ## Metrics
@@ -42,11 +42,16 @@
 | `hard_gate_pass_rate` | PASS | 1.0 | 1.0 |
 | `schema_contract_rate` | PASS | 1.0 | 1.0 |
 | `privacy_safe_rate` | PASS | 1.0 | 1.0 |
-| `evidence_binding_rate` | PASS | 1.0 | 1.0 |
-| `numeric_grounding_rate` | PASS | 1.0 | 1.0 |
-| `insufficient_evidence_rate` | PASS | 1.0 | 1.0 |
+| `evidence_binding_rate` | PASS | 1.0 | 0.95 |
+| `numeric_grounding_rate` | PASS | 1.0 | 0.95 |
+| `insufficient_evidence_rate` | PASS | 1.0 | 0.95 |
+| `groundedness_rate` | PASS | 1.0 | 0.9 |
+| `intent_match_rate` | PASS | 1.0 | 0.9 |
 | `planner_allowlist_rate` | PASS | 1.0 | 1.0 |
 | `planner_kind_rate` | PASS | 1.0 | 1.0 |
+| `latency_p95_ms` | NOT_AVAILABLE | None | 25000 |
+| `total_tokens_per_run` | NOT_AVAILABLE | None | 90000 |
+| `estimated_cost_usd_per_run` | NOT_AVAILABLE | None | 0.06 |
 | `critical_failures` | PASS | 0 | 0 |
 
 ## Diagnostics

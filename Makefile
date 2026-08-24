@@ -12,13 +12,14 @@ BACKEND_HOST ?= 0.0.0.0
 ROOT_PYTHON ?= .\.venv\Scripts\python.exe
 BACKEND_PYTHON ?= ..\.venv\Scripts\python.exe
 
-.PHONY: help backend frontend dev install install-backend install-frontend health frontend-build frontend-check
+.PHONY: help backend worker frontend dev install install-backend install-frontend health frontend-build frontend-check
 
 help:
 	@echo "VDaAgent commands:"
 	@echo "  make backend          Start FastAPI backend on port $(BACKEND_PORT)"
+	@echo "  make worker           Start the durable profiling worker"
 	@echo "  make frontend         Start Next.js frontend on port $(FRONTEND_PORT)"
-	@echo "  make dev              Open backend and frontend in separate terminals"
+	@echo "  make dev              Open backend, worker and frontend in separate terminals"
 	@echo "  make install          Install backend and frontend dependencies"
 	@echo "  make health           Check backend health"
 	@echo "  make frontend-build   Create a production frontend build"
@@ -30,10 +31,14 @@ backend:
 frontend:
 	cd frontend && pnpm.cmd dev --port $(FRONTEND_PORT)
 
+worker:
+	cd /d $(CURDIR) && set PYTHONPATH=backend&& $(ROOT_PYTHON) -m src.workers.profiling_worker
+
 # Windows helper: starts each long-running process in its own terminal window.
 # Run this target only when no VDaAgent backend/frontend process is already running.
 dev:
 	cmd.exe /d /c start "VDaAgent backend" cmd.exe /k "cd /d $(CURDIR)\backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
+	cmd.exe /d /c start "VDaAgent worker" cmd.exe /k "cd /d $(CURDIR) && set PYTHONPATH=backend&& $(ROOT_PYTHON) -m src.workers.profiling_worker"
 	cmd.exe /d /c start "VDaAgent frontend" cmd.exe /k "cd /d $(CURDIR)\frontend && pnpm.cmd dev --port $(FRONTEND_PORT)"
 
 install: install-backend install-frontend

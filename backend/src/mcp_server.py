@@ -642,6 +642,7 @@ def _execute_chart(
 ) -> dict[str, Any]:
     return AnalysisEngine(get_repository()).execute(
         profile_run_id=profile_run_id,
+        workspace_id=workspace_id,
         context=context,
         query=query,
         execution_kind=execution_kind,
@@ -820,7 +821,10 @@ def promote_chart_plan(
                 raise AnalysisQueryError("Analysis context is unavailable.")
             if not gate or gate.get("context_version_id") != context["id"]:
                 decision, issues = evaluate_quality_gate(
-                    repository, profile_run_id, context["context"]
+                    repository,
+                    profile_run_id,
+                    context["context"],
+                    workspace_id=workspace_id,
                 )
                 gate = analyses.save_gate(session_id, context["id"], decision, issues)
             if gate["decision"] == "blocked":

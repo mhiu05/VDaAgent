@@ -88,6 +88,10 @@ def build_checkpointer() -> Any:
             # pooler/server-side idle timeouts can close an otherwise healthy
             # connection; ConnectionPool replaces broken connections and the
             # PostgresSaver integration obtains a fresh connection per cursor.
+            # Keep this pool to one connection for Supabase session-mode
+            # poolers. The metadata repository uses NullPool for the same
+            # remote pooler, so an API and worker do not reserve idle sessions.
+            pool_limit = 1 if "pooler.supabase.com" in url.lower() else 2
             pool = ConnectionPool(
                 conninfo=url,
                 kwargs={
@@ -95,10 +99,8 @@ def build_checkpointer() -> Any:
                     "prepare_threshold": 0,
                     "row_factory": dict_row,
                 },
-                # Keep this pool small because the metadata SQLAlchemy pool
-                # uses the same Supabase session-mode client quota.
                 min_size=1,
-                max_size=2,
+                max_size=pool_limit,
                 max_idle=300,
                 max_lifetime=1800,
                 check=ConnectionPool.check_connection,

@@ -71,6 +71,7 @@ class AnalysisEngine:
         self,
         *,
         profile_run_id: str,
+        workspace_id: str | None = None,
         context: dict[str, Any],
         query: dict[str, Any],
         execution_kind: str = "official",
@@ -80,10 +81,22 @@ class AnalysisEngine:
     ) -> dict[str, Any]:
         if execution_kind not in {"preview", "official"}:
             raise AnalysisQueryError("Execution kind is not supported.")
-        run = self.repository.get_profile_run(profile_run_id)
+        run = (
+            self.repository.get_profile_run(profile_run_id)
+            if workspace_id is None
+            else self.repository.get_profile_run(
+                profile_run_id, workspace_id=workspace_id
+            )
+        )
         if not run:
             raise AnalysisQueryError("Profile run không tồn tại.")
-        dataset = self.repository.get_dataset(run["dataset_id"])
+        dataset = (
+            self.repository.get_dataset(run["dataset_id"])
+            if workspace_id is None
+            else self.repository.get_dataset(
+                run["dataset_id"], workspace_id=workspace_id
+            )
+        )
         source_ref = str((dataset or {}).get("source_ref", ""))
         if not source_ref:
             raise AnalysisQueryError("Profile run không có immutable source.")

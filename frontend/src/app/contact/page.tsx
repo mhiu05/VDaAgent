@@ -17,7 +17,7 @@ export default function ContactPage() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f8fafc", fontFamily: "var(--font-sans, system-ui, sans-serif)", overflowX: "hidden" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "var(--pub-bg)", color: "var(--pub-ink)", fontFamily: "var(--font-sans, system-ui, sans-serif)", overflowX: "hidden" }}>
       <PublicNavbar />
       
       <main style={{ position: "relative", padding: "80px 20px", display: "flex", justifyContent: "center", alignItems: "center" }}>
@@ -33,32 +33,32 @@ export default function ContactPage() {
             <div style={{ display: "inline-block", padding: "6px 16px", borderRadius: "20px", background: "rgba(49, 94, 251, 0.1)", color: "#315efb", fontSize: "0.85rem", fontWeight: 700, marginBottom: "20px", letterSpacing: "0.5px", textTransform: "uppercase" }}>
               Liên Hệ Với Chúng Tôi
             </div>
-            <h1 style={{ fontSize: "3.5rem", fontWeight: 800, color: "#0f172a", lineHeight: 1.1, marginBottom: "24px", letterSpacing: "-1px" }}>
+            <h1 style={{ fontSize: "3.5rem", fontWeight: 800, color: "var(--pub-ink)", lineHeight: 1.1, marginBottom: "24px", letterSpacing: "-1px" }}>
               Cùng kiến tạo <br />
               <span style={{ background: "linear-gradient(135deg, #315efb 0%, #8b5cf6 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Giá trị Dữ liệu</span>
             </h1>
-            <p style={{ fontSize: "1.1rem", color: "#64748b", lineHeight: 1.6, marginBottom: "40px", maxWidth: "450px" }}>
+            <p style={{ fontSize: "1.1rem", color: "var(--pub-muted)", lineHeight: 1.6, marginBottom: "40px", maxWidth: "450px" }}>
               Bạn có câu hỏi, góp ý hay muốn tìm hiểu sâu hơn về giải pháp phân tích dữ liệu của VDaAgent? Đội ngũ của chúng tôi luôn sẵn sàng hỗ trợ bạn.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "16px", background: "#ffffff", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", transition: "transform 0.3s ease", cursor: "default" }} onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-4px)"} onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}>
+              <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "16px", background: "var(--pub-surface)", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", transition: "transform 0.3s ease", cursor: "default" }} onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-4px)"} onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}>
                 <div style={{ width: "48px", height: "48px", borderRadius: "12px", background: "linear-gradient(135deg, rgba(49, 94, 251, 0.1), rgba(139, 92, 246, 0.1))", display: "flex", justifyContent: "center", alignItems: "center", color: "#315efb" }}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Điện thoại</p>
-                  <p style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "#0f172a", fontWeight: 700 }}>0375049906</p>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--pub-muted)", fontWeight: 600, textTransform: "uppercase" }}>Điện thoại</p>
+                  <p style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "var(--pub-ink)", fontWeight: 700 }}>0375049906</p>
                 </div>
               </div>
               
-              <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "16px", background: "#ffffff", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", transition: "transform 0.3s ease", cursor: "default" }} onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-4px)"} onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}>
+              <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "16px", background: "var(--pub-surface)", borderRadius: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", transition: "transform 0.3s ease", cursor: "default" }} onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-4px)"} onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}>
                 <div style={{ width: "48px", height: "48px", borderRadius: "12px", background: "linear-gradient(135deg, rgba(49, 94, 251, 0.1), rgba(139, 92, 246, 0.1))", display: "flex", justifyContent: "center", alignItems: "center", color: "#8b5cf6" }}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
                 </div>
                 <div>
-                  <p style={{ margin: 0, fontSize: "0.85rem", color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Email</p>
-                  <p style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "#0f172a", fontWeight: 700 }}>minhhieuhh2k5@gmail.com</p>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--pub-muted)", fontWeight: 600, textTransform: "uppercase" }}>Email</p>
+                  <p style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "var(--pub-ink)", fontWeight: 700 }}>minhhieuhh2k5@gmail.com</p>
                 </div>
               </div>
             </div>
@@ -66,19 +66,19 @@ export default function ContactPage() {
 
           {/* Right Column: Glassmorphism Form */}
           <div style={{ 
-            background: "rgba(255, 255, 255, 0.7)", 
+            background: "var(--pub-surface)",
             backdropFilter: "blur(20px)", 
             WebkitBackdropFilter: "blur(20px)", 
             borderRadius: "24px", 
             padding: "48px 40px", 
-            boxShadow: "0 20px 40px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.6)",
-            border: "1px solid rgba(255,255,255,0.8)"
+            boxShadow: "0 20px 40px rgba(0,0,0,0.08)",
+            border: "1px solid var(--pub-border)"
           }}>
-            <h3 style={{ margin: "0 0 32px", fontSize: "1.8rem", color: "#0f172a", fontWeight: 800 }}>Gửi tin nhắn cho chúng tôi</h3>
+            <h3 style={{ margin: "0 0 32px", fontSize: "1.8rem", color: "var(--pub-ink)", fontWeight: 800 }}>Gửi tin nhắn cho chúng tôi</h3>
             
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <label style={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>Họ và tên</label>
+                <label style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--pub-ink)" }}>Họ và tên</label>
                 <input 
                   type="text" 
                   placeholder="Nguyễn Văn A" 
@@ -87,20 +87,20 @@ export default function ContactPage() {
                     padding: "16px 20px", 
                     borderRadius: "12px", 
                     border: "2px solid transparent", 
-                    background: "#f1f5f9", 
+                    background: "var(--pub-code-bg)",
                     fontSize: "1rem", 
-                    color: "#0f172a",
+                    color: "var(--pub-ink)",
                     outline: "none",
                     transition: "all 0.2s ease",
                     boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
                   }} 
-                  onFocus={(e) => { e.currentTarget.style.border = "2px solid #315efb"; e.currentTarget.style.background = "#ffffff"; }}
-                  onBlur={(e) => { e.currentTarget.style.border = "2px solid transparent"; e.currentTarget.style.background = "#f1f5f9"; }}
+                  onFocus={(e) => { e.currentTarget.style.border = "2px solid var(--pub-brand)"; e.currentTarget.style.background = "var(--pub-surface)"; }}
+                  onBlur={(e) => { e.currentTarget.style.border = "2px solid transparent"; e.currentTarget.style.background = "var(--pub-code-bg)"; }}
                 />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <label style={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>Địa chỉ Email</label>
+                <label style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--pub-ink)" }}>Địa chỉ Email</label>
                 <input 
                   type="email" 
                   placeholder="name@example.com" 
@@ -109,20 +109,20 @@ export default function ContactPage() {
                     padding: "16px 20px", 
                     borderRadius: "12px", 
                     border: "2px solid transparent", 
-                    background: "#f1f5f9", 
+                    background: "var(--pub-code-bg)",
                     fontSize: "1rem", 
-                    color: "#0f172a",
+                    color: "var(--pub-ink)",
                     outline: "none",
                     transition: "all 0.2s ease",
                     boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)"
                   }} 
-                  onFocus={(e) => { e.currentTarget.style.border = "2px solid #315efb"; e.currentTarget.style.background = "#ffffff"; }}
-                  onBlur={(e) => { e.currentTarget.style.border = "2px solid transparent"; e.currentTarget.style.background = "#f1f5f9"; }}
+                  onFocus={(e) => { e.currentTarget.style.border = "2px solid var(--pub-brand)"; e.currentTarget.style.background = "var(--pub-surface)"; }}
+                  onBlur={(e) => { e.currentTarget.style.border = "2px solid transparent"; e.currentTarget.style.background = "var(--pub-code-bg)"; }}
                 />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <label style={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>Nội dung tin nhắn</label>
+                <label style={{ fontSize: "0.9rem", fontWeight: 600, color: "var(--pub-ink)" }}>Nội dung tin nhắn</label>
                 <textarea 
                   rows={4} 
                   placeholder="Hãy chia sẻ suy nghĩ hoặc yêu cầu của bạn..." 
@@ -131,17 +131,17 @@ export default function ContactPage() {
                     padding: "16px 20px", 
                     borderRadius: "12px", 
                     border: "2px solid transparent", 
-                    background: "#f1f5f9", 
+                    background: "var(--pub-code-bg)",
                     fontSize: "1rem", 
-                    color: "#0f172a",
+                    color: "var(--pub-ink)",
                     outline: "none",
                     transition: "all 0.2s ease",
                     boxShadow: "inset 0 2px 4px rgba(0,0,0,0.02)",
                     resize: "vertical",
                     minHeight: "120px"
                   }} 
-                  onFocus={(e) => { e.currentTarget.style.border = "2px solid #315efb"; e.currentTarget.style.background = "#ffffff"; }}
-                  onBlur={(e) => { e.currentTarget.style.border = "2px solid transparent"; e.currentTarget.style.background = "#f1f5f9"; }}
+                  onFocus={(e) => { e.currentTarget.style.border = "2px solid var(--pub-brand)"; e.currentTarget.style.background = "var(--pub-surface)"; }}
+                  onBlur={(e) => { e.currentTarget.style.border = "2px solid transparent"; e.currentTarget.style.background = "var(--pub-code-bg)"; }}
                 />
               </div>
 

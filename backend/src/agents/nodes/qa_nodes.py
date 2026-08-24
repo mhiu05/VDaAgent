@@ -34,7 +34,7 @@ from src.services.guardrails import (
     audit_question_fields,
     enforce_output_guardrails,
 )
-from src.services.llm import LLMNotConfiguredError, get_llm
+from src.services.llm import LLMNotConfiguredError, get_llm, is_llm_runtime_warning, response_text
 from src.services.repository import get_repository
 from src.services.retrieval import get_index
 from src.services.security import get_audit
@@ -159,7 +159,7 @@ def _profile_fallback_summary(run_id: str | None) -> str:
     warnings = [
         warning
         for warning in (run.get("risk_warnings") or [])
-        if not warning.startswith("Không sinh được báo cáo bằng LLM:")
+        if not is_llm_runtime_warning(warning)
     ]
     lines = [
         "## Tóm tắt chất lượng dữ liệu",
@@ -324,7 +324,7 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
                 ],
                 prompt_id="qa_router",
             )
-            label = str(response.content).strip().lower()
+            label = response_text(response).strip().lower()
             question_type = (
                 label
                 if label in {"quantitative", "qualitative", "clarify"}
@@ -389,7 +389,7 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
             ],
             prompt_id="qa_clarify",
         )
-        answer = _guard_answer(str(response.content))
+        answer = _guard_answer(response_text(response))
     except (LLMNotConfiguredError, Exception):  # noqa: BLE001
         preview = ", ".join(columns[:10]) or "(chưa có cột nào được profiling)"
         answer = (
@@ -571,7 +571,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         ),
     )
     return {
-        "answer": _guard_answer(str(getattr(response, "content", ""))),
+        "answer": _guard_answer(response_text(response)),
         "answer_sources": sources,
         "tool_calls": state.get("tool_calls", 0) + calls_used,
     }
@@ -760,7 +760,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             ],
             prompt_id="qa_vector",
         )
-        answer = _guard_answer(str(response.content))
+        answer = _guard_answer(response_text(response))
     except LLMNotConfiguredError:
         answer = (
             _profile_fallback_summary(run_id)
