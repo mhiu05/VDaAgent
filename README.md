@@ -77,7 +77,7 @@ VDaAgent là workspace **evidence-first** cho quy trình từ dataset đến bá
 | --- | --- |
 | Frontend | Next.js 15, React 19, TypeScript, React Query, Supabase SSR |
 | Backend | FastAPI, Python 3.11+, Pydantic, SQLAlchemy/Alembic |
-| AI Agent | LangGraph, LangChain, Gemini hoặc LLM provider cấu hình, LangSmith |
+| AI Agent | LangGraph, LangChain, OpenAI/Gemini/Ollama hoặc provider cấu hình, LangSmith tùy chọn |
 | Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
 | Data & Auth | Supabase Auth/PostgreSQL/Storage; Google Drive tùy chọn |
 | DevOps & chất lượng | Docker, Azure App Service containers, GitHub Actions, pytest, Ruff, Vitest, Playwright |
@@ -110,7 +110,9 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **Profile job bền vững**: API nhận request và trả `202 Accepted`; worker riêng
   claim job từ PostgreSQL, gia hạn lease, tự phục hồi lease hết hạn và xử lý lại
   lỗi tạm thời trong giới hạn số lần thử. UI theo dõi trạng thái qua
-  `GET /profiling-jobs/{job_id}`.
+  `GET /profiling-jobs/{job_id}` với trạng thái job `queued`, `running`,
+  `succeeded` hoặc `failed`. Trạng thái job tách biệt với trạng thái nghiệp
+  vụ của Profile Run (ví dụ `pending_review`, `completed`).
 - **Human-in-the-loop review** cho semantic type, candidate key và đề xuất PII
   còn chờ quyết định trước khi dùng chúng làm ngữ cảnh evidence.
 - **Biểu đồ & phân tích trực quan** tại `/charts`: chọn Profile Run đã hoàn
@@ -447,6 +449,7 @@ Từ thư mục `frontend`:
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm test:e2e
 pnpm build
 pnpm start --port 3000
 ```
@@ -464,6 +467,22 @@ $env:P170_TEST_DATABASE_URL = postgresql+psycopg://p170_test:<password>@localhos
 `P170_TEST_DATABASE_URL` là bắt buộc cho test tích hợp và **phải khác**
 `DATABASE_URL`. Không trỏ test vào database development hoặc production; test
 có thể tạo migration, profile và report fixture.
+
+## CI/CD và triển khai
+
+Workflow [Deploy Azure Containers](.github/workflows/azure-container-deploy.yml)
+chạy quality gate cho pull request và push vào `main`: Ruff, pytest với
+PostgreSQL service, evaluation `--dry-run`/`--offline`, Vitest, typecheck,
+lint, Playwright E2E và frontend build. Khi chạy trên `main` hoặc được kích
+hoạt thủ công, workflow chỉ deploy sau quality gate: build/push image theo commit
+SHA lên Azure Container Registry, chạy Alembic migration, cập nhật frontend,
+FastAPI API và profiling worker, rồi health-check cả ba endpoint.
+
+Frontend, API và worker là ba App Service container độc lập; API/worker dùng
+cùng backend image với startup command khác nhau. Thay đổi biến
+`NEXT_PUBLIC_*` cần build/deploy lại frontend image. Xem
+[hướng dẫn Azure CI/CD](docs/azure-deploy-cicd.md) để biết resource, secret và
+quy trình vận hành.
 
 ## Giới hạn hiện tại
 
@@ -484,6 +503,7 @@ có thể tạo migration, profile và report fixture.
 - [Architecture](ARCHITECTURE.md)
 - [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
 - [AI Evaluation](docs/eval.md)
+- [AI benchmark](evaluations/benchmark.md)
 - [Cấu hình mẫu](.env.example)
 - [Cấu hình ứng dụng](config.yaml)
 - [Hướng dẫn AI evaluation](evaluations/README.md)

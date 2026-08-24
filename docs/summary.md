@@ -88,8 +88,12 @@ khả năng nội bộ có thể cấu hình.
 
 `POST /datasets/upload` lưu file theo storage provider đã cấu hình và tạo
 metadata workspace-scoped. `POST /profile` yêu cầu `Idempotency-Key`, lưu một
-Profile Run/job bền vững rồi trả `202 Accepted`; client theo dõi nó qua
-`GET /profiling-jobs/{job_id}`. Worker riêng claim job từ PostgreSQL bằng
+Profile Run/job bền vững rồi trả `202 Accepted`; client theo dõi **job** qua
+`GET /profiling-jobs/{job_id}` với trạng thái `queued`, `running`,
+`succeeded` hoặc `failed`. Trạng thái hàng đợi này khác với trạng thái nghiệp
+vụ của **Profile Run**: một job `succeeded` có thể để run ở
+`pending_review`, và run chỉ thành `completed` sau review/continuation.
+Worker riêng claim job từ PostgreSQL bằng
 `SKIP LOCKED`, gia hạn lease trong lúc chạy và gọi graph profiling. Các
 metric/proposal được tạo bằng compute deterministic; narrative chỉ là diễn giải
 khi LLM provider khả dụng.
@@ -231,11 +235,14 @@ Mọi endpoint backend dùng prefix `/api/v1`.
 
 ## 9. Kiểm thử
 
-Từ `frontend/`, chạy `pnpm typecheck`, `pnpm lint`, `pnpm test` và `pnpm build`.
+Từ `frontend/`, chạy `pnpm typecheck`, `pnpm lint`, `pnpm test`,
+`pnpm test:e2e` và `pnpm build`.
 Từ root, đặt một `P170_TEST_DATABASE_URL` riêng và khác `DATABASE_URL` trước khi
 chạy `pytest`; không bao giờ chạy test ghi dữ liệu vào database development hoặc
-production. Test có thể chạy migration và ghi fixture profile/report. Smoke check
-cho production chart flow nằm tại `scripts/chart_production_smoke.py`.
+production. Test có thể chạy migration và ghi fixture profile/report. Quality job
+trong CI cũng chạy `ruff`, `pytest`, evaluation `--dry-run` và `--offline` trước
+khi workflow Azure deploy trên `main`. Smoke check cho production chart flow nằm
+tại `scripts/chart_production_smoke.py`.
 
 Đánh giá latency workspace phải chạy trên bundle/image đã precompile (`pnpm build`
 rồi `pnpm start`, hoặc frontend container candidate). HMR và route compile của
