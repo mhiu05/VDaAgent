@@ -15,18 +15,21 @@ sử dụng Profile Run hoàn tất làm nguồn cho biểu đồ, Agent và bá
 
 ```text
 Upload dataset
-  → Profile Run (sample hoặc full)
-  → Review semantic type / candidate key / PII khi cần
-  → completed
+  → tạo Profile Run dạng job (sample hoặc full)
+  → worker claim và chạy profiling deterministic
+  → pending review semantic type / candidate key / PII (nếu cần)
+  → worker resume từ checkpoint sau review → completed
       ├─ /charts: plan → Preview → Official evidence → insight
-      ├─ /profiles/{runId}: Tổng quan, Hỏi Agent, Báo cáo
+      ├─ /chat: hỏi Agent theo Profile Run đã chọn
+      ├─ /compare: so sánh drift giữa hai Profile Run
       └─ Report Draft → snapshot bất biến → PDF/JSON
 ```
 
 `/charts` là workspace biểu đồ riêng, dùng cùng Profile Run và Report Draft.
-Command Center tại `/profiles/{runId}` hiện có ba vùng Tổng quan, Hỏi Agent và
-Báo cáo. `/analyses` và `/notebooks` vẫn tồn tại trong compatibility window,
-nhưng không phải luồng được navigation chính quảng bá.
+Command Center tại `/profiles/{runId}` hiển thị tổng quan Profile Run và Report
+Draft. Chat Agent là màn hình `/chat`, yêu cầu chọn Profile Run hoàn tất làm
+context. Navigation workspace hiện có thêm `/compare` để đối chiếu drift và
+`/activity` để xem audit event theo quyền.
 
 ### Invariant cốt lõi
 
@@ -43,7 +46,8 @@ nhưng không phải luồng được navigation chính quảng bá.
 | Lớp | Thành phần hiện dùng | Trách nhiệm |
 | --- | --- | --- |
 | Web | Next.js 15, React 19, React Query | Auth phía browser, bootstrap workspace, profile pages, `/charts`, SSE và PDF route cùng origin |
-| API | FastAPI | Route, auth/workspace guard, capability, audit, profile, analysis, report |
+| API | FastAPI | Route, auth/workspace guard, capability, audit, nhận job profile, analysis và report |
+| Worker | Python worker riêng | Claim Profile Run/HITL continuation bằng `SKIP LOCKED`, heartbeat lease, retry lỗi tạm thời trong giới hạn cấu hình |
 | Agent | LangGraph, native skill registry | Profiling/Q&A, structured chart-planning và trace/provenance tùy cấu hình |
 | Compute | DuckDB, pandas, NumPy, SciPy | Profiling, aggregate bounded, quality/statistics và chuẩn bị dữ liệu forecast |
 | Forecast | statsmodels/scikit-learn; dependency tùy chọn | Thực thi model khi catalog xác nhận model khả dụng |
@@ -83,13 +87,18 @@ khả năng nội bộ có thể cấu hình.
 ## 3. Profiling và review
 
 `POST /datasets/upload` lưu file theo storage provider đã cấu hình và tạo
-metadata workspace-scoped. `POST /profile` chạy graph profiling đến checkpoint
-review. Các metric/proposal được tạo bằng compute deterministic; narrative chỉ
-là diễn giải khi LLM provider khả dụng.
+metadata workspace-scoped. `POST /profile` yêu cầu `Idempotency-Key`, lưu một
+Profile Run/job bền vững rồi trả `202 Accepted`; client theo dõi nó qua
+`GET /profiling-jobs/{job_id}`. Worker riêng claim job từ PostgreSQL bằng
+`SKIP LOCKED`, gia hạn lease trong lúc chạy và gọi graph profiling. Các
+metric/proposal được tạo bằng compute deterministic; narrative chỉ là diễn giải
+khi LLM provider khả dụng.
 
 Analyst dùng `PATCH /profile/{run_id}/confirm` để xác nhận, sửa hoặc từ chối
-proposal. Các workflow evidence như chart/Explorer yêu cầu Profile Run có
-trạng thái `completed`.
+proposal. Quyết định review được lưu nguyên tử và continuation được đưa lại vào
+hàng đợi để worker resume checkpoint; endpoint không chạy graph trong request.
+Các workflow evidence như chart/Explorer yêu cầu Profile Run có trạng thái
+`completed`.
 
 Profile giữ row/column count, scan mode, sampling metadata, column statistics,
 correlation, risk warnings, proposal, test result và provenance. Sample run
@@ -146,8 +155,9 @@ hiển thị như hạn chế và không được xem là kết luận đã ki�
 Agent trace là lớp quan sát bổ sung. Config hiện đặt `AGENT_TRACE_MODE=shadow`:
 trace đã redact được ghi mà không thay đổi nguồn kết quả deterministic. Trace
 không chứa raw prompt/message, chain-of-thought, raw row, secret hay giá trị
-PII. Planner autonomy, verifier `enforce`, durable jobs và long-term memory là
-feature-gated, chưa là workflow phát hành.
+PII. Planner autonomy, verifier `enforce` và long-term memory là feature-gated,
+chưa là workflow phát hành. Profile job bền vững là workflow hiện có; hủy job
+chưa được hỗ trợ vì compute hiện chưa có điểm dừng hợp tác an toàn.
 
 `backend/src/mcp_server.py` chạy FastMCP qua **stdio** cho trusted local
 process. Tool profile/chart đều cần `profile_run_id`, dùng allow-list và không
@@ -177,6 +187,11 @@ snapshot. `GET /reports/{report_id}/export-source` ưu tiên source snapshot đ�
 read-only với `snapshot_hash: "draft"` để trang detail vẫn mở được; trạng thái
 này không phải bản báo cáo chính thức để chia sẻ.
 
+Sau snapshot, report hỗ trợ vòng đời submit, review, publish và archive.
+Workspace cũng hỗ trợ quản lý thành viên/lời mời, archive/restore và cấu hình
+ngữ cảnh AI-nghiệp vụ, theme, compute/statistics và PII policy. `/activity` đọc
+audit event đã được lọc theo workspace/capability, không hiển thị raw question.
+
 Route Next.js `/api/reports/profile/{runId}?reportId={reportId}` render PDF từ
 export source đã được FastAPI cấp quyền. Cần tạo snapshot trước khi xuất/chia sẻ
 bản chính thức. Report không đưa raw PII, raw row, preview history hoặc execution
@@ -203,12 +218,13 @@ retention riêng, không phải cơ chế lưu trữ production.
 
 | Domain | Endpoint |
 | --- | --- |
-| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `PATCH /profile/{run_id}/confirm` |
+| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202 Accepted`), `GET /profiling-jobs/{job_id}`, `PATCH /profile/{run_id}/confirm`, `POST /profile/{run_id}/test` |
+| Drift | `POST /profile/{run_id}/drift`; UI `/compare` chỉ nhận Profile Run hoàn tất |
 | Charts | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
 | Explorer | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
 | Report | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
-| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
+| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints, `GET /dashboard`, `GET /audit` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, `GET /google-drive/callback`, `DELETE /google-drive/connection` |
 
 Mọi endpoint backend dùng prefix `/api/v1`.
@@ -230,7 +246,7 @@ bootstrap/dashboard từ telemetry; benchmark workspace tự động chưa đư�
 Kiểm tra LangSmith và evaluation:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_agents/test_langsmith_observability.py evaluations/test_evaluators.py
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --dry-run
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
+.\.venv\Scripts\python.exe -m pytest -q tests/test_agents/test_langsmith_observability.py tests/evaluations/test_evaluators.py
+.\.venv\Scripts\python.exe tests/evaluations/run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe tests/evaluations/run_evaluation.py --offline
 ```

@@ -1,6 +1,7 @@
 # Thông tin nhóm
 
-## Tên nhóm: VduAgents
+- **Tên nhóm:** VduAgents
+- **Link demo:** [https://p170-web-08140019.azurewebsites.net/](https://p170-web-08140019.azurewebsites.net/)
 
 ## Thành viên nhóm
 
@@ -22,8 +23,8 @@ trung tâm: mọi phân tích, biểu đồ, câu trả lời của Agent và re
 một Profile Run trong một workspace cụ thể.
 
 ```text
-Tải dataset → Profile deterministic → Review metadata
-       → Profile Run hoàn tất
+Tải dataset → tạo Profile Run dạng job → worker profiling deterministic
+       → Review metadata/PII (nếu có) → worker tiếp tục → Profile Run hoàn tất
        ├─ Biểu đồ: plan → Preview → Official evidence → insight
        ├─ Hỏi Agent: trả lời theo evidence đã được phép đọc
        └─ Report Draft → snapshot bất biến → PDF/JSON
@@ -106,6 +107,10 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **Data profiling** cho CSV, TSV, Parquet và JSON: schema, kiểu dữ liệu,
   missingness, cardinality, uniqueness, duplicate, outlier, top values và
   correlation.
+- **Profile job bền vững**: API nhận request và trả `202 Accepted`; worker riêng
+  claim job từ PostgreSQL, gia hạn lease, tự phục hồi lease hết hạn và xử lý lại
+  lỗi tạm thời trong giới hạn số lần thử. UI theo dõi trạng thái qua
+  `GET /profiling-jobs/{job_id}`.
 - **Human-in-the-loop review** cho semantic type, candidate key và đề xuất PII
   còn chờ quyết định trước khi dùng chúng làm ngữ cảnh evidence.
 - **Biểu đồ & phân tích trực quan** tại `/charts`: chọn Profile Run đã hoàn
@@ -131,16 +136,25 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **Khởi động workspace tối ưu**: `GET /workspace-bootstrap` trả session,
   workspace/quyền hiệu lực và dashboard summary trong một round trip; frontend
   seed cache theo workspace còn backend vẫn kiểm tra capability ở mỗi request.
+- **So sánh drift** tại `/compare` giữa hai Profile Run hoàn tất, hiển thị PSI,
+  cardinality, null rate và distribution do backend tính.
+- **Vận hành workspace**: quản lý thành viên/lời mời, archive/restore, cấu hình
+  AI-nghiệp vụ, giao diện, compute và chính sách PII; `/activity` hiển thị audit
+  event theo capability.
+- **Vòng đời báo cáo** ngoài Snapshot gồm submit, review, publish và archive.
+- **Chat Agent** dùng route `/chat` và chọn một Profile Run hoàn tất làm context.
 - **MCP stdio adapter** cho trusted local clients, cung cấp tool profile/chart
   có giới hạn. Đây không phải endpoint MCP công khai.
 
 ## Luồng sử dụng
 
 1. Vào **Tải dữ liệu**, tải một dataset và tạo Profile Run ở chế độ `sample`
-   hoặc `full`.
-2. Review, chỉnh sửa hoặc từ chối proposal metadata/PII còn chờ. Khi Profile
-   Run hoàn tất, trạng thái chuyển sang `completed`.
-3. Vào **Biểu đồ** (`/charts`), chọn đúng Profile Run, rồi nhập câu hỏi kinh
+   hoặc `full`. API xếp request vào hàng đợi; giao diện theo dõi job cho đến khi
+   profiling dừng ở bước review hoặc hoàn tất.
+2. Nếu có proposal metadata/PII, review, chỉnh sửa hoặc từ chối. Backend lưu
+   quyết định và xếp continuation vào hàng đợi; worker tiếp tục từ checkpoint.
+   Khi không còn bước chờ, Profile Run chuyển sang `completed`.
+3. Vào **Biểu đồ** (`/charts`), chọn Profile Run đã `completed`, rồi nhập câu hỏi kinh
    doanh hoặc tạo bộ biểu đồ profile tự động.
 4. Kiểm tra **Preview**. Đây là kết quả có ngân sách thời gian và có thể dùng
    sample nên chưa phải evidence báo cáo.
@@ -150,9 +164,10 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
    Report Draft. Trang detail có thể xem draft hiện hành, nhưng tạo snapshot trước
    khi xuất hoặc chia sẻ bản báo cáo chính thức.
 
-Trang `/profiles/{runId}` hiển thị Command Center với ba vùng: **Tổng quan**,
-**Hỏi Agent** và **Báo cáo**. Không gian **Biểu đồ** là route `/charts` riêng,
-nhưng dùng cùng Profile Run, Explorer session và Report Draft.
+Trang `/profiles/{runId}` là Command Center cho **Tổng quan** và **Report Draft**.
+Chat Agent được mở tại `/chat` và chọn Profile Run làm context. Không gian
+**Biểu đồ** là route `/charts` riêng, nhưng dùng cùng Profile Run, Explorer
+session và Report Draft.
 
 ## Kiến trúc ở mức cao
 
@@ -164,13 +179,13 @@ Next.js / React :3000
                          ↓
 FastAPI :8000/api/v1
   ├─ Auth, workspace/capability guard và audit
-  ├─ LangGraph profiling/Q&A, native skill registry và trace
+  ├─ Nhận profile job, Q&A, native skill registry và trace
   ├─ Chart planner, bounded AnalysisEngine và forecasting registry
   ├─ DuckDB, pandas, NumPy, SciPy, statsmodels/scikit-learn khi có
   └─ Repository + storage adapter
-                         ↓
-PostgreSQL                 Object storage
-workspace/profile/evidence Supabase Storage | Google Drive | local dev
+                         ↓                     ↑
+PostgreSQL ── claim/lease ── Profiling worker  Object storage
+workspace/profile/evidence   LangGraph         Supabase Storage | Google Drive | local dev
 report/audit/trace
 ```
 
@@ -219,6 +234,7 @@ backend/src/api/                 FastAPI routes và dependency guards
 backend/src/agents/              LangGraph, prompts, skill registry, trace/tools
 backend/src/services/            profiling, analysis, chart planner, forecast,
                                  report, storage, auth và retrieval
+backend/src/workers/             worker claim/lease và xử lý Profile Run bất đồng bộ
 backend/src/mcp_server.py        MCP stdio adapter với bounded tools
 backend/src/models/              Pydantic contracts
 backend/migrations/              Alembic migrations
@@ -227,7 +243,7 @@ frontend/src/components/         UI, profile, charts và report components
 frontend/src/lib/                API client, auth, types và SSE transport
 scripts/chart_production_smoke.py Smoke check cho chart production flow
 tests/                           Backend/API/compute/security/frontend tests
-docs/Biểu Đồ.md                  Tài liệu chi tiết về Charts & Evidence
+docs/azure-deploy-cicd.md        Quy trình CI/CD và triển khai Azure App Service
 ```
 
 ## Yêu cầu
@@ -243,6 +259,11 @@ docs/Biểu Đồ.md                  Tài liệu chi tiết về Charts & Evide
 ## Cài đặt local
 
 ### Windows PowerShell
+
+Mẫu `.env.example` hướng đến production. Khi chạy local, đặt
+`APP_ENV=development`, `AUTH_MODE=dual`, `STORAGE_PROVIDER=local`,
+`GUEST_STORAGE_PROVIDER=local` và điền `DATABASE_URL` trỏ đến PostgreSQL local
+trước khi chạy migration.
 
 Từ thư mục root:
 
@@ -289,7 +310,8 @@ $env:PYTHONPATH = backend
 alembic upgrade head
 ```
 
-Mở hai terminal:
+Mở ba terminal. API chỉ nhận và lưu job; cả profiling ban đầu lẫn continuation
+sau HITL đều do worker riêng claim từ PostgreSQL:
 
 ```powershell
 # Terminal 1 — từ root
@@ -298,6 +320,12 @@ Mở hai terminal:
 
 ```powershell
 # Terminal 2 — từ root
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python.exe -m src.workers.profiling_worker
+```
+
+```powershell
+# Terminal 3 — từ root
 Set-Location frontend
 pnpm dev --port 3000
 ```
@@ -314,8 +342,9 @@ corepack enable
 (cd frontend && pnpm install)
 ```
 
-Áp `alembic upgrade head` với `PYTHONPATH=backend`, sau đó chạy backend bằng
-`.venv/bin/python -m uvicorn src.main:app --app-dir backend --reload` và
+Áp `alembic upgrade head` với `PYTHONPATH=backend`, sau đó chạy API bằng
+`.venv/bin/python -m uvicorn src.main:app --app-dir backend --reload`, worker
+bằng `PYTHONPATH=backend .venv/bin/python -m src.workers.profiling_worker`, và
 frontend bằng `pnpm dev --port 3000` từ thư mục `frontend`.
 
 Sau khi khởi động:
@@ -377,8 +406,8 @@ evaluator deterministic, test và báo cáo. Có thể kiểm tra dataset/evalua
 không gọi API hay gửi kết quả lên LangSmith:
 
 ```powershell
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --dry-run
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
+.\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --offline
 ```
 
 Xem chi tiết tại [hướng dẫn evaluation](evaluations/README.md) và
@@ -389,12 +418,14 @@ Mọi backend endpoint có prefix `/api/v1`.
 
 | Nhóm | Endpoint tiêu biểu |
 | --- | --- |
-| Dataset & profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
+| Dataset & profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202 Accepted`), `GET /profiling-jobs/{job_id}`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
 | Chart planning | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
 | Bounded analysis | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
 | Reports | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
-| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
+| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints, `GET /dashboard`, `GET /audit` |
+| Quality & drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
+| Report lifecycle | Submit, review, publish và archive sau khi tạo snapshot |
 
 PDF profile report đi qua Next.js route cùng origin:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
@@ -402,6 +433,11 @@ PDF profile report đi qua Next.js route cùng origin:
 /reports/{report_id}/export-source` ưu tiên snapshot mới nhất; khi report draft
 chưa có snapshot, endpoint trả draft hiện hành với `snapshot_hash: "draft"` để
 trang detail vẫn mở được. Hãy tạo snapshot trước khi dùng bản export để chia sẻ.
+
+Renderer dùng Playwright Core với Chromium server-side; PDF giữ text/SVG vector,
+không dùng screenshot hay browser print dialog. Image frontend Azure đã cài Chromium
+và Noto fonts. Với môi trường local khác, đặt
+`PDF_CHROMIUM_EXECUTABLE_PATH` tới executable Chromium trước khi gọi export.
 
 ## Kiểm tra trước khi commit
 
@@ -436,17 +472,18 @@ có thể tạo migration, profile và report fixture.
 - Preview bị giới hạn thời gian, dữ liệu và số kết quả; Preview không thể ghim
   trực tiếp vào Report Draft.
 - Forecast là ước lượng có interval/limitation, không phải giá trị chắc chắn.
-- Các capability planner autonomy, verifier enforcement, durable jobs và
-  workspace/personal memory chưa là workflow phát hành; giữ các flag tương ứng
-  tắt.
-- `/analyses` và `/notebooks` vẫn tồn tại trong compatibility window, nhưng
-  navigation chính không quảng bá chúng.
+- Hủy Profile Run chưa được hỗ trợ: pandas/DuckDB/LangGraph chưa có điểm dừng
+  hợp tác an toàn. Worker sẽ phục hồi job có lease hết hạn thay vì UI giả định
+  rằng thao tác ẩn job đã hủy compute.
+- Planner autonomy, verifier enforcement và workspace/personal memory vẫn là
+  capability feature-gated, chưa là workflow phát hành.
 
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
 - [Architecture](ARCHITECTURE.md)
-- [Biểu đồ & Evidence-First Analytics](<docs/Biểu Đồ.md>)
+- [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
+- [AI Evaluation](docs/eval.md)
 - [Cấu hình mẫu](.env.example)
 - [Cấu hình ứng dụng](config.yaml)
 - [Hướng dẫn AI evaluation](evaluations/README.md)

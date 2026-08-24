@@ -3,6 +3,7 @@ import type {
   Dataset,
   DriftResponse,
   Profile,
+  ProfilingJob,
   ProfileRunSummary,
   ProposalDecisionType,
   QAResponse,
@@ -429,6 +430,54 @@ export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile
   return request<Profile>(`/profile/${encodeURIComponent(runId)}`, { signal });
 }
 
+export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<ProfilingJob> {
+  return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal });
+}
+
+function pollingDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function waitForProfilingJob(
+  jobId: string,
+  signal?: AbortSignal,
+  timeoutMs = 30 * 60_000,
+): Promise<ProfilingJob> {
+  const deadline = Date.now() + timeoutMs;
+  let transientFailures = 0;
+  while (Date.now() < deadline) {
+    try {
+      const job = await getProfilingJob(jobId, signal);
+      transientFailures = 0;
+      if (job.status === "succeeded") return job;
+      if (job.status === "failed") {
+        throw new ApiError(job.error?.message || "Profiling không hoàn thành.", 409);
+      }
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") throw reason;
+      if (!(reason instanceof ApiError) || (reason.status > 0 && reason.status < 500)) throw reason;
+      transientFailures += 1;
+      if (transientFailures > 5) throw reason;
+    }
+    await pollingDelay(2_500, signal);
+  }
+  throw new ApiError("Profiling vẫn đang xử lý. Bạn có thể mở lại profile để tiếp tục theo dõi.", 408);
+}
+
 export function createProfile(payload: {
   dataset_id?: string;
   dataset_ref?: string;
@@ -436,10 +485,10 @@ export function createProfile(payload: {
   run_name?: string;
   scan_mode: "full" | "sample";
   sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number };
-}): Promise<Profile> {
-  return request<Profile>("/profile", {
+}, idempotencyKey = crypto.randomUUID()): Promise<ProfilingJob> {
+  return request<ProfilingJob>("/profile", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(payload),
   });
 }

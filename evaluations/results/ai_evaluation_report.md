@@ -1,29 +1,22 @@
-# Báo cáo Đánh giá AI
+# VDaAgent AI Evaluation Report
 
-## Bộ dữ liệu
+The current generated scorecard is [latest_scorecard.md](latest_scorecard.md)
+with its machine-readable peer [latest_scorecard.json](latest_scorecard.json).
+The semantic judge artifact is [judge_scorecard.json](judge_scorecard.json).
 
-| Trường | Giá trị |
-| --- | --- |
-| Phiên bản | p170-ai-eval-v1 |
-| Phân loại | chỉ dữ liệu tổng hợp |
-| Số case | 16 |
-| Split | dev, test, security, regression |
+## Latest verified offline run
 
-## Baseline deterministic
+- Dataset: `p170-ai-eval-v1`
+- Cases: 26 synthetic cases
+- Hard-gate failures: 0
+- Critical failures: 0
+- Result: PASS for the offline fixture-contract gate
 
-| Gate | Kết quả |
-| --- | --- |
-| Kiểm tra fixture | Pass |
-| Scorecard hard gate offline | Pass |
-| Unit test evaluator | Pass |
+This result validates fixture integrity, evaluator logic, real Pydantic contract
+checks, and configured release gates. The separate synthetic online judge run
+uses rubric `p170-llm-judge-rubric-v1`, passed calibration 5/5, and scored the
+26-case baseline with semantic pass rate 69.23%.
 
-Target offline chỉ xác nhận contract evaluation, không phải kết quả chất lượng Gemini. Trước release, chạy live suite trên Profile Run staging synthetic và lưu model/provider, prompt hash, git SHA, runtime/policy version, retrieval index version, repetition, latency, token budget và infra error.
-
-## Checklist release
-
-- [x] Fixture tổng hợp và security canary
-- [x] Hard gate deterministic
-- [x] Offline suite pass
-- [ ] Analyst duyệt baseline staging synthetic
-- [ ] Bật nightly regression job
-- [ ] Review baseline từ phản hồi người dùng/annotation
+Run `python tests/evaluations/run_evaluation.py --offline` to regenerate the latest
+artifacts. See [docs/eval.md](../../docs/eval.md) for scope, limitations, and
+required owner actions before treating any online result as a release baseline.

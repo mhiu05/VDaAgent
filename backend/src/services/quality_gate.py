@@ -79,7 +79,6 @@ def evaluate_quality_gate(
     # OpenMetadata-style Extended Quality Assertions
     stats = repository.get_column_stats(profile_run_id)
     all_stats = stats or {}
-    total_columns = len(all_stats)
     clean_columns = 0
 
     for col_name, stat in all_stats.items():

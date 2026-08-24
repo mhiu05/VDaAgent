@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { CHAT_HISTORY_EVENT, clearChatHistory, createConversation, deleteConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
@@ -92,9 +93,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const accountPanel = authenticated && me ? (
     <section className="sidebar-account" aria-label="Tài khoản đang đăng nhập">
       {avatarSrc ? (
-        <img
+        <Image
           src={avatarSrc}
           alt="Avatar"
+          width={34}
+          height={34}
+          unoptimized
           className="account-avatar"
           style={{ width: "34px", height: "34px", borderRadius: "9px", objectFit: "cover" }}
         />
@@ -121,9 +125,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
   ) : isGuest ? (
     <section className="sidebar-account sidebar-guest-account" aria-label="Phiên khách đang hoạt động">
       {avatarSrc ? (
-        <img
+        <Image
           src={avatarSrc}
           alt="Avatar"
+          width={34}
+          height={34}
+          unoptimized
           className="account-avatar"
           style={{ width: "34px", height: "34px", borderRadius: "9px", objectFit: "cover" }}
         />

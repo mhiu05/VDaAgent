@@ -144,6 +144,15 @@ class Settings(BaseSettings):
     profiling_top_k_values: int = Field(default=10, ge=1, le=100)
     profiling_outlier_method: Literal["iqr", "zscore", "both"] = "iqr"
     profiling_max_columns: int = Field(default=200, ge=1)
+    # Durable PostgreSQL-backed profiling worker.  A conservative default
+    # protects the metadata/checkpointer pools and pandas/DuckDB memory use.
+    profiling_worker_concurrency: int = Field(default=1, ge=1, le=8)
+    profiling_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=30.0)
+    profiling_worker_lease_seconds: int = Field(default=300, ge=30, le=3600)
+    profiling_worker_max_attempts: int = Field(default=3, ge=1, le=10)
+    profiling_worker_shutdown_grace_seconds: int = Field(
+        default=30, ge=1, le=600
+    )
 
     # --- hitl (ADR-004: tiered review) ------------------------------------
     hitl_auto_confirm: bool = True

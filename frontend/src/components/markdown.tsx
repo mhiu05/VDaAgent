@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 function renderInlineMarkdown(text: string): ReactNode {
   const cleaned = text.replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
-  const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__)/g);
+  const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*)/g);
 
   return tokens.map((token, tokenIndex) => {
     const code = token.match(/^`(.+)`$/);
@@ -11,9 +11,16 @@ function renderInlineMarkdown(text: string): ReactNode {
     const bold = token.match(/^\*\*(.+)\*\*$|^__(.+)__$/);
     if (bold) return <strong key={`strong-${tokenIndex}`}>{bold[1] || bold[2]}</strong>;
 
+    const italic = token.match(/^\*(.+)\*$/);
+    if (italic) return <em key={`italic-${tokenIndex}`}>{italic[1]}</em>;
+
     return token.replace(/^_(.+)_$/, "$1");
   });
 }
+
+const getCleanId = (text: string) => {
+  return text.replace(/\*\*/g, "").replace(/^[#\s]+/, "").replace(/[^a-zA-Z0-9]/g, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '');
+};
 
 export function MarkdownContent({ text, className = "markdown-message" }: { text: string; className?: string }) {
   const lines = text.split("\n");
@@ -35,7 +42,8 @@ export function MarkdownContent({ text, className = "markdown-message" }: { text
     if (/^#{1,3}\s+/.test(line)) {
       inDetailSection = false;
       const heading = line.replace(/^#{1,3}\s*/, "");
-      blocks.push(<h3 key={`heading-${index}`}>{renderInlineMarkdown(heading)}</h3>);
+      const headingId = `heading-${getCleanId(heading)}`;
+      blocks.push(<h3 id={headingId} key={`heading-${index}`}>{renderInlineMarkdown(heading)}</h3>);
       index += 1;
       continue;
     }
@@ -80,8 +88,10 @@ export function MarkdownContent({ text, className = "markdown-message" }: { text
       continue;
     }
 
-    if (/^\d+[.)]\s+/.test(line)) {
-      blocks.push(<h3 className="report-markdown-numbered-heading" key={`numbered-${index}`}>{renderInlineMarkdown(line)}</h3>);
+    if (/^(?:\*\*)?(?:\d+\.)+\s+/.test(line)) {
+      const cleanId = getCleanId(line);
+      const headingId = `heading-${cleanId}`;
+      blocks.push(<h3 id={headingId} className="report-markdown-numbered-heading" key={`numbered-${index}`}>{renderInlineMarkdown(line)}</h3>);
       index += 1;
       continue;
     }

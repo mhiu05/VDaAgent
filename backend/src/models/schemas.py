@@ -155,6 +155,26 @@ class ProfileResponse(BaseModel):
     trace_summary: dict[str, Any] | None = None
 
 
+class ProfileJobError(BaseModel):
+    code: str
+    message: str
+
+
+class ProfileJobResponse(BaseModel):
+    job_id: str
+    profiling_run_id: str
+    dataset_id: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    stage: str | None = None
+    attempt_count: int = 0
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    result_id: str | None = None
+    error: ProfileJobError | None = None
+    duplicate: bool = False
+
+
 # --------------------------------------------------------------------------- #
 # HITL
 # --------------------------------------------------------------------------- #

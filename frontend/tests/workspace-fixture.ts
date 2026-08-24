@@ -18,7 +18,20 @@ export async function useAnalystWorkspace(page: Page): Promise<void> {
   await page.addInitScript((session) => {
     window.sessionStorage.setItem("p170-guest-session-v1", JSON.stringify(session));
   }, guestSession);
-  await page.route("**/api/v1/session", async (route) => {
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ user: { id: "guest-analyst-e2e", email: null }, workspace, effective_permissions: analystPermissions, workspaces: [workspace] }) });
+  await page.route("**/api/v1/workspace-bootstrap", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        user: { id: "guest-analyst-e2e", email: null },
+        workspace,
+        effective_permissions: analystPermissions,
+        workspaces: [workspace],
+        dashboard: {
+          kind: "analyst",
+          counts: { datasets: 4, profiles: 6, analyses: 2, reports: 3 },
+          reports: [{ id: "published-report", title: "Báo cáo đã xuất bản", status: "published" }],
+        },
+      }),
+    });
   });
 }

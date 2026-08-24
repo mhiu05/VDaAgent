@@ -33,6 +33,11 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=8080
 
+# Playwright Core drives this system Chromium only for server-side, text-based
+# PDF rendering. Noto keeps Vietnamese glyphs available in the final document.
+RUN apk add --no-cache chromium nss freetype harfbuzz ttf-freefont font-noto
+ENV PDF_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+
 # Next.js standalone contains the production server and only its runtime
 # dependencies. public/ includes public/fonts/arial.ttf for server-side PDF.
 COPY --from=builder --chown=node:node /app/.next/standalone ./

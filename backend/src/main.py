@@ -12,6 +12,7 @@ ngôn ngữ tự nhiên.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -30,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import (
+    router as analysis_router,
     profile_router as command_center_router,
 )
 from src.api.admin_routes import router as admin_router
@@ -55,6 +57,12 @@ _WORKSPACE_TIMING_PATHS = {
     "/api/v1/datasets",
     "/api/v1/workspaces",
 }
+_CORRELATION_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+
+def _request_correlation_id(request: Request) -> str:
+    supplied = request.headers.get("x-correlation-id", "").strip()
+    return supplied if _CORRELATION_ID.fullmatch(supplied) else uuid4().hex
 
 
 @asynccontextmanager
@@ -162,9 +170,12 @@ app = FastAPI(
 async def workspace_request_timing(request: Request, call_next: Any) -> Any:
     """Log a PII-safe timing record for high-traffic workspace navigation."""
     path = request.url.path
+    correlation_id = _request_correlation_id(request)
+    request.state.correlation_id = correlation_id
     if path not in _WORKSPACE_TIMING_PATHS:
-        return await call_next(request)
-    correlation_id = request.headers.get("x-correlation-id") or uuid4().hex
+        response = await call_next(request)
+        response.headers["X-Correlation-Id"] = correlation_id
+        return response
     started = time.perf_counter()
     try:
         response = await call_next(request)
@@ -190,26 +201,47 @@ async def workspace_request_timing(request: Request, call_next: Any) -> Any:
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.error(f"Pydantic Validation Error at {request.url.path}:\n{exc}")
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    errors = [
+        {key: value for key, value in error.items() if key not in {"input", "ctx"}}
+        for error in exc.errors()
+    ]
+    logger.warning(
+        "Request validation failed path=%s error_count=%d",
+        request.url.path,
+        len(errors),
+    )
     return JSONResponse(
         status_code=422,
-        content={"detail": exc.errors(), "body": str(exc.body) if hasattr(exc, "body") else None},
+        content={"detail": errors},
     )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled error on %s: %s", request.url.path, exc)
+    correlation_id = _request_correlation_id(request)
+    logger.error(
+        "Unhandled error path=%s correlation_id=%s error_type=%s",
+        request.url.path,
+        correlation_id,
+        type(exc).__name__,
+    )
     return JSONResponse(
         status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}"},
+        content={
+            "detail": "Internal server error.",
+            "request_id": correlation_id,
+        },
+        headers={"X-Correlation-Id": correlation_id},
     )
 
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
 app.include_router(skill_router, prefix="/api/v1")
+app.include_router(analysis_router, prefix="/api/v1")
 app.include_router(command_center_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")

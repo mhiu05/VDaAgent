@@ -9,6 +9,9 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
+from langchain_core.language_models import BaseChatModel
+# pyrefly: ignore [missing-import]
+from langchain_google_genai import ChatGoogleGenerativeAI
 # pyrefly: ignore [missing-import]
 from langchain_openai import ChatOpenAI
 from src.config import LLM_PROVIDERS, Settings, get_settings
@@ -27,11 +30,20 @@ class LLMNotConfiguredError(RuntimeError):
 
 
 @lru_cache
-def get_llm(streaming: bool = False) -> ChatOpenAI:
+def get_llm(streaming: bool = False) -> BaseChatModel:
     """Client LLM dùng chung. Raise `LLMNotConfiguredError` nếu thiếu key."""
     settings = get_settings()
     if not settings.llm_configured:
         raise LLMNotConfiguredError(settings)
+
+    if settings.llm_provider == "gemini":
+        # Native Gemini preserves provider-specific thought signatures in tool calls.
+        return ChatGoogleGenerativeAI(
+            model=settings.llm_model,
+            google_api_key=settings.llm_api_key,
+            temperature=settings.llm_temperature,
+            max_retries=2,
+        )
 
     kwargs: dict[str, Any] = {
         "model": settings.llm_model,

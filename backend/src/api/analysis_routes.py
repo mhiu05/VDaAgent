@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import logging
-logger = logging.getLogger(__name__)
 # pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from src.agents.prompts import CHART_PLANNER_PROMPT
@@ -48,6 +47,8 @@ from src.services.permissions import ANALYSIS_RUN
 from src.services.quality_gate import evaluate_quality_gate
 from src.services.repository import get_repository, is_expired
 from src.services.security import get_audit, get_rate_limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analysis-sessions", tags=["analysis"])
 profile_router = APIRouter(prefix="/profile", tags=["command-center"])
@@ -454,20 +455,16 @@ async def execute_preview(
             preview_row_budget=get_settings().ux_preview_row_budget,
         )
     except AnalysisQueryError as exc:
-        logger.error(f"AnalysisQueryError: {exc}")
-        with open("422_error.log", "w", encoding="utf-8") as f:
-            f.write(f"AnalysisQueryError: {exc}")
+        logger.warning("Invalid preview query: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except OSError as exc:
-        logger.error(f"OSError in preview: {exc}")
-        with open("422_error.log", "w", encoding="utf-8") as f:
-            f.write(f"OSError in preview: {exc}")
+        logger.warning("Preview data source is unavailable", exc_info=True)
         raise HTTPException(
             status_code=422,
-            detail=f"Không thể truy cập dữ liệu: {exc}",
+            detail="Không thể truy cập dữ liệu cho bản xem trước.",
         ) from exc
-    except Exception as exc:
-        logger.error(f"Unexpected error in preview: {exc}")
+    except Exception:
+        logger.exception("Unexpected error while executing a preview")
         raise
     execution = analyses.save_execution(
         session_id,

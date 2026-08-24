@@ -15,7 +15,7 @@ import {
   streamQuestion,
 } from "@/lib/api";
 import type { Profile } from "@/lib/types";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChartEvidenceView } from "./chart-evidence-view";
@@ -77,7 +77,7 @@ const PROBLEMS: Array<{ value: ProblemType; label: string; detail: string }> = [
 const FORECAST_LABELS: Record<ForecastAlgorithm, string> = {
   naive: "Naive Forecast", seasonal_naive: "Seasonal Naive", drift: "Drift Method", moving_average: "Moving Average", weighted_moving_average: "Weighted Moving Average",
   ses: "Simple Exponential Smoothing (SES)", holt_linear: "Holt’s Linear Trend", holt_winters: "Holt-Winters", ets: "ETS",
-  arima: "ARIMA", sarima: "SARIMA", sarimax: "SARIMAX", auto_arima: "Auto-ARIMA", arimax: "ARIMAX",
+  arima: "ARIMA", sarima: "SARIMA", auto_arima: "Auto-ARIMA",
   structural_time_series: "Structural Time Series", local_level: "Local Level Model", local_linear_trend: "Local Linear Trend", kalman_filter: "Kalman Filter", dynamic_linear_model: "Dynamic Linear Model", unobserved_components: "Unobserved Components Model",
   prophet: "Prophet", neuralprophet: "NeuralProphet", linear_regression: "Linear Regression", ridge: "Ridge Regression", lasso: "Lasso", random_forest: "Random Forest", extra_trees: "Extra Trees", xgboost: "XGBoost", lightgbm: "LightGBM", catboost: "CatBoost",
 };
@@ -382,7 +382,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
         <summary>Tùy chỉnh nâng cao · xem hoặc thay đổi quyết định kỹ thuật</summary>
         <div className="chart-flow-section"><span className="chart-flow-number">3</span><div><b>Chọn bài toán</b><p>Nhập câu hỏi và xác nhận loại bài toán cần giải quyết.</p></div></div>
         <div className="chart-config-fields chart-step-fields">
-          <label>Câu hỏi kinh doanh<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
+          <label>Câu hỏi<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
           <label>Bài toán<select value={chart.problem} onChange={(event) => onChange({ problem: event.target.value as ProblemType, algorithm: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn bài toán</option>{PROBLEMS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
           {chart.problem && <p className="chart-step-hint">{PROBLEMS.find((item) => item.value === chart.problem)?.detail}</p>}
         </div>
@@ -424,6 +424,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
 }
 
 export function ChartsTab({ runId, profile, onExplain }: Props) {
+  const queryClient = useQueryClient();
   const explorer = useQuery({ queryKey: ["command-center", runId, "explorer-session"], queryFn: () => ensureExplorerSession(runId) });
   const forecastCatalog = useQuery({ queryKey: ["command-center", runId, "forecast-algorithms"], queryFn: () => listForecastAlgorithms(runId) });
   const [understanding, setUnderstanding] = useState(() => {
@@ -703,6 +704,8 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     onSuccess: ({ ids, errors }) => {
       setCharts((current) => current.map((chart) => ids.includes(chart.id) ? { ...chart, pinned: true, insight_reviewed: true } : chart));
       setMessage(errors.length ? `Đã ghim ${ids.length} biểu đồ; ${errors.length} biểu đồ lỗi.` : `Đã ghim thành công toàn bộ ${ids.length} biểu đồ kèm insight vào Report Draft.`);
+      queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
+      queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
     },
   });
 
@@ -720,6 +723,8 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       );
       setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, pinned: true, insight_reviewed: true } : item));
       setMessage(`Đã ghim "${chartDisplayTitle(chart)}" vào Báo cáo thành công!`);
+      queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
+      queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Không thể ghim biểu đồ.");
     }
@@ -753,10 +758,10 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
 
   return <section className="command-charts">
     {/* Unified Hero Panel: Question Input + 1-Click Auto Analysis Pack */}
-    <section className="panel chart-auto-profile-pack" style={{ border: "2px solid #315efb", padding: "14px 18px", background: "linear-gradient(180deg, #ffffff 0%, #f6f9ff 100%)" }}>
+    <section className="panel chart-auto-profile-pack">
       <div className="panel-title" style={{ marginBottom: 10 }}>
         <div>
-          <span className="eyebrow" style={{ color: "#315efb", fontWeight: 800 }}>AI ANALYTICS WORKSPACE · PHÂN TÍCH TỰ ĐỘNG</span>
+          <span className="eyebrow" style={{ color: "#315efb", fontWeight: 800 }}>VDaAgent · PHÂN TÍCH CHUYÊN SÂU THÔNG QUA BIỂU ĐỒ</span>
           <h3 style={{ margin: "4px 0 0", fontSize: "1.1rem", color: "#0c1a3a" }}>Bạn muốn phân tích câu hỏi gì từ dữ liệu?</h3>
           <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.78rem" }}>
             Nhập câu hỏi bằng ngôn ngữ tự nhiên hoặc nhấn nút phân tích trọn gói. Agent sẽ tự động tính toán qua DuckDB, vẽ biểu đồ và viết AI insight.
@@ -765,7 +770,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       </div>
 
       {/* Primary Input: Business Question */}
-      <div className="chart-business-question-panel" style={{ display: "grid", gap: "10px", background: "#ffffff", padding: "16px", borderRadius: "12px", border: "1px solid #c9dafb", boxShadow: "0 2px 8px rgba(49, 94, 251, 0.06)" }}>
+          <div className="chart-business-question-panel">
         <label className="chart-business-question" style={{ margin: 0 }}>
           <div className="chart-business-question-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "#14254b" }}>
@@ -853,7 +858,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         <div className="chart-progress-card" role="status" aria-live="polite">
           <div className="chart-progress-header">
             <div>
-              <span className="eyebrow">TIẾN ĐỘ XỬ LÝ CÂU HỎI KINH DOANH</span>
+              <span className="eyebrow">TIẾN ĐỘ XỬ LÝ CÂU HỎI</span>
               <h4>{autoQuestionProgress.step}</h4>
             </div>
             <div className="chart-progress-badge">
@@ -919,7 +924,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     {/* Header & Workspace */}
     <header className="command-charts-header">
       <div>
-        <p className="eyebrow">CÂU HỎI KINH DOANH → BIỂU ĐỒ → INSIGHT</p>
+        <p className="eyebrow">CÂU HỎI → BIỂU ĐỒ → INSIGHT</p>
         <h2>Workspace Biểu đồ</h2>
       </div>
       <div className="chart-workspace-count">
@@ -930,7 +935,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     {message && <Notice tone="info">{message}</Notice>}
     {[autoProfile, automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
     <details className="panel chart-model-catalog"><summary>Danh mục thuật toán dự báo · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
-    <div className="chart-toolbar"><details className="chart-manual-tools"><summary>Tùy chỉnh nâng cao / chạy thủ công</summary><div className="inline-actions"><button type="button" className="button secondary" onClick={() => understand.mutate()} disabled={busy}>{understand.isPending ? "Agent đang đọc Profile…" : "Đọc riêng Profile"}</button><button type="button" className="button secondary" onClick={() => setCharts((current) => current.length >= MAX_CHARTS ? current : [...current, draftChart()])} disabled={charts.length >= MAX_CHARTS || busy}>+ Bài phân tích thủ công</button><button type="button" className="button secondary" onClick={() => preview.mutate()} disabled={busy || !validCharts.length}>{preview.isPending ? "Đang chạy Preview…" : "Chạy Preview"}</button><button type="button" className="button secondary" onClick={() => promote.mutate()} disabled={busy || !charts.some((chart) => chart.execution?.execution_kind === "preview")}>{promote.isPending ? "Đang tạo Official…" : "Tạo Official"}</button></div></details><div className="inline-actions"><button type="button" className="button primary" onClick={() => pin.mutate()} disabled={busy || !charts.some(generatedReady)}>{pin.isPending ? "Đang ghim…" : "Ghim chart + insight đã duyệt"}</button><Link className="button secondary" href={`/profiles/${runId}?tab=report`}>Report Draft / Xuất</Link></div></div>
+
     <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
     {charts.filter((chart) => chart.question).length > 0 && (
       <aside className="report-toc-sidebar">

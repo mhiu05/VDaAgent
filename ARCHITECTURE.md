@@ -6,7 +6,7 @@ agent answer, report item, snapshot, audit record, and execution evidence must
 all resolve back to that Profile Run and its workspace.
 
 ```text
-Dataset upload → Profile Run → metadata/PII review when needed → completed profile
+Dataset upload → queued Profile Run → profiling worker → metadata/PII review → completed profile
                                                 ├─ Charts workspace
                                                 │   plan → Preview → Official evidence
                                                 ├─ Agent Q&A
@@ -20,8 +20,10 @@ The current product surface has two related workspaces:
 - `/charts` selects a completed Profile Run and creates evidence-backed charts
   with the same Explorer context and Report Draft.
 
-`/analyses` and `/notebooks` remain compatibility routes. They are not the
-primary navigation or the main data model for new work.
+The former `/analyses` and `/notebooks` compatibility surfaces are retired;
+the Profile Run Command Center is the supported workflow. Public routes
+(`/`, `/about`, `/guide`, `/docs`, and `/contact`) introduce the product; the
+authenticated workspace begins after sign-in.
 
 ## Design boundaries
 
@@ -62,18 +64,28 @@ flowchart LR
     subgraph Service[FastAPI :8000/api/v1]
         API[Routes]
         Guard[Authentication, workspace resolution\nand capability checks]
-        Profile[LangGraph profiling\nand metadata review]
+        ProfileJobs[Durable profile job submission\nand status]
+        ProfileReview[Metadata review / durable continuation enqueue]
         Charts[Chart planner and bounded\nAnalysisEngine]
         Agent[Q&A, skills and redacted trace]
         Reports[Draft, snapshot and export source]
         Compute[DuckDB, pandas, NumPy, SciPy\nforecast adapters]
         Repo[Repositories]
         API --> Guard
-        Guard --> Profile & Charts & Agent & Reports
-        Profile --> Compute & Repo
+        Guard --> ProfileJobs & ProfileReview & Charts & Agent & Reports
+        ProfileJobs --> Repo
+        ProfileReview --> Repo
         Charts --> Compute & Repo
         Agent --> Repo
         Reports --> Repo
+    end
+
+    subgraph Worker[Dedicated profiling worker]
+        Claim[SKIP LOCKED claim\nbounded concurrency]
+        Lease[Heartbeat / lease recovery]
+        Profile[Existing LangGraph profiling\ninitial run and HITL resume]
+        Claim --> Profile
+        Lease --> Claim
     end
 
     subgraph Persistence[Persistence]
@@ -83,6 +95,8 @@ flowchart LR
     end
 
     Repo --> DB
+    DB --> Claim
+    Profile --> Repo & Compute
     Profile --> Storage
     Charts --> Storage
     Storage --> Temp --> Compute
@@ -105,24 +119,34 @@ flowchart LR
 ```
 
 The frontend is deployed separately and calls FastAPI through
-`NEXT_PUBLIC_API_URL`. The PDF route is server-side by design: it requests an
-authorized export source from FastAPI before rendering the document.
+`NEXT_PUBLIC_API_URL`. Profile submission returns `202 Accepted` and the client
+polls `GET /profiling-jobs/{jobId}`; no HTTP request runs the profiling graph.
+The PDF route is server-side by design: it requests an authorized export source
+from FastAPI before rendering the document.
 
 ## Deployment and integration boundaries
 
-Production deploys separate containerized frontend and backend applications on
-Azure App Service. The frontend is built with `NEXT_PUBLIC_API_URL` pointing to
+Production deploys separate frontend, API, and profiling-worker processes on
+Azure App Service. API and worker reuse the same immutable backend image with
+different startup commands. The frontend is built with `NEXT_PUBLIC_API_URL` pointing to
 `AZURE_BACKEND_URL/api/v1`; the backend permits the deployed frontend through
 `CORS_ORIGINS`. Secrets stay in backend App Service settings or GitHub Actions
 secrets, never in `NEXT_PUBLIC_*` variables.
+
+Profiling cancellation is intentionally not exposed in this release. The
+existing pandas/DuckDB/LangGraph computation does not yet provide cooperative
+safe boundaries, and forcefully terminating a Python thread could leave result
+or checkpoint persistence inconsistent. Queued-job cancellation and
+cooperative cancellation checkpoints are a future product/engine decision;
+the UI never pretends that hiding a running job has cancelled its computation.
 
 Supabase is the identity provider: Google sign-in returns first to the Supabase
 callback and then to an allowed frontend URL. Google Drive storage is a separate
 OAuth client and its callback must be the backend endpoint
 `/api/v1/google-drive/callback`; local and production use their respective
-redirect URI values. The deployed pipeline currently selects Supabase Storage;
-Google Drive requires its own backend environment settings and an explicit
-storage-provider change.
+redirect URI values. The selected storage provider is deployment configuration:
+the Azure workflow defaults its primary storage provider to Google Drive and
+can instead be configured for Supabase Storage.
 
 LangSmith is optional and fail-open. PostgreSQL remains the authoritative agent
 trace store. When `LANGSMITH_TRACING=true` and a server-side API key is present,
@@ -135,6 +159,7 @@ secrets, file paths, or chain-of-thought.
 | --- | --- |
 | Next.js / React | Browser UI, Supabase session transport, Charts workspace, report UI and PDF route |
 | FastAPI | REST/SSE API, CORS, auth, workspace/capability enforcement, audit and business workflows |
+| Profiling worker | Atomically claims durable Profile Runs and HITL continuations, renews leases, and invokes the existing LangGraph with bounded concurrency |
 | LangGraph + native skills | Profiling/Q&A orchestration; bounded tool registry and optional redacted trace |
 | `AnalysisEngine` | Validates `QuerySpec`, runs bounded aggregates, profile-derived analysis and forecasts |
 | Chart planner | Turns an approved-profile question into a structured ChartPlan; uses a rule fallback if LLM planning fails |
@@ -179,6 +204,7 @@ sequenceDiagram
     participant API as FastAPI
     participant Guard as Auth/workspace guard
     participant Store as Configured storage
+    participant Worker as Profiling worker
     participant Graph as Profiling graph
     participant DB as PostgreSQL
 
@@ -188,14 +214,24 @@ sequenceDiagram
     API->>Store: Persist dataset binary
     API->>DB: Save dataset reference, hash, metadata, audit
     A->>UI: Create sample or full Profile Run
-    UI->>API: POST /profile
+    UI->>API: POST /profile + Idempotency-Key
     API->>Guard: Check profile-run capability
-    API->>Graph: Profile source with deterministic tools
+    API->>DB: Persist queued Profile Run/job
+    API-->>UI: 202 Accepted + job_id
+    loop Until job is terminal or awaits review
+        UI->>API: GET /profiling-jobs/{jobId}
+        API->>DB: Read workspace-scoped job status
+        API-->>UI: queued/running/succeeded/failed
+    end
+    Worker->>DB: Claim queued job (SKIP LOCKED) and renew lease
+    Worker->>Graph: Profile source with deterministic tools
     Graph->>DB: Save statistics, PII/key/type proposals, provenance
-    Graph-->>UI: Profile or pending review state
+    Worker->>DB: Mark job succeeded; run may await review
     A->>UI: Confirm/edit/reject proposals when required
     UI->>API: PATCH /profile/{runId}/confirm
-    API->>Graph: Resume and complete Profile Run
+    API->>DB: Persist decisions and enqueue continuation
+    Worker->>DB: Claim continuation and renew lease
+    Worker->>Graph: Resume from checkpoint
     Graph->>DB: Persist decisions and completed profile
 ```
 
@@ -266,12 +302,12 @@ All FastAPI endpoints use the `/api/v1` prefix.
 
 | Domain | Representative endpoints |
 | --- | --- |
-| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile`, `GET /profile/{runId}`, `PATCH /profile/{runId}/confirm` |
+| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{jobId}`, `GET /profile/{runId}`, `PATCH /profile/{runId}/confirm` |
 | Charts | `POST /profile/{runId}/charts/auto-plan`, `POST /profile/{runId}/charts/auto-profile-pack`, `GET /profile/{runId}/charts/algorithms` |
 | Explorer | `POST /profile/{runId}/explorer/session`, `POST /profile/{runId}/explorer/previews`, `POST /profile/{runId}/explorer/previews/{previewId}/promote` |
 | Agent/evidence | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{runId}`, `GET /agent-runs/{runId}/evidence` |
 | Reports | `GET/POST /profile/{runId}/report-draft`, `POST /reports/{reportId}/items`, `POST /reports/{reportId}/snapshots`, `GET /reports/{reportId}/export-source` |
-| Workspace/auth | `GET /session`, `GET/POST /workspaces`, membership, invitation, configuration and guest endpoints |
+| Workspace/auth | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, membership, invitation, configuration and guest endpoints |
 
 ## Security and operational invariants
 
@@ -300,8 +336,10 @@ All FastAPI endpoints use the `/api/v1` prefix.
   evidence.
 - Forecast values are model estimates with limitations, not facts. A model is
   hidden/disabled when its package or required future exogenous input is absent.
-- Planner autonomy, verifier enforcement, durable jobs, circuit breaking and
-  long-term workspace/personal memory are feature-gated rather than released
-  workflows.
+- Planner autonomy, verifier enforcement, circuit breaking and long-term
+  workspace/personal memory are feature-gated rather than released workflows.
+- Profile jobs are durable and asynchronous, but cancellation is not exposed:
+  forcefully stopping a pandas/DuckDB/LangGraph run could leave computation or
+  checkpoint persistence inconsistent.
 - Guest workspaces have a separate retention/storage policy and are not durable
   production storage.

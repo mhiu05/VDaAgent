@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ErrorNotice, LoadingBlock } from "@/components/ui";
@@ -171,8 +172,8 @@ export default function WorkspacesPage() {
           <p className="eyebrow">NEW WORKSPACE</p><h2>Tạo workspace mới</h2><p className="muted">Chọn một chủ đề để thiết lập sẵn context và màu sắc phù hợp. Bạn vẫn có thể chỉnh chi tiết ngay bên dưới hoặc trong Cài đặt sau này.</p>
         </div>
         <div className="workspace-create-gallery" aria-label="Minh họa tạo workspace">
-          <img src="/img/create_new_workspace_1.jpg" alt="Minh họa không gian workspace" />
-          <img src="/img/create_new_workspace_2.jpg" alt="Minh họa cấu hình workspace" />
+          <Image src="/img/create_new_workspace_1.jpg" alt="Minh họa không gian workspace" width={1200} height={900} sizes="(max-width: 768px) 100vw, 50vw" />
+          <Image src="/img/create_new_workspace_2.jpg" alt="Minh họa cấu hình workspace" width={3000} height={3000} sizes="(max-width: 768px) 100vw, 50vw" />
         </div>
       </div>
       <form className="workspace-create-form workspace-template-form" onSubmit={submitCreate}>

@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { listDatasets, listRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource } from "@/lib/types";
@@ -15,24 +18,15 @@ const starters = [
   "Có cột nào phù hợp làm candidate key không?",
 ];
 
-function DataAnalyticsIcon({ size = 26, color = "#2563eb" }: { size?: number; color?: string }) {
+function DataAnalyticsIcon({ size = 26 }: { size?: number; color?: string }) {
   return (
-    <svg
+    <Image
+      src="/img/logo.png"
+      alt="VDaAgent Icon"
       width={size}
       height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 20h18" stroke="#94a3b8" strokeWidth="2" />
-      <rect x="4.5" y="11" width="3.2" height="9" rx="0.8" fill={color} fillOpacity="0.25" stroke={color} strokeWidth="1.6" />
-      <rect x="10.4" y="6" width="3.2" height="14" rx="0.8" fill={color} fillOpacity="0.55" stroke={color} strokeWidth="1.6" />
-      <rect x="16.3" y="2" width="3.2" height="18" rx="0.8" fill={color} fillOpacity="0.9" stroke={color} strokeWidth="1.6" />
-      <path d="M4 13l5.5-5 4 3 5.5-7" stroke="#f59e0b" strokeWidth="2" />
-      <circle cx="19" cy="4" r="1.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="0.8" />
-    </svg>
+      style={{ width: size, height: size, objectFit: "contain" }}
+    />
   );
 }
 
@@ -428,7 +422,7 @@ export function DraggableChatWidget({
             overflow: "hidden",
             animation: "widgetFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
           }}
-          aria-label="AI Data Copilot"
+          aria-label="VDaAgent"
         >
           {/* HEADER */}
           <header
@@ -459,7 +453,7 @@ export function DraggableChatWidget({
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>
-                  {viewMode === "history" ? "Lịch sử trò chuyện" : "AI Data Copilot"}
+                  {viewMode === "history" ? "Lịch sử trò chuyện" : "VDaAgent"}
                 </h3>
                 <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
                   {viewMode === "history" ? "Lưu trong 30 ngày" : "Vừa xem tính năng vừa hỏi đáp"}
@@ -733,7 +727,32 @@ export function DraggableChatWidget({
                           boxShadow: isUser ? "0 2px 8px rgba(37,99,235,0.2)" : "none",
                         }}
                       >
-                        {m.text}
+                        {isUser ? (
+                          m.text
+                        ) : (
+                          <div className="markdown-message-widget">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                h1: ({node, ...props}) => <h1 style={{fontSize: "1.25rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
+                                h2: ({node, ...props}) => <h2 style={{fontSize: "1.1rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
+                                h3: ({node, ...props}) => <h3 style={{fontSize: "1rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
+                                h4: ({node, ...props}) => <h4 style={{fontSize: "0.95rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
+                                p: ({node, ...props}) => <p style={{margin: "0.25rem 0"}} {...props} />,
+                                ul: ({node, ...props}) => <ul style={{margin: "0.5rem 0", paddingLeft: "1.2rem"}} {...props} />,
+                                ol: ({node, ...props}) => <ol style={{margin: "0.5rem 0", paddingLeft: "1.2rem"}} {...props} />,
+                                li: ({node, ...props}) => <li style={{margin: "0.25rem 0"}} {...props} />,
+                                table: ({node, ...props}) => <div style={{overflowX: "auto", margin: "0.5rem 0"}}><table style={{width: "100%", borderCollapse: "collapse", fontSize: "0.8rem"}} {...props} /></div>,
+                                th: ({node, ...props}) => <th style={{border: "1px solid #cbd5e1", padding: "4px 8px", background: "#f8fafc", textAlign: "left", fontWeight: 600}} {...props} />,
+                                td: ({node, ...props}) => <td style={{border: "1px solid #cbd5e1", padding: "4px 8px"}} {...props} />,
+                                code: ({node, ...props}) => <code style={{background: "rgba(0,0,0,0.05)", padding: "2px 4px", borderRadius: "4px", fontSize: "0.9em"}} {...props} />,
+                                pre: ({node, ...props}) => <pre style={{background: "#f1f5f9", padding: "8px", borderRadius: "8px", overflowX: "auto", fontSize: "0.8rem", margin: "0.5rem 0"}} {...props} />,
+                              }}
+                            >
+                              {m.text}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                       </div>
                       {m.sources && m.sources.length > 0 && (
                         <div style={{ marginTop: "4px", width: "100%", maxWidth: "88%" }}>

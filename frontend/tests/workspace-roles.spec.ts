@@ -13,7 +13,7 @@ test("Analyst sees the complete workspace flow", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Sẵn sàng phân tích" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Báo cáo đã xuất bản" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Lịch sử chat" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mở Trợ lý AI Copilot" })).toBeVisible();
   await expect(page.locator('a[href="/datasets"]')).toBeVisible();
   await expect(page.getByRole("link", { name: "Phiên phân tích" })).toHaveCount(0);
   await expect(page.locator('a[href="/reports"]')).toBeVisible();

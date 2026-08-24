@@ -6,17 +6,18 @@ Chạy offline: không có LLM key, mọi con số do DuckDB/pandas tính.
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from tests.conftest import run_worker_until_job_terminal, submit_and_run_profile
 from src.config import get_settings
 from src.services.repository import get_repository
 
 
-def _analyst_headers(
-    client: TestClient, monkeypatch, session_id: str
-) -> dict[str, str]:
+def _analyst_headers(client: TestClient, monkeypatch) -> dict[str, str]:
     """Create an isolated Analyst workspace for role-boundary API tests."""
     monkeypatch.setattr(get_settings(), "auth_allow_guest", True)
+    session_id = str(uuid4())
     headers = {"Authorization": f"Bearer guest.{session_id}.analyst"}
     session = client.get("/api/v1/session", headers=headers)
     assert session.status_code == 200, session.text
@@ -107,15 +108,27 @@ def test_profile_unknown_run_returns_404(client: TestClient) -> None:
     assert client.get("/api/v1/profile/khong-ton-tai").status_code == 404
 
 
-def test_profile_missing_file_returns_400(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/profile", json={"dataset_ref": "/khong/co/file.csv", "scan_mode": "full"}
+def test_profile_missing_file_job_fails_safely(client: TestClient) -> None:
+    submitted = client.post(
+        "/api/v1/profile",
+        headers={"Idempotency-Key": uuid4().hex},
+        json={"dataset_ref": "/khong/co/file.csv", "scan_mode": "full"},
     )
-    assert response.status_code == 400
+    assert submitted.status_code == 202
+    status = run_worker_until_job_terminal(client, submitted.json()["job_id"])
+    assert status["status"] == "failed"
+    assert status["error"] == {
+        "code": "invalid_dataset",
+        "message": "Profiling could not process this dataset.",
+    }
 
 
 def test_profile_rejects_empty_dataset_ref(client: TestClient) -> None:
-    assert client.post("/api/v1/profile", json={"dataset_ref": ""}).status_code == 422
+    assert client.post(
+        "/api/v1/profile",
+        headers={"Idempotency-Key": uuid4().hex},
+        json={"dataset_ref": ""},
+    ).status_code == 422
 
 
 def test_export_never_returns_raw_values(client: TestClient, reviewed_profile_run: dict) -> None:
@@ -239,10 +252,10 @@ def test_confirm_edit_pii_persists_final_value_and_review_note(
     client: TestClient, sample_csv: Path
 ) -> None:
     """PII được chỉnh vẫn phải lưu phân loại cuối cùng và tiếp tục che dữ liệu."""
-    created = client.post(
-        "/api/v1/profile",
-        json={"dataset_ref": str(sample_csv), "dataset_name": "pii_review", "scan_mode": "full"},
-    ).json()
+    created = submit_and_run_profile(
+        client,
+        {"dataset_ref": str(sample_csv), "dataset_name": "pii_review", "scan_mode": "full"},
+    )
     run_id = created["profile_run_id"]
     proposal = created["proposals"]["pii"][0]
     response = client.patch(
@@ -273,10 +286,10 @@ def test_confirm_applies_decisions_and_clears_pending(
     client: TestClient, sample_csv: Path
 ) -> None:
     """Luồng HITL đầy đủ trên một run riêng, để không ảnh hưởng fixture chung."""
-    created = client.post(
-        "/api/v1/profile",
-        json={"dataset_ref": str(sample_csv), "dataset_name": "users_hitl", "scan_mode": "full"},
-    ).json()
+    created = submit_and_run_profile(
+        client,
+        {"dataset_ref": str(sample_csv), "dataset_name": "users_hitl", "scan_mode": "full"},
+    )
     run_id = created["profile_run_id"]
 
     decisions = [
@@ -293,12 +306,17 @@ def test_confirm_applies_decisions_and_clears_pending(
     body = response.json()
     assert body["applied"] == len(decisions)
     assert body["pending_proposals"] == 0
-    assert body["narrative_report"]
+    assert body["status"] == "resuming"
+    terminal = run_worker_until_job_terminal(client, run_id)
+    assert terminal["status"] == "succeeded", terminal
+    completed = client.get(f"/api/v1/profile/{run_id}")
+    assert completed.status_code == 200
+    assert completed.json()["narrative_report"]
 
 
 def test_profile_runs_have_isolated_graph_threads(client: TestClient, sample_csv: Path) -> None:
-    first = client.post("/api/v1/profile", json={"dataset_ref": str(sample_csv), "dataset_name": "thread-a", "scan_mode": "full"}).json()
-    second = client.post("/api/v1/profile", json={"dataset_ref": str(sample_csv), "dataset_name": "thread-b", "scan_mode": "full"}).json()
+    first = submit_and_run_profile(client, {"dataset_ref": str(sample_csv), "dataset_name": "thread-a", "scan_mode": "full"})
+    second = submit_and_run_profile(client, {"dataset_ref": str(sample_csv), "dataset_name": "thread-b", "scan_mode": "full"})
     assert first["graph_thread_id"] == f"profile:{first['profile_run_id']}"
     assert second["graph_thread_id"] == f"profile:{second['profile_run_id']}"
     assert first["graph_thread_id"] != second["graph_thread_id"]
@@ -307,7 +325,7 @@ def test_profile_runs_have_isolated_graph_threads(client: TestClient, sample_csv
 def test_resume_works_after_graph_rebuild(
     client: TestClient, sample_csv: Path
 ) -> None:
-    created = client.post("/api/v1/profile", json={"dataset_ref": str(sample_csv), "dataset_name": "restart-resume", "scan_mode": "full"}).json()
+    created = submit_and_run_profile(client, {"dataset_ref": str(sample_csv), "dataset_name": "restart-resume", "scan_mode": "full"})
     from src.agents.graph import reset_graphs
 
     reset_graphs()
@@ -319,16 +337,21 @@ def test_resume_works_after_graph_rebuild(
     ]
     response = client.patch(f"/api/v1/profile/{created['profile_run_id']}/confirm", json={"confirmed_by": "qa", "decisions": decisions})
     assert response.status_code == 200, response.text
-    assert response.json()["status"] == "completed"
+    assert response.json()["status"] == "resuming"
+    terminal = run_worker_until_job_terminal(client, created["profile_run_id"])
+    assert terminal["status"] == "succeeded", terminal
+    completed = client.get(f"/api/v1/profile/{created['profile_run_id']}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
 
 
 def test_request_test_resumes_and_reinterrupts_at_review(
     client: TestClient, sample_csv: Path
 ) -> None:
-    created = client.post(
-        "/api/v1/profile",
-        json={"dataset_ref": str(sample_csv), "dataset_name": "request-test", "scan_mode": "full"},
-    ).json()
+    created = submit_and_run_profile(
+        client,
+        {"dataset_ref": str(sample_csv), "dataset_name": "request-test", "scan_mode": "full"},
+    )
     run_id = created["profile_run_id"]
     response = client.patch(
         f"/api/v1/profile/{run_id}/confirm",
@@ -341,16 +364,21 @@ def test_request_test_resumes_and_reinterrupts_at_review(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["status"] == "pending_review"
-    assert body["pending_proposals"] > 0
-    assert body["test_results"]
+    assert body["status"] == "resuming"
+    terminal = run_worker_until_job_terminal(client, run_id)
+    assert terminal["status"] == "succeeded", terminal
+    resumed = client.get(f"/api/v1/profile/{run_id}")
+    assert resumed.status_code == 200
+    assert resumed.json()["status"] == "pending_review"
+    assert resumed.json()["pending_proposals"] > 0
+    assert resumed.json()["test_results"]
 
 
 def test_resume_rejects_proposal_owned_by_another_run(
     client: TestClient, sample_csv: Path
 ) -> None:
-    first = client.post("/api/v1/profile", json={"dataset_ref": str(sample_csv), "dataset_name": "owner-a", "scan_mode": "full"}).json()
-    second = client.post("/api/v1/profile", json={"dataset_ref": str(sample_csv), "dataset_name": "owner-b", "scan_mode": "full"}).json()
+    first = submit_and_run_profile(client, {"dataset_ref": str(sample_csv), "dataset_name": "owner-a", "scan_mode": "full"})
+    second = submit_and_run_profile(client, {"dataset_ref": str(sample_csv), "dataset_name": "owner-b", "scan_mode": "full"})
     foreign = next(item for item in second["proposals"]["pii"] if item["status"] == "pending")
     response = client.patch(
         f"/api/v1/profile/{first['profile_run_id']}/confirm",
@@ -362,7 +390,7 @@ def test_resume_rejects_proposal_owned_by_another_run(
 def test_resume_idempotency_key_does_not_apply_decisions_twice(
     client: TestClient, sample_csv: Path
 ) -> None:
-    created = client.post("/api/v1/profile", json={"dataset_ref": str(sample_csv), "dataset_name": "idempotent", "scan_mode": "full"}).json()
+    created = submit_and_run_profile(client, {"dataset_ref": str(sample_csv), "dataset_name": "idempotent", "scan_mode": "full"})
     decisions = [
         {"kind": kind, "proposal_id": item["id"], "decision": "confirm"}
         for kind, items in created["proposals"].items()
@@ -374,21 +402,26 @@ def test_resume_idempotency_key_does_not_apply_decisions_twice(
     second = client.patch(f"/api/v1/profile/{created['profile_run_id']}/confirm", headers=headers, json={"confirmed_by": "qa", "decisions": decisions})
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
-    assert second.json()["status"] == "completed"
+    assert second.json()["status"] == "resuming"
+    terminal = run_worker_until_job_terminal(client, created["profile_run_id"])
+    assert terminal["status"] == "succeeded", terminal
+    completed = client.get(f"/api/v1/profile/{created['profile_run_id']}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
 
 
 def test_initial_question_is_persisted_and_answered_after_final_review(
     client: TestClient, sample_csv: Path
 ) -> None:
-    created = client.post(
-        "/api/v1/profile",
-        json={
+    created = submit_and_run_profile(
+        client,
+        {
             "dataset_ref": str(sample_csv),
             "dataset_name": "question-continuation",
             "scan_mode": "full",
             "question": "Dataset có bao nhiêu dòng?",
         },
-    ).json()
+    )
     decisions = [
         {"kind": kind, "proposal_id": item["id"], "decision": "confirm"}
         for kind, items in created["proposals"].items()
@@ -401,9 +434,14 @@ def test_initial_question_is_persisted_and_answered_after_final_review(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["status"] == "completed"
+    assert body["status"] == "resuming"
     assert body["initial_question"] == "Dataset có bao nhiêu dòng?"
-    assert body["answer"]
+    terminal = run_worker_until_job_terminal(client, created["profile_run_id"])
+    assert terminal["status"] == "succeeded", terminal
+    completed = client.get(f"/api/v1/profile/{created['profile_run_id']}")
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["answer"]
 
 
 # --------------------------------------------------------------------------- #
@@ -458,10 +496,10 @@ def test_test_on_unknown_run_returns_404(client: TestClient) -> None:
 def test_drift_detects_salary_shift(
     client: TestClient, profile_run: dict, shifted_csv: Path
 ) -> None:
-    second = client.post(
-        "/api/v1/profile",
-        json={"dataset_ref": str(shifted_csv), "dataset_name": "users_v2", "scan_mode": "full"},
-    ).json()
+    second = submit_and_run_profile(
+        client,
+        {"dataset_ref": str(shifted_csv), "dataset_name": "users_v2", "scan_mode": "full"},
+    )
 
     response = client.post(
         f"/api/v1/profile/{second['profile_run_id']}/drift",
@@ -643,12 +681,11 @@ def test_upload_csv_returns_usable_dataset_ref(client: TestClient) -> None:
     body = upload.json()
     assert body["size_bytes"] == len(content)
 
-    profiled = client.post(
-        "/api/v1/profile",
-        json={"dataset_ref": body["dataset_ref"], "dataset_name": "uploaded", "scan_mode": "full"},
+    profiled = submit_and_run_profile(
+        client,
+        {"dataset_ref": body["dataset_ref"], "dataset_name": "uploaded", "scan_mode": "full"},
     )
-    assert profiled.status_code == 201
-    assert profiled.json()["row_count"] == 3
+    assert profiled["row_count"] == 3
 
 
 def test_uploaded_datasets_can_be_named_as_one_collection(client: TestClient) -> None:
@@ -708,9 +745,7 @@ def test_upload_rejects_empty_file(client: TestClient) -> None:
 # Dataset & audit
 # --------------------------------------------------------------------------- #
 def test_workspace_can_be_created_listed_and_archived(client: TestClient, monkeypatch) -> None:
-    headers = _analyst_headers(
-        client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f1"
-    )
+    headers = _analyst_headers(client, monkeypatch)
     created = client.post(
         "/api/v1/workspaces", json={"name": "Project Workspace QA"}, headers=headers
     )
@@ -739,9 +774,7 @@ def test_workspace_can_be_created_listed_and_archived(client: TestClient, monkey
 
 
 def test_analyst_can_permanently_delete_owned_workspace(client: TestClient, monkeypatch) -> None:
-    headers = _analyst_headers(
-        client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f2"
-    )
+    headers = _analyst_headers(client, monkeypatch)
     created = client.post(
         "/api/v1/workspaces", json={"name": "Project Workspace Purge QA"}, headers=headers
     )
@@ -768,9 +801,7 @@ def test_analyst_can_manage_members_and_pending_invitations(
     assert members.status_code == 200, members.text
     assert any(item["user_id"] == actor_id for item in members.json()["members"])
 
-    analyst_headers = _analyst_headers(
-        client, monkeypatch, "4c09a0b1-03b7-4e27-9f14-dc4515a6d7f3"
-    )
+    analyst_headers = _analyst_headers(client, monkeypatch)
     analyst_session = client.get("/api/v1/session", headers=analyst_headers)
     assert analyst_session.status_code == 200, analyst_session.text
     analyst_id = analyst_session.json()["user"]["id"]

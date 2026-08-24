@@ -16,6 +16,7 @@ python-multipart>=0.0.9      # upload CSV qua POST /datasets/upload
 # --- Agent ---
 langchain-core>=0.3.0
 langchain-openai>=0.3.0
+langchain-google-genai>=2.1.0
 langsmith>=0.3.0
 langgraph>=0.2.0
 langgraph-checkpoint-postgres>=3.0.0 # HITL state bền vững trên Supabase
@@ -61,3 +62,4 @@ ruff>=0.8.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
 httpx>=0.28.0
+httpx2>=0.1.0
