@@ -32,6 +32,7 @@ from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import (
     profile_router as command_center_router,
 )
+from src.api.admin_routes import router as admin_router
 from src.api.authz_routes import router as authz_router
 from src.api.google_drive_routes import router as google_drive_router
 from src.api.routes import router
@@ -220,6 +221,7 @@ app.include_router(agent_router, prefix="/api/v1")
 app.include_router(skill_router, prefix="/api/v1")
 app.include_router(command_center_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
 app.include_router(google_drive_router, prefix="/api/v1")
 
 

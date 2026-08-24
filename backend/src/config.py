@@ -221,6 +221,12 @@ class Settings(BaseSettings):
         ),
     )
     security_require_api_token: bool = False
+    global_admin_emails: str = Field(
+        default="lumvan54@gmail.com,admin@vdaagent.com",
+        validation_alias=AliasChoices(
+            "GLOBAL_ADMIN_EMAILS", "ADMIN_EMAILS", "global_admin_emails"
+        ),
+    )
     security_user_rate_per_minute: int = Field(default=30, ge=1)
     security_max_upload_mb: int = Field(default=500, ge=1)
     security_allow_raw_export: bool = False
@@ -229,6 +235,16 @@ class Settings(BaseSettings):
     # JSONL path remains available only for isolated tests/legacy local runs.
     security_audit_log: str = ""
     api_token: str = ""
+
+    def get_global_admin_emails(self) -> set[str]:
+        """Return the normalized set of admin email addresses."""
+        if not self.global_admin_emails:
+            return set()
+        return {
+            email.strip().casefold()
+            for email in self.global_admin_emails.split(",")
+            if email.strip()
+        }
 
     # --- deterministic agent guardrails ----------------------------------
     guardrails_max_tool_calls_per_request: int = Field(default=10, ge=1, le=50)

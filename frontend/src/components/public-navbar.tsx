@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import type { GuestRole } from "@/lib/auth/guest-session";
 
-const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Analyst" };
+const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Dùng thử Analyst" };
 
 export function PublicNavbar() {
   const pathname = usePathname();
@@ -70,11 +70,13 @@ export function PublicNavbar() {
         {showRoleGroup && <>
           <span className="public-nav-separator" aria-hidden="true">|</span>
           <div className="public-nav-group public-nav-roles" aria-label={showTrialRoles ? "Choose a trial role" : "Signed-in role"}>
-            {showTrialRoles ? <button
-              className={guestRole === trialRole.value && !isOverviewPage ? "active" : ""}
-              type="button"
-              onClick={() => void enterGuestRole(trialRole.value)}
-            >Dùng thử Analyst</button> : currentRole ? <span className="public-nav-current-role">{currentRole}</span> : null}
+            {showTrialRoles ? (
+              <button
+                className={guestRole === trialRole.value && !isOverviewPage ? "active" : ""}
+                type="button"
+                onClick={() => void enterGuestRole(trialRole.value)}
+              >{trialRole.label}</button>
+            ) : currentRole ? <span className="public-nav-current-role">{currentRole}</span> : null}
           </div>
         </>}
       </nav>

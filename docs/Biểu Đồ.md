@@ -97,23 +97,18 @@ Biểu đồ và insight có thể được ghim vào Report Draft để sắp x
 
 Biểu Đồ phải sử dụng aggregate result hoặc dữ liệu đã được kiểm soát, không đưa raw rows và PII vào prompt, chart hoặc report thông thường.
 
-## 3. Vị trí trong sản phẩm
+## 3. Vị trí & Luồng điều hướng trong sản phẩm
 
-Biểu Đồ thuộc về **Profile Run Command Center**. Profiles vẫn là điểm bắt đầu của quy trình.
+Tính năng **Biểu Đồ** được tổ chức thành một không gian phân tích trực quan chuyên sâu (`/charts`) kết hợp chặt chẽ với **Profile Run Command Center** (`/profiles/[runId]`):
 
-Đề xuất các tab chính:
-
-```text
-Tổng quan | Khám phá | Biểu đồ | Hỏi Agent | Báo cáo
-```
-
-Tính năng không thay thế Profiles, Explorer hoặc Report Draft:
-
-- **Profiles** cố định nguồn dữ liệu, phiên bản và metadata.
-- **Explorer** hỗ trợ tạo và kiểm tra truy vấn tổng hợp.
-- **Biểu Đồ** biến một bài toán hoặc kết quả thành chart có cấu trúc.
-- **Hỏi Agent** giải thích kết quả và viết insight.
-- **Báo cáo** lưu chart/insight vào Report Draft và xuất bản.
+- **Sidebar Điều hướng chính**: Có mục riêng **`/charts` (Biểu đồ)** để truy cập nhanh không gian phân tích từ bất kỳ đâu trong workspace.
+- **Lối tắt từ Profile Run**: Đầu trang Báo cáo Profile có thẻ kêu gọi hành động nổi bật: **`📊 Tạo biểu đồ & phân tích →`** chuyển hướng trực tiếp sang không gian Biểu đồ.
+- **Thanh Tab trong Command Center**: Tối ưu gọn gàng với 2 tab trọng tâm:
+  ```text
+  Tổng quan | Báo cáo
+  ```
+- **Trợ lý AI Copilot Nổi (Draggable Floating Widget)**: Cho phép vừa tương tác với biểu đồ/dữ liệu vừa trò chuyện hỏi đáp, xem trích dẫn bằng chứng (Evidence Citations) và xem lịch sử đoạn chat từ mọi trang.
+- **Báo cáo Hoàn chỉnh (Report Draft / PDF Export)**: Tự động gom các biểu đồ đã ghim cùng hồ sơ Full Scan lúc đầu, Mục lục tự động, và AI Insight vào bản xuất bản chính thức.
 
 ## 4. Luồng người dùng
 

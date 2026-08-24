@@ -56,10 +56,13 @@ const securityHeaders = [
   },
 ];
 
+const isWindows = process.platform === "win32";
+const outputMode = process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : (isWindows ? undefined : "standalone");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   devIndicators: false,
-  output: "standalone",
+  output: outputMode,
   env: publicEnv,
   // Keep dev and production chunks isolated so concurrent commands cannot corrupt `.next`.
   distDir: isDevelopment ? ".next-dev" : ".next",

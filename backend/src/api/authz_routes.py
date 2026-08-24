@@ -125,11 +125,25 @@ async def session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy workspace."
         )
-    assert selected is not None
+    if repo.is_user_locked(user.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa bởi Quản trị viên hệ thống. Vui lòng liên hệ quản trị để được hỗ trợ mở khóa.",
+        )
+
+    profile = repo.get_user_profile(user.user_id)
+    system_role = canonical_role(str(profile.get("role", "analyst"))) if profile else "analyst"
+    effective_role = "admin" if system_role == "admin" else selected["role"]
+
     return {
-        "user": {"id": user.user_id, "email": user.email},
-        "workspace": {"id": selected["id"], "role": selected["role"]},
-        "effective_permissions": sorted(permissions_for_role(selected["role"])),
+        "user": {
+            "id": user.user_id,
+            "email": user.email,
+            "role": system_role,
+            "status": profile.get("status") if profile else "active",
+        },
+        "workspace": {"id": selected["id"], "role": effective_role},
+        "effective_permissions": sorted(permissions_for_role(effective_role)),
         "workspaces": workspaces,
     }
 

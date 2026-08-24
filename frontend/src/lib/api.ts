@@ -640,9 +640,8 @@ export function autoProfilePack(runId: string): Promise<AutoProfilePack> {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getReportExportSource(reportId: string): Promise<any> {
-  return request<any>(`/reports/${encodeURIComponent(reportId)}/export-source`);
+export function getReportExportSource(reportId: string): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(`/reports/${encodeURIComponent(reportId)}/export-source`);
 }
 
 export function listForecastAlgorithms(runId: string): Promise<{ algorithms: ForecastAlgorithmCapability[] }> {
@@ -730,3 +729,75 @@ export function unpinReportDraftItem(reportId: string, itemId: string): Promise<
 export function snapshotReportDraft(reportId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/snapshots`, { method: "POST" });
 }
+
+export type AdminUser = {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  role: "admin" | "analyst";
+  status: "active" | "locked";
+  locked_reason: string | null;
+  locked_at: string | null;
+  locked_by_user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminUserStats = {
+  total_users: number;
+  active_users: number;
+  locked_users: number;
+  admin_users: number;
+  analyst_users: number;
+};
+
+export type AdminUsersResponse = {
+  stats: AdminUserStats;
+  users: AdminUser[];
+};
+
+export function listAdminUsers(params?: {
+  search?: string;
+  role?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<AdminUsersResponse> {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.role && params.role !== "all") query.set("role", params.role);
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.offset) query.set("offset", String(params.offset));
+  const qs = query.toString();
+  return request<AdminUsersResponse>(`/admin/users${qs ? `?${qs}` : ""}`);
+}
+
+export function updateAdminUserStatus(
+  userId: string,
+  payload: { status: "active" | "locked"; reason?: string },
+): Promise<AdminUser> {
+  return request<AdminUser>(`/admin/users/${encodeURIComponent(userId)}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminUserRole(
+  userId: string,
+  payload: { role: "admin" | "analyst" },
+): Promise<AdminUser> {
+  return request<AdminUser>(`/admin/users/${encodeURIComponent(userId)}/role`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminUser(userId: string): Promise<{ user_id: string; deleted: boolean }> {
+  return request<{ user_id: string; deleted: boolean }>(`/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
+}
+
