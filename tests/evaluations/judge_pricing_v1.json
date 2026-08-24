@@ -1,0 +1,20 @@
+{
+  "pricing_version": "p170-judge-pricing-v1",
+  "model": "gemini-3.6-flash",
+  "currency": "USD",
+  "source": "LangSmith provider-reported total_cost",
+  "accounting_method": "sum provider LLM span total_cost values for the judge project and run window",
+  "input_price_usd_per_million_tokens": null,
+  "output_price_usd_per_million_tokens": null,
+  "fallback_policy": "Do not estimate cost when provider-reported total_cost is unavailable.",
+  "validation": {
+    "status": "tested",
+    "calibration_provider_span_count": 5,
+    "calibration_total_tokens": 2694,
+    "calibration_total_cost_usd": 0.0064125,
+    "online_provider_span_count": 31,
+    "online_total_tokens": 72791,
+    "online_total_cost_usd": 0.09253725
+  },
+  "owner_role": "project_owner"
+}

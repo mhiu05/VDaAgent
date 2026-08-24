@@ -246,7 +246,7 @@ bootstrap/dashboard từ telemetry; benchmark workspace tự động chưa đư�
 Kiểm tra LangSmith và evaluation:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_agents/test_langsmith_observability.py evaluations/test_evaluators.py
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --dry-run
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
+.\.venv\Scripts\python.exe -m pytest -q tests/test_agents/test_langsmith_observability.py tests/evaluations/test_evaluators.py
+.\.venv\Scripts\python.exe tests/evaluations/run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe tests/evaluations/run_evaluation.py --offline
 ```

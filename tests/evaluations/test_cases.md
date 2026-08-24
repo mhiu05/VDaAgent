@@ -2,7 +2,7 @@
 
 > **Hướng dẫn sử dụng file này:**
 > - Mỗi câu ghi RÕ: đưa vào gì (Input) và phải trả lời thế nào (Expected Output).
-> - Sau khi chạy thử, điền kết quả vào cột `Kết quả` và lưu vào `eval/results/run_01.md`.
+> - Sau khi chạy thử, điền kết quả vào cột `Kết quả` và lưu vào `evaluations/results/run_01.md`.
 > - Cần ít nhất **20 câu**, bao gồm đủ 4 kiểu tình huống (mỗi kiểu ≥ 2 câu).
 
 ---

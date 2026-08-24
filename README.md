@@ -406,8 +406,8 @@ evaluator deterministic, test và báo cáo. Có thể kiểm tra dataset/evalua
 không gọi API hay gửi kết quả lên LangSmith:
 
 ```powershell
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --dry-run
-.\.venv\Scripts\python.exe evaluations/run_evaluation.py --offline
+.\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --offline
 ```
 
 Xem chi tiết tại [hướng dẫn evaluation](evaluations/README.md) và

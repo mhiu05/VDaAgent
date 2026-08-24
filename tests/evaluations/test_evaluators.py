@@ -111,6 +111,30 @@ def test_release_gate_and_regression_comparison(tmp_path: Path) -> None:
     ]
 
 
+def test_online_telemetry_release_gates_use_nested_metrics() -> None:
+    scorecard = {
+        "summary": {
+            "metrics": {},
+            "telemetry": {
+                "latency_ms": {"status": "available", "p95": 19670.924},
+                "total_tokens": {"status": "available", "total": 70580},
+                "estimated_cost_usd": {"status": "available", "total": 0.0436725},
+            },
+            "critical_failures": [],
+        }
+    }
+    gates = {
+        "maximum_values": {
+            "latency_p95_ms": 25000,
+            "total_tokens_per_run": 90000,
+            "estimated_cost_usd_per_run": 0.06,
+        },
+        "critical_failures_must_equal": 0,
+    }
+    statuses = runner.evaluate_release_gates(scorecard, gates)
+    assert [item["status"] for item in statuses] == ["pass", "pass", "pass", "pass"]
+
+
 def test_scorecard_diagnostics_never_include_answer_text() -> None:
     _, cases = runner.load_cases(split="security")
     case = next(item for item in cases if item["id"] == "pii_sample_blocked")
