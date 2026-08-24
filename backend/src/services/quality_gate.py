@@ -8,9 +8,20 @@ from src.services.repository import Repository
 
 
 def evaluate_quality_gate(
-    repository: Repository, profile_run_id: str, context: dict[str, Any]
+    repository: Repository,
+    profile_run_id: str,
+    context: dict[str, Any],
+    *,
+    workspace_id: str | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
-    run = repository.get_profile_run(profile_run_id)
+    # Keep the service workspace-aware even though callers normally resolve
+    # the session first.  This prevents a future call site from accidentally
+    # evaluating quality data for a Profile Run in another tenant.
+    run = (
+        repository.get_profile_run(profile_run_id)
+        if workspace_id is None
+        else repository.get_profile_run(profile_run_id, workspace_id=workspace_id)
+    )
     issues: list[dict[str, Any]] = []
 
     def add(
@@ -36,13 +47,20 @@ def evaluate_quality_gate(
             "Profile phải hoàn tất trước khi phân tích.",
             {"status": run and run["status"]},
         )
-    if repository.pending_count(profile_run_id):
+    # Do not inspect child rows when the Profile Run is missing from the
+    # caller's workspace.  Besides avoiding a ``None.get`` failure below,
+    # this keeps column stats and proposal counts from becoming an IDOR side
+    # channel for cross-workspace identifiers.
+    if not run:
+        return "blocked", issues
+    pending = repository.pending_count(profile_run_id)
+    if pending:
         add(
             "proposal_reviewed",
             "governance",
             "critical",
             "Còn proposal chưa review; context chưa an toàn để dùng.",
-            {"pending": repository.pending_count(profile_run_id)},
+            {"pending": pending},
         )
     if not run or not run.get("row_count"):
         add(

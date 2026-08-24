@@ -263,11 +263,30 @@ def _neural_prophet_forecast(timestamps: pd.DatetimeIndex, values: np.ndarray, h
     from neuralprophet import NeuralProphet
 
     frame = pd.DataFrame({"ds": timestamps, "y": values})
-    model = NeuralProphet(epochs=50, n_forecasts=1, n_lags=min(12, max(3, len(values) // 3)))
+    # Supplying a fixed learning rate avoids NeuralProphet's automatic LR finder.
+    # The finder persists a temporary Lightning checkpoint which is not readable
+    # with newer torch serialization defaults (and is unnecessary for this
+    # deterministic, single-series adapter).
+    model = NeuralProphet(
+        epochs=50,
+        learning_rate=0.01,
+        n_forecasts=horizon,
+        n_lags=min(12, max(3, len(values) // 3)),
+    )
     model.fit(frame, freq={"day": "D", "week": "W", "month": "MS", "quarter": "QS", "year": "YS"}[grain], progress=None)
     future = model.make_future_dataframe(frame, periods=horizon, n_historic_predictions=False)
     predicted = model.predict(future)
-    return predicted["yhat1"].tail(horizon).to_numpy(dtype=float)
+    forecast_columns = [f"yhat{step}" for step in range(1, horizon + 1) if f"yhat{step}" in predicted]
+    if not forecast_columns:
+        raise ForecastingError("NeuralProphet không trả về cột dự báo.")
+    # Multi-step forecasts are emitted diagonally: yhat1 is on the first
+    # future row, yhat2 on the next row, etc. Flatten and drop the NaN padding
+    # so the adapter always returns exactly `horizon` values in time order.
+    forecast_values = predicted[forecast_columns].to_numpy(dtype=float).reshape(-1)
+    forecast_values = forecast_values[np.isfinite(forecast_values)]
+    if len(forecast_values) < horizon:
+        raise ForecastingError("NeuralProphet không trả về đủ giá trị dự báo hữu hạn.")
+    return forecast_values[:horizon]
 
 
 def forecast_series(

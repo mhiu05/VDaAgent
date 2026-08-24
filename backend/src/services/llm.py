@@ -6,6 +6,8 @@ trong .env; không module nào khác phải thay đổi.
 
 from __future__ import annotations
 
+import ast
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -27,6 +29,86 @@ class LLMNotConfiguredError(RuntimeError):
             f"— provider hiện tại: {settings.llm_provider}."
         )
         self.key_env = key_env
+
+
+def response_text(response: Any) -> str:
+    """Extract only textual parts from LangChain/Gemini model responses.
+
+    Gemini can return ``content`` as a list of blocks containing ``text`` and
+    a provider thought signature.  Converting that list with ``str(...)``
+    leaks the transport representation into the report UI.  This helper also
+    reads legacy persisted Python-list strings so old profile runs render
+    correctly without a destructive database migration.
+    """
+
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        value = content.strip()
+        if value.startswith("[{'type':") or value.startswith('[{"type":'):
+            try:
+                return response_text(ast.literal_eval(value))
+            except (SyntaxError, ValueError):
+                # Some legacy rows contain apostrophes in the model text, so
+                # their Python repr is not parseable as a whole. Extract only
+                # the quoted `text` blocks while honoring escaped quotes.
+                parts: list[str] = []
+                for match in re.finditer(r"['\"]text['\"]\s*:\s*(['\"])", value):
+                    quote = match.group(1)
+                    start = match.end() - 1
+                    escaped = False
+                    for index in range(start + 1, len(value)):
+                        char = value[index]
+                        if char == quote and not escaped:
+                            try:
+                                part = ast.literal_eval(value[start : index + 1])
+                            except (SyntaxError, ValueError):
+                                part = None
+                            if isinstance(part, str) and part.strip():
+                                parts.append(part)
+                            break
+                        escaped = char == "\\" and not escaped
+                        if char != "\\":
+                            escaped = False
+                if parts:
+                    return "\n".join(parts)
+        return content
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+        return ""
+    if isinstance(content, (list, tuple)):
+        parts: list[str] = []
+        for block in content:
+            text = response_text(block)
+            if text.strip():
+                parts.append(text.strip())
+        return "\n".join(parts)
+    return str(content)
+
+
+def report_text(response: Any) -> str:
+    """Return clean Markdown suitable for the profile summary renderer."""
+
+    text = response_text(response).replace("\r\n", "\n").strip()
+    # Models occasionally wrap an otherwise valid report in a Markdown fence.
+    if text.startswith("```") and text.endswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1]).strip()
+    # Horizontal rules add no structure in the compact summary card and were
+    # previously rendered as stray paragraphs between every section.
+    lines = [line for line in text.splitlines() if line.strip() != "---"]
+    compact: list[str] = []
+    blank = False
+    for line in lines:
+        if not line.strip():
+            if blank:
+                continue
+            blank = True
+        else:
+            blank = False
+        compact.append(line.rstrip())
+    return "\n".join(compact).strip()
 
 
 @lru_cache
@@ -65,4 +147,4 @@ def llm_available() -> bool:
     return get_settings().llm_configured
 
 
-__all__ = ["LLMNotConfiguredError", "get_llm", "llm_available"]
+__all__ = ["LLMNotConfiguredError", "get_llm", "llm_available", "report_text", "response_text"]

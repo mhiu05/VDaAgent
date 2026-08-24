@@ -21,6 +21,7 @@ from src.services.repository import (
     workspace_context_versions,
     workspace_theme_versions,
 )
+from src.services.llm import report_text
 
 
 def _id() -> str:
@@ -284,6 +285,23 @@ class ReportDraftRepository:
                 .order_by(report_items.c.position)
             ).mappings()
         ]
+        # Older pins may contain the provider's serialized content-block list.
+        # Normalize it on read so existing drafts render cleanly without a DB
+        # migration; new pins are normalized at the QA API boundary.
+        for item in items:
+            content = item.get("content_json")
+            if isinstance(content, dict):
+                normalized = dict(content)
+                changed = False
+                for key in ("insight", "answer"):
+                    value = normalized.get(key)
+                    if isinstance(value, str):
+                        clean = report_text(value)
+                        if clean != value:
+                            normalized[key] = clean
+                            changed = True
+                if changed:
+                    item["content_json"] = normalized
         active_context, active_theme = self._configuration(conn, report["workspace_id"])
         latest_snapshot = (
             conn.execute(

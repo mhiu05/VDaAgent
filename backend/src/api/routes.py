@@ -74,7 +74,7 @@ from src.services.google_drive import (
     parse_google_drive_ref,
 )
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
-from src.services.llm import LLMNotConfiguredError, llm_available
+from src.services.llm import LLMNotConfiguredError, llm_available, report_text
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -176,7 +176,9 @@ def _build_profile_response(
         "random_seed": run.get("random_seed"),
         "executed_query": run.get("executed_query"),
         "is_approximate": bool(run.get("is_approximate")),
-        "narrative_report": run.get("narrative_report"),
+        "narrative_report": report_text(run.get("narrative_report"))
+        if run.get("narrative_report")
+        else None,
         "risk_warnings": run.get("risk_warnings") or [],
         "quasi_identifiers": run.get("quasi_identifiers") or [],
         "correlation_matrix": run.get("correlation_matrix") or {},
@@ -392,6 +394,10 @@ def _report_profile(
             "correlation_matrix",
         )
     }
+    if profile["run"].get("narrative_report"):
+        profile["run"]["narrative_report"] = report_text(
+            profile["run"]["narrative_report"]
+        )
 
     analysis_repo = get_analysis_repository()
     sessions: list[dict[str, Any]] = []
@@ -636,6 +642,7 @@ async def confirm_proposals(
         answer=current.answer,
         answer_sources=current.answer_sources,
         test_results=current.test_results,
+        proposals=current.proposals,
         agent_run_id=result["agent_run_id"],
         trace_summary=result["trace_summary"],
     )
@@ -725,9 +732,15 @@ async def detect_drift(
 
     current_id = request.current_run_id or run_id
     for rid in (request.baseline_run_id, current_id):
-        if not repo.get_profile_run(rid, workspace_id=context.workspace_id):
+        run = repo.get_profile_run(rid, workspace_id=context.workspace_id)
+        if not run:
             raise HTTPException(
                 status_code=404, detail=f"Không tìm thấy profile run '{rid}'."
+            )
+        if run.get("status") != "completed":
+            raise HTTPException(
+                status_code=422,
+                detail="Chỉ Profile Run đã hoàn tất mới có thể dùng để so sánh drift.",
             )
     if request.baseline_run_id == current_id:
         raise HTTPException(status_code=422, detail="Hai run so sánh phải khác nhau.")
@@ -927,7 +940,10 @@ def _guard_qa_answer(
 ) -> str:
     """Áp output policy lần cuối ngay tại trust boundary của API."""
     settings = get_settings()
-    guarded = enforce_output_guardrails(answer, settings.guardrails_max_output_chars)
+    # Normalize provider content-block envelopes before streaming or rendering.
+    guarded = enforce_output_guardrails(
+        report_text(answer), settings.guardrails_max_output_chars
+    )
     if guarded.redactions or guarded.truncated:
         _audit(
             context,

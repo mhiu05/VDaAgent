@@ -307,10 +307,30 @@ def test_confirm_applies_decisions_and_clears_pending(
     assert body["applied"] == len(decisions)
     assert body["pending_proposals"] == 0
     assert body["status"] == "resuming"
+    assert all(
+        proposal["status"] != "pending"
+        for proposals in body["proposals"].values()
+        for proposal in proposals
+    )
+    queued = client.get(f"/api/v1/profiling-jobs/{run_id}")
+    assert queued.status_code == 200
+    assert queued.json()["status"] == "queued"
+    assert queued.json()["stage"] == "resume_queued"
+    reviewed = client.get(f"/api/v1/profile/{run_id}")
+    assert reviewed.status_code == 200
+    assert reviewed.json()["status"] == "resuming"
+    assert reviewed.json()["pending_proposals"] == 0
+    assert all(
+        proposal["status"] != "pending"
+        for proposals in reviewed.json()["proposals"].values()
+        for proposal in proposals
+    )
     terminal = run_worker_until_job_terminal(client, run_id)
     assert terminal["status"] == "succeeded", terminal
     completed = client.get(f"/api/v1/profile/{run_id}")
     assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["pending_proposals"] == 0
     assert completed.json()["narrative_report"]
 
 
@@ -517,6 +537,29 @@ def test_drift_against_self_returns_422(client: TestClient, profile_run: dict) -
         f"/api/v1/profile/{run_id}/drift", json={"baseline_run_id": run_id}
     )
     assert response.status_code == 422
+
+
+def test_drift_requires_completed_profile_runs(
+    client: TestClient, profile_run: dict, sample_csv: Path
+) -> None:
+    pending = client.post(
+        "/api/v1/profile",
+        json={
+            "dataset_ref": str(sample_csv),
+            "dataset_name": "pending",
+            "scan_mode": "sample",
+        },
+        headers={"Idempotency-Key": "pending-drift-run"},
+    )
+    assert pending.status_code == 202
+    run_id = pending.json()["profiling_run_id"]
+
+    response = client.post(
+        f"/api/v1/profile/{profile_run['profile_run_id']}/drift",
+        json={"baseline_run_id": run_id},
+    )
+    assert response.status_code == 422
+    assert "hoàn tất" in response.json()["detail"]
 
 
 # --------------------------------------------------------------------------- #

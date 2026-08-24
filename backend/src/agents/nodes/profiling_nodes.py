@@ -24,7 +24,7 @@ from src.agents.state import ProfilingState
 from src.config import get_settings
 from src.services import compute
 from src.services.guardrails import enforce_output_guardrails
-from src.services.llm import LLMNotConfiguredError, get_llm
+from src.services.llm import LLMNotConfiguredError, get_llm, report_text, response_text
 from src.services.repository import get_repository
 from src.services.retrieval import get_index
 from src.services.security import get_audit
@@ -275,7 +275,7 @@ def _refine_semantic_types(
             prompt_id="profile_metadata",
         )
         text = enforce_output_guardrails(
-            str(response.content), get_settings().guardrails_max_output_chars
+            response_text(response), get_settings().guardrails_max_output_chars
         ).text
     except (LLMNotConfiguredError, Exception):  # noqa: BLE001 - LLM là tuỳ chọn ở bước này
         return {}
@@ -565,7 +565,13 @@ def deep_analysis_node(state: ProfilingState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 def _risk_warnings(state: ProfilingState) -> list[str]:
     """Cảnh báo suy ra từ số liệu — deterministic, không nhờ LLM."""
-    warnings: list[str] = list(state.get("risk_warnings") or [])
+    # A previous attempt may have persisted a transient provider error.  It is
+    # not a data-quality warning and must disappear after a successful retry.
+    warnings: list[str] = [
+        warning
+        for warning in (state.get("risk_warnings") or [])
+        if not str(warning).startswith("Không sinh được báo cáo bằng LLM:")
+    ]
     stats = state.get("stats_json") or {}
     approx = "≈ " if state.get("is_approximate") else ""
 
@@ -678,7 +684,7 @@ def _profile_digest(state: ProfilingState, warnings: list[str]) -> str:
 
 
 def _fallback_report(state: ProfilingState, warnings: list[str]) -> str:
-    """Báo cáo dạng bảng khi chưa cấu hình LLM — vẫn dùng được, chỉ không có văn."""
+    """Báo cáo deterministic khi phần diễn giải LLM tạm thời không dùng được."""
     approx = "≈" if state.get("is_approximate") else ""
     lines = [
         f"# Hồ sơ dữ liệu — {state.get('dataset_name')}",
@@ -702,11 +708,24 @@ def _fallback_report(state: ProfilingState, warnings: list[str]) -> str:
     lines += [
         "",
         (
-            "> Báo cáo dạng bảng vì chưa cấu hình LLM. Điền API key trong `.env` để có "
-            "phần diễn giải bằng ngôn ngữ tự nhiên."
+            "> Báo cáo dạng bảng vì phần diễn giải LLM hiện chưa khả dụng. "
+            "Các metric vẫn được tính deterministic từ toàn bộ dữ liệu; hãy kiểm tra "
+            "cấu hình provider/API key rồi chạy lại báo cáo."
         ),
     ]
     return "\n".join(lines)
+
+
+def _safe_llm_error(exc: Exception) -> str:
+    """Return a short diagnostic without persisting provider secrets."""
+    message = str(exc)
+    status = re.search(r"\b([45]\d{2})\b", message)
+    provider = get_settings().llm_provider
+    if status:
+        return f"provider {provider} trả về HTTP {status.group(1)}"
+    if "timeout" in message.lower():
+        return f"provider {provider} hết thời gian chờ"
+    return f"provider {provider} không phản hồi hợp lệ"
 
 
 def summarize_node(state: ProfilingState) -> dict[str, Any]:
@@ -746,7 +765,7 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
             prompt_id="profile_summary",
         )
         guarded = enforce_output_guardrails(
-            str(response.content), get_settings().guardrails_max_output_chars
+            report_text(response), get_settings().guardrails_max_output_chars
         )
         report = guarded.text
         if guarded.redactions or guarded.truncated:
@@ -761,7 +780,7 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
         report = _fallback_report(state, warnings)
     except Exception as exc:  # noqa: BLE001 - lỗi mạng/quota không được làm mất profiling
         report = _fallback_report(state, warnings)
-        warnings.append(f"Không sinh được báo cáo bằng LLM: {exc}")
+        warnings.append(f"Không sinh được báo cáo bằng LLM: {_safe_llm_error(exc)}")
 
     if run_id:
         repo.update_profile_run(
