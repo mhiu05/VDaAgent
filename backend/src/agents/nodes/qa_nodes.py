@@ -34,7 +34,7 @@ from src.services.guardrails import (
     audit_question_fields,
     enforce_output_guardrails,
 )
-from src.services.llm import LLMNotConfiguredError, get_llm, response_text
+from src.services.llm import LLMNotConfiguredError, get_llm, is_llm_runtime_warning, response_text
 from src.services.repository import get_repository
 from src.services.retrieval import get_index
 from src.services.security import get_audit
@@ -159,7 +159,7 @@ def _profile_fallback_summary(run_id: str | None) -> str:
     warnings = [
         warning
         for warning in (run.get("risk_warnings") or [])
-        if not warning.startswith("Không sinh được báo cáo bằng LLM:")
+        if not is_llm_runtime_warning(warning)
     ]
     lines = [
         "## Tóm tắt chất lượng dữ liệu",

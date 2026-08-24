@@ -74,7 +74,7 @@ from src.services.google_drive import (
     parse_google_drive_ref,
 )
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
-from src.services.llm import LLMNotConfiguredError, llm_available, report_text
+from src.services.llm import LLMNotConfiguredError, llm_available, report_text, safe_llm_warning
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -179,7 +179,10 @@ def _build_profile_response(
         "narrative_report": report_text(run.get("narrative_report"))
         if run.get("narrative_report")
         else None,
-        "risk_warnings": run.get("risk_warnings") or [],
+        "risk_warnings": [
+            safe_llm_warning(warning)
+            for warning in (run.get("risk_warnings") or [])
+        ],
         "quasi_identifiers": run.get("quasi_identifiers") or [],
         "correlation_matrix": run.get("correlation_matrix") or {},
         "pending_proposals": repo.pending_count(run_id),
@@ -398,6 +401,10 @@ def _report_profile(
         profile["run"]["narrative_report"] = report_text(
             profile["run"]["narrative_report"]
         )
+    profile["run"]["risk_warnings"] = [
+        safe_llm_warning(warning)
+        for warning in (profile["run"].get("risk_warnings") or [])
+    ]
 
     analysis_repo = get_analysis_repository()
     sessions: list[dict[str, Any]] = []
@@ -462,7 +469,7 @@ def _profile_report_payload(
         for item in stats
         if float(item.get("null_pct") or 0) > 0
     ]
-    warnings = [str(item) for item in (run.get("risk_warnings") or [])]
+    warnings = [safe_llm_warning(item) for item in (run.get("risk_warnings") or [])]
     analysis_count = len(report_payload.get("analysis_sessions") or [])
 
     summary = run.get("narrative_report") or (

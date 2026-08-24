@@ -24,7 +24,14 @@ from src.agents.state import ProfilingState
 from src.config import get_settings
 from src.services import compute
 from src.services.guardrails import enforce_output_guardrails
-from src.services.llm import LLMNotConfiguredError, get_llm, report_text, response_text
+from src.services.llm import (
+    LLMNotConfiguredError,
+    get_llm,
+    is_llm_runtime_warning,
+    report_text,
+    response_text,
+    safe_llm_warning,
+)
 from src.services.repository import get_repository
 from src.services.retrieval import get_index
 from src.services.security import get_audit
@@ -570,7 +577,7 @@ def _risk_warnings(state: ProfilingState) -> list[str]:
     warnings: list[str] = [
         warning
         for warning in (state.get("risk_warnings") or [])
-        if not str(warning).startswith("Không sinh được báo cáo bằng LLM:")
+        if not is_llm_runtime_warning(warning)
     ]
     stats = state.get("stats_json") or {}
     approx = "≈ " if state.get("is_approximate") else ""
@@ -780,7 +787,9 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
         report = _fallback_report(state, warnings)
     except Exception as exc:  # noqa: BLE001 - lỗi mạng/quota không được làm mất profiling
         report = _fallback_report(state, warnings)
-        warnings.append(f"Không sinh được báo cáo bằng LLM: {_safe_llm_error(exc)}")
+        warnings.append(
+            safe_llm_warning(f"Không sinh được báo cáo bằng LLM: {_safe_llm_error(exc)}")
+        )
 
     if run_id:
         repo.update_profile_run(

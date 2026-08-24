@@ -18,6 +18,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 from src.config import LLM_PROVIDERS, Settings, get_settings
 
+LLM_RUNTIME_NOTICE = (
+    "Phần diễn giải bằng LLM chưa khả dụng ở lần chạy này; "
+    "báo cáo vẫn sử dụng các metric deterministic đã được kiểm chứng. "
+    "Hãy kiểm tra cấu hình provider/API key rồi chạy lại nếu cần diễn giải bằng ngôn ngữ tự nhiên."
+)
+_LLM_FAILURE_MARKER = "không sinh được báo cáo bằng llm:"
+
 
 class LLMNotConfiguredError(RuntimeError):
     """Chưa điền API key — nêu rõ tên biến cần điền để user sửa được ngay."""
@@ -29,6 +36,21 @@ class LLMNotConfiguredError(RuntimeError):
             f"— provider hiện tại: {settings.llm_provider}."
         )
         self.key_env = key_env
+
+
+def is_llm_runtime_warning(value: Any) -> bool:
+    """Identify old and current persisted LLM availability notices."""
+
+    normalized = str(value or "").strip().lower()
+    return _LLM_FAILURE_MARKER in normalized or normalized.startswith(
+        "phần diễn giải bằng llm chưa khả dụng"
+    )
+
+
+def safe_llm_warning(value: Any) -> str:
+    """Never expose provider payloads or API-key diagnostics in reports."""
+
+    return LLM_RUNTIME_NOTICE if is_llm_runtime_warning(value) else str(value or "").strip()
 
 
 def response_text(response: Any) -> str:
@@ -91,6 +113,12 @@ def report_text(response: Any) -> str:
     """Return clean Markdown suitable for the profile summary renderer."""
 
     text = response_text(response).replace("\r\n", "\n").strip()
+    # Old profile runs persisted the provider's whole 401/429 payload above
+    # the deterministic fallback report. Remove that transport error on read;
+    # keeping it would be noisy and could reveal key fragments in exports.
+    text = "\n".join(
+        line for line in text.splitlines() if not is_llm_runtime_warning(line)
+    ).strip()
     # Models occasionally wrap an otherwise valid report in a Markdown fence.
     if text.startswith("```") and text.endswith("```"):
         lines = text.splitlines()
@@ -147,4 +175,4 @@ def llm_available() -> bool:
     return get_settings().llm_configured
 
 
-__all__ = ["LLMNotConfiguredError", "get_llm", "llm_available", "report_text", "response_text"]
+__all__ = ["LLMNotConfiguredError", "LLM_RUNTIME_NOTICE", "get_llm", "is_llm_runtime_warning", "llm_available", "report_text", "response_text", "safe_llm_warning"]
