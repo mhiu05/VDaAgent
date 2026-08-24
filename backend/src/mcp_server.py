@@ -27,7 +27,7 @@ from src.services.forecasting import (
 )
 from src.services.permissions import ANALYSIS_RUN, canonical_role, permissions_for_role
 from src.services.quality_gate import evaluate_quality_gate
-from src.services.repository import get_repository
+from src.services.repository import get_repository, is_expired
 
 ChartType = Literal[
     "bar", "line", "table", "kpi", "histogram", "scatter", "box", "heatmap",
@@ -787,7 +787,7 @@ def promote_chart_plan(
                 }
             )
             continue
-        if preview.get("expires_at") and preview["expires_at"] < datetime.now(UTC):
+        if is_expired(preview.get("expires_at")):
             errors.append(
                 {
                     "index": index,

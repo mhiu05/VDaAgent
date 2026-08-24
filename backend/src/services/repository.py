@@ -56,6 +56,21 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def ensure_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def is_expired(expires_at: datetime | None) -> bool:
+    if expires_at is None:
+        return False
+    dt = ensure_utc(expires_at)
+    return dt < datetime.now(UTC)
+
+
 def _normalise_email(email: str | None) -> str | None:
     """Keep an application-safe, canonical copy of the Auth email."""
     if not email:
@@ -2969,7 +2984,7 @@ class Repository:
                 .mappings()
                 .first()
             )
-            if not invite or invite["expires_at"] <= now:
+            if not invite or is_expired(invite["expires_at"]):
                 return None
             if email and str(invite["normalized_email"]) != email.casefold():
                 return None
