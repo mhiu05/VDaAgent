@@ -6528,6 +6528,16 @@
             },
             "type": "array",
             "title": "Test Results"
+          },
+          "proposals": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ProposalOut"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Proposals"
           }
         },
         "type": "object",

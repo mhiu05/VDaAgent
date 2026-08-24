@@ -17,7 +17,7 @@ export function PublicFooter() {
           </div>
           <div className="pub-footer-col">
             <h4>Sản phẩm</h4>
-            <Link href="/dashboard">Workspace</Link>
+            <Link href="/workspaces">Workspace</Link>
             <Link href="/guide">Hướng dẫn</Link>
             <Link href="/docs">Tài liệu</Link>
           </div>

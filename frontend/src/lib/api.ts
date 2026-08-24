@@ -411,11 +411,13 @@ export function listRuns(datasetId: string, signal?: AbortSignal): Promise<Profi
 }
 
 export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile> {
-  return request<Profile>(`/profile/${encodeURIComponent(runId)}`, { signal });
+  // Profile state changes immediately after HITL review. Bypass the browser
+  // HTTP cache so a reconciliation/refetch cannot resurrect pending proposals.
+  return request<Profile>(`/profile/${encodeURIComponent(runId)}`, { signal, cache: "no-store" });
 }
 
 export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<ProfilingJob> {
-  return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal });
+  return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal, cache: "no-store" });
 }
 
 function pollingDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -491,10 +493,11 @@ export function confirmProposals(
       note?: string;
     }>;
   },
-): Promise<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[] }> {
-  return request<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[] }>(`/profile/${encodeURIComponent(runId)}/confirm`, {
+  idempotencyKey = crypto.randomUUID(),
+): Promise<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[]; proposals?: Profile["proposals"] }> {
+  return request<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[]; proposals?: Profile["proposals"] }>(`/profile/${encodeURIComponent(runId)}/confirm`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(payload),
   });
 }

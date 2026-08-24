@@ -162,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const sequence = ++loadSequence.current;
 
     const task = (async () => {
+      let sawSupabaseSession = false;
       // Keep the auth boundary strict even when load() is triggered by an
       // auth callback or a Fast Refresh cycle. Login and signup must never
       // send an expired Supabase token to the protected session endpoint.
@@ -181,6 +182,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const useGuestSession = preferGuest || (guestModeRef.current && Boolean(existingGuestSession));
         const supabaseToken = useGuestSession ? null : await supabaseAccessToken();
         if (supabaseToken) {
+          sawSupabaseSession = true;
+          if (sequence === loadSequence.current) {
+            setAuthenticated(true);
+            setIsGuest(false);
+            setGuestRole(null);
+          }
           guestModeRef.current = false;
           const staleGuest = getGuestSession();
           if (staleGuest) {
@@ -295,6 +302,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // transient network/auth refresh failure. The next API request can
         // still refresh the token through the shared auth transport.
         if (background && workspaceIdRef.current) return false;
+        if (sawSupabaseSession) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+          return false;
+        }
         resetUnauthenticatedState();
         setError(reason instanceof Error ? reason.message : "Không thể khởi tạo phiên đăng nhập.");
         return false;
@@ -356,11 +367,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Calling getSession() synchronously through load() from inside the
     // callback can deadlock guest mode (the client exists, but there is no
     // Supabase session). Defer the reload until the callback has returned.
-    const { data } = client.auth.onAuthStateChange((event) => {
+    const { data } = client.auth.onAuthStateChange((event, session) => {
       // Supabase refreshes the access token when a background tab becomes
       // active. The API transport reads the fresh token on demand, so a token
       // refresh does not require rebuilding the workspace shell.
-      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED" || isAuthRoute(pathnameRef.current)) return;
+      if (event === "INITIAL_SESSION") {
+        if (session?.access_token && !guestModeRef.current) {
+          // Session restoration and the first workspace request can complete
+          // in either order after a full navigation. Treat the Supabase
+          // session as authenticated immediately; workspace data may continue
+          // loading without changing the public navbar into a signed-out one.
+          setAuthenticated(true);
+          setIsGuest(false);
+          setGuestRole(null);
+          window.setTimeout(() => {
+            if (!workspaceIdRef.current && !loadInFlight.current && !isAuthRoute(pathnameRef.current)) {
+              void load(null, true);
+            }
+          }, 0);
+        }
+        return;
+      }
+      if (event === "TOKEN_REFRESHED" || isAuthRoute(pathnameRef.current)) return;
       if (event === "SIGNED_OUT") {
         ++loadSequence.current;
         loadInFlight.current = null;
@@ -449,7 +477,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the fresh role/session resolves, so a slow backend cannot make a navbar
     // click appear to do nothing.
     void load(null, true, true);
-    if (switchSequence === guestSwitchSequence.current) router.push("/dashboard");
+    if (switchSequence === guestSwitchSequence.current) router.push("/workspaces");
   }, [authenticated, load, queryClient, router]);
 
   const value = useMemo(() => ({ me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh }), [me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh]);

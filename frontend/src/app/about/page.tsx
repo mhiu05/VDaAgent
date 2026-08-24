@@ -191,7 +191,8 @@ export default function AboutPage() {
             </div>
 
             <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-              <Link href="/dashboard" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
+              <Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
+              <Link href="/contact" className="pub-btn pub-btn-secondary">Liên hệ hợp tác</Link>
             </div>
           </div>
         </section>

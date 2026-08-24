@@ -165,7 +165,10 @@ export default function GuidePage() {
             <p style={{ fontSize: "18px", color: "var(--pub-muted)", maxWidth: "600px", margin: "0 auto 32px" }}>
               Tải lên tập dữ liệu đầu tiên của bạn và trải nghiệm sự khác biệt của Workspace Evidence-first.
             </p>
-            <Link href="/dashboard" className="pub-btn pub-btn-primary" style={{ padding: "16px 32px", fontSize: "16px" }}>Vào Workspace</Link>
+            <div style={{ display: "flex", justifyContent: "center", gap: "20px" }}>
+              <Link href="/workspaces" className="pub-btn pub-btn-primary" style={{ padding: "16px 32px", fontSize: "16px" }}>Vào Workspace</Link>
+              <Link href="/about" className="pub-btn pub-btn-secondary" style={{ padding: "16px 32px", fontSize: "16px" }}>Tìm hiểu thêm</Link>
+            </div>
           </div>
         </section>
       </main>

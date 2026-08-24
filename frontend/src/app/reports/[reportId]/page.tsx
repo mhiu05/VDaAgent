@@ -10,6 +10,61 @@ import { MarkdownContent } from "@/components/markdown";
 import { ChartEvidenceView } from "@/components/command-center/chart-evidence-view";
 import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
 
+const driftTypeLabels: Record<string, string> = {
+  column_added: "Cột mới",
+  column_removed: "Cột bị thiếu",
+  dtype_changed: "Thay đổi kiểu dữ liệu",
+  null_rate_shift: "Thay đổi tỷ lệ thiếu",
+  numeric_shift: "Thay đổi chỉ số số",
+  distribution_shift: "Thay đổi phân phối",
+};
+const driftSeverityLabels: Record<string, string> = { major: "Nghiêm trọng", minor: "Cần theo dõi" };
+
+function driftDisplayValue(value: unknown): string {
+  if (typeof value === "number") return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(value);
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+function driftEvidenceLabel(finding: any): string {
+  if (typeof finding?.psi === "number") return `PSI ${driftDisplayValue(finding.psi)}`;
+  if (finding?.metric === "null_pct") return "Tỷ lệ thiếu";
+  return finding?.metric || driftTypeLabels[finding?.drift_type] || finding?.drift_type || "—";
+}
+
+function groupedDriftFindings(reports: any[]) {
+  const groups = new Map<string, any[]>();
+  reports.flatMap((report) => Array.isArray(report?.drift_columns) ? report.drift_columns : []).forEach((finding) => {
+    const name = finding?.column_name || "Dataset";
+    groups.set(name, [...(groups.get(name) || []), finding]);
+  });
+  return [...groups.entries()].map(([name, findings]) => ({
+    name,
+    findings,
+    severity: findings.some((finding) => finding.severity === "major") ? "major" : "minor",
+  }));
+}
+
+function DriftEvidenceDetails({ reports }: { reports: any[] }) {
+  const columns = groupedDriftFindings(reports);
+  const findings = columns.flatMap((column) => column.findings);
+  const major = findings.filter((finding) => finding.severity === "major").length;
+  const minor = findings.filter((finding) => finding.severity === "minor").length;
+  return <div className="report-drift-details" style={{ marginTop: "1.5rem" }}>
+    <div className="compare-summary-grid" style={{ marginBottom: "1rem" }}>
+      <article><span>Nghiêm trọng</span><b>{major}</b><small>Signal major</small></article>
+      <article><span>Cần theo dõi</span><b>{minor}</b><small>Signal minor</small></article>
+      <article><span>Cột có evidence</span><b>{columns.length}</b><small>{findings.length} signal</small></article>
+    </div>
+    <div style={{ overflowX: "auto" }}><table className="compare-table" style={{ width: "100%" }}><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>
+      {columns.map((column) => <tr key={column.name}><td><b>{column.name}</b></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></td><td>{driftEvidenceLabel(column.findings[0])}</td><td>{column.findings.length} signal</td></tr>)}
+    </tbody></table></div>
+    <div style={{ display: "grid", gap: "1rem", marginTop: "1.25rem" }}>{columns.map((column) => <article key={column.name} className="panel compare-detail-panel" style={{ padding: "1.25rem", boxShadow: "none" }}>
+      <div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h3 style={{ margin: 0 }}>{column.name}</h3><p>{column.findings.length} signal từ backend</p></div><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></div>
+      <div className="compare-evidence-list">{column.findings.map((finding: any, index: number) => <article key={`${finding.drift_type}-${index}`} className="compare-evidence-item"><div><b>{driftTypeLabels[finding.drift_type] || finding.drift_type}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{driftSeverityLabels[finding.severity]}</span></div><p>{finding.detail}</p><dl><div><dt>Evidence</dt><dd>{driftEvidenceLabel(finding)}</dd></div>{(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{driftDisplayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{driftDisplayValue(finding.current_value)}</dd></div></>}</dl></article>)}</div>
+    </article>)}</div>
+  </div>;
+}
+
 // --- Inline Editor Component ---
 function InlineDraftItem({ item, index, totalItems, runId, draftId, onExit }: { item: any; index: number; totalItems: number; runId: string; draftId: string; onExit: () => void }) {
   const client = useQueryClient();
@@ -517,6 +572,7 @@ export default function ReportPage() {
                 </tbody>
               </table>
             </div>
+            <DriftEvidenceDetails reports={driftReports} />
           </section>
           </>
         )}
