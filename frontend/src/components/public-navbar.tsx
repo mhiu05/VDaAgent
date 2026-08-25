@@ -79,7 +79,7 @@ export function PublicNavbar() {
               aria-expanded={otherOpen}
               aria-haspopup="menu"
             >
-              Khác <span aria-hidden="true">⌄</span>
+              Khác <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "4px", marginTop: "2px" }}><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
             <div className={otherOpen ? "pub-nav-more-menu open" : "pub-nav-more-menu"} role="menu" hidden={!otherOpen}>
               <Link href="/privacy" role="menuitem" onClick={() => setOtherOpen(false)}>Privacy Policy</Link>
@@ -109,7 +109,7 @@ export function PublicNavbar() {
               aria-expanded={otherOpen}
               aria-haspopup="menu"
             >
-              Kh\u00e1c <span aria-hidden="true">⌄</span>
+              Khác <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "4px", marginTop: "2px" }}><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
             <div className={otherOpen ? "pub-nav-more-menu open" : "pub-nav-more-menu"} role="menu" hidden={!otherOpen}>
               <Link href="/privacy" role="menuitem" onClick={() => setOtherOpen(false)}>Privacy Policy</Link>
@@ -122,7 +122,7 @@ export function PublicNavbar() {
         <nav className="pub-nav-actions" aria-label="Public navigation actions">
           <div className="pub-nav-more pub-nav-more-actions">
             <button type="button" className={pathname.startsWith("/privacy") || pathname.startsWith("/terms") || pathname.startsWith("/contact") ? "pub-nav-more-trigger active" : "pub-nav-more-trigger"} onClick={() => setOtherOpen(!otherOpen)} aria-expanded={otherOpen} aria-haspopup="menu">
-              Khac <span aria-hidden="true">⌄</span>
+              Khác <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: "4px", marginTop: "2px" }}><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
             <div className={otherOpen ? "pub-nav-more-menu open" : "pub-nav-more-menu"} role="menu" hidden={!otherOpen}>
               <Link href="/privacy" role="menuitem" onClick={() => setOtherOpen(false)}>Privacy Policy</Link>

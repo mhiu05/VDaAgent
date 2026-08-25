@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
 import { formatStatus } from "@/lib/format";
 import type { RunStatus } from "@/lib/types";
 
@@ -41,6 +41,60 @@ export function ErrorNotice({ error, retry }: { error: unknown; retry?: () => vo
 
 export function LoadingBlock({ label = "Đang tải dữ liệu…" }: { label?: string }) {
   return <section className="loading-block" aria-live="polite"><span className="spinner" aria-hidden="true" />{label}</section>;
+}
+
+export function BusySpinner({ small = false }: { small?: boolean }) {
+  return <span className={small ? "button-spinner small" : "button-spinner"} aria-hidden="true" />;
+}
+
+export function LoadingButton({ busy = false, children, disabled, className = "button primary", ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { busy?: boolean }) {
+  return <button {...props} className={className} disabled={disabled || busy} aria-busy={busy || undefined}>
+    {busy && <BusySpinner small />}
+    <span>{children}</span>
+  </button>;
+}
+
+export function ProgressSteps({ steps, activeStep, detail }: { steps: string[]; activeStep: number; detail?: string }) {
+  const boundedStep = Math.max(0, Math.min(activeStep, steps.length - 1));
+  return <section className="progress-steps" aria-live="polite" aria-label="Tiến trình xử lý">
+    <ol>
+      {steps.map((step, index) => <li className={index < boundedStep ? "done" : index === boundedStep ? "active" : ""} key={step}>
+        <span aria-hidden="true">{index < boundedStep ? "✓" : index + 1}</span>
+        <b>{step}</b>
+      </li>)}
+    </ol>
+    {detail && <p>{detail}</p>}
+  </section>;
+}
+
+type ToastTone = "info" | "success" | "warning" | "error";
+type ToastItem = { id: number; tone: ToastTone; message: string };
+type ToastApi = { show: (message: string, tone?: ToastTone) => void; success: (message: string) => void; error: (message: string) => void };
+const ToastContext = createContext<ToastApi | null>(null);
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [items, setItems] = useState<ToastItem[]>([]);
+  const dismiss = useCallback((id: number) => setItems((current) => current.filter((item) => item.id !== id)), []);
+  const show = useCallback((message: string, tone: ToastTone = "info") => {
+    const id = Date.now() + Math.random();
+    setItems((current) => [...current.slice(-2), { id, tone, message }]);
+    window.setTimeout(() => dismiss(id), tone === "error" ? 6000 : 4000);
+  }, [dismiss]);
+  const api = { show, success: (message: string) => show(message, "success"), error: (message: string) => show(message, "error") };
+  return <ToastContext.Provider value={api}>
+    {children}
+    <div className="toast-viewport" aria-label="Thông báo" aria-live="polite">
+      {items.map((item) => <div className={`toast toast-${item.tone}`} key={item.id} role={item.tone === "error" ? "alert" : "status"}>
+        <span className="toast-icon" aria-hidden="true">{item.tone === "success" ? "✓" : item.tone === "error" ? "!" : "•"}</span>
+        <span>{item.message}</span>
+        <button type="button" onClick={() => dismiss(item.id)} aria-label="Đóng thông báo">×</button>
+      </div>)}
+    </div>
+  </ToastContext.Provider>;
+}
+
+export function useToast(): ToastApi {
+  return useContext(ToastContext) ?? { show: () => undefined, success: () => undefined, error: () => undefined };
 }
 
 export function Notice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warning" | "success" }) {

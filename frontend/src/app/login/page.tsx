@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
 import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
+import { LoadingButton } from "@/components/ui";
 
 function safeNext(value: string | null) {
   return value && value.startsWith("/") && !value.startsWith("//")
@@ -69,9 +70,9 @@ function LoginForm() {
           <div className="auth-form-meta" style={{ justifyContent: 'flex-end' }}><Link href="/forgot-password">Quên mật khẩu?</Link></div>
           {error && <div className="notice error" role="alert"><b>Sai email hoặc mật khẩu</b><p>{error}</p></div>}
           <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "1rem" }}>
-            <button className="button primary auth-submit" type="submit" disabled={busy} style={{ flex: 1, margin: 0 }}>
-              {busy ? "Đang xác thực…" : "Đăng nhập"}
-            </button>
+              <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ flex: 1, margin: 0 }}>
+                {busy ? "Đang xác thực…" : "Đăng nhập"}
+              </LoadingButton>
             <Link 
               href="/admin" 
               className="button secondary" 

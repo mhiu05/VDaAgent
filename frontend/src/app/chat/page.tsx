@@ -7,6 +7,7 @@ import { ApiError, createProfile, getProfile, listDatasets, listRuns, streamQues
 import type { AnswerSource, Profile } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
+import { LoadingButton, ProgressSteps } from "@/components/ui";
 import { profileRunOptionLabel } from "@/components/profile-run-picker";
 
 type AgentState = "ready" | "uploading" | "profiling" | "thinking" | "error";
@@ -134,6 +135,8 @@ export default function ChatPage() {
   const [question, setQuestion] = useState("");
   const [state, setState] = useState<AgentState>("ready");
   const [profileLoading, setProfileLoading] = useState(false);
+  const [profileProgress, setProfileProgress] = useState(0);
+  const [profileStage, setProfileStage] = useState("Sẵn sàng");
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<AnswerSource[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -311,11 +314,11 @@ export default function ChatPage() {
 
   async function startProfile() {
     if (!selectedFile) return;
-    setError(null); setState("uploading");
+    setError(null); setState("uploading"); setProfileProgress(0); setProfileStage("Đang upload dataset");
     try {
-      const upload = await uploadDataset(selectedFile, undefined);
+      const upload = await uploadDataset(selectedFile, (percent) => setProfileProgress(Math.round(percent * 0.2)));
       addMessage("agent", `Đã nhận ${upload.filename}. Tôi đang chạy ingest và compute engine — các số liệu sẽ được tính từ dữ liệu thật, không do LLM bịa ra.`, "VDaAgent");
-      setState("profiling");
+      setState("profiling"); setProfileProgress(20); setProfileStage("Đang đưa profiling vào hàng đợi");
       const payload = {
         ...(upload.dataset_id ? { dataset_id: upload.dataset_id } : { dataset_ref: upload.dataset_ref }),
         dataset_name: upload.suggested_name || upload.filename,
@@ -329,16 +332,22 @@ export default function ChatPage() {
       }
       const job = await createProfile(payload, profileSubmission.current.key);
       localStorage.setItem(ACTIVE_PROFILE_JOB_KEY, job.job_id);
-      await waitForProfilingJob(job.job_id);
+      await waitForProfilingJob(job.job_id, undefined, 30 * 60_000, (nextJob) => {
+        const stage = (nextJob.stage || "").toLocaleLowerCase("vi");
+        const nextProgress = nextJob.status === "succeeded" ? 100 : stage.includes("queue") ? 25 : stage.includes("profile") || stage.includes("scan") || stage.includes("compute") ? 60 : nextJob.status === "running" ? 45 : 30;
+        setProfileProgress(nextProgress);
+        setProfileStage(nextJob.status === "queued" ? "Đang chờ worker xử lý" : nextJob.status === "running" ? (nextJob.stage || "Đang tính profile") : "Đang hoàn thiện kết quả");
+      });
+      setProfileProgress(90); setProfileStage("Đang tải kết quả profile");
       const result = await getProfile(job.profiling_run_id);
       localStorage.removeItem(ACTIVE_PROFILE_JOB_KEY);
       profileSubmission.current = null;
-      setProfile(result); setProfileLoading(false); setSelectedFile(null); setSelectedDatasetId(result.dataset_id); setSelectedRunId(result.profile_run_id);
+      setProfile(result); setProfileLoading(false); setProfileProgress(100); setProfileStage("Profiling đã hoàn tất"); setSelectedFile(null); setSelectedDatasetId(result.dataset_id); setSelectedRunId(result.profile_run_id);
       addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} dòng và ${result.column_count} cột. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metric và có thể trả lời câu hỏi của bạn dựa trên evidence.", "VDaAgent");
       setState("ready");
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Upload hoặc profiling thất bại.";
-      setError(message); setState("error");
+      setError(message); setProfileStage("Không thể hoàn tất"); setState("error");
       addMessage("agent", `Tôi chưa thể hoàn thành profiling: ${message}`, "VDaAgent");
     }
   }
@@ -423,7 +432,8 @@ export default function ChatPage() {
           <div className="intake-file"><span className="file-icon">▤</span><div><b>{selectedFile.name}</b><small>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để profiling</small></div></div>
           <div className="intake-choice-heading"><div><b>Chọn cách agent xử lý dữ liệu</b><small>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Sampling được khuyến nghị cho file lớn hơn 50 MB." : "Bạn có thể ưu tiên tốc độ hoặc độ đầy đủ của kết quả."}</small></div></div>
           <div className="scan-choice-list"><button type="button" className={scanMode === "sample" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("sample")}><span className="choice-radio" /><span><b>Sampling</b><small>Chạy nhanh, tiết kiệm RAM, có đánh dấu approximate.</small></span><em>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Khuyến nghị" : "Nhanh"}</em></button><button type="button" className={scanMode === "full" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("full")}><span className="choice-radio" /><span><b>Full scan</b><small>Tính trên toàn bộ file, có thể lâu hơn và cần nhiều RAM.</small></span><em>Đầy đủ</em></button></div>
-          <button className="button primary intake-start" onClick={startProfile} disabled={busy}>Tải lên và bắt đầu profiling</button>
+          {busy && (state === "uploading" || state === "profiling") && <ProgressSteps steps={["Upload", "Xử lý dữ liệu", "Hoàn tất"]} activeStep={profileProgress >= 90 ? 2 : profileProgress >= 20 ? 1 : 0} detail={`${profileStage} · ${profileProgress}%`} />}
+          <LoadingButton className="button primary intake-start" onClick={startProfile} busy={busy && (state === "uploading" || state === "profiling")}>Tải lên và bắt đầu profiling</LoadingButton>
         </section>}
         {profile?.pending_proposals ? <div className="notice warning agent-review-required"><b>Cần review trước khi tiếp tục</b><p>Profile còn {profile.pending_proposals} đề xuất. Hãy xác nhận, từ chối hoặc chỉnh sửa các đề xuất trước khi hỏi Agent.</p><Link className="button primary" href={`/profiles/${profile.profile_run_id}/review?returnTo=${encodeURIComponent(`/chat?conversation=${conversationId || ""}`)}`}>Xem xét proposals</Link></div> : null}
         {error && <div className="notice error" role="alert"><b>Agent gặp lỗi</b><p>{error}</p></div>}
@@ -431,7 +441,7 @@ export default function ChatPage() {
           <input ref={fileRef} type="file" accept=".csv,.tsv,.parquet,.json,application/json,text/csv" hidden onChange={handleFile} />
           <button type="button" className="upload-trigger" onClick={() => fileRef.current?.click()} disabled={busy} title="Upload nhanh dataset">＋</button>
           <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={profile?.pending_proposals ? "Xem xét proposals trước khi hỏi Agent…" : profile ? "Đặt câu hỏi về dataset của bạn…" : "Chọn dataset/profile để hỏi Agent…"} rows={1} disabled={Boolean(profile?.pending_proposals) || (busy && state !== "thinking")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-          <button className="send-trigger" disabled={!question.trim() || !profile || busy} aria-label="Gửi câu hỏi">➤</button>
+          <button className="send-trigger" disabled={!question.trim() || !profile || busy} aria-busy={state === "thinking" || undefined} aria-label="Gửi câu hỏi">{state === "thinking" ? <span className="button-spinner small" aria-hidden="true" /> : "➤"}</button>
         </form>
         {profile && <div className="composer-suggestions"><span className="composer-suggestions-label">Gợi ý câu hỏi</span><div className="starter-list">{starters.map((starter) => <button key={starter} onClick={() => void submitPrompt(starter)} disabled={busy || Boolean(profile.pending_proposals)}>{starter}<span>→</span></button>)}</div></div>}
         <div className="composer-hint"><span>Enter để gửi · Shift + Enter để xuống dòng</span><span>Dựa trên evidence · PII được bảo vệ</span></div>

@@ -522,6 +522,7 @@ export async function waitForProfilingJob(
   jobId: string,
   signal?: AbortSignal,
   timeoutMs = 30 * 60_000,
+  onUpdate?: (job: ProfilingJob) => void,
 ): Promise<ProfilingJob> {
   const deadline = Date.now() + timeoutMs;
   let transientFailures = 0;
@@ -529,6 +530,7 @@ export async function waitForProfilingJob(
     try {
       const job = await getProfilingJob(jobId, signal);
       transientFailures = 0;
+      onUpdate?.(job);
       if (job.status === "succeeded") return job;
       if (job.status === "failed") {
         throw new ApiError(job.error?.message || "Profiling không hoàn thành.", 409);
