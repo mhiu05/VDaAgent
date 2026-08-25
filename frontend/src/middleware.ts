@@ -5,13 +5,17 @@ const publicPaths = new Set(["/", "/health", "/guide", "/login", "/signup", "/fo
 const guestAllowed = process.env.NEXT_PUBLIC_AUTH_ALLOW_GUEST === "true";
 const appPaths = ["/workspaces", "/reports", "/chat", "/datasets", "/profiles", "/compare"];
 
+function isStaticAsset(pathname: string): boolean {
+  return pathname.startsWith("/img/") || pathname === "/favicon.ico" || pathname === "/robots.txt";
+}
+
 export async function middleware(request: NextRequest) {
   const url = request.nextUrl;
   // The backend remains the authorization boundary. Keeping app routes
   // reachable here lets the browser establish either a Supabase session or
   // an isolated guest session instead of redirecting trial users to /login.
   const isAppPath = appPaths.some((path) => url.pathname === path || url.pathname.startsWith(`${path}/`));
-  if (publicPaths.has(url.pathname) || isAppPath || guestAllowed || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) return NextResponse.next();
+  if (publicPaths.has(url.pathname) || isStaticAsset(url.pathname) || isAppPath || guestAllowed || !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) return NextResponse.next();
   let response = NextResponse.next({ request });
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
     cookies: {
