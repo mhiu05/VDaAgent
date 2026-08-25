@@ -127,6 +127,17 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # --- performance telemetry (PERF-001) ---------------------------------
+    # Request phase/SQL/payload instrumentation. Aggregate metrics are recorded
+    # for every workspace request; slow-query detail is sampled. Turning this
+    # off restores the legacy total-duration-only timing middleware.
+    perf_telemetry_enabled: bool = True
+    perf_slow_query_ms: float = Field(default=200.0, ge=1.0, le=60_000.0)
+    perf_slow_query_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Server-Timing response header exposes phase breakdown to the browser.
+    # Guarded so SQL/auth internals never leak from a production API.
+    perf_server_timing_enabled: bool = False
+
     # --- llm ---------------------------------------------------------------
     llm_provider: ProviderName = "gemini"
     llm_model: str = "gemini-3.6-flash"

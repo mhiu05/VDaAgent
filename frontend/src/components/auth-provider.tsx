@@ -41,12 +41,21 @@ type AuthValue = {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-function isAuthRoute(pathname: string): boolean {
-  return pathname.startsWith("/login")
-    || pathname.startsWith("/signup")
-    || pathname.startsWith("/forgot-password")
-    || pathname.startsWith("/auth/")
-    || pathname.startsWith("/account/update-password");
+function requiresWorkspaceBootstrap(pathname: string): boolean {
+  if (pathname.startsWith("/account/update-password")) return false;
+  return [
+    "/dashboard",
+    "/workspaces",
+    "/reports",
+    "/chat",
+    "/datasets",
+    "/profiles",
+    "/charts",
+    "/compare",
+    "/activity",
+    "/account",
+    "/settings",
+  ].some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
 function apiBase() {
@@ -163,12 +172,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const task = (async () => {
       let sawSupabaseSession = false;
-      // Keep the auth boundary strict even when load() is triggered by an
-      // auth callback or a Fast Refresh cycle. Login and signup must never
-      // send an expired Supabase token to the protected session endpoint.
-      if (isAuthRoute(pathnameRef.current)) {
+      // Only workspace routes require the protected bootstrap request. A
+      // guest-role click is the one public-route exception: it explicitly
+      // requests a temporary workspace before navigation completes.
+      if (!preferGuest && !requiresWorkspaceBootstrap(pathnameRef.current)) {
         if (sequence !== loadSequence.current) return false;
-        resetUnauthenticatedState();
         setError(null);
         setLoading(false);
         return false;
@@ -351,13 +359,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loading]);
 
   useEffect(() => {
-    // Auth pages must not bootstrap the protected workspace session. A stale
-    // Supabase token is common after expiry; calling /session here produces a
-    // misleading 401 while the user is simply trying to log in again. The
-    // effect runs again automatically after navigation to a workspace route.
-    const authRoute = isAuthRoute(pathname);
-    if (authRoute) return;
-    void load();
+    // Bootstrap only pages that actually consume workspace-scoped resources.
+    // This avoids both protected requests and loading UI across all public,
+    // auth and future standalone pages.
+    if (!requiresWorkspaceBootstrap(pathname)) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    // A workspace is retained in this provider while users move between
+    // workspace routes. Reusing it avoids a second auth/API round trip and,
+    // crucially, prevents the global shell from entering its blocking loading
+    // state on every tab click.
+    if (!workspaceIdRef.current) void load();
     const heartbeat = window.setInterval(() => {
       if (workspaceIdRef.current) void load(workspaceIdRef.current, false, false, true);
     }, 60_000);
@@ -381,14 +395,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsGuest(false);
           setGuestRole(null);
           window.setTimeout(() => {
-            if (!workspaceIdRef.current && !loadInFlight.current && !isAuthRoute(pathnameRef.current)) {
+            if (
+              !workspaceIdRef.current
+              && !loadInFlight.current
+              && requiresWorkspaceBootstrap(pathnameRef.current)
+            ) {
               void load(null, true);
             }
           }, 0);
         }
         return;
       }
-      if (event === "TOKEN_REFRESHED" || isAuthRoute(pathnameRef.current)) return;
+      if (
+        event === "TOKEN_REFRESHED"
+        || !requiresWorkspaceBootstrap(pathnameRef.current)
+      ) return;
       if (event === "SIGNED_OUT") {
         ++loadSequence.current;
         loadInFlight.current = null;
@@ -418,7 +439,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.clearInterval(heartbeat);
       data.subscription.unsubscribe();
     };
-  }, [load, isAuthRoute(pathname)]); // Re-bootstrap only when crossing the auth/workspace boundary.
+  }, [load, pathname]); // Re-bootstrap only when crossing into a workspace route.
 
   const switchWorkspace = useCallback(async (nextWorkspaceId: string) => {
     if (nextWorkspaceId === workspaceId) return;

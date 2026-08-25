@@ -7,7 +7,7 @@ import Link from "next/link";
 
 import { ProfileRunPicker } from "@/components/profile-run-picker";
 import { ChartsTab } from "@/components/command-center/charts-tab";
-import { getProfile, getProfileReportDraft } from "@/lib/api";
+import { ensureExplorerSession, getProfile, getProfileReportDraft, listForecastAlgorithms } from "@/lib/api";
 import { LoadingBlock, Notice, PageHeader } from "@/components/ui";
 
 export default function ChartsPage() {
@@ -34,12 +34,34 @@ export default function ChartsPage() {
     queryKey: ["profile", runId],
     queryFn: ({ signal }) => getProfile(runId, signal),
     enabled: Boolean(runId),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+  });
+
+  // Start the two chart-specific requests as soon as a run is known. ChartsTab
+  // observes these exact keys, so it reuses the in-flight request (or cache)
+  // instead of starting its work only after the profile request finishes.
+  useQuery({
+    queryKey: ["command-center", runId, "explorer-session"],
+    queryFn: () => ensureExplorerSession(runId),
+    enabled: Boolean(runId),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
+  useQuery({
+    queryKey: ["command-center", runId, "forecast-algorithms"],
+    queryFn: () => listForecastAlgorithms(runId),
+    enabled: Boolean(runId),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 
   const reportDraft = useQuery({
     queryKey: ["report-draft", runId],
     queryFn: () => getProfileReportDraft(runId),
     enabled: Boolean(runId),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
 
   return <>

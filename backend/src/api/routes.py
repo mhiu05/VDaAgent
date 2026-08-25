@@ -185,7 +185,7 @@ def _build_profile_response(
         ],
         "quasi_identifiers": run.get("quasi_identifiers") or [],
         "correlation_matrix": run.get("correlation_matrix") or {},
-        "pending_proposals": repo.pending_count(run_id),
+        "pending_proposals": profile.get("pending_proposals", 0),
         "column_stats": stats,
         "proposals": profile["proposals"],
         "test_results": profile["test_results"],

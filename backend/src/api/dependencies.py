@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Annotated, Callable
 
 from fastapi import Depends, Header, HTTPException, status
+from src.services import perf_telemetry
 from src.services.auth import AuthContext, authenticate_bearer
 from src.services.permissions import canonical_role, permissions_for_role
 from src.services.repository import get_repository
@@ -41,6 +42,16 @@ async def get_current_user(
 async def get_current_workspace(
     user: Annotated[AuthContext, Depends(get_current_user)],
     workspace_header: Annotated[str | None, Header(alias="X-Workspace-Id")] = None,
+) -> WorkspaceContext:
+    # PERF-001: time the whole workspace-resolution phase. SQL run inside is
+    # also attributed to db_ms/query_count by the engine hooks; workspace_ms is
+    # the wall-clock cost of guard resolution including that SQL.
+    with perf_telemetry.timed("workspace_ms"):
+        return _resolve_workspace(user, workspace_header)
+
+
+def _resolve_workspace(
+    user: AuthContext, workspace_header: str | None
 ) -> WorkspaceContext:
     repo = get_repository()
     legacy_workspace_id: str | None = None

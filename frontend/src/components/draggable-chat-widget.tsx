@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import React, { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { listDatasets, listRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource } from "@/lib/types";
 import { createConversation, getConversationSnapshot, updateConversationSnapshot, listConversations, type ChatConversation, type ChatMessage } from "@/lib/chat-history";
@@ -17,6 +17,15 @@ const starters = [
   "Cột nào có rủi ro PII hoặc null cao?",
   "Có cột nào phù hợp làm candidate key không?",
 ];
+const WIDGET_SIZE = 56;
+const WIDGET_MARGIN = 16;
+
+function clampWidgetPosition(position: { x: number; y: number }, viewportWidth: number, viewportHeight: number) {
+  return {
+    x: Math.max(WIDGET_MARGIN, Math.min(viewportWidth - WIDGET_SIZE - WIDGET_MARGIN, position.x)),
+    y: Math.max(WIDGET_MARGIN, Math.min(viewportHeight - WIDGET_SIZE - WIDGET_MARGIN, position.y)),
+  };
+}
 
 function DataAnalyticsIcon({ size = 26 }: { size?: number; color?: string }) {
   return (
@@ -44,13 +53,11 @@ export function DraggableChatWidget({
 }) {
   const pathname = usePathname();
 
-  // Hide on full chat page
-  const isFullChatPage = pathname === "/chat";
-
   const [isOpen, setIsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"chat" | "history">("chat");
   const [convList, setConvList] = useState<ChatConversation[]>(conversations);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: -1, y: -1 });
+  const positionRef = useRef(position);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ startX: number; startY: number; posX: number; posY: number; hasMoved: boolean }>({
     startX: 0,
@@ -70,6 +77,10 @@ export function DraggableChatWidget({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
   // Sync convList
   useEffect(() => {
     setConvList(listConversations());
@@ -82,13 +93,28 @@ export function DraggableChatWidget({
     }
   }, [messages, isThinking, isOpen, viewMode]);
 
-  // Load Datasets
-  const datasets = useQuery({ queryKey: ["datasets"], queryFn: () => listDatasets() });
-  const runs = useQuery({
-    queryKey: ["runs", selectedDatasetId],
-    queryFn: () => listRuns(selectedDatasetId),
-    enabled: Boolean(selectedDatasetId),
+  // A single Profile Run selector is easier to use than making the analyst
+  // choose a dataset first. Fetch runs in parallel only after the drawer opens.
+  const datasets = useQuery({
+    queryKey: ["datasets"],
+    queryFn: ({ signal }) => listDatasets(signal),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
+  const runQueries = useQueries({
+    queries: (datasets.data ?? []).map((dataset) => ({
+      queryKey: ["runs", dataset.id],
+      queryFn: ({ signal }: { signal: AbortSignal }) => listRuns(dataset.id, signal),
+      enabled: isOpen,
+      staleTime: 60_000,
+      gcTime: 10 * 60_000,
+    })),
+  });
+  const profileRunGroups = useMemo(() => (datasets.data ?? []).map((dataset, index) => ({
+    dataset,
+    runs: (runQueries[index]?.data ?? []).filter((run) => run.status === "completed"),
+  })).filter((group) => group.runs.length > 0), [datasets.data, runQueries]);
+  const profileRunsLoading = isOpen && (datasets.isPending || runQueries.some((query) => query.isPending));
 
   // If path is a profile run, try to pre-select it
   useEffect(() => {
@@ -98,37 +124,44 @@ export function DraggableChatWidget({
     }
   }, [pathname]);
 
-  // Set default dataset & run if not set
+  // Resolve the dataset internally for history snapshots; the user only needs
+  // to choose a completed profile run.
   useEffect(() => {
-    if (!selectedDatasetId && datasets.data && datasets.data.length > 0) {
-      setSelectedDatasetId(datasets.data[0].id);
+    const matchingRun = profileRunGroups.flatMap((group) => group.runs.map((run) => ({
+      datasetId: group.dataset.id,
+      runId: run.id,
+    }))).find((item) => item.runId === selectedRunId);
+    if (matchingRun && matchingRun.datasetId !== selectedDatasetId) {
+      setSelectedDatasetId(matchingRun.datasetId);
     }
-  }, [datasets.data, selectedDatasetId]);
-
-  useEffect(() => {
-    if (runs.data && runs.data.length > 0 && !selectedRunId) {
-      const completed = runs.data.find((r) => r.status === "completed") || runs.data[0];
-      setSelectedRunId(completed.id);
-    }
-  }, [runs.data, selectedRunId]);
+  }, [profileRunGroups, selectedDatasetId, selectedRunId]);
 
   // Initialize position to bottom right
   useEffect(() => {
     const saved = localStorage.getItem("p170_chat_widget_pos");
+    let nextPosition: { x: number; y: number } | null = null;
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          setPosition(parsed);
-          return;
+          nextPosition = parsed;
         }
       } catch {
         // ignore
       }
     }
-    const defaultX = Math.max(20, window.innerWidth - 76);
-    const defaultY = Math.max(20, window.innerHeight - 86);
-    setPosition({ x: defaultX, y: defaultY });
+    const fallback = { x: window.innerWidth - WIDGET_SIZE - 20, y: window.innerHeight - WIDGET_SIZE - 30 };
+    const setVisiblePosition = (candidate: { x: number; y: number }) => {
+      const clamped = clampWidgetPosition(candidate, window.innerWidth, window.innerHeight);
+      positionRef.current = clamped;
+      setPosition(clamped);
+      localStorage.setItem("p170_chat_widget_pos", JSON.stringify(clamped));
+    };
+    setVisiblePosition(nextPosition ?? fallback);
+
+    const handleResize = () => setVisiblePosition(positionRef.current);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   // Initialize or load conversation
@@ -166,7 +199,11 @@ export function DraggableChatWidget({
   const handlePointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
     const button = e.currentTarget;
-    button.setPointerCapture(e.pointerId);
+    try {
+      button.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Pointer capture is unavailable in a few embedded browser contexts.
+    }
     dragStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -186,9 +223,13 @@ export function DraggableChatWidget({
       dragStartRef.current.hasMoved = true;
     }
 
-    const nextX = Math.max(16, Math.min(window.innerWidth - 70, dragStartRef.current.posX + dx));
-    const nextY = Math.max(16, Math.min(window.innerHeight - 70, dragStartRef.current.posY + dy));
-    setPosition({ x: nextX, y: nextY });
+    const nextPosition = clampWidgetPosition(
+      { x: dragStartRef.current.posX + dx, y: dragStartRef.current.posY + dy },
+      window.innerWidth,
+      window.innerHeight,
+    );
+    positionRef.current = nextPosition;
+    setPosition(nextPosition);
   };
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
@@ -203,13 +244,17 @@ export function DraggableChatWidget({
     if (!dragStartRef.current.hasMoved) {
       setIsOpen((prev) => !prev);
     } else {
-      localStorage.setItem("p170_chat_widget_pos", JSON.stringify(position));
+      localStorage.setItem("p170_chat_widget_pos", JSON.stringify(positionRef.current));
     }
   };
 
   const handleSend = async (questionText?: string) => {
     const query = (questionText || input).trim();
     if (!query || isThinking) return;
+    if (!selectedRunId) {
+      setMessages((current) => [...current, makeMessage("agent", "Hãy chọn một Profile Run đã hoàn tất trước khi hỏi để tôi trả lời đúng theo evidence của dữ liệu.", "Cần chọn Profile Run")]);
+      return;
+    }
 
     setInput("");
     const userMsg = makeMessage("user", query);
@@ -317,7 +362,7 @@ export function DraggableChatWidget({
     }
   };
 
-  if (isFullChatPage || position.x === -1) return null;
+  if (position.x === -1) return null;
 
   // DYNAMIC DRAWER POSITIONING FOLLOWING THE DRAGGED ICON
   const drawerWidth = 440;
@@ -623,70 +668,41 @@ export function DraggableChatWidget({
           ) : (
             /* VIEW: CHAT CONVERSATION */
             <>
-              {/* SCOPE SELECTORS */}
+              {/* PROFILE RUN SELECTOR */}
               <div
                 style={{
                   padding: "0.6rem 1rem",
                   background: "#f1f5f9",
                   borderBottom: "1px solid #e2e8f0",
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "8px",
                   fontSize: "0.75rem",
                 }}
               >
-                <div>
-                  <label style={{ display: "block", color: "#475569", marginBottom: "2px", fontWeight: 600 }}>
-                    Dataset:
-                  </label>
-                  <select
-                    value={selectedDatasetId}
-                    onChange={(e) => {
-                      setSelectedDatasetId(e.target.value);
-                      setSelectedRunId("");
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "5px 8px",
-                      borderRadius: "6px",
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "0.75rem",
-                    }}
-                  >
-                    {datasets.data?.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: "block", color: "#475569", marginBottom: "2px", fontWeight: 600 }}>
-                    Profile Run:
-                  </label>
-                  <select
-                    value={selectedRunId}
-                    onChange={(e) => setSelectedRunId(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "5px 8px",
-                      borderRadius: "6px",
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "0.75rem",
-                    }}
-                  >
-                    {runs.data?.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {profileRunOptionLabel(r)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <label htmlFor="widget-profile-run" style={{ display: "block", color: "#475569", marginBottom: "2px", fontWeight: 600 }}>
+                  Profile Run dùng làm evidence
+                </label>
+                <select
+                  id="widget-profile-run"
+                  value={selectedRunId}
+                  onChange={(e) => setSelectedRunId(e.target.value)}
+                  disabled={profileRunsLoading}
+                  style={{
+                    width: "100%",
+                    padding: "7px 9px",
+                    borderRadius: "6px",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "0.78rem",
+                  }}
+                >
+                  <option value="">{profileRunsLoading ? "Đang tải Profile Run…" : "Chọn Profile Run đã hoàn tất…"}</option>
+                  {profileRunGroups.map((group) => (
+                    <optgroup key={group.dataset.id} label={group.dataset.name}>
+                      {group.runs.map((run) => <option key={run.id} value={run.id}>{profileRunOptionLabel(run)}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                {!profileRunsLoading && !profileRunGroups.length && <small style={{ display: "block", marginTop: "5px", color: "#64748b" }}>Workspace chưa có Profile Run hoàn tất để Agent sử dụng.</small>}
               </div>
 
               {/* MESSAGES SCROLL AREA */}
@@ -780,6 +796,7 @@ export function DraggableChatWidget({
                       key={idx}
                       type="button"
                       onClick={() => handleSend(s)}
+                      disabled={!selectedRunId || isThinking}
                       style={{
                         padding: "4px 8px",
                         background: "#eff6ff",
@@ -816,8 +833,8 @@ export function DraggableChatWidget({
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Hỏi AI về dataset, biểu đồ..."
-                  disabled={isThinking}
+                  placeholder={selectedRunId ? "Hỏi AI về Profile Run đã chọn…" : "Chọn Profile Run để bắt đầu hỏi…"}
+                  disabled={!selectedRunId || isThinking}
                   style={{
                     flex: 1,
                     padding: "8px 12px",
@@ -831,17 +848,17 @@ export function DraggableChatWidget({
                 />
                 <button
                   type="submit"
-                  disabled={!input.trim() || isThinking}
+                  disabled={!input.trim() || !selectedRunId || isThinking}
                   style={{
                     padding: "8px 16px",
                     borderRadius: "8px",
-                    background: input.trim() && !isThinking ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "#cbd5e1",
+                    background: input.trim() && selectedRunId && !isThinking ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "#cbd5e1",
                     color: "#ffffff",
                     border: "none",
                     fontWeight: 600,
                     fontSize: "0.85rem",
-                    cursor: input.trim() && !isThinking ? "pointer" : "not-allowed",
-                    boxShadow: input.trim() && !isThinking ? "0 2px 6px rgba(37,99,235,0.25)" : "none",
+                    cursor: input.trim() && selectedRunId && !isThinking ? "pointer" : "not-allowed",
+                    boxShadow: input.trim() && selectedRunId && !isThinking ? "0 2px 6px rgba(37,99,235,0.25)" : "none",
                   }}
                 >
                   Gửi
