@@ -44,6 +44,8 @@ charset-normalizer>=3.4.0,<4 # detect legacy CSV encodings before DuckDB reads t
 
 # --- Metadata DB ---
 sqlalchemy>=2.0.0
+pymysql>=1.1.1                 # MySQL external datasource connector
+pymongo>=4.10.1               # MongoDB external datasource connector
 alembic>=1.14.0                       # versioned PostgreSQL migrations
 supabase>=2.15.0                     # Supabase Storage backend-only client
 google-api-python-client>=2.170.0    # Google Drive resumable upload/download

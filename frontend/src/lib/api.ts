@@ -11,6 +11,7 @@ import type {
   TestResult,
   UploadResult,
 } from "@/lib/types";
+import type { DatasourceConfig, DatasourceConnectResult, DatasourceKind, DatasourceTestResult } from "@/lib/types";
 import type { AnalysisExecution, AnalysisSession, AutoChartPlan, AutoProfilePack, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
@@ -134,6 +135,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function listDatasets(signal?: AbortSignal): Promise<Dataset[]> {
   return request<Dataset[]>("/datasets", { signal });
+}
+
+export function testDatasource(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<DatasourceTestResult> {
+  return request<DatasourceTestResult>("/datasets/datasource/test", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, name, config }),
+  });
+}
+
+export function connectDatasource(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<DatasourceConnectResult> {
+  return request<DatasourceConnectResult>("/datasets/datasource", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, name, config }),
+  });
 }
 
 export type GoogleDriveStatus = {

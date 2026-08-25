@@ -272,6 +272,18 @@ datasets = Table(
     Column("last_profiled_at", DateTime(timezone=True), nullable=True),
 )
 
+datasource_connections = Table(
+    "datasource_connections",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False, index=True),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("name", String(255), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("config_encrypted", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+
 profile_runs = Table(
     "profile_runs",
     metadata,
@@ -3279,6 +3291,55 @@ class Repository:
                 )
             )
             return bool(result.rowcount)
+
+    # --- External datasource connections ------------------------------- #
+    def create_datasource_connection(
+        self,
+        connection_id: str,
+        *,
+        workspace_id: str,
+        created_by_user_id: str,
+        name: str,
+        kind: str,
+        config_encrypted: str,
+    ) -> str:
+        with self.engine.begin() as conn:
+            conn.execute(
+                datasource_connections.insert().values(
+                    id=connection_id,
+                    workspace_id=workspace_id,
+                    created_by_user_id=created_by_user_id,
+                    name=name,
+                    kind=kind,
+                    config_encrypted=config_encrypted,
+                    created_at=_now(),
+                )
+            )
+        return connection_id
+
+    def get_datasource_connection(
+        self, connection_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(datasource_connections).where(
+                    datasource_connections.c.id == connection_id,
+                    datasource_connections.c.workspace_id == workspace_id,
+                )
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def get_datasource_connection_any(self, connection_id: str) -> dict[str, Any] | None:
+        """Resolve a connection for a dataset already authorized by its workspace."""
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(datasource_connections).where(datasource_connections.c.id == connection_id)
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def delete_datasource_connection(self, connection_id: str) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(datasource_connections.delete().where(datasource_connections.c.id == connection_id))
 
     # --- Dataset -------------------------------------------------------- #
     def upsert_dataset(

@@ -211,10 +211,13 @@ a thread could make results or checkpoints inconsistent.
 | Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API and MCP tools for list/create/delete events |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |
 
-The supported compute source is the uploaded file materialized by the selected
-storage adapter. BigQuery, Snowflake and a standalone vector database are not
-runtime compute backends. Knowledge-base retrieval is an optional in-app
-capability, not a substitute for the Profile Run evidence boundary.
+The supported compute sources are uploaded files and external MySQL, MongoDB
+and DuckDB connections. External sources are validated by the API, stored as
+encrypted tenant-owned connection metadata, then materialized to a temporary
+CSV, JSONL or Parquet file only while DuckDB/pandas computes the profile.
+BigQuery, Snowflake and a standalone vector database are not runtime compute
+backends. Knowledge-base retrieval is an optional in-app capability, not a
+substitute for the Profile Run evidence boundary.
 
 ## Data ownership
 
@@ -223,7 +226,7 @@ capability, not a substitute for the Profile Run evidence boundary.
 | Identity and browser session | Supabase Auth | Browser uses SSR/PKCE; backend validates bearer credentials. |
 | User profile and system role | PostgreSQL `user_profiles` | Stores email projection, `analyst`/`admin` role, status and lock metadata. |
 | Workspace and membership | PostgreSQL | Protected lookups are workspace-scoped; membership role currently normalizes to Analyst. |
-| Dataset binary | Supabase Storage, Google Drive or local dev storage | PostgreSQL keeps source reference, hash and metadata, not the blob. |
+| Dataset source | Supabase Storage, Google Drive/local file or encrypted datasource connection | PostgreSQL keeps source reference, hash and metadata; external credentials are encrypted and raw rows are never stored. |
 | Profile Run and column statistics | PostgreSQL | Statistics, review decisions, quality information and provenance bind to dataset/workspace. |
 | Explorer session/execution | PostgreSQL | Preview/Official records bind query, context version, result hash and limitation. |
 | Agent run and trace | PostgreSQL | Authoritative redacted provenance; never chain-of-thought or raw messages. |

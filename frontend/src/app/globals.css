@@ -243,8 +243,10 @@ h2 { font-size: 1.1rem; margin-bottom: 10px; }
 h3 { font-size: .98rem; margin-bottom: 8px; }
 small { color: var(--muted); }
 
-.app-shell { display: grid; grid-template-columns: 264px minmax(0, 1fr); min-height: 100vh; }
-.sidebar { position: sticky; top: 0; display: flex; flex-direction: column; height: 100vh; padding: 0; color: #d3ddf0; background: linear-gradient(180deg, #111d34 0%, #0f1a2f 100%); }
+.app-shell { display: grid; min-height: 100vh; transition: grid-template-columns 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.app-shell.sidebar-is-expanded { grid-template-columns: 264px minmax(0, 1fr); }
+.app-shell.sidebar-is-collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+.sidebar { position: sticky; top: 0; display: flex; flex-direction: column; height: 100vh; padding: 0; color: #d3ddf0; background: linear-gradient(180deg, #111d34 0%, #0f1a2f 100%); transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 .brand { display: flex; align-items: center; gap: 12px; padding: 4px 8px 32px; color: white; }
 .brand-mark { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgba(164, 180, 255, .22); border-radius: 12px; color: #fff; background: linear-gradient(145deg, #6f87ff, #405dd6); box-shadow: 0 8px 18px rgba(57, 82, 201, .25); font-size: .95rem; font-weight: 850; }
 .brand b { display: block; font-size: 1.08rem; letter-spacing: -.025em; }
@@ -293,6 +295,31 @@ small { color: var(--muted); }
 .nav-link.active::before {
   display: none;
 }
+.sidebar-group-btn { justify-content: space-between; }
+.sidebar-group-btn.active-parent { color: #ffffff; background: rgba(255, 255, 255, 0.05); }
+.chevron { display: flex; align-items: center; transition: transform 0.2s; opacity: 0.6; }
+.chevron.open { transform: rotate(180deg); opacity: 1; }
+
+.sidebar-sub-menu { display: grid; gap: 2px; margin-top: 2px; margin-bottom: 8px; }
+.sidebar-sub-item .nav-link { padding-left: 44px; min-height: 36px; }
+
+/* Collapsed state styling */
+.sidebar.collapsed .sidebar-link-label,
+.sidebar.collapsed .sidebar-section-label,
+.sidebar.collapsed .chevron,
+.sidebar.collapsed .account-details,
+.sidebar.collapsed .sidebar-workspace-label,
+.sidebar.collapsed .sidebar-sub-menu {
+  display: none;
+}
+.sidebar.collapsed .sidebar-top { align-items: center; }
+.sidebar.collapsed .brand-mark { margin: 0 auto; }
+.sidebar.collapsed .brand b, .sidebar.collapsed .brand small { display: none; }
+.sidebar.collapsed .theme-toggle { justify-content: center; padding: 8px 0; }
+.sidebar.collapsed .theme-toggle-track { display: none; }
+.sidebar.collapsed .sidebar-signout { padding: 10px 0; width: 44px; margin: 0 auto; }
+.sidebar.collapsed .sidebar-signout span { display: none; }
+
 .nav-link .sidebar-icon {
   display: flex;
   align-items: center;

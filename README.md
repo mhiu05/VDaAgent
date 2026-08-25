@@ -58,6 +58,9 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
 - Profile job bền vững: API trả `202 Accepted`, worker claim job từ
   PostgreSQL bằng lease, retry lỗi tạm thời trong giới hạn và resume sau bước
   human-in-the-loop review.
+- Datasource ngoài qua giao diện **MySQL, MongoDB và DuckDB**. Backend kiểm tra
+  kết nối, mã hóa credential bằng Fernet và materialize nguồn thành file tạm để
+  dùng chung pipeline DuckDB/pandas hiện có.
 - Charts tại `/charts`: profile pack tự động hoặc câu hỏi tự nhiên → chart
   plan → Preview bounded → Official evidence. Backend kiểm tra cột, phép
   aggregate, PII policy, context version, budget và idempotency.
