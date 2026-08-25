@@ -92,7 +92,18 @@ def _resolve_workspace(
     else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có membership workspace đang hoạt động.")
 
+    if repo.is_user_locked(user.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa bởi Quản trị viên hệ thống. Vui lòng liên hệ quản trị để được hỗ trợ mở khóa.",
+        )
+
+    profile = repo.get_user_profile(user.user_id)
+    profile_role = canonical_role(str(profile.get("role", "analyst"))) if profile else "analyst"
     role = canonical_role(str(membership["role"]))
+    if profile_role == "admin":
+        role = "admin"
+
     return WorkspaceContext(
         workspace_id=str(membership["workspace_id"]),
         role=role,
