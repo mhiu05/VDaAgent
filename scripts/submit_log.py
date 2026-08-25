@@ -21,9 +21,11 @@ from pathlib import Path
 
 from log_paths import resolve_log_dir
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(REPO_ROOT / ".env")
 except ImportError:
     pass
 
