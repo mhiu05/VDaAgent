@@ -105,7 +105,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
-  const { me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
+  const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
@@ -227,11 +227,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }, [isAdmin, isAuthPage, isPublicPage, me, pathname, router]);
 
   useEffect(() => {
-    if (loading || isPublicPage || isAuthPage || me || isGuest || error) return;
+    if (!ready || loading || isPublicPage || isAuthPage || me || isGuest || error) return;
     const query = searchParams.toString();
     const next = `${pathname}${query ? `?${query}` : ""}`;
     router.replace(`/login?next=${encodeURIComponent(next)}`);
-  }, [error, isAuthPage, isGuest, isPublicPage, loading, me, pathname, router, searchParams]);
+  }, [error, isAuthPage, isGuest, isPublicPage, loading, me, pathname, ready, router, searchParams]);
 
   useEffect(() => {
     if (isPublicPage || isAuthPage || isAdmin) return;
@@ -359,7 +359,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     </div>
   );
 
-  if (loading) return <main className="main-content workspace-auth-loading" aria-live="polite" aria-busy="true"><section className="workspace-auth-loading-card"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>Đang mở workspace…</b><p>Đang xác định phiên và quyền truy cập.</p></div></section></main>;
+  if (!ready || loading) return <main className="main-content workspace-auth-loading" aria-live="polite" aria-busy="true"><section className="workspace-auth-loading-card"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>Đang mở workspace…</b><p>Đang xác định phiên và quyền truy cập.</p></div></section></main>;
   if (!me && !isGuest && !error) return <main className="main-content workspace-auth-loading" aria-live="polite"><section className="workspace-auth-loading-card"><div><b>Đang chuyển đến đăng nhập…</b><p>Vui lòng đăng nhập hoặc chọn một guest role để mở workspace.</p></div></section></main>;
   if (error && !me && !isPublicPage && !isAuthPage) return <main className="main-content workspace-auth-loading"><section className="workspace-auth-loading-card"><div><b>Không thể mở workspace</b><p>{error}</p><button className="button secondary" onClick={() => window.location.reload()}>Thử lại</button></div></section></main>;
 
