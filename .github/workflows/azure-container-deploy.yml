@@ -105,7 +105,7 @@ jobs:
 
   build-and-deploy:
     needs: quality
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: self-hosted
     steps:
       - name: Checkout
