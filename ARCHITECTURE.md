@@ -15,8 +15,8 @@ Dataset upload → queued Profile Run → profiling worker → metadata/PII revi
 
 The current product surface has two related workspaces:
 
-- `/profiles/{runId}` is the Profile Run Command Center: Overview, Ask Agent,
-  and Report.
+- `/profiles/{runId}` presents the Profile Run overview and its Report Draft;
+  `/chat` is the dedicated Agent Q&A surface.
 - `/charts` selects a completed Profile Run and creates evidence-backed charts
   with the same Explorer context and Report Draft.
 
@@ -35,6 +35,8 @@ authenticated workspace begins after sign-in.
    current context binding; only that result can enter a report as evidence.
 3. **All data access is workspace-scoped.** FastAPI resolves identity,
    workspace membership, and capability before it reads or writes a resource.
+   `analyst` is the sole product role; capabilities remain the authorization
+   boundary.
 4. **No unbounded execution or raw-row path.** Browser, Agent, and MCP tools
    use structured, allow-listed operations. They cannot submit raw SQL, Python,
    shell commands, arbitrary source paths, or PII values.
@@ -174,7 +176,7 @@ secrets, file paths, or chain-of-thought.
 | LangGraph + native skills | Profiling/Q&A orchestration; bounded tool registry and optional redacted trace |
 | `AnalysisEngine` | Validates `QuerySpec`, runs bounded aggregates, profile-derived analysis and forecasts |
 | Chart planner | Turns an approved-profile question into a structured ChartPlan; uses a rule fallback if LLM planning fails |
-| Forecasting registry | Describes 30 model capabilities and runs only models whose dependency/contract is available |
+| Forecasting registry | Describes 29 model capabilities and runs only models whose dependency/contract is available |
 | PostgreSQL repositories | Workspace state, profile metadata, analysis sessions/executions, reports, audit and trace |
 | Storage adapters | Dataset binary persistence and temporary materialization for tabular compute |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |

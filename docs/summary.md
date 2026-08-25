@@ -65,7 +65,7 @@ cấp quyền rồi render PDF.
 ### Bootstrap workspace và latency
 
 Khi người dùng vào app, `GET /workspace-bootstrap` trả về session đã được xác thực,
-workspace đã chọn/role, danh sách workspace kèm effective permissions và dashboard
+workspace đã chọn, danh sách workspace kèm effective permissions và dashboard
 summary (count và tối đa 12 report gần nhất). Nhờ đó frontend không cần chờ nhiều
 request nhánh cho thời điểm bootstrap; response cũng seed dashboard cache theo
 workspace.
@@ -143,7 +143,7 @@ thể approximate hoặc hết hạn; các lỗi như `explorer_timeout`, `conte
 
 ### Forecasting
 
-Catalog gồm 30 model thuộc baseline, exponential smoothing, ARIMA, state space,
+Catalog gồm 29 model thuộc baseline, exponential smoothing, ARIMA, state space,
 decomposable và machine learning. `GET /profile/{run_id}/charts/algorithms`
 trả trạng thái `available` cho từng model. Model chưa cài dependency hoặc cần
 biến ngoại sinh trong tương lai không được thực thi. Forecast yêu cầu một time
@@ -191,7 +191,8 @@ snapshot. `GET /reports/{report_id}/export-source` ưu tiên source snapshot đ�
 read-only với `snapshot_hash: "draft"` để trang detail vẫn mở được; trạng thái
 này không phải bản báo cáo chính thức để chia sẻ.
 
-Sau snapshot, report hỗ trợ vòng đời submit, review, publish và archive.
+Sau snapshot, report hỗ trợ vòng đời submit, review, publish và archive. Mọi
+capability này thuộc role `analyst` duy nhất; không còn bước phê duyệt theo Admin.
 Workspace cũng hỗ trợ quản lý thành viên/lời mời, archive/restore và cấu hình
 ngữ cảnh AI-nghiệp vụ, theme, compute/statistics và PII policy. `/activity` đọc
 audit event đã được lọc theo workspace/capability, không hiển thị raw question.

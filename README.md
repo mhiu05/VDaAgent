@@ -37,8 +37,8 @@ Các nguyên tắc của dự án:
 - UI, Agent và report không cung cấp raw row hoặc giá trị PII thô.
 - Browser không gửi SQL hay mã thực thi tự do. Mọi aggregate dùng `QuerySpec`
   có allow-list, ngân sách thời gian và giới hạn kết quả.
-- Backend luôn xác thực workspace, role và capability trước khi đọc hoặc ghi
-  một resource.
+- Backend luôn xác thực workspace và capability trước khi đọc hoặc ghi một
+  resource. Sản phẩm hiện chuẩn hóa một role duy nhất là `analyst`.
 
 ## Vấn đề
 
@@ -121,7 +121,7 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **15 loại biểu đồ native**: line, bar, table, KPI, histogram, scatter, box,
   heatmap, missing-value bar/heatmap, correlation heatmap, cardinality, violin,
   donut và outlier. Renderer chỉ nhận kết quả aggregate.
-- **Forecast chuỗi thời gian** với catalog 30 mô hình. Khả dụng thực tế phụ
+- **Forecast chuỗi thời gian** với catalog 29 mô hình. Khả dụng thực tế phụ
   thuộc dependency cài trong môi trường và contract dữ liệu; các model cần giá
   trị ngoại sinh tương lai sẽ được đánh dấu không khả dụng thay vì tự suy đoán.
 - **Chart planning an toàn**: LLM trả structured candidate khi được cấu hình;
@@ -143,7 +143,8 @@ thể dùng `frontend/.env.local` để override riêng frontend. Không commit 
 - **Vận hành workspace**: quản lý thành viên/lời mời, archive/restore, cấu hình
   AI-nghiệp vụ, giao diện, compute và chính sách PII; `/activity` hiển thị audit
   event theo capability.
-- **Vòng đời báo cáo** ngoài Snapshot gồm submit, review, publish và archive.
+- **Vòng đời báo cáo** ngoài Snapshot gồm submit, review, publish và archive;
+  các capability thuộc role `analyst`, không còn luồng phê duyệt theo Admin.
 - **Chat Agent** dùng route `/chat` và chọn một Profile Run hoàn tất làm context.
 - **MCP stdio adapter** cho trusted local clients, cung cấp tool profile/chart
   có giới hạn. Đây không phải endpoint MCP công khai.
@@ -251,7 +252,7 @@ docs/azure-deploy-cicd.md        Quy trình CI/CD và triển khai Azure App Ser
 ## Yêu cầu
 
 - Python 3.11+
-- Node.js 20+ và pnpm 9+ (image frontend production dùng Node.js 22)
+- Node.js 20+ và pnpm 11+ (image frontend production dùng Node.js 22)
 - PostgreSQL; production dùng Supabase PostgreSQL
 - Git
 - Khóa LLM là tùy chọn: profiling, Preview/Official và các model forecast khả
