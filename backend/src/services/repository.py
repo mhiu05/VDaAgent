@@ -2039,16 +2039,18 @@ class Repository:
                         updated_at=now,
                     )
                 )
-            elif membership["role"] != canonical or membership["status"] != "active":
-                # A normal guest bootstrap is read-only. Only repair a
-                # membership when it was actually changed or suspended.
+            elif membership["role"] != canonical:
+                # Keep the bootstrap idempotent without reviving a membership
+                # that an administrator or workspace owner explicitly
+                # suspended. Access checks must observe that suspension on the
+                # next request.
                 conn.execute(
                     workspace_memberships.update()
                     .where(
                         workspace_memberships.c.workspace_id == workspace_id,
                         workspace_memberships.c.user_id == guest_user_id,
                     )
-                    .values(role=canonical, status="active", updated_at=now)
+                    .values(role=canonical, updated_at=now)
                 )
         return workspace_id
 

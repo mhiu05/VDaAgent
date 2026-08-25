@@ -59,7 +59,7 @@ def _workspace_of(run_id: str) -> str:
     ],
 )
 def test_save_gate_transitions_without_nested_connection(
-    profile_run, mode, decision, expected_status
+    reviewed_profile_run, mode, decision, expected_status
 ) -> None:
     """save_gate must resolve session mode on its own transaction.
 
@@ -71,7 +71,7 @@ def test_save_gate_transitions_without_nested_connection(
     from src.services.analysis_repository import get_analysis_repository
 
     analyses = get_analysis_repository()
-    run_id = profile_run["profile_run_id"]
+    run_id = reviewed_profile_run["profile_run_id"]
     workspace_id = _workspace_of(run_id)
 
     session = analyses.create_session(
