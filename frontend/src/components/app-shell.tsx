@@ -58,7 +58,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
-  const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact");
+  const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAdmin = Boolean(me?.workspace.role === "admin" || can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
   const roleNavigation = isAdmin ? adminNavigation : analystNavigation;
 
