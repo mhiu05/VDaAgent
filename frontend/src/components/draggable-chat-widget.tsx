@@ -34,6 +34,7 @@ function DataAnalyticsIcon({ size = 26 }: { size?: number; color?: string }) {
       alt="VDaAgent Icon"
       width={size}
       height={size}
+      unoptimized
       style={{ width: size, height: size, objectFit: "contain" }}
     />
   );

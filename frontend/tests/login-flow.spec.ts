@@ -46,7 +46,7 @@ test("one successful login navigates to the workspace without looping or blankin
 
   await expect(page).toHaveURL(/\/workspaces$/);
   await expect(page.locator(".workspace-page")).toBeVisible();
-  await expect(page.getByText("Workspace Login")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace Login", exact: true })).toBeVisible();
   await expect(page.locator("body")).not.toHaveText("");
   expect(pageErrors).toEqual([]);
 });

@@ -53,7 +53,7 @@ test("analyst compares two completed Profile Runs through the drift API", async 
 
   await page.locator("#compare-baseline").selectOption("baseline-run");
   await page.locator("#compare-current").selectOption("current-run");
-  await page.getByRole("button", { name: "So sánh dữ liệu" }).click();
+  await page.getByRole("button", { name: "So sánh dữ liệu", exact: true }).click();
 
   await expect(page.getByText("One numeric drift signal detected.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "net_revenue" })).toBeVisible();
