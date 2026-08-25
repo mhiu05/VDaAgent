@@ -60,7 +60,9 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
   human-in-the-loop review.
 - Datasource ngoài qua giao diện **MySQL, MongoDB và DuckDB**. Backend kiểm tra
   kết nối, mã hóa credential bằng Fernet và materialize nguồn thành file tạm để
-  dùng chung pipeline DuckDB/pandas hiện có.
+  dùng chung pipeline DuckDB/pandas hiện có. MySQL/DuckDB chỉ nhận tên bảng
+  hoặc câu lệnh `SELECT`/`WITH` chỉ-đọc; MongoDB chỉ nhận collection và JSON
+  filter. Mỗi lần materialize bị chặn ở 1.000.000 dòng.
 - Charts tại `/charts`: profile pack tự động hoặc câu hỏi tự nhiên → chart
   plan → Preview bounded → Official evidence. Backend kiểm tra cột, phép
   aggregate, PII policy, context version, budget và idempotency.
@@ -77,6 +79,8 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
   biến và xuất PDF/JSON. Snapshot là nguồn chính thức để chia sẻ.
 - Workspace: tạo, archive/restore, thành viên, invitation, cấu hình AI/nghiệp
   vụ, theme, compute/statistics, PII policy và audit activity.
+- Google Calendar tại `/calendar`: Analyst kết nối OAuth theo workspace, sau
+  đó xem, tạo và hủy lịch hẹn; UI và MCP stdio dùng cùng API/permission.
 - Admin system: đăng nhập bằng cùng giao diện `/login`, sau đó truy cập
   `/admin` nếu có system role `admin`; có thể xem, tìm kiếm, khóa/mở khóa,
   đổi role `analyst`/`admin` và xóa tài khoản người dùng.
@@ -114,7 +118,7 @@ Các route frontend chính:
 | --- | --- |
 | Public | `/`, `/about`, `/guide`, `/docs`, `/contact` |
 | Auth | `/login`, `/signup`, `/forgot-password`, `/auth/callback`, `/account/update-password` |
-| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/activity`, `/settings`, `/account` |
+| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/calendar`, `/activity`, `/settings`, `/account` |
 | System admin | `/admin`, `/account` |
 | PDF/health | `/api/reports/profile/{runId}`, `/health` |
 
@@ -131,7 +135,7 @@ workspace context và permission cho mỗi request, kể cả khi UI đã ẩn r
 | Agent | LangGraph, LangChain, OpenAI/Gemini/Ollama tùy cấu hình, LangSmith tùy chọn |
 | Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
 | Forecast | 28 adapter; model ngoài core chỉ khả dụng khi dependency được cài |
-| Data/Auth | PostgreSQL/Supabase Auth, Supabase Storage hoặc Google Drive tùy chọn |
+| Data/Auth | PostgreSQL/Supabase Auth, Supabase Storage/Google Drive, connector MySQL/MongoDB/DuckDB |
 | Quality/Deploy | pytest, Ruff, Vitest, Playwright, Docker, Azure App Service, GitHub Actions |
 
 ## Quick start
@@ -250,12 +254,14 @@ Các biến cần chú ý:
 | `AUTH_ALLOW_SIGNUP` / `AUTH_ALLOW_GUEST` | Bật signup và guest trial |
 | `GLOBAL_ADMIN_EMAILS` | Danh sách email được seed system role admin, phân tách bằng dấu phẩy |
 | `STORAGE_PROVIDER` / `GUEST_STORAGE_PROVIDER` | Backend storage cho user và guest |
+| `DATASOURCE_ENCRYPTION_KEY` | Fernet key bắt buộc ở production để mã hóa credential connector; không đưa vào frontend |
 | `NEXT_PUBLIC_API_URL` | Base URL FastAPI được embed vào frontend build |
 | `UX_COMMAND_CENTER_ENABLED` | Bật contract Command Center phía backend |
 | `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật UI Command Center tại thời điểm build |
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` cho trace đã redact |
 | `LANGSMITH_*` | Projection metadata-only tùy chọn, chỉ cấu hình server-side |
 | `GOOGLE_DRIVE_*` | OAuth/storage tùy chọn cho Google Drive |
+| `GOOGLE_CALENDAR_*` | OAuth, encryption key, callback và timezone cho Calendar; chỉ cấu hình server-side |
 
 ## Quan sát AI và evaluation
 
@@ -284,12 +290,14 @@ hợp, trừ health/system route được đánh dấu public.
 | --- | --- |
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{job_id}`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
+| Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` cho MySQL, MongoDB và DuckDB |
 | Quality/drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
 | Charts/Explorer | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms`, Preview và promote endpoints |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, `/trace`, `/evidence`, `/plan` |
 | Reports | Draft, `POST /reports/{report_id}/items`, snapshot, submit, review, publish, archive và `GET /reports/{report_id}/export-source` |
 | Admin | `GET /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback và `DELETE /google-drive/connection` |
+| Google Calendar | status, OAuth connect/callback/disconnect và list/create/delete event endpoints |
 
 PDF report đi qua route cùng origin của Next.js:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
@@ -303,7 +311,7 @@ PDF report đi qua route cùng origin của Next.js:
 backend/src/api/                 FastAPI routes và dependency/capability guards
 backend/src/agents/              LangGraph, prompts, skills, trace/tools
 backend/src/services/            auth, permissions, profiling, compute, charts,
-                                 forecast, report, storage, retrieval, telemetry
+                                 forecast, report, storage, datasource, retrieval, telemetry
 backend/src/workers/             durable profiling worker claim/lease/retry
 backend/src/models/              Pydantic request/response contracts
 backend/migrations/              Alembic migrations
@@ -363,8 +371,12 @@ Chi tiết resource, secret và flow nằm trong
 
 ## Giới hạn hiện tại
 
-- Không có arbitrary SQL, raw-row exploration, source cleaning recipe, multi-
-  table join hoặc general code execution qua UI, Agent hay MCP.
+- Không có SQL/Python/shell tùy ý cho Explorer, Chart, Agent hoặc MCP; raw-row
+  exploration, source-cleaning recipe, multi-table join và general code
+  execution cũng không được phát hành. Connector chỉ là ngoại lệ hẹp cho lúc
+  nhập nguồn: MySQL/DuckDB cho phép một `SELECT`/`WITH` chỉ-đọc đã validate,
+  MongoDB cho phép JSON filter, rồi dữ liệu bị materialize tạm với trần 1 triệu
+  dòng trước khi vào pipeline profiling.
 - Preview bị giới hạn thời gian, dữ liệu và số kết quả; chỉ Official execution
   mới đủ điều kiện làm report evidence.
 - Forecast là ước lượng có interval/limitation; model bị ẩn khi thiếu package,

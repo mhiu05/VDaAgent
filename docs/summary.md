@@ -9,9 +9,10 @@ giới runtime: [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## 1. Phạm vi sản phẩm hiện tại
 
-Ứng dụng nhận CSV, TSV, Parquet và JSON; tạo profile deterministic cho schema,
-quality và privacy; cho phép Analyst review proposal metadata/PII; sau đó dùng
-Profile Run hoàn tất làm nguồn cho chart, Agent, compare và report.
+Ứng dụng nhận CSV, TSV, Parquet và JSON, hoặc kết nối MySQL, MongoDB và DuckDB;
+tạo profile deterministic cho schema, quality và privacy; cho phép Analyst
+review proposal metadata/PII; sau đó dùng Profile Run hoàn tất làm nguồn cho
+chart, Agent, compare và report.
 
 ```text
 Đăng nhập Supabase / guest trial
@@ -55,6 +56,7 @@ route. Admin không có login page riêng: admin cũng đăng nhập tại `/log
 | Compute | DuckDB, pandas, NumPy, SciPy | Profiling, aggregate bounded, quality/statistics, drift và forecast adapter |
 | Metadata | PostgreSQL/Supabase PostgreSQL | User profile, workspace, membership, dataset metadata, Profile Run, evidence, report, audit, trace |
 | File storage | Supabase Storage, Google Drive hoặc local | Binary dataset; compute materialize file tạm khi cần |
+| Datasource | MySQL, MongoDB, DuckDB | API xác thực nguồn, mã hóa credential và materialize tạm trước profiling |
 
 Frontend gọi FastAPI qua `NEXT_PUBLIC_API_URL`, gửi Bearer token và
 `X-Workspace-Id`. `frontend/next.config.ts` chỉ forward allow-list biến public;
@@ -85,6 +87,17 @@ correlation ID và timing breakdown; không ghi token, email hay payload.
 
 Không có BigQuery/Snowflake hoặc vector database được triển khai như compute
 backend hiện tại. Knowledge-base retrieval là khả năng nội bộ tùy cấu hình.
+
+### Connector nguồn dữ liệu
+
+`/connectors` và `/datasets/new` có giao diện kết nối MySQL, MongoDB hoặc file
+DuckDB trên máy chủ backend. API kiểm tra kết nối trước khi tạo dataset ở
+`POST /datasets/datasource`; credential được mã hóa bằng Fernet trong metadata
+theo workspace và không được trả lại cho browser. MySQL/DuckDB chỉ nhận tên
+bảng hoặc `SELECT`/`WITH` chỉ-đọc; MongoDB nhận collection và JSON filter.
+Nguồn được materialize vào file tạm, giới hạn 1.000.000 dòng, rồi đi qua đúng
+pipeline DuckDB/pandas của file upload. Đây không phải khả năng gửi SQL tự do
+cho Explorer, Agent hay MCP.
 
 ## 3. Profiling và review
 
@@ -144,11 +157,12 @@ thực thi. Kết quả luôn kèm interval/cảnh báo.
 
 ## 5. Agent, evidence và MCP
 
-Calendar MCP cho Analyst được triển khai qua Google Calendar OAuth. UI/API và
-MCP stdio dùng chung các tool list/create/delete, token mã hóa được lưu theo
-workspace + user, và permission calendar.read/calendar.write được kiểm tra
-trước mọi thao tác. Xem [hướng dẫn Google Calendar MCP](google-calendar-mcp.md)
-để cấu hình Google Cloud, local, Azure và MCP client.
+Calendar cho Analyst được triển khai tại `/calendar` qua Google Calendar OAuth.
+UI/API và MCP stdio dùng chung các thao tác list/create/delete; refresh token
+mã hóa được lưu theo workspace + user, và permission
+`calendar.read`/`calendar.write` được kiểm tra trước mọi thao tác. Xem
+[hướng dẫn Google Calendar MCP](google-calendar-mcp.md) để cấu hình Google
+Cloud, local, Azure và MCP client.
 
 Q&A hoạt động trong phạm vi Profile Run. `POST /qa` và `POST /qa/stream` chỉ
 được đọc evidence mà caller có quyền; câu trả lời thiếu evidence phải được
@@ -160,11 +174,10 @@ prompt/message, chain-of-thought, raw row, PII, secret hay file path. LangSmith
 là projection tùy chọn, fail-open và metadata-only; PostgreSQL vẫn là nguồn
 trace có thẩm quyền.
 
-Short-term conversation memory is implemented for Q&A. The frontend sends a
-bounded recent history, the API caps the accepted history, and the backend uses
-only the latest eight messages with per-message truncation. This context is
-scoped to the current request/conversation and is not long-term workspace or
-personal memory.
+Q&A giữ short-term conversation memory có giới hạn: frontend gửi một phần lịch
+sử gần nhất, API giới hạn payload và backend chỉ dùng tối đa tám tin nhắn, mỗi
+tin nhắn đều bị cắt ngắn. Context này chỉ thuộc request/cuộc hội thoại hiện tại,
+không phải bộ nhớ dài hạn của workspace hay cá nhân.
 
 `backend/src/mcp_server.py` chạy FastMCP qua **stdio** cho trusted local
 process. Tool profile/chart dùng allow-list, yêu cầu Profile Run và không trả
@@ -201,10 +214,12 @@ export source.
 | `AUTH_REQUIRE_EMAIL_CONFIRMED` | Bắt buộc email confirmation |
 | `GLOBAL_ADMIN_EMAILS` | Email được seed system admin |
 | `STORAGE_PROVIDER` / `GUEST_STORAGE_PROVIDER` | `supabase`, `google_drive` hoặc `local` tùy môi trường |
+| `DATASOURCE_ENCRYPTION_KEY` | Fernet key bắt buộc ở production để mã hóa credential connector |
 | `UX_COMMAND_CENTER_ENABLED` / `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Contract backend và UI Command Center |
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Projection trace metadata-only tùy chọn |
 | `GOOGLE_DRIVE_*` | OAuth/storage Google Drive tùy chọn |
+| `GOOGLE_CALENDAR_*` | OAuth, encryption key, callback, timezone và giới hạn Calendar |
 
 Không đặt database URL, Supabase service/secret key, OAuth secret, storage
 credential hoặc LLM key trong `NEXT_PUBLIC_*`. Guest workspace có retention
@@ -218,12 +233,14 @@ Mọi endpoint FastAPI dùng prefix `/api/v1`.
 | --- | --- |
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, workspace/member/invitation/configuration endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{job_id}`, `PATCH /profile/{run_id}/confirm`, `POST /profile/{run_id}/test` |
+| Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` |
 | Drift | `POST /profile/{run_id}/drift` |
 | Charts/Explorer | auto-plan, auto-profile-pack, algorithms, session, previews và promote endpoints |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, trace, plan và evidence endpoints |
 | Reports | report-draft, items, snapshots, export-source, submit, review, publish, archive |
 | Admin | `GET /admin/users`, status, role và delete user endpoints |
 | Google Drive | status, connect, callback và delete connection endpoints |
+| Google Calendar | status, OAuth connect/callback/disconnect, list/create/delete event endpoints |
 
 ## 9. Kiểm thử và release
 
