@@ -26,7 +26,7 @@ test("removes a rejected guest session without retrying the workspace bootstrap"
   await page.goto("/datasets");
 
   await expect(page).toHaveURL(/\/login\?next=/);
-  await expect(page).toHaveTitle(/Profile/);
+  await expect(page).toHaveTitle(/Data Profiling/);
   await expect(page.locator("#login-title")).toBeVisible();
   await expect(page.locator("[data-nextjs-dialog-overlay]")).toHaveCount(0);
   await expect.poll(() => sessionRequests).toBe(1);

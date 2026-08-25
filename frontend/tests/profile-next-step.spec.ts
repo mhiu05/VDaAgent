@@ -39,7 +39,7 @@ test("completed profile routes analysis through the chart workspace", async ({ p
 
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Tạo biểu đồ & phân tích" })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Tạo biểu đồ & phân tích/ })).toHaveAttribute("href", "/charts");
+  await expect(page.getByRole("link", { name: /Tạo biểu đồ & phân tích/ })).toHaveAttribute("href", "/charts?runId=run-1");
 });
 
 test("failed profiling job shows only its safe persisted error", async ({ page }) => {
