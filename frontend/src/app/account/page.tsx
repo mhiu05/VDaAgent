@@ -413,7 +413,11 @@ export default function AccountPage() {
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem" }}>
                 <span className="muted">Vai trò hệ thống:</span>
-                <b>Analyst / Workspace Member</b>
+                <b>
+                  {me?.workspace.role === "admin"
+                    ? "🛡️ Quản trị viên (Admin)"
+                    : "📊 Chuyên viên (Analyst)"}
+                </b>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem" }}>
                 <span className="muted">Trạng thái:</span>

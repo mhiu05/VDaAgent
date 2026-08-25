@@ -241,14 +241,20 @@ class AnalysisRepository:
                         for issue in issues
                     ],
                 )
+            # PERF-201 (nested-checkout fix): read `mode` on the SAME connection
+            # instead of calling get_session(), which opened a second pooled
+            # connection inside this transaction. Under the bounded local pool
+            # that nested checkout could deadlock; it also re-ran ~4 queries and
+            # crashed if the session had gone missing.
+            mode = conn.execute(
+                select(analysis_sessions.c.mode).where(
+                    analysis_sessions.c.id == session_id
+                )
+            ).scalar_one_or_none()
             status = (
                 "quality_blocked"
                 if decision == "blocked"
-                else (
-                    "plan_review"
-                    if self.get_session(session_id)["mode"] == "deep"
-                    else "running"
-                )
+                else ("plan_review" if mode == "deep" else "running")
             )
             conn.execute(
                 analysis_sessions.update()

@@ -23,6 +23,11 @@ export const PERMISSIONS = {
   workspaceLifecycleManage: "workspace.lifecycle.manage",
   workspaceCreate: "workspace.create",
   workspaceDelete: "workspace.delete",
+  userAccountsRead: "user.accounts.read",
+  userAccountManage: "user.account.manage",
+  systemAdmin: "system.admin",
+  calendarRead: 'calendar.read',
+  calendarWrite: 'calendar.write',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

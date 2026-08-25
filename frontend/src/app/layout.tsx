@@ -20,11 +20,11 @@ const themeInitScript = `
 `;
 
 export const metadata: Metadata = {
-  title: "Profile — Phân tích dữ liệu",
+  title: "VDuAgent — Data Profiling",
   description: "Profiling dữ liệu dựa trên evidence với quy trình human review.",
   icons: {
-    icon: "/icon.svg",
-    shortcut: "/icon.svg",
+    icon: "/img/logo.png",
+    shortcut: "/img/logo.png",
   },
 };
 

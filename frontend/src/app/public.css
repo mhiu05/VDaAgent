@@ -99,6 +99,68 @@
   border: 1px solid var(--pub-border);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
+.pub-nav-links > a[href="/contact"],
+.pub-nav-links > a[href="/privacy"],
+.pub-nav-links > a[href="/terms"] {
+  display: none;
+}
+.pub-nav-more {
+  position: relative;
+}
+.pub-nav-links .pub-nav-more {
+  display: none;
+}
+.pub-nav-more-actions {
+  display: block;
+  order: 3;
+}
+.pub-nav-more-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--pub-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.pub-nav-more-trigger:hover,
+.pub-nav-more-trigger.active {
+  color: var(--pub-ink);
+  background: var(--pub-surface);
+  border-color: var(--pub-border);
+}
+.pub-nav-more-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 110;
+  display: grid;
+  min-width: 190px;
+  padding: 8px;
+  border: 1px solid var(--pub-border);
+  border-radius: 12px;
+  background: var(--pub-surface);
+  box-shadow: 0 14px 30px rgba(20, 33, 61, 0.14);
+}
+.pub-nav-more-menu[hidden] {
+  display: none;
+}
+.pub-nav-more-menu a {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--pub-ink);
+  font-size: 13px;
+  text-decoration: none;
+}
+.pub-nav-more-menu a:hover {
+  color: var(--pub-brand);
+  background: var(--pub-brand-tint);
+}
 .pub-nav-actions {
   display: flex;
   align-items: center;

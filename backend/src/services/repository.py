@@ -44,7 +44,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
-
+from src.services.permissions import canonical_role
 metadata = MetaData()
 
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
@@ -57,6 +57,21 @@ def _uuid() -> str:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def ensure_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def is_expired(expires_at: datetime | None) -> bool:
+    if expires_at is None:
+        return False
+    dt = ensure_utc(expires_at)
+    return dt < datetime.now(UTC)
 
 
 def _normalise_email(email: str | None) -> str | None:
@@ -75,6 +90,11 @@ user_profiles = Table(
     Column("user_id", String(36), primary_key=True),
     Column("email", String(320), nullable=True, index=True),
     Column("display_name", String(255), nullable=True),
+    Column("role", String(16), nullable=False, default="analyst"),
+    Column("status", String(16), nullable=False, default="active", index=True),
+    Column("locked_reason", Text, nullable=True),
+    Column("locked_at", DateTime(timezone=True), nullable=True),
+    Column("locked_by_user_id", String(36), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
 )
@@ -205,6 +225,28 @@ google_drive_oauth_states = Table(
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+
+google_calendar_connections = Table(
+    'google_calendar_connections',
+    metadata,
+    Column('workspace_id', String(36), ForeignKey('workspaces.id'), primary_key=True),
+    Column('user_id', String(36), primary_key=True),
+    Column('calendar_id', String(255), nullable=False, default='primary'),
+    Column('encrypted_refresh_token', Text, nullable=False),
+    Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
+    Column('updated_at', DateTime(timezone=True), default=_now, nullable=False),
+)
+
+google_calendar_oauth_states = Table(
+    'google_calendar_oauth_states',
+    metadata,
+    Column('id', String(64), primary_key=True),
+    Column('workspace_id', String(36), ForeignKey('workspaces.id'), nullable=False, index=True),
+    Column('user_id', String(36), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+    Column('used_at', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
 )
 
 datasets = Table(
@@ -1082,6 +1124,23 @@ PROPOSAL_TABLES: dict[str, Table] = {
     "pii": pii_proposals,
 }
 
+# Fail-closed: `pending` masks too, so an Analyst who has not yet reviewed a
+# proposal never leaks raw PII values. Shared by both the standalone
+# `confirmed_pii_columns` query and the in-memory derivation in `full_profile`
+# so the two paths can never diverge.
+_PII_MASK_STATUSES: frozenset[str] = frozenset(
+    {"confirmed", "edited", "auto_confirmed", "pending"}
+)
+
+
+def _pii_mask_columns(pii_rows: list[dict[str, Any]]) -> set[str]:
+    """PII columns to mask, derived from already-loaded pii proposal rows."""
+    return {
+        row["column_name"]
+        for row in pii_rows
+        if row.get("status") in _PII_MASK_STATUSES
+    }
+
 
 # --------------------------------------------------------------------------- #
 class Repository:
@@ -1100,6 +1159,7 @@ class Repository:
             self._migrate_tool_v2_profile_columns()
             self._migrate_workflow_columns()
             self._migrate_authz_columns()
+            self._migrate_user_profile_admin_columns()
             self._migrate_upload_provenance_columns()
             self._migrate_profile_job_columns()
 
@@ -1154,59 +1214,34 @@ class Repository:
             )
 
     def _migrate_upload_provenance_columns(self) -> None:
-        """Ensure upload provenance columns exist before dataset writes.
-
-        These fields are nullable and additive, so the check is safe for both
-        legacy production databases and fresh local/test databases. Without
-        it, Google Drive upload succeeds and the subsequent metadata insert
-        fails because SQLAlchemy includes the new nullable columns.
-        """
+        """Ensure upload provenance columns exist before dataset writes."""
         # pyrefly: ignore [missing-import]
-        from sqlalchemy import text
+        from sqlalchemy import inspect, text
 
+        inspector = inspect(self.engine)
+        existing_tables = set(inspector.get_table_names())
         with self.engine.begin() as conn:
-            conn.execute(
-                text(
-                    "ALTER TABLE datasets "
-                    "ADD COLUMN IF NOT EXISTS content_sha256 VARCHAR(64)"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE datasets "
-                    "ADD COLUMN IF NOT EXISTS source_version VARCHAR(255)"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE datasets "
-                    "ADD COLUMN IF NOT EXISTS collection_name VARCHAR(255)"
-                )
-            )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_datasets_collection_name "
-                    "ON datasets (collection_name)"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE profile_runs "
-                    "ADD COLUMN IF NOT EXISTS source_content_sha256 VARCHAR(64)"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE profile_runs "
-                    "ADD COLUMN IF NOT EXISTS source_version VARCHAR(255)"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE profile_runs "
-                    "ADD COLUMN IF NOT EXISTS run_name VARCHAR(255)"
-                )
-            )
+            if "datasets" in existing_tables:
+                columns = {item["name"] for item in inspector.get_columns("datasets")}
+                if "content_sha256" not in columns:
+                    conn.execute(text("ALTER TABLE datasets ADD COLUMN content_sha256 VARCHAR(64)"))
+                if "source_version" not in columns:
+                    conn.execute(text("ALTER TABLE datasets ADD COLUMN source_version VARCHAR(255)"))
+                if "collection_name" not in columns:
+                    conn.execute(text("ALTER TABLE datasets ADD COLUMN collection_name VARCHAR(255)"))
+                    try:
+                        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_datasets_collection_name ON datasets (collection_name)"))
+                    except Exception:
+                        pass
+
+            if "profile_runs" in existing_tables:
+                columns = {item["name"] for item in inspector.get_columns("profile_runs")}
+                if "source_content_sha256" not in columns:
+                    conn.execute(text("ALTER TABLE profile_runs ADD COLUMN source_content_sha256 VARCHAR(64)"))
+                if "source_version" not in columns:
+                    conn.execute(text("ALTER TABLE profile_runs ADD COLUMN source_version VARCHAR(255)"))
+                if "run_name" not in columns:
+                    conn.execute(text("ALTER TABLE profile_runs ADD COLUMN run_name VARCHAR(255)"))
 
     def _migrate_semantic_description(self) -> None:
         """Bổ sung cột mô tả cho các metadata DB đã tồn tại từ phiên bản trước."""
@@ -1328,8 +1363,11 @@ class Repository:
             },
         }
         inspector = inspect(self.engine)
+        existing_tables = set(inspector.get_table_names())
         with self.engine.begin() as conn:
             for table_name, fields in additions.items():
+                if table_name not in existing_tables:
+                    continue
                 columns = {item["name"] for item in inspector.get_columns(table_name)}
                 for name, sql_type in fields.items():
                     if name not in columns:
@@ -1338,13 +1376,43 @@ class Repository:
                                 f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}"
                             )
                         )
-            # Local/test databases may still contain the legacy role from a
-            # previous authz schema. Keep them aligned with production.
-            conn.execute(
-                workspace_memberships.update()
-                .where(workspace_memberships.c.role.in_(["owner", "admin", "viewer"]))
-                .values(role="analyst")
-            )
+            if "workspace_memberships" in existing_tables:
+                conn.execute(
+                    workspace_memberships.update()
+                    .where(workspace_memberships.c.role.in_(["owner", "viewer"]))
+                    .values(role="analyst")
+                )
+
+    def _migrate_user_profile_admin_columns(self) -> None:
+        """Add admin role and lock status columns to user_profiles if missing."""
+        # pyrefly: ignore [missing-import]
+        from sqlalchemy import inspect, text
+
+        additions = {
+            "role": "VARCHAR(16) DEFAULT 'analyst'",
+            "status": "VARCHAR(16) DEFAULT 'active'",
+            "locked_reason": "TEXT",
+            "locked_at": "TIMESTAMP WITH TIME ZONE",
+            "locked_by_user_id": "VARCHAR(36)",
+        }
+        with self.engine.begin() as conn:
+            inspector = inspect(self.engine)
+            if "user_profiles" in inspector.get_table_names():
+                columns = {item["name"] for item in inspector.get_columns("user_profiles")}
+                for name, sql_type in additions.items():
+                    if name not in columns:
+                        conn.execute(
+                            text(f"ALTER TABLE user_profiles ADD COLUMN {name} {sql_type}")
+                        )
+        admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
+        if admin_emails:
+            with self.engine.begin() as conn:
+                for email in admin_emails:
+                    conn.execute(
+                        user_profiles.update()
+                        .where(user_profiles.c.email == email)
+                        .values(role="admin")
+                    )
 
     # --- Agent runtime -------------------------------------------------- #
     # These methods are kept in the domain repository so a state transition
@@ -1825,15 +1893,22 @@ class Repository:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, "p170:legacy-workspace"))
 
     def _sync_user_profile(
-        self, conn: Any, user_id: str, email: str | None, now: datetime
+        self, conn: Any, user_id: str, email: str | None, now: datetime, role: str = "analyst"
     ) -> None:
-        """Create a local identity record or refresh its canonical email."""
+        """Create a local identity record or refresh its canonical email and role."""
         normalised_email = _normalise_email(email)
+        admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
+        is_default_admin = bool(normalised_email and normalised_email in admin_emails)
+        effective_role = "admin" if is_default_admin else role
+
         profile = (
             conn.execute(
-                select(user_profiles.c.user_id, user_profiles.c.email).where(
-                    user_profiles.c.user_id == user_id
-                )
+                select(
+                    user_profiles.c.user_id,
+                    user_profiles.c.email,
+                    user_profiles.c.role,
+                    user_profiles.c.status,
+                ).where(user_profiles.c.user_id == user_id)
             )
             .mappings()
             .first()
@@ -1843,22 +1918,34 @@ class Repository:
                 user_profiles.insert().values(
                     user_id=user_id,
                     email=normalised_email,
+                    role=effective_role,
+                    status="active",
                     created_at=now,
                     updated_at=now,
                 )
             )
             return
+        updates: dict[str, Any] = {"updated_at": now}
         if normalised_email and profile["email"] != normalised_email:
+            updates["email"] = normalised_email
+        if is_default_admin and profile.get("role") != "admin":
+            updates["role"] = "admin"
+            conn.execute(
+                workspace_memberships.update()
+                .where(workspace_memberships.c.user_id == user_id)
+                .values(role="admin", updated_at=now)
+            )
+        if len(updates) > 1:
             conn.execute(
                 user_profiles.update()
                 .where(user_profiles.c.user_id == user_id)
-                .values(email=normalised_email, updated_at=now)
+                .values(**updates)
             )
 
-    def sync_user_profile(self, user_id: str, email: str | None) -> None:
+    def sync_user_profile(self, user_id: str, email: str | None, role: str = "analyst") -> None:
         """Synchronise the signed-in user's public identity from Auth."""
         with self.engine.begin() as conn:
-            self._sync_user_profile(conn, user_id, email, _now())
+            self._sync_user_profile(conn, user_id, email, _now(), role)
 
     def ensure_bootstrap_workspace(self, bootstrap_user_id: str) -> str:
         """Create the one deterministic legacy workspace/membership if needed."""
@@ -1901,15 +1988,21 @@ class Repository:
                 )
         return workspace_id
 
-    def ensure_guest_workspace(self, guest_user_id: str, role: str) -> str:
+    def ensure_guest_workspace(self, guest_user_id: str, role: str = "analyst") -> str:
         """Create the isolated, non-personal workspace used by one trial tab."""
-        if role != "analyst":
-            raise ValueError("Chỉ hỗ trợ role Analyst.")
+        canonical = "analyst"
         workspace_id = str(
             uuid.uuid5(uuid.NAMESPACE_URL, f"p170:guest-workspace:{guest_user_id}")
         )
         now = _now()
         with self.engine.begin() as conn:
+            self._sync_user_profile(
+                conn,
+                guest_user_id,
+                None,
+                now,
+                role=canonical,
+            )
             exists = conn.execute(
                 select(workspaces.c.id).where(workspaces.c.id == workspace_id)
             ).first()
@@ -1940,13 +2033,13 @@ class Repository:
                     workspace_memberships.insert().values(
                         workspace_id=workspace_id,
                         user_id=guest_user_id,
-                        role=role,
+                        role=canonical,
                         status="active",
                         created_at=now,
                         updated_at=now,
                     )
                 )
-            elif membership["role"] != role or membership["status"] != "active":
+            elif membership["role"] != canonical or membership["status"] != "active":
                 # A normal guest bootstrap is read-only. Only repair a
                 # membership when it was actually changed or suspended.
                 conn.execute(
@@ -1955,7 +2048,7 @@ class Repository:
                         workspace_memberships.c.workspace_id == workspace_id,
                         workspace_memberships.c.user_id == guest_user_id,
                     )
-                    .values(role=role, updated_at=now)
+                    .values(role=canonical, status="active", updated_at=now)
                 )
         return workspace_id
 
@@ -2618,6 +2711,251 @@ class Repository:
             )
             return dict(row)
 
+    def is_user_locked(self, user_id: str) -> bool:
+        """Check if a user account is locked/suspended."""
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(user_profiles.c.status).where(user_profiles.c.user_id == user_id)
+            ).scalar_one_or_none()
+            return row == "locked"
+
+    def get_user_profile(self, user_id: str) -> dict[str, Any] | None:
+        """Get profile details of a user."""
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(user_profiles).where(user_profiles.c.user_id == user_id)
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                return None
+            item = dict(row)
+            return {
+                "user_id": item["user_id"],
+                "email": item.get("email"),
+                "display_name": item.get("display_name"),
+                "role": item.get("role") or "analyst",
+                "status": item.get("status") or "active",
+                "locked_reason": item.get("locked_reason"),
+                "locked_at": item.get("locked_at").isoformat() if item.get("locked_at") else None,
+                "locked_by_user_id": item.get("locked_by_user_id"),
+                "created_at": item["created_at"].isoformat() if item.get("created_at") else None,
+                "updated_at": item["updated_at"].isoformat() if item.get("updated_at") else None,
+            }
+
+    def list_all_users(
+        self,
+        search: str | None = None,
+        role: str | None = None,
+        status: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """List all users in the system along with stats."""
+        with self.engine.begin() as conn:
+            query = select(user_profiles).where(user_profiles.c.email.isnot(None))
+            if search and search.strip():
+                term = f"%{search.strip()}%"
+                query = query.where(
+                    or_(
+                        user_profiles.c.email.ilike(term),
+                        user_profiles.c.display_name.ilike(term),
+                        user_profiles.c.user_id.ilike(term),
+                    )
+                )
+            if role and role != "all":
+                query = query.where(user_profiles.c.role == role)
+            if status and status != "all":
+                query = query.where(user_profiles.c.status == status)
+
+            query = query.order_by(user_profiles.c.created_at.desc()).limit(limit).offset(offset)
+            rows = conn.execute(query).mappings().all()
+
+            all_profiles = conn.execute(
+                select(user_profiles.c.role, user_profiles.c.status).where(
+                    user_profiles.c.email.isnot(None)
+                )
+            ).mappings().all()
+
+            total = len(all_profiles)
+            active_count = sum(1 for p in all_profiles if p.get("status") != "locked")
+            locked_count = sum(1 for p in all_profiles if p.get("status") == "locked")
+            admin_count = sum(1 for p in all_profiles if p.get("role") == "admin")
+            analyst_count = sum(1 for p in all_profiles if p.get("role") != "admin")
+
+            users_list = []
+            for r in rows:
+                item = dict(r)
+                users_list.append({
+                    "user_id": item["user_id"],
+                    "email": item.get("email"),
+                    "display_name": item.get("display_name"),
+                    "role": item.get("role") or "analyst",
+                    "status": item.get("status") or "active",
+                    "locked_reason": item.get("locked_reason"),
+                    "locked_at": item.get("locked_at").isoformat() if item.get("locked_at") else None,
+                    "locked_by_user_id": item.get("locked_by_user_id"),
+                    "created_at": item["created_at"].isoformat() if item.get("created_at") else None,
+                    "updated_at": item["updated_at"].isoformat() if item.get("updated_at") else None,
+                })
+
+            return {
+                "stats": {
+                    "total_users": total,
+                    "active_users": active_count,
+                    "locked_users": locked_count,
+                    "admin_users": admin_count,
+                    "analyst_users": analyst_count,
+                },
+                "users": users_list,
+            }
+
+    def update_user_status(
+        self,
+        user_id: str,
+        status: str,
+        reason: str | None = None,
+        actor_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Lock or unlock a user account."""
+        if status not in {"active", "locked"}:
+            raise ValueError("Trạng thái chỉ có thể là active hoặc locked.")
+        now = _now()
+        values: dict[str, Any] = {
+            "status": status,
+            "updated_at": now,
+        }
+        if status == "locked":
+            values["locked_reason"] = reason or "Tài khoản bị khóa bởi quản trị viên."
+            values["locked_at"] = now
+            values["locked_by_user_id"] = actor_user_id
+        else:
+            values["locked_reason"] = None
+            values["locked_at"] = None
+            values["locked_by_user_id"] = None
+
+        with self.engine.begin() as conn:
+            conn.execute(
+                user_profiles.update().where(user_profiles.c.user_id == user_id).values(**values)
+            )
+            row = conn.execute(
+                select(user_profiles).where(user_profiles.c.user_id == user_id)
+            ).mappings().one()
+            item = dict(row)
+            return {
+                "user_id": item["user_id"],
+                "email": item.get("email"),
+                "display_name": item.get("display_name"),
+                "role": item.get("role") or "analyst",
+                "status": item.get("status") or "active",
+                "locked_reason": item.get("locked_reason"),
+                "locked_at": item.get("locked_at").isoformat() if item.get("locked_at") else None,
+                "locked_by_user_id": item.get("locked_by_user_id"),
+                "created_at": item["created_at"].isoformat() if item.get("created_at") else None,
+                "updated_at": item["updated_at"].isoformat() if item.get("updated_at") else None,
+            }
+
+    def update_user_role(
+        self, user_id: str, role: str, actor_user_id: str | None = None
+    ) -> dict[str, Any]:
+        """Update role for a user (admin or analyst)."""
+        canonical = canonical_role(role)
+        if canonical not in {"analyst", "admin"}:
+            raise ValueError("Role chỉ có thể là analyst hoặc admin.")
+        now = _now()
+        with self.engine.begin() as conn:
+            conn.execute(
+                user_profiles.update()
+                .where(user_profiles.c.user_id == user_id)
+                .values(role=canonical, updated_at=now)
+            )
+            conn.execute(
+                workspace_memberships.update()
+                .where(workspace_memberships.c.user_id == user_id)
+                .values(role=canonical, updated_at=now)
+            )
+            row = conn.execute(
+                select(user_profiles).where(user_profiles.c.user_id == user_id)
+            ).mappings().one()
+            item = dict(row)
+            return {
+                "user_id": item["user_id"],
+                "email": item.get("email"),
+                "display_name": item.get("display_name"),
+                "role": item.get("role") or "analyst",
+                "status": item.get("status") or "active",
+                "locked_reason": item.get("locked_reason"),
+                "locked_at": item.get("locked_at").isoformat() if item.get("locked_at") else None,
+                "locked_by_user_id": item.get("locked_by_user_id"),
+                "created_at": item["created_at"].isoformat() if item.get("created_at") else None,
+                "updated_at": item["updated_at"].isoformat() if item.get("updated_at") else None,
+            }
+
+    def delete_user_account(self, user_id: str, actor_user_id: str) -> dict[str, Any]:
+        """Permanently delete a user account and associated memberships/invitations."""
+        if user_id == actor_user_id:
+            raise ValueError("Bạn không thể tự xóa tài khoản của chính mình.")
+
+        with self.engine.begin() as conn:
+            profile = (
+                conn.execute(
+                    select(user_profiles).where(user_profiles.c.user_id == user_id)
+                )
+                .mappings()
+                .first()
+            )
+            if not profile:
+                raise LookupError("Không tìm thấy tài khoản người dùng.")
+
+            email = profile.get("email")
+            admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
+            if email and email.strip().casefold() in admin_emails:
+                raise ValueError("Không thể xóa tài khoản Quản trị viên mặc định của hệ thống.")
+
+            # Delete memberships
+            conn.execute(
+                workspace_memberships.delete().where(
+                    workspace_memberships.c.user_id == user_id
+                )
+            )
+
+            # Delete user invitations sent by or received by user
+            conn.execute(
+                workspace_invitations.delete().where(
+                    or_(
+                        workspace_invitations.c.invited_by_user_id == user_id,
+                        workspace_invitations.c.accepted_by_user_id == user_id,
+                    )
+                )
+            )
+
+            # Delete user profile
+            conn.execute(
+                user_profiles.delete().where(user_profiles.c.user_id == user_id)
+            )
+
+        # Best-effort removal from Supabase Auth if configured
+        if getattr(self.settings, "supabase_configured", False):
+            try:
+                import httpx
+                supabase_url = self.settings.supabase_url.rstrip("/")
+                key = self.settings.supabase_backend_key
+                headers = {
+                    "apikey": key,
+                    "Authorization": f"Bearer {key}",
+                }
+                httpx.delete(
+                    f"{supabase_url}/auth/v1/admin/users/{user_id}",
+                    headers=headers,
+                    timeout=5.0,
+                )
+            except Exception:
+                pass
+
+        return {"user_id": user_id, "deleted": True}
+
     def create_invitation(
         self,
         workspace_id: str,
@@ -2702,7 +3040,7 @@ class Repository:
                 .mappings()
                 .first()
             )
-            if not invite or invite["expires_at"] <= now:
+            if not invite or is_expired(invite["expires_at"]):
                 return None
             if email and str(invite["normalized_email"]) != email.casefold():
                 return None
@@ -2831,6 +3169,111 @@ class Repository:
             result = conn.execute(
                 google_drive_connections.delete().where(
                     google_drive_connections.c.workspace_id == workspace_id
+                )
+            )
+            return bool(result.rowcount)
+
+    # --- Google Calendar connections ----------------------------------- #
+    def create_google_calendar_oauth_state(
+        self, state_id: str, workspace_id: str, user_id: str, expires_at: datetime
+    ) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                google_calendar_oauth_states.insert().values(
+                    id=state_id,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    expires_at=expires_at,
+                    created_at=_now(),
+                )
+            )
+
+    def consume_google_calendar_oauth_state(self, state_id: str) -> dict[str, Any] | None:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(google_calendar_oauth_states)
+                    .where(
+                        google_calendar_oauth_states.c.id == state_id,
+                        google_calendar_oauth_states.c.used_at.is_(None),
+                        google_calendar_oauth_states.c.expires_at > now,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                return None
+            conn.execute(
+                google_calendar_oauth_states.update()
+                .where(google_calendar_oauth_states.c.id == state_id)
+                .values(used_at=now)
+            )
+            return dict(row)
+
+    def save_google_calendar_connection(
+        self,
+        workspace_id: str,
+        user_id: str,
+        calendar_id: str,
+        encrypted_refresh_token: str,
+    ) -> None:
+        now = _now()
+        with self.engine.begin() as conn:
+            existing = conn.execute(
+                select(google_calendar_connections.c.workspace_id).where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
+                )
+            ).first()
+            values = {
+                'calendar_id': calendar_id,
+                'encrypted_refresh_token': encrypted_refresh_token,
+                'updated_at': now,
+            }
+            if existing:
+                conn.execute(
+                    google_calendar_connections.update()
+                    .where(
+                        google_calendar_connections.c.workspace_id == workspace_id,
+                        google_calendar_connections.c.user_id == user_id,
+                    )
+                    .values(**values)
+                )
+            else:
+                conn.execute(
+                    google_calendar_connections.insert().values(
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        created_at=now,
+                        **values,
+                    )
+                )
+
+    def get_google_calendar_connection(
+        self, workspace_id: str, user_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(google_calendar_connections).where(
+                        google_calendar_connections.c.workspace_id == workspace_id,
+                        google_calendar_connections.c.user_id == user_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            return dict(row) if row else None
+
+    def delete_google_calendar_connection(self, workspace_id: str, user_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                google_calendar_connections.delete().where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
                 )
             )
             return bool(result.rowcount)
@@ -2987,6 +3430,15 @@ class Repository:
                     conn.execute(
                         table.delete().where(table.c.profile_run_id.in_(run_ids))
                     )
+                # Analysis sources are a non-nullable link from the analysis
+                # workspace to a profile run.  They must be removed before the
+                # immutable profile snapshot, otherwise PostgreSQL correctly
+                # rejects the delete with a foreign-key violation.
+                conn.execute(
+                    analysis_sources.delete().where(
+                        analysis_sources.c.profile_run_id.in_(run_ids)
+                    )
+                )
                 conn.execute(
                     column_stats.delete().where(
                         column_stats.c.profile_run_id.in_(run_ids)
@@ -3002,6 +3454,25 @@ class Repository:
                         (drift_reports.c.profile_run_id_a.in_(run_ids))
                         | (drift_reports.c.profile_run_id_b.in_(run_ids))
                     )
+                )
+                # These references are nullable because reports/evidence may
+                # outlive the technical profile.  Detach them instead of
+                # deleting the user's saved artifacts, while still allowing
+                # the profile run itself to be removed.
+                conn.execute(
+                    reports.update()
+                    .where(reports.c.profile_run_id.in_(run_ids))
+                    .values(profile_run_id=None)
+                )
+                conn.execute(
+                    report_items.update()
+                    .where(report_items.c.profile_run_id.in_(run_ids))
+                    .values(profile_run_id=None)
+                )
+                conn.execute(
+                    evidence_items.update()
+                    .where(evidence_items.c.profile_run_id.in_(run_ids))
+                    .values(profile_run_id=None)
                 )
                 conn.execute(
                     profile_runs.delete().where(profile_runs.c.id.in_(run_ids))
@@ -3105,9 +3576,26 @@ class Repository:
     def get_profile_job(
         self, job_id: str, *, workspace_id: str | None = None
     ) -> dict[str, Any] | None:
-        """Return queue metadata without weakening workspace ownership checks."""
+        """Return queue metadata without weakening workspace ownership checks.
+
+        Projects only the queue columns consumed by ``ProfileJobResponse``;
+        never selects the heavy JSON/text columns on ``profile_runs`` (answers,
+        correlation matrix, terminal result, job payload) that the status
+        endpoint does not need (PERF-102).
+        """
         with self.engine.begin() as conn:
-            query = select(profile_runs).where(
+            query = select(
+                profile_runs.c.id,
+                profile_runs.c.dataset_id,
+                profile_runs.c.created_at,
+                profile_runs.c.job_status,
+                profile_runs.c.job_stage,
+                profile_runs.c.job_attempt_count,
+                profile_runs.c.job_started_at,
+                profile_runs.c.job_finished_at,
+                profile_runs.c.job_error_code,
+                profile_runs.c.job_error_message,
+            ).where(
                 profile_runs.c.id == job_id,
                 profile_runs.c.job_status.is_not(None),
             )
@@ -3847,9 +4335,7 @@ class Repository:
             rows = conn.execute(
                 select(pii_proposals.c.column_name).where(
                     pii_proposals.c.profile_run_id == run_id,
-                    pii_proposals.c.status.in_(
-                        ["confirmed", "edited", "auto_confirmed", "pending"]
-                    ),
+                    pii_proposals.c.status.in_(sorted(_PII_MASK_STATUSES)),
                 )
             )
             # `pending` cũng mask: fail-closed khi Analyst chưa kịp review.
@@ -3950,9 +4436,21 @@ class Repository:
         if not run:
             return None
 
+        # Load proposals once, then derive both the PII mask set and the
+        # pending-proposal count from the rows already in memory instead of
+        # issuing a separate `confirmed_pii_columns` query plus three
+        # `pending_count` COUNT() queries (PERF-103).
+        proposals = self.get_proposals(run_id)
+        pii_cols = _pii_mask_columns(proposals.get("pii", []))
+        pending_proposals = sum(
+            1
+            for rows in proposals.values()
+            for row in rows
+            if row.get("status") == "pending"
+        )
+
         stats = self.column_stats_rows(run_id)
         if mask_pii:
-            pii_cols = self.confirmed_pii_columns(run_id)
             for st in stats:
                 if st["column_name"] in pii_cols:
                     st["top_k_values"] = None
@@ -3962,7 +4460,8 @@ class Repository:
             "run": run,
             "dataset": self.get_dataset(run["dataset_id"], workspace_id=workspace_id),
             "column_stats": stats,
-            "proposals": self.get_proposals(run_id),
+            "proposals": proposals,
+            "pending_proposals": pending_proposals,
             "test_results": self.get_test_results(run_id),
             "drift_reports": self.get_drift_reports(run_id),
         }
@@ -4798,24 +5297,36 @@ def build_engine(settings: Settings | None = None) -> Engine:
     # lived connection which is returned immediately at transaction end.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
     if is_supabase_pooler:
-        return create_engine(
+        engine = create_engine(
             url,
             future=True,
             poolclass=NullPool,
             pool_pre_ping=True,
         )
+    else:
+        # Local PostgreSQL benefits from a small bounded pool. Never use
+        # SQLAlchemy defaults (5 + 10 overflow), which can consume all sessions
+        # in a small DB.
+        engine = create_engine(
+            url,
+            future=True,
+            pool_pre_ping=True,
+            pool_size=3,
+            max_overflow=0,
+            pool_timeout=30,
+            pool_recycle=300,
+        )
 
-    # Local PostgreSQL benefits from a small bounded pool. Never use SQLAlchemy
-    # defaults (5 + 10 overflow), which can consume all sessions in a small DB.
-    return create_engine(
-        url,
-        future=True,
-        pool_pre_ping=True,
-        pool_size=3,
-        max_overflow=0,
-        pool_timeout=30,
-        pool_recycle=300,
-    )
+    # PERF-001: attach timing-only SQL hooks once per engine so request
+    # telemetry can attribute query count/time without adding any queries.
+    if getattr(cfg, "perf_telemetry_enabled", True):
+        try:
+            from src.services.perf_telemetry import install_sql_instrumentation
+
+            install_sql_instrumentation(engine)
+        except Exception:  # pragma: no cover - instrumentation must never break DB
+            pass
+    return engine
 
 
 def get_repository(settings: Settings | None = None) -> Repository:

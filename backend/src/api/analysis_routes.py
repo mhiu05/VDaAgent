@@ -45,7 +45,7 @@ from src.services.forecasting import forecast_algorithm_catalog
 from src.services.llm import get_llm
 from src.services.permissions import ANALYSIS_RUN
 from src.services.quality_gate import evaluate_quality_gate
-from src.services.repository import get_repository
+from src.services.repository import get_repository, is_expired
 from src.services.security import get_audit, get_rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -514,7 +514,7 @@ async def promote_preview(
     session = _session_or_404(session_id, context)
     if (session.get("source") or {}).get("profile_run_id") != run_id:
         raise HTTPException(status_code=404, detail="Preview execution was not found.")
-    if preview.get("expires_at") and preview["expires_at"] < datetime.now(UTC):
+    if is_expired(preview.get("expires_at")):
         raise HTTPException(
             status_code=409,
             detail="preview_expired: run a new preview before promotion",
@@ -587,7 +587,14 @@ async def promote_preview(
             execution_kind="official",
         )
     except AnalysisQueryError as exc:
+        logger.error(f"AnalysisQueryError in promote: {exc}")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.error(f"OSError in promote: {exc}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Không thể truy cập dữ liệu: {exc}",
+        ) from exc
     execution = analyses.save_execution(
         session_id,
         semantic_context["id"],

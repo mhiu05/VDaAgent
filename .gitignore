@@ -62,9 +62,13 @@ playwright-report/
 *.pyc
 *.pyo
 
-# AI logs — tracked structure, ignored content
+# AI logs are submitted by the pre-push hook to AI_LOG_SERVER, not committed to
+# Git because session.jsonl contains raw prompts. Keep the root structure while
+# ignoring runtime logs even if a tool is launched from a nested workspace.
 .ai-log/*.jsonl
 .ai-log/archive/
+**/.ai-log/*.jsonl
+**/.ai-log/archive/
 
 # Codex CLI cache
 .tmp-openai-docs-cache/

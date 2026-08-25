@@ -103,7 +103,7 @@ function ProfileOverview() {
           <p className="muted">Tạo biểu đồ trực quan từ dữ liệu đã profile, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo hoàn chỉnh.</p>
         </div>
         <div className="inline-actions">
-          <Link href="/charts" className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "10px 20px", fontSize: "0.95rem" }}>
+          <Link href={`/charts?runId=${encodeURIComponent(runId)}`} className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "10px 20px", fontSize: "0.95rem" }}>
             📊 Tạo biểu đồ & phân tích →
           </Link>
         </div>

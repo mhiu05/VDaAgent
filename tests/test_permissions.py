@@ -2,6 +2,8 @@
 
 from src.services.permissions import (
     AGENT_TRACE_DEBUG_READ,
+    CALENDAR_READ,
+    CALENDAR_WRITE,
     QA_PUBLISHED_ASK,
     REPORT_ARCHIVE,
     REPORT_PUBLISH,
@@ -36,10 +38,21 @@ def test_analyst_has_the_complete_workspace_flow() -> None:
         WORKSPACE_MEMBERS_MANAGE,
         WORKSPACE_SETTINGS_MANAGE,
         WORKSPACE_STORAGE_CONNECT,
+        CALENDAR_READ,
+        CALENDAR_WRITE,
     }
     assert expected <= analyst
 
 
+def test_admin_has_user_management_and_complete_workspace_flow() -> None:
+    admin = permissions_for_role("admin")
+    analyst = permissions_for_role("analyst")
+    assert analyst < admin
+    assert "user.accounts.read" in admin
+    assert "user.account.manage" in admin
+    assert "system.admin" in admin
+
+
 def test_removed_roles_fail_closed_and_are_not_supported_by_the_contract() -> None:
-    assert permissions_for_role("admin") == frozenset()
     assert permissions_for_role("viewer") == frozenset()
+    assert permissions_for_role("unknown_role") == frozenset()

@@ -111,25 +111,50 @@ async def session(
         # personal workspace before the frontend bootstrap watchdog can fire.
         repo.provision_self_signup_workspace(user.user_id, user.email, "analyst")
         workspaces = _workspace_items(repo, user.user_id)
+        
+    profile = repo.get_user_profile(user.user_id)
+    system_role = canonical_role(str(profile.get("role", "analyst"))) if profile else "analyst"
+
     if not workspaces:
+        if system_role == "admin":
+            # For System Admins with 0 workspaces, we bypass workspace checks in the frontend shell
+            # so we can return a synthetic workspace snapshot.
+            selected = None
+            effective_role = "admin"
+            workspace_id = "system"
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không có membership workspace đang hoạt động.",
+            )
+    else:
+        selected = (
+            next((item for item in workspaces if item["id"] == workspace_header), None)
+            if workspace_header
+            else workspaces[0]
+        )
+        if workspace_header and selected is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy workspace."
+            )
+        effective_role = "admin" if system_role == "admin" else selected["role"]
+        workspace_id = selected["id"]
+
+    if repo.is_user_locked(user.user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Bạn không có membership workspace đang hoạt động.",
+            detail="Tài khoản của bạn đã bị khóa bởi Quản trị viên hệ thống. Vui lòng liên hệ quản trị để được hỗ trợ mở khóa.",
         )
-    selected = (
-        next((item for item in workspaces if item["id"] == workspace_header), None)
-        if workspace_header
-        else workspaces[0]
-    )
-    if workspace_header and selected is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy workspace."
-        )
-    assert selected is not None
+
     return {
-        "user": {"id": user.user_id, "email": user.email},
-        "workspace": {"id": selected["id"], "role": selected["role"]},
-        "effective_permissions": sorted(permissions_for_role(selected["role"])),
+        "user": {
+            "id": user.user_id,
+            "email": user.email,
+            "role": system_role,
+            "status": profile.get("status") if profile else "active",
+        },
+        "workspace": {"id": workspace_id, "role": effective_role},
+        "effective_permissions": sorted(permissions_for_role(effective_role)),
         "workspaces": workspaces,
     }
 
@@ -141,6 +166,10 @@ async def workspace_bootstrap(
 ) -> dict[str, Any]:
     """Return session and dashboard data together to avoid browser waterfall."""
     snapshot = await session(user, workspace_header)
+    if snapshot["workspace"]["id"] == "system":
+        snapshot["dashboard"] = {"kind": "analyst", "counts": {}}
+        return snapshot
+
     if REPORT_PUBLISHED_READ not in permissions_for_role(snapshot["workspace"]["role"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

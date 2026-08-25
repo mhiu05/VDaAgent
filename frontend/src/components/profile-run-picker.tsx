@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getProfile, listDatasets, listRuns } from "@/lib/api";
 import type { ProfileRunSummary } from "@/lib/types";
@@ -32,17 +32,30 @@ export function profileRunOptionLabel(run: ProfileRunSummary): string {
 
 export function ProfileRunPicker({ id, label, value, onChange, helpText, excludeRunId, disabled = false }: ProfileRunPickerProps) {
   const [datasetId, setDatasetId] = useState("");
-  const datasets = useQuery({ queryKey: ["profile-picker-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
+  // Reuse the dataset/run caches used by the Dataset screens and chat widget.
+  // Navigation to Charts is then instant when this metadata was fetched recently.
+  const datasets = useQuery({
+    queryKey: ["datasets"],
+    queryFn: ({ signal }) => listDatasets(signal),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+  });
   const selectedProfile = useQuery({
-    queryKey: ["profile-picker-profile", value],
+    // Share the exact cache entry used by Profile Run and Charts pages. This
+    // keeps the selector from fetching the same profile a second time.
+    queryKey: ["profile", value],
     queryFn: ({ signal }) => getProfile(value, signal),
     enabled: Boolean(value) && !datasetId,
     retry: false,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
   const runs = useQuery({
-    queryKey: ["profile-picker-runs", datasetId],
+    queryKey: ["runs", datasetId],
     queryFn: ({ signal }) => listRuns(datasetId, signal),
     enabled: Boolean(datasetId),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
 
   useEffect(() => {

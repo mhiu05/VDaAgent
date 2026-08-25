@@ -10,6 +10,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from log_paths import resolve_log_dir
+
 VN_TZ = timezone(timedelta(hours=7))
 
 
@@ -265,7 +267,7 @@ def main():
     if not entry:
         sys.exit(0)
 
-    log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
+    log_dir = resolve_log_dir()
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "session.jsonl"
 

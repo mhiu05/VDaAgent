@@ -85,11 +85,27 @@ async function authHeaders(headers?: HeadersInit): Promise<Headers> {
   return next;
 }
 
+async function fetchWithLocalFallback(path: string, init: RequestInit): Promise<Response> {
+  let lastConnectionError: unknown;
+  // `localhost` can resolve to a different loopback protocol on Windows.
+  // Give every fetch request the same 127.0.0.1 fallback already used by XHR
+  // uploads, but never retry an HTTP response (including 4xx/5xx responses).
+  for (const baseUrl of apiBaseCandidates()) {
+    try {
+      return await fetch(`${baseUrl}${path}`, init);
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") throw reason;
+      lastConnectionError = reason;
+    }
+  }
+  throw lastConnectionError;
+}
+
 async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   let response: Response;
   const headers = await authHeaders(init.headers);
   try {
-    response = await fetch(`${apiBase()}${path}`, {
+    response = await fetchWithLocalFallback(path, {
       ...init,
       headers,
       credentials: "include",
@@ -156,6 +172,70 @@ export async function connectGoogleDrive(targetWindow?: Window | null): Promise<
   if (!opened) {
     throw new ApiError("Trình duyệt đã chặn tab Google mới. Hãy cho phép popup rồi thử lại.", 0);
   }
+}
+
+export type CalendarStatus = {
+  provider: 'google_calendar';
+  configured: boolean;
+  connected: boolean;
+  calendar_id: string | null;
+  can_connect: boolean;
+};
+
+export type CalendarEvent = {
+  id: string;
+  status: string | null;
+  summary: string;
+  description: string;
+  location: string;
+  html_link: string | null;
+  start: string | null;
+  end: string | null;
+  time_zone: string | null;
+  attendees: Array<{ email: string; response_status: string | null }>;
+};
+
+export function getCalendarStatus(): Promise<CalendarStatus> {
+  return request<CalendarStatus>('/calendar/status');
+}
+
+export async function connectGoogleCalendar(targetWindow?: Window | null): Promise<void> {
+  const payload = await request<{ authorization_url: string }>('/calendar/connect');
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.replace(payload.authorization_url);
+    return;
+  }
+  const opened = window.open(payload.authorization_url, '_blank', 'noopener,noreferrer');
+  if (!opened) throw new ApiError('Trình duyệt đã chặn tab Google mới.', 0);
+}
+
+export function listCalendarEvents(params: { timeMin?: string; timeMax?: string; limit?: number } = {}): Promise<{ events: CalendarEvent[] }> {
+  const query = new URLSearchParams();
+  if (params.timeMin) query.set('time_min', params.timeMin);
+  if (params.timeMax) query.set('time_max', params.timeMax);
+  if (params.limit) query.set('limit', String(params.limit));
+  const suffix = query.toString() ? '?' + query.toString() : '';
+  return request<{ events: CalendarEvent[] }>('/calendar/events' + suffix);
+}
+
+export function createCalendarEvent(payload: {
+  summary: string;
+  start: string;
+  end: string;
+  time_zone: string;
+  description?: string;
+  location?: string;
+  attendees?: string[];
+}): Promise<{ event: CalendarEvent }> {
+  return request<{ event: CalendarEvent }>('/calendar/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteCalendarEvent(eventId: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>('/calendar/events/' + encodeURIComponent(eventId), { method: 'DELETE' });
 }
 
 export function getDashboard<T>(): Promise<T> {
@@ -692,8 +772,8 @@ export function autoProfilePack(runId: string): Promise<AutoProfilePack> {
   });
 }
 
-export function getReportExportSource(reportId: string): Promise<any> {
-  return request<any>(`/reports/${encodeURIComponent(reportId)}/export-source`);
+export function getReportExportSource(reportId: string): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(`/reports/${encodeURIComponent(reportId)}/export-source`);
 }
 
 export function listForecastAlgorithms(runId: string): Promise<{ algorithms: ForecastAlgorithmCapability[] }> {
@@ -780,4 +860,75 @@ export function unpinReportDraftItem(reportId: string, itemId: string): Promise<
 
 export function snapshotReportDraft(reportId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/snapshots`, { method: "POST" });
+}
+
+export type AdminUser = {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  role: "admin" | "analyst";
+  status: "active" | "locked";
+  locked_reason: string | null;
+  locked_at: string | null;
+  locked_by_user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminUserStats = {
+  total_users: number;
+  active_users: number;
+  locked_users: number;
+  admin_users: number;
+  analyst_users: number;
+};
+
+export type AdminUsersResponse = {
+  stats: AdminUserStats;
+  users: AdminUser[];
+};
+
+export function listAdminUsers(params?: {
+  search?: string;
+  role?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<AdminUsersResponse> {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.role && params.role !== "all") query.set("role", params.role);
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.offset) query.set("offset", String(params.offset));
+  const qs = query.toString();
+  return request<AdminUsersResponse>(`/admin/users${qs ? `?${qs}` : ""}`);
+}
+
+export function updateAdminUserStatus(
+  userId: string,
+  payload: { status: "active" | "locked"; reason?: string },
+): Promise<AdminUser> {
+  return request<AdminUser>(`/admin/users/${encodeURIComponent(userId)}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateAdminUserRole(
+  userId: string,
+  payload: { role: "admin" | "analyst" },
+): Promise<AdminUser> {
+  return request<AdminUser>(`/admin/users/${encodeURIComponent(userId)}/role`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteAdminUser(userId: string): Promise<{ user_id: string; deleted: boolean }> {
+  return request<{ user_id: string; deleted: boolean }>(`/admin/users/${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+  });
 }

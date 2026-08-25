@@ -127,6 +127,17 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # --- performance telemetry (PERF-001) ---------------------------------
+    # Request phase/SQL/payload instrumentation. Aggregate metrics are recorded
+    # for every workspace request; slow-query detail is sampled. Turning this
+    # off restores the legacy total-duration-only timing middleware.
+    perf_telemetry_enabled: bool = True
+    perf_slow_query_ms: float = Field(default=200.0, ge=1.0, le=60_000.0)
+    perf_slow_query_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Server-Timing response header exposes phase breakdown to the browser.
+    # Guarded so SQL/auth internals never leak from a production API.
+    perf_server_timing_enabled: bool = False
+
     # --- llm ---------------------------------------------------------------
     llm_provider: ProviderName = "gemini"
     llm_model: str = "gemini-3.6-flash"
@@ -230,6 +241,12 @@ class Settings(BaseSettings):
         ),
     )
     security_require_api_token: bool = False
+    global_admin_emails: str = Field(
+        default="lumvan54@gmail.com,admin@vdaagent.com",
+        validation_alias=AliasChoices(
+            "GLOBAL_ADMIN_EMAILS", "ADMIN_EMAILS", "global_admin_emails"
+        ),
+    )
     security_user_rate_per_minute: int = Field(default=30, ge=1)
     security_max_upload_mb: int = Field(default=500, ge=1)
     security_allow_raw_export: bool = False
@@ -238,6 +255,16 @@ class Settings(BaseSettings):
     # JSONL path remains available only for isolated tests/legacy local runs.
     security_audit_log: str = ""
     api_token: str = ""
+
+    def get_global_admin_emails(self) -> set[str]:
+        """Return the normalized set of admin email addresses."""
+        if not self.global_admin_emails:
+            return set()
+        return {
+            email.strip().casefold()
+            for email in self.global_admin_emails.split(",")
+            if email.strip()
+        }
 
     # --- deterministic agent guardrails ----------------------------------
     guardrails_max_tool_calls_per_request: int = Field(default=10, ge=1, le=50)
@@ -305,6 +332,17 @@ class Settings(BaseSettings):
     google_drive_frontend_url: str = "http://localhost:3000"
     google_drive_oauth_state_ttl_seconds: int = Field(default=600, ge=60, le=1800)
     google_drive_chunk_mb: int = Field(default=8, ge=1, le=64)
+    google_calendar_client_id: str = ''
+    google_calendar_client_secret: str = ''
+    google_calendar_redirect_uri: str = (
+        'http://localhost:8000/api/v1/calendar/callback'
+    )
+    google_calendar_token_encryption_key: str = ''
+    google_calendar_frontend_url: str = 'http://localhost:3000'
+    google_calendar_default_id: str = 'primary'
+    google_calendar_timezone: str = 'Asia/Bangkok'
+    google_calendar_oauth_state_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+    google_calendar_max_events: int = Field(default=50, ge=1, le=100)
     database_url: str = ""
     database_migration_url: str = ""
     database_checkpointer_url: str = ""
@@ -425,6 +463,15 @@ class Settings(BaseSettings):
             and self.google_drive_redirect_uri
             and self.google_drive_folder_id
             and self.google_drive_token_encryption_key
+        )
+
+    @property
+    def google_calendar_configured(self) -> bool:
+        return bool(
+            self.google_calendar_client_id
+            and self.google_calendar_client_secret
+            and self.google_calendar_redirect_uri
+            and self.google_calendar_token_encryption_key
         )
 
     @property

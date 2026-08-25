@@ -19,15 +19,19 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+from log_paths import resolve_log_dir
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(REPO_ROOT / ".env")
 except ImportError:
     pass
 
 SERVER_URL = os.environ.get("AI_LOG_SERVER", "")
 API_KEY = os.environ.get("AI_LOG_API_KEY", "")
-LOG_DIR = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
+LOG_DIR = resolve_log_dir()
 LOG_FILE = LOG_DIR / "session.jsonl"
 ARCHIVE_DIR = LOG_DIR / "archive"
 

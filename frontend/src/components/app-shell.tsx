@@ -13,6 +13,7 @@ import { InfoTip } from "@/components/ui";
 import { DraggableChatWidget } from "@/components/draggable-chat-widget";
 
 function SidebarIcon({ name }: { name: string }) {
+  if (name === '/calendar') return <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'><rect x='3' y='5' width='18' height='16' rx='2' /><path d='M16 3v4M8 3v4M3 10h18' /><path d='M8 14h3M8 17h5' /></svg>;
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
   if (name === "home") return <svg {...common}><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>;
   if (name === "logout") return <svg {...common}><path d="M10 5H5v14h5" /><path d="m14 8 4 4-4 4" /><path d="M18 12H9" /></svg>;
@@ -21,6 +22,7 @@ function SidebarIcon({ name }: { name: string }) {
   if (name === "/charts") return <svg {...common}><path d="M4 20V10M10 20V4M16 20v-7M22 20V7" /><path d="M2 20h22" /></svg>;
   if (name === "/compare") return <svg {...common}><path d="M7 7h11" /><path d="m15 3 4 4-4 4" /><path d="M17 17H6" /><path d="m9 13-4 4 4 4" /></svg>;
   if (name === "/activity") return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg>;
+  if (name === "/admin") return <svg {...common}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>;
   if (name === "/account") return <svg {...common}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;
   if (name === "/settings") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg>;
@@ -31,7 +33,13 @@ function accountInitials(email: string | null) {
   return value.slice(0, 2).toUpperCase() || "AN";
 }
 
+const adminNavigation = [
+  { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
+  { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản Admin và đổi mật khẩu.", permission: PERMISSIONS.userAccountsRead },
+] as const;
+
 const analystNavigation = [
+  { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
   { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
   { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
   { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
@@ -52,8 +60,9 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
-  const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact");
-  const roleNavigation = analystNavigation;
+  const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
+  const isAdmin = Boolean(me?.workspace.role === "admin" || can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
+  const roleNavigation = isAdmin ? adminNavigation : analystNavigation;
 
   // Load custom profile & listen for avatar updates
   useEffect(() => {
@@ -100,7 +109,10 @@ function AppShellContent({ children }: { children: ReactNode }) {
       )}
       <span className="account-details">
         <b title={me.user.email ?? undefined}>{displayName}</b>
-        <em><span className="account-status-dot" aria-hidden="true" />Đang hoạt động</em>
+        <em>
+          <span className="account-status-dot" aria-hidden="true" />
+          {isAdmin ? "Admin · Đang hoạt động" : "Đang hoạt động"}
+        </em>
       </span>
       <button
         type="button"
@@ -141,10 +153,16 @@ function AppShellContent({ children }: { children: ReactNode }) {
   ) : null;
 
   useEffect(() => {
-    if (isPublicPage || isAuthPage) return;
+    if (isPublicPage || isAuthPage || !me) return;
+    if (isAdmin && (pathname === "/dashboard" || pathname === "/workspaces" || pathname === "/charts" || pathname === "/datasets" || pathname === "/compare" || pathname === "/reports" || pathname === "/activity")) {
+      router.replace("/admin");
+      return;
+    }
     const permission = requiredPermissionForPath(pathname);
-    if (me && permission && !can(me.effective_permissions, permission)) router.replace("/dashboard");
-  }, [isAuthPage, isPublicPage, me, pathname, router]);
+    if (permission && !can(me.effective_permissions, permission)) {
+      router.replace(isAdmin ? "/admin" : "/dashboard");
+    }
+  }, [isAdmin, isAuthPage, isPublicPage, me, pathname, router]);
 
   useEffect(() => {
     if (loading || isPublicPage || isAuthPage || me || isGuest || error) return;
@@ -154,7 +172,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }, [error, isAuthPage, isGuest, isPublicPage, loading, me, pathname, router, searchParams]);
 
   useEffect(() => {
-    if (isPublicPage || isAuthPage) return;
+    if (isPublicPage || isAuthPage || isAdmin) return;
     const refresh = () => setConversations(listConversations());
     refresh();
     window.addEventListener(CHAT_HISTORY_EVENT, refresh);
@@ -163,7 +181,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       window.removeEventListener(CHAT_HISTORY_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, [isAuthPage, isPublicPage]);
+  }, [isAdmin, isAuthPage, isPublicPage]);
 
   function startNewChat() {
     const conversation = createConversation();
@@ -205,32 +223,47 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const workspaceShell = (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
-        <div className="sidebar-top">
-          {/* Nút Trang chủ Analyst thay thế brand mascot */}
-          <Link href="/" className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ Analyst">
-            <span className="sidebar-icon" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" />
-              </svg>
-            </span>
-            <span className="sidebar-link-label">Trang chủ Analyst</span>
-          </Link>
-          <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard">
-            <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
-            <span className="sidebar-link-label">Trang chủ workspace</span>
-          </Link>
-          {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
-            <span className="sidebar-workspace-label sidebar-text">Workspace của bạn</span>
-            <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>
-              {me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}
-            </select>
-            <Link className="workspace-manage-link sidebar-text" href="/workspaces">Quản lý Workspace →</Link>
-          </section>}
-          {guestWorkspacePanel}
-        </div>
+        {isAdmin ? (
+          <div className="sidebar-top">
+            <Link
+              href="/admin"
+              className={pathname === "/admin" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"}
+              aria-label="Quản trị hệ thống"
+            >
+              <span className="sidebar-icon" aria-hidden="true">
+                <SidebarIcon name="/admin" />
+              </span>
+              <span className="sidebar-link-label">Quản trị hệ thống</span>
+            </Link>
+          </div>
+        ) : (
+          <div className="sidebar-top">
+            {/* Nút Trang chủ Analyst thay thế brand mascot */}
+            <Link href="/" className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ Analyst">
+              <span className="sidebar-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" />
+                </svg>
+              </span>
+              <span className="sidebar-link-label">Trang chủ Analyst</span>
+            </Link>
+            <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard">
+              <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
+              <span className="sidebar-link-label">Trang chủ workspace</span>
+            </Link>
+            {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
+              <span className="sidebar-workspace-label sidebar-text">Workspace của bạn</span>
+              <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>
+                {me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}
+              </select>
+              <Link className="workspace-manage-link sidebar-text" href="/workspaces">Quản lý Workspace →</Link>
+            </section>}
+            {guestWorkspacePanel}
+          </div>
+        )}
         <div className="sidebar-scroll">
-          <nav className="nav-list sidebar-navigation" aria-label="Điều hướng phân tích dữ liệu">
-            <span className="sidebar-section-label sidebar-text">Phân tích dữ liệu</span>
+          <nav className="nav-list sidebar-navigation" aria-label={isAdmin ? "Điều hướng quản trị hệ thống" : "Điều hướng phân tích dữ liệu"}>
+            <span className="sidebar-section-label sidebar-text">{isAdmin ? "Hệ thống" : "Phân tích dữ liệu"}</span>
             {roleNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
               const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
               return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
@@ -240,7 +273,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
           {accountPanel}
         </div>
       </aside>
-      {can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && (
+      {!isAdmin && can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && (
         <DraggableChatWidget
           conversations={conversations}
           onNewChat={startNewChat}
