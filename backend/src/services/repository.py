@@ -2061,7 +2061,7 @@ class Repository:
                         workspace_memberships.c.workspace_id == workspace_id,
                         workspace_memberships.c.user_id == guest_user_id,
                     )
-                    .values(role=canonical, status="active", updated_at=now)
+                    .values(role=canonical, updated_at=now)
                 )
         return workspace_id
 

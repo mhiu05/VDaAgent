@@ -9,7 +9,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from tests.conftest import run_worker_until_job_terminal, submit_and_run_profile
+from tests.conftest import (
+    complete_profile_run,
+    run_worker_until_job_terminal,
+    submit_and_run_profile,
+)
 from src.config import get_settings
 from src.services.repository import get_repository
 
@@ -514,16 +518,17 @@ def test_test_on_unknown_run_returns_404(client: TestClient) -> None:
 # Drift
 # --------------------------------------------------------------------------- #
 def test_drift_detects_salary_shift(
-    client: TestClient, profile_run: dict, shifted_csv: Path
+    client: TestClient, reviewed_profile_run: dict, shifted_csv: Path
 ) -> None:
     second = submit_and_run_profile(
         client,
         {"dataset_ref": str(shifted_csv), "dataset_name": "users_v2", "scan_mode": "full"},
     )
+    second = complete_profile_run(client, second)
 
     response = client.post(
         f"/api/v1/profile/{second['profile_run_id']}/drift",
-        json={"baseline_run_id": profile_run["profile_run_id"]},
+        json={"baseline_run_id": reviewed_profile_run["profile_run_id"]},
     )
     assert response.status_code == 200
     findings = response.json()["findings"]

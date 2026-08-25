@@ -88,9 +88,8 @@ def test_session_provisions_personal_workspace_for_new_confirmed_user(
         def is_user_locked(self, user_id: str) -> bool:
             return False
 
-        def get_user_profile(self, user_id: str) -> dict[str, str]:
+        def get_user_profile(self, user_id: str) -> dict[str, str] | None:
             return {"role": "analyst", "status": "active"}
-
         def provision_self_signup_workspace(
             self, user_id: str, email: str | None, role: str
         ) -> None:
