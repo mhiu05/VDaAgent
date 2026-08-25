@@ -58,12 +58,12 @@ describe("DraggableChatWidget", () => {
     fireEvent.pointerUp(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
 
     const select = await screen.findByLabelText(/profile run dùng làm evidence/i) as HTMLSelectElement;
-    await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(2));
+    await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(1));
     expect(screen.queryByText(/^Dataset:/i)).toBeNull();
-    expect(screen.getByPlaceholderText(/chọn profile run để bắt đầu hỏi/i)).toBeTruthy();
+    await waitFor(() => expect(select.value).toBe(run.id));
 
     fireEvent.change(select, { target: { value: run.id } });
-    await waitFor(() => expect((screen.getByPlaceholderText(/hỏi ai về profile run đã chọn/i) as HTMLInputElement).disabled).toBe(false));
+    expect((screen.getByPlaceholderText(/hỏi ai về profile run đã chọn/i) as HTMLInputElement).disabled).toBe(false);
   });
 
   it("keeps the floating icon available on the legacy Chat route", async () => {

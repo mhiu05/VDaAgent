@@ -128,6 +128,27 @@ def submit_and_run_profile(
     return profile.json()
 
 
+def complete_profile_run(client: TestClient, created: dict) -> dict:
+    """Apply all pending HITL decisions and return a completed profile."""
+    decisions = [
+        {"kind": kind, "proposal_id": proposal["id"], "decision": "confirm"}
+        for kind in ("candidate_key", "semantic_type", "pii")
+        for proposal in created["proposals"][kind]
+        if proposal["status"] == "pending"
+    ]
+    confirmed = client.patch(
+        f"/api/v1/profile/{created['profile_run_id']}/confirm",
+        json={"confirmed_by": "qa-test", "decisions": decisions, "resume": True},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    terminal = run_worker_until_job_terminal(client, created["profile_run_id"])
+    assert terminal["status"] == "succeeded", terminal
+
+    profile = client.get(f"/api/v1/profile/{created['profile_run_id']}")
+    assert profile.status_code == 200, profile.text
+    return profile.json()
+
+
 def run_worker_until_job_terminal(
     client: TestClient,
     job_id: str,
@@ -236,25 +257,7 @@ def reviewed_profile_run(client: TestClient, sample_csv: Path) -> dict:
         },
     )
 
-    decisions = [
-        {"kind": kind, "proposal_id": proposal["id"], "decision": "confirm"}
-        for kind in ("candidate_key", "semantic_type", "pii")
-        for proposal in created["proposals"][kind]
-        if proposal["status"] == "pending"
-    ]
-    confirmed = client.patch(
-        f"/api/v1/profile/{created['profile_run_id']}/confirm",
-        json={"confirmed_by": "qa-test", "decisions": decisions, "resume": True},
-    )
-    assert confirmed.status_code == 200, confirmed.text
-    terminal = run_worker_until_job_terminal(
-        client, created["profile_run_id"]
-    )
-    assert terminal["status"] == "succeeded", terminal
-
-    profile = client.get(f"/api/v1/profile/{created['profile_run_id']}")
-    assert profile.status_code == 200, profile.text
-    return profile.json()
+    return complete_profile_run(client, created)
 
 
 @pytest.fixture
