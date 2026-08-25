@@ -40,7 +40,7 @@ function accountInitials(email: string | null) {
 }
 
 const adminNavigation = [
-  { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Káº¿t ná»‘i MySQL, MongoDB hoáº·c DuckDB Ä‘á»ƒ Ä‘Æ°a nguá»“n dá»¯ liá»‡u vÃ o profiling.", permission: PERMISSIONS.datasetUpload },
+  { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Kết nối MySQL, MongoDB hoặc DuckDB để đưa nguồn dữ liệu vào profiling.", permission: PERMISSIONS.datasetUpload },
   { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
   { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản Admin và đổi mật khẩu.", permission: PERMISSIONS.userAccountsRead },
 ] as const;
@@ -51,7 +51,7 @@ const analystNavigation = [
     label: "Dữ liệu",
     icon: "database",
     children: [
-      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Káº¿t ná»‘i MySQL, MongoDB hoáº·c DuckDB Ä‘á»ƒ Ä‘Æ°a nguá»“n dá»¯ liá»‡u vÃ o profiling.", permission: PERMISSIONS.datasetUpload },
+      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Kết nối MySQL, MongoDB hoặc DuckDB để đưa nguồn dữ liệu vào profiling.", permission: PERMISSIONS.datasetUpload },
       { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
     ]
   },
@@ -356,7 +356,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   >
                     <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={group.icon} /></span>
                     <span className="sidebar-link-label">{group.label}</span>
-                    <span className={`chevron${expanded ? " open" : ""}`} aria-hidden="true">⌄</span>
+                    <span className={`chevron${expanded ? " open" : ""}`} aria-hidden="true"><SidebarIcon name="chevron-down" /></span>
                   </button>
                   {expanded && <div className="sidebar-sub-menu" id={`sidebar-submenu-${group.id}`}>
                     {items.map((item) => {
