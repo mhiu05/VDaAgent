@@ -60,7 +60,7 @@ export default function WorkspacesPage() {
       setSecondaryColor(defaultDraft.secondaryColor);
       toast.success(`Đã tạo workspace “${workspace.name}”.`);
       await switchWorkspace(workspace.id);
-      router.push("/dashboard");
+      router.push("/datasets");
     },
   });
   const deletion = useMutation({
@@ -157,7 +157,7 @@ export default function WorkspacesPage() {
 
   async function openWorkspace(id: string) {
     if (id !== workspaceId) await switchWorkspace(id);
-    router.push("/dashboard");
+    router.push("/datasets");
   }
 
   return <main className="page workspace-page">

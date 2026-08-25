@@ -251,7 +251,22 @@ export function DraggableChatWidget({
     if (!dragStartRef.current.hasMoved) {
       setIsOpen((prev) => !prev);
     } else {
-      localStorage.setItem("p170_chat_widget_pos", JSON.stringify(positionRef.current));
+      const windowW = window.innerWidth;
+      const windowH = window.innerHeight;
+      const currentX = positionRef.current.x;
+      const currentY = positionRef.current.y;
+
+      const isLeft = currentX + WIDGET_SIZE / 2 < windowW / 2;
+      const isTop = currentY + WIDGET_SIZE / 2 < windowH / 2;
+
+      const snapX = isLeft ? WIDGET_MARGIN : windowW - WIDGET_SIZE - WIDGET_MARGIN;
+      const snapY = isTop ? WIDGET_MARGIN : windowH - WIDGET_SIZE - WIDGET_MARGIN;
+
+      const snappedPosition = { x: snapX, y: snapY };
+      positionRef.current = snappedPosition;
+      setPosition(snappedPosition);
+
+      localStorage.setItem("p170_chat_widget_pos", JSON.stringify(snappedPosition));
     }
   };
 
@@ -399,6 +414,7 @@ export function DraggableChatWidget({
           zIndex: 9999,
           touchAction: "none",
           userSelect: "none",
+          transition: isDragging ? "none" : "left 0.3s ease-out, top 0.3s ease-out",
         }}
       >
         <button
