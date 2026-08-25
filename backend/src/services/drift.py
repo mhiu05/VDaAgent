@@ -116,6 +116,11 @@ def compare_runs(
                         "drift_type": "null_rate_shift",
                         "severity": "major" if delta >= 2 * NULL_PCT_SHIFT_THRESHOLD else "minor",
                         "metric": "null_pct",
+                        "baseline_value": null_a,
+                        "current_value": null_b,
+                        # Keep legacy aliases for existing stored reports and
+                        # trusted local clients while the canonical response
+                        # fields above are consumed by the UI.
                         "before": null_a,
                         "after": null_b,
                         "detail": f"null% đổi từ {null_a:.2f}% sang {null_b:.2f}% (lệch {delta:.2f} điểm).",
@@ -131,6 +136,8 @@ def compare_runs(
                         "drift_type": "numeric_shift",
                         "severity": "major" if shift >= 0.5 else "minor",
                         "metric": metric,
+                        "baseline_value": a.get(metric),
+                        "current_value": b.get(metric),
                         "before": a.get(metric),
                         "after": b.get(metric),
                         "detail": f"{metric} lệch {shift:.1%} so với run trước.",

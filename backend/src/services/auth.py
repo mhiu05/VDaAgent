@@ -288,14 +288,22 @@ def authenticate_bearer(authorization: str | None, settings: Settings | None = N
         )
 
     if token:
+        # PERF-001: attribute local JWT/JWKS verification and the remote
+        # Supabase Auth fallback to separate phases. The local path should
+        # dominate; a large auth_remote_ms means tokens are triggering the
+        # network fallback per request (see PERF-105).
+        from src.services import perf_telemetry
+
         try:
-            return get_jwt_verifier(current).verify(token)
+            with perf_telemetry.timed("auth_local_ms"):
+                return get_jwt_verifier(current).verify(token)
         except JWTVerificationError as exc:
             # Keep local JWT/JWKS verification as the fast path. The Auth API
             # fallback supports valid tokens from Supabase projects that use
             # legacy or otherwise different signing-key configuration.
             try:
-                return get_jwt_verifier(current).verify_with_auth_api(token)
+                with perf_telemetry.timed("auth_remote_ms"):
+                    return get_jwt_verifier(current).verify_with_auth_api(token)
             except JWTVerificationError as remote_exc:
                 raise _unauthorized(str(remote_exc)) from exc
 

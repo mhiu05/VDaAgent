@@ -46,6 +46,9 @@ USER_ACCOUNTS_READ: Final = "user.accounts.read"
 USER_ACCOUNT_MANAGE: Final = "user.account.manage"
 SYSTEM_ADMIN: Final = "system.admin"
 
+CALENDAR_READ: Final = 'calendar.read'
+CALENDAR_WRITE: Final = 'calendar.write'
+
 _ANALYST = frozenset({
     REPORT_PUBLISHED_READ,
     REPORT_PUBLISHED_EXPORT,
@@ -70,6 +73,8 @@ _ANALYST = frozenset({
     WORKSPACE_MEMBERS_MANAGE,
     WORKSPACE_SETTINGS_MANAGE,
     WORKSPACE_STORAGE_CONNECT,
+    CALENDAR_READ,
+    CALENDAR_WRITE,
     WORKSPACE_LIFECYCLE_MANAGE,
     WORKSPACE_CREATE,
     WORKSPACE_DELETE,
@@ -116,6 +121,8 @@ def role_can_manage_target(actor_role: str, target_role: str) -> bool:
 
 
 __all__ = [
+    'CALENDAR_READ',
+    'CALENDAR_WRITE',
     "AGENT_RUN_READ",
     "AGENT_TRACE_DEBUG_READ",
     "AGENT_TRACE_READ",

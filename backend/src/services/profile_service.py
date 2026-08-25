@@ -292,11 +292,18 @@ class ProfileService:
         try:
             checkpoint = await asyncio.to_thread(graph.get_state, config)
             agent_run_id = (checkpoint.values or {}).get("agent_run_id") or agent_run_id
-            result = await asyncio.to_thread(
-                graph.invoke,
-                Command(resume=payload, update={"resume_requested": True}),
-                config,
-            )
+            # A pre-durable-review run can have already passed the HITL
+            # interrupt and be checkpointed directly at ``summarize``.  In
+            # that case Command(resume=...) is a no-op because there is no
+            # pending interrupt to resume; continue the checkpoint normally.
+            if payload.get("legacy_resume") and checkpoint.next == ("summarize",):
+                result = await asyncio.to_thread(graph.invoke, None, config)
+            else:
+                result = await asyncio.to_thread(
+                    graph.invoke,
+                    Command(resume=payload, update={"resume_requested": True}),
+                    config,
+                )
             agent_run_id = result.get("agent_run_id") or agent_run_id
         except OperationalError as exc:
             raise ProfileError(

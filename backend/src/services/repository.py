@@ -40,6 +40,8 @@ from sqlalchemy import (
 )
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
+# pyrefly: ignore [missing-import]
+from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 from src.services.permissions import canonical_role
@@ -223,6 +225,28 @@ google_drive_oauth_states = Table(
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("used_at", DateTime(timezone=True), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+
+google_calendar_connections = Table(
+    'google_calendar_connections',
+    metadata,
+    Column('workspace_id', String(36), ForeignKey('workspaces.id'), primary_key=True),
+    Column('user_id', String(36), primary_key=True),
+    Column('calendar_id', String(255), nullable=False, default='primary'),
+    Column('encrypted_refresh_token', Text, nullable=False),
+    Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
+    Column('updated_at', DateTime(timezone=True), default=_now, nullable=False),
+)
+
+google_calendar_oauth_states = Table(
+    'google_calendar_oauth_states',
+    metadata,
+    Column('id', String(64), primary_key=True),
+    Column('workspace_id', String(36), ForeignKey('workspaces.id'), nullable=False, index=True),
+    Column('user_id', String(36), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+    Column('used_at', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
 )
 
 datasets = Table(
@@ -1099,6 +1123,23 @@ PROPOSAL_TABLES: dict[str, Table] = {
     "semantic_type": semantic_type_proposals,
     "pii": pii_proposals,
 }
+
+# Fail-closed: `pending` masks too, so an Analyst who has not yet reviewed a
+# proposal never leaks raw PII values. Shared by both the standalone
+# `confirmed_pii_columns` query and the in-memory derivation in `full_profile`
+# so the two paths can never diverge.
+_PII_MASK_STATUSES: frozenset[str] = frozenset(
+    {"confirmed", "edited", "auto_confirmed", "pending"}
+)
+
+
+def _pii_mask_columns(pii_rows: list[dict[str, Any]]) -> set[str]:
+    """PII columns to mask, derived from already-loaded pii proposal rows."""
+    return {
+        row["column_name"]
+        for row in pii_rows
+        if row.get("status") in _PII_MASK_STATUSES
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -3132,6 +3173,111 @@ class Repository:
             )
             return bool(result.rowcount)
 
+    # --- Google Calendar connections ----------------------------------- #
+    def create_google_calendar_oauth_state(
+        self, state_id: str, workspace_id: str, user_id: str, expires_at: datetime
+    ) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                google_calendar_oauth_states.insert().values(
+                    id=state_id,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    expires_at=expires_at,
+                    created_at=_now(),
+                )
+            )
+
+    def consume_google_calendar_oauth_state(self, state_id: str) -> dict[str, Any] | None:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(google_calendar_oauth_states)
+                    .where(
+                        google_calendar_oauth_states.c.id == state_id,
+                        google_calendar_oauth_states.c.used_at.is_(None),
+                        google_calendar_oauth_states.c.expires_at > now,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                return None
+            conn.execute(
+                google_calendar_oauth_states.update()
+                .where(google_calendar_oauth_states.c.id == state_id)
+                .values(used_at=now)
+            )
+            return dict(row)
+
+    def save_google_calendar_connection(
+        self,
+        workspace_id: str,
+        user_id: str,
+        calendar_id: str,
+        encrypted_refresh_token: str,
+    ) -> None:
+        now = _now()
+        with self.engine.begin() as conn:
+            existing = conn.execute(
+                select(google_calendar_connections.c.workspace_id).where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
+                )
+            ).first()
+            values = {
+                'calendar_id': calendar_id,
+                'encrypted_refresh_token': encrypted_refresh_token,
+                'updated_at': now,
+            }
+            if existing:
+                conn.execute(
+                    google_calendar_connections.update()
+                    .where(
+                        google_calendar_connections.c.workspace_id == workspace_id,
+                        google_calendar_connections.c.user_id == user_id,
+                    )
+                    .values(**values)
+                )
+            else:
+                conn.execute(
+                    google_calendar_connections.insert().values(
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        created_at=now,
+                        **values,
+                    )
+                )
+
+    def get_google_calendar_connection(
+        self, workspace_id: str, user_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(google_calendar_connections).where(
+                        google_calendar_connections.c.workspace_id == workspace_id,
+                        google_calendar_connections.c.user_id == user_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            return dict(row) if row else None
+
+    def delete_google_calendar_connection(self, workspace_id: str, user_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                google_calendar_connections.delete().where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
+                )
+            )
+            return bool(result.rowcount)
+
     # --- Dataset -------------------------------------------------------- #
     def upsert_dataset(
         self,
@@ -3430,9 +3576,26 @@ class Repository:
     def get_profile_job(
         self, job_id: str, *, workspace_id: str | None = None
     ) -> dict[str, Any] | None:
-        """Return queue metadata without weakening workspace ownership checks."""
+        """Return queue metadata without weakening workspace ownership checks.
+
+        Projects only the queue columns consumed by ``ProfileJobResponse``;
+        never selects the heavy JSON/text columns on ``profile_runs`` (answers,
+        correlation matrix, terminal result, job payload) that the status
+        endpoint does not need (PERF-102).
+        """
         with self.engine.begin() as conn:
-            query = select(profile_runs).where(
+            query = select(
+                profile_runs.c.id,
+                profile_runs.c.dataset_id,
+                profile_runs.c.created_at,
+                profile_runs.c.job_status,
+                profile_runs.c.job_stage,
+                profile_runs.c.job_attempt_count,
+                profile_runs.c.job_started_at,
+                profile_runs.c.job_finished_at,
+                profile_runs.c.job_error_code,
+                profile_runs.c.job_error_message,
+            ).where(
                 profile_runs.c.id == job_id,
                 profile_runs.c.job_status.is_not(None),
             )
@@ -3554,6 +3717,40 @@ class Repository:
                     job_error_message=None,
                     job_payload=None,
                 )
+            )
+            return result.rowcount == 1
+
+    def complete_resumed_profile_run(self, run_id: str) -> bool:
+        """Project a successfully resumed graph into the terminal domain state."""
+        with self.engine.begin() as conn:
+            # Keep the pending check in Python so this works across the same
+            # PostgreSQL/SQLite test repository schema without a dialect-only
+            # UNION expression.
+            row = conn.execute(
+                select(profile_runs.c.status).where(profile_runs.c.id == run_id)
+            ).scalar()
+            if row != "resuming":
+                return False
+            pending_count = 0
+            for table in PROPOSAL_TABLES.values():
+                pending_count += int(
+                    conn.execute(
+                        select(func.count())
+                        .select_from(table)
+                        .where(
+                            table.c.profile_run_id == run_id,
+                            table.c.status == "pending",
+                        )
+                    ).scalar()
+                    or 0
+                )
+            if pending_count:
+                return False
+            result = conn.execute(
+                profile_runs.update()
+                .where(profile_runs.c.id == run_id)
+                .where(profile_runs.c.status == "resuming")
+                .values(status="completed")
             )
             return result.rowcount == 1
 
@@ -3681,6 +3878,75 @@ class Repository:
                         "status": next_status,
                     }
                 )
+        return recovered
+
+    def recover_orphaned_profile_resumes(
+        self, *, max_attempts: int, limit: int = 100
+    ) -> list[dict[str, str]]:
+        """Queue resumes left behind by pre-durable-review clients.
+
+        Older clients could atomically mark a run ``resuming`` without writing
+        the durable job payload.  Such runs have a checkpoint waiting at the
+        HITL boundary but no queue row for the worker to claim.  Reconstructing
+        the small, deterministic confirm payload makes the transition safe and
+        idempotent; newer runs (which already have ``job_payload``) are not
+        touched.
+        """
+        now = _now()
+        recovered: list[dict[str, str]] = []
+        with self.engine.begin() as conn:
+            rows = list(
+                conn.execute(
+                    select(profile_runs)
+                    .where(
+                        profile_runs.c.status == "resuming",
+                        profile_runs.c.job_status.is_(None),
+                        profile_runs.c.job_payload.is_(None),
+                        profile_runs.c.resume_count > 0,
+                    )
+                    .order_by(profile_runs.c.last_resume_at, profile_runs.c.id)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                ).mappings()
+            )
+            for run in rows:
+                action = str(run.get("last_resume_action") or "confirm")
+                payload = {
+                    "action": action,
+                    "test_requests": [],
+                    "legacy_resume": True,
+                }
+                result = conn.execute(
+                    profile_runs.update()
+                    .where(profile_runs.c.id == run["id"])
+                    .where(profile_runs.c.status == "resuming")
+                    .where(profile_runs.c.job_status.is_(None))
+                    .values(
+                        job_status="queued",
+                        job_stage="resume_recovered",
+                        job_payload=payload,
+                        job_attempt_count=0,
+                        job_max_attempts=max_attempts,
+                        job_available_at=now,
+                        job_started_at=None,
+                        job_finished_at=None,
+                        job_heartbeat_at=None,
+                        job_lease_expires_at=None,
+                        job_claim_token=None,
+                        job_worker_id=None,
+                        job_error_code=None,
+                        job_error_message=None,
+                        error=None,
+                    )
+                )
+                if result.rowcount:
+                    recovered.append(
+                        {
+                            "job_id": str(run["id"]),
+                            "workspace_id": str(run["workspace_id"]),
+                            "status": "queued",
+                        }
+                    )
         return recovered
 
     def transition_profile_run(
@@ -4069,9 +4335,7 @@ class Repository:
             rows = conn.execute(
                 select(pii_proposals.c.column_name).where(
                     pii_proposals.c.profile_run_id == run_id,
-                    pii_proposals.c.status.in_(
-                        ["confirmed", "edited", "auto_confirmed", "pending"]
-                    ),
+                    pii_proposals.c.status.in_(sorted(_PII_MASK_STATUSES)),
                 )
             )
             # `pending` cũng mask: fail-closed khi Analyst chưa kịp review.
@@ -4172,9 +4436,21 @@ class Repository:
         if not run:
             return None
 
+        # Load proposals once, then derive both the PII mask set and the
+        # pending-proposal count from the rows already in memory instead of
+        # issuing a separate `confirmed_pii_columns` query plus three
+        # `pending_count` COUNT() queries (PERF-103).
+        proposals = self.get_proposals(run_id)
+        pii_cols = _pii_mask_columns(proposals.get("pii", []))
+        pending_proposals = sum(
+            1
+            for rows in proposals.values()
+            for row in rows
+            if row.get("status") == "pending"
+        )
+
         stats = self.column_stats_rows(run_id)
         if mask_pii:
-            pii_cols = self.confirmed_pii_columns(run_id)
             for st in stats:
                 if st["column_name"] in pii_cols:
                     st["top_k_values"] = None
@@ -4184,7 +4460,8 @@ class Repository:
             "run": run,
             "dataset": self.get_dataset(run["dataset_id"], workspace_id=workspace_id),
             "column_stats": stats,
-            "proposals": self.get_proposals(run_id),
+            "proposals": proposals,
+            "pending_proposals": pending_proposals,
             "test_results": self.get_test_results(run_id),
             "drift_reports": self.get_drift_reports(run_id),
         }
@@ -5013,20 +5290,43 @@ def build_engine(settings: Settings | None = None) -> Engine:
     url = make_url(cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
         raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
-    # Supabase session-mode poolers enforce a hard client limit. SQLAlchemy's
-    # defaults (pool_size=5 + max_overflow=10) can consume all 15 sessions from
-    # one backend process before LangGraph's checkpointer is counted. Keep the
-    # metadata pool deliberately small and bounded; pre_ping/recycle also avoid
-    # handing a stale idle connection to a request.
-    return create_engine(
-        url,
-        future=True,
-        pool_pre_ping=True,
-        pool_size=3,
-        max_overflow=0,
-        pool_timeout=30,
-        pool_recycle=300,
-    )
+    # Supabase's session-mode pooler has a small hard client limit. Keeping an
+    # SQLAlchemy pool alive on top of that pooler makes every API/worker process
+    # reserve idle sessions and eventually produces EMAXCONNSESSION. Let the
+    # pooler own pooling for remote Supabase URLs; each request gets one short-
+    # lived connection which is returned immediately at transaction end.
+    is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
+    if is_supabase_pooler:
+        engine = create_engine(
+            url,
+            future=True,
+            poolclass=NullPool,
+            pool_pre_ping=True,
+        )
+    else:
+        # Local PostgreSQL benefits from a small bounded pool. Never use
+        # SQLAlchemy defaults (5 + 10 overflow), which can consume all sessions
+        # in a small DB.
+        engine = create_engine(
+            url,
+            future=True,
+            pool_pre_ping=True,
+            pool_size=3,
+            max_overflow=0,
+            pool_timeout=30,
+            pool_recycle=300,
+        )
+
+    # PERF-001: attach timing-only SQL hooks once per engine so request
+    # telemetry can attribute query count/time without adding any queries.
+    if getattr(cfg, "perf_telemetry_enabled", True):
+        try:
+            from src.services.perf_telemetry import install_sql_instrumentation
+
+            install_sql_instrumentation(engine)
+        except Exception:  # pragma: no cover - instrumentation must never break DB
+            pass
+    return engine
 
 
 def get_repository(settings: Settings | None = None) -> Repository:

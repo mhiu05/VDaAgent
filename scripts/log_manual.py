@@ -27,6 +27,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from log_paths import resolve_log_dir
+
 VN_TZ = timezone(timedelta(hours=7))
 
 if sys.platform == "win32":
@@ -107,7 +109,7 @@ def main():
         "response_summary": result[:500] if result else "",
     }
 
-    log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
+    log_dir = resolve_log_dir()
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "session.jsonl"
 

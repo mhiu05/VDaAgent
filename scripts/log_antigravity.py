@@ -48,6 +48,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from log_paths import resolve_log_dir
+
 # Fix Windows console encoding so VN diacritics in prompts print cleanly.
 if sys.platform == "win32":
     try:
@@ -410,7 +412,7 @@ def main() -> None:
               file=sys.stderr)
         sys.exit(0)
 
-    log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
+    log_dir = resolve_log_dir()
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "session.jsonl"
     logged_ids = get_logged_entry_ids(log_file)
@@ -480,7 +482,7 @@ def _legacy_log(summary: str, model: str) -> None:
         "prompt": summary[:1000],
         "response_summary": f"[Antigravity] {summary[:500]}",
     }
-    log_dir = Path(os.environ.get("AI_LOG_DIR", ".ai-log"))
+    log_dir = resolve_log_dir()
     log_dir.mkdir(exist_ok=True)
     with open(log_dir / "session.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")

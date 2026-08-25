@@ -7,7 +7,9 @@ import { PublicNavbar } from "@/components/public-navbar";
 import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
 
 function safeNext(value: string | null) {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
+  return value && value.startsWith("/") && !value.startsWith("//")
+    ? value
+    : "/workspaces";
 }
 
 function LoginForm() {
@@ -66,7 +68,18 @@ function LoginForm() {
           <label htmlFor="login-password">Mật khẩu<input id="login-password" name="password" type="password" autoComplete="current-password" placeholder="Nhập mật khẩu" required /></label>
           <div className="auth-form-meta" style={{ justifyContent: 'flex-end' }}><Link href="/forgot-password">Quên mật khẩu?</Link></div>
           {error && <div className="notice error" role="alert"><b>Sai email hoặc mật khẩu</b><p>{error}</p></div>}
-          <button className="button primary auth-submit" type="submit" disabled={busy}>{busy ? "Đang xác thực…" : "Đăng nhập"}</button>
+          <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "1rem" }}>
+            <button className="button primary auth-submit" type="submit" disabled={busy} style={{ flex: 1, margin: 0 }}>
+              {busy ? "Đang xác thực…" : "Đăng nhập"}
+            </button>
+            <Link 
+              href="/admin" 
+              className="button secondary" 
+              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", margin: 0 }}
+            >
+              Vào nhanh /admin
+            </Link>
+          </div>
         </form>
         <p className="auth-switch">Chưa có tài khoản? <Link href="/signup">Đăng ký</Link></p>
       </section>

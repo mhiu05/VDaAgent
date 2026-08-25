@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
-import { confirmProposals, getProfile } from "@/lib/api";
+import { ApiError, confirmProposals, getProfile } from "@/lib/api";
 import { formatPercent, toTitle } from "@/lib/format";
 import { EmptyState, ErrorNotice, LoadingBlock, Notice, PageHeader, StatusBadge } from "@/components/ui";
-import type { Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
+import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
 
 type Selection = { decision: ProposalDecisionType; finalType?: string; note?: string };
 
@@ -29,12 +29,29 @@ function finalValueOptions(kind: ProposalKind, proposal: Proposal) {
   return [...new Set([initial, ...values])];
 }
 
+function profileReturnPath(runId: string) {
+  const fallback = `/profiles/${runId}`;
+  const value = new URLSearchParams(window.location.search).get("returnTo");
+  if (!value) return fallback;
+
+  try {
+    const target = new URL(value, window.location.origin);
+    const allowedPath = target.pathname === fallback || target.pathname === "/chat";
+    return target.origin === window.location.origin && allowedPath
+      ? `${target.pathname}${target.search}${target.hash}`
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function ReviewPage() {
   const { runId } = useParams<{ runId: string }>();
   const router = useRouter();
   const client = useQueryClient();
   const { me, isGuest } = useAuth();
   const [selections, setSelections] = useState<Record<string, Selection>>({});
+  const reviewRequestKey = useRef<string | null>(null);
   const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
   const pending = useMemo(
     () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
@@ -45,6 +62,11 @@ export default function ReviewPage() {
   const reviewerName = me?.user.email || (isGuest ? "Phiên dùng thử" : "Tài khoản đăng nhập hiện tại");
   const reviewerRole = "analyst";
   const mutation = useMutation({
+    onMutate: async () => {
+      // A pre-review GET must not finish after PATCH and restore stale pending
+      // proposals into the shared Profile Run cache.
+      await client.cancelQueries({ queryKey: ["profile", runId] });
+    },
     mutationFn: () => confirmProposals(runId, {
       resume: true,
       decisions: pending.map(({ proposal, kind }) => {
@@ -57,11 +79,43 @@ export default function ReviewPage() {
           ...(selection.note?.trim() ? { note: selection.note.trim() } : {}),
         };
       }),
-    }),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["profile", runId] });
-      const returnTo = new URLSearchParams(window.location.search).get("returnTo");
-      router.push(returnTo || `/profiles/${runId}`);
+    }, reviewRequestKey.current || (reviewRequestKey.current = crypto.randomUUID())),
+    onError: async (error) => {
+      // The DB transaction may have committed even when the PATCH response
+      // was lost or a duplicate request raced the first click. Reconcile once
+      // with the authoritative profile before showing an error.
+      const status = error instanceof ApiError ? error.status : 0;
+      if (status !== 0 && status !== 409 && status < 500) return;
+      try {
+        const latest = await getProfile(runId);
+        const stillPending = Object.values(latest.proposals || {}).some((items) =>
+          items.some((proposal) => proposal.status === "pending"),
+        );
+        if (!stillPending && latest.pending_proposals === 0) {
+          client.setQueryData(["profile", runId], latest);
+          router.replace(profileReturnPath(runId));
+        }
+      } catch {
+        // Keep the original mutation error visible when reconciliation also
+        // fails; the user can retry with the same idempotency key.
+      }
+    },
+    onSuccess: async (confirmed) => {
+      // This is a backend response, not optimistic UI state. It immediately
+      // replaces the fields that decide whether review is still required.
+      client.setQueryData<Profile>(["profile", runId], (current) => current && ({
+        ...current,
+        status: confirmed.status,
+        pending_proposals: confirmed.pending_proposals,
+        ...(confirmed.proposals ? { proposals: confirmed.proposals } : {}),
+      }));
+      // The PATCH response contains the same post-transaction proposal
+      // snapshot used to calculate pending_proposals. Do not refetch profile
+      // here: a stale in-flight GET can otherwise overwrite the saved decision
+      // while the durable resume job is still moving from queued to completed.
+      client.invalidateQueries({ queryKey: ["profiling-job", runId] });
+      reviewRequestKey.current = null;
+      router.replace(profileReturnPath(runId));
     },
   });
 

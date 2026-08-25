@@ -207,6 +207,46 @@ def test_retryable_failure_requeues_with_bounded_attempts(
     assert completed["job_attempt_count"] == 2
 
 
+def test_get_profile_job_projects_only_queue_columns(
+    client: TestClient, sample_csv: Path
+) -> None:
+    """PERF-102: status projection must not fetch heavy JSON/text columns."""
+    repo = get_repository()
+    _drain(repo)
+    submitted = _submit(client, sample_csv)
+
+    job = repo.get_profile_job(submitted["job_id"])
+    assert job is not None
+
+    # Fields ProfileJobResponse actually consumes are present.
+    for field in (
+        "id",
+        "dataset_id",
+        "created_at",
+        "job_status",
+        "job_stage",
+        "job_attempt_count",
+        "job_started_at",
+        "job_finished_at",
+        "job_error_code",
+        "job_error_message",
+    ):
+        assert field in job, f"projection missing {field}"
+
+    # Heavy columns and internal queue secrets must NOT be selected.
+    for heavy in (
+        "correlation_matrix",
+        "terminal_result",
+        "answer",
+        "answer_sources",
+        "risk_warnings",
+        "narrative_report",
+        "job_payload",
+        "job_claim_token",
+    ):
+        assert heavy not in job, f"projection leaked heavy column {heavy}"
+
+
 def test_expired_worker_lease_is_recovered(
     client: TestClient, sample_csv: Path
 ) -> None:

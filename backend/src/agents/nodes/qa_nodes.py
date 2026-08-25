@@ -34,7 +34,7 @@ from src.services.guardrails import (
     audit_question_fields,
     enforce_output_guardrails,
 )
-from src.services.llm import LLMNotConfiguredError, get_llm
+from src.services.llm import LLMNotConfiguredError, get_llm, is_llm_runtime_warning, response_text
 from src.services.repository import get_repository
 from src.services.retrieval import get_index
 from src.services.security import get_audit
@@ -100,6 +100,35 @@ _NAME_INTRODUCTION = re.compile(
     r"\b(?:tôi|mình|em)\s+tên\s+là\s+([^.!?\n,]{1,80})",
     re.IGNORECASE,
 )
+_PLAIN_NAME_INTRODUCTION = re.compile(
+    r'(?:tôi|toi|mình|minh|em) +(?:tên +là|ten +la|là|la) +([^.!?,]{1,80})',
+    re.IGNORECASE,
+)
+_NAME_STOPWORDS = frozenset({
+    'ai', 'gì', 'đây', 'bạn', 'mình', 'tôi', 'em', 'người dùng',
+    'analyst', 'data analyst',
+})
+
+
+def _extract_name(text: str) -> str | None:
+    '''Extract a short self-introduced name without treating questions as names.'''
+    match = _PLAIN_NAME_INTRODUCTION.search(text) or _NAME_INTRODUCTION.search(text)
+    if not match:
+        return None
+    name = re.sub('[^A-Za-zÀ-ỹ0-9 -]', '', match.group(1)).strip()
+    name = re.sub(r' +', ' ', name)
+    if not name or name.casefold() in _NAME_STOPWORDS:
+        return None
+    return name[:80]
+
+
+_NAME_RECALL_QUESTION_NO_ACCENTS = re.compile(
+    r'\b(?:ban|agent|minh|toi)\b.*\b(?:biet|nho|nhac)\b.*\b(?:ten|gi)\b|'
+    r'\bten\s+(?:minh|toi|em)\s+la\s+gi\b',
+    re.IGNORECASE,
+)
+
+
 _NAME_RECALL_QUESTION = re.compile(
     r"\b(?:bạn|agent|mình|tôi)\b.*\b(?:biết|nhớ|nhắc)\b.*\btên\b|"
     r"\btên\s+(?:mình|tôi|em)\s+là\s+gì\b",
@@ -107,7 +136,7 @@ _NAME_RECALL_QUESTION = re.compile(
 )
 
 
-def _remembered_name(state: ProfilingState) -> str | None:
+def _legacy_remembered_name(state: ProfilingState) -> str | None:
     """Lấy tên người dùng từ vài lượt chat gần nhất, không gửi vào DB/index."""
     for message in reversed(state.get("messages") or []):
         if message.get("role") != "user":
@@ -118,6 +147,17 @@ def _remembered_name(state: ProfilingState) -> str | None:
         name = re.sub(r"[^\wÀ-ỹ' -]", "", match.group(1), flags=re.UNICODE).strip()
         if name:
             return name[:80]
+    return None
+
+
+def _remembered_name(state: ProfilingState) -> str | None:
+    '''Read the latest self-introduced name from the bounded conversation history.'''
+    for message in reversed(state.get('messages') or []):
+        if message.get('role') != 'user':
+            continue
+        name = _extract_name(str(message.get('text') or ''))
+        if name:
+            return name
     return None
 
 
@@ -159,7 +199,7 @@ def _profile_fallback_summary(run_id: str | None) -> str:
     warnings = [
         warning
         for warning in (run.get("risk_warnings") or [])
-        if not warning.startswith("Không sinh được báo cáo bằng LLM:")
+        if not is_llm_runtime_warning(warning)
     ]
     lines = [
         "## Tóm tắt chất lượng dữ liệu",
@@ -197,7 +237,7 @@ def _mentioned_columns(question: str, columns: list[str]) -> list[str]:
     return [c for c in columns if c and c.lower() in lowered]
 
 
-def _social_response(question: str) -> str:
+def _legacy_social_response(question: str) -> str:
     """Trả lời tự nhiên cho lời chào/giới thiệu, không truy vấn dataset."""
     match = re.search(
         r"\b(?:tôi|mình|em)\s+tên\s+là\s+([^.!?]+)", question, re.IGNORECASE
@@ -212,6 +252,18 @@ def _social_response(question: str) -> str:
         "- Chọn Sampling hoặc Full scan để tính metrics.\n"
         "- Review và xác nhận các proposals metadata.\n"
         "- Hỏi mình về chất lượng dữ liệu, PII, outlier, cardinality hoặc candidate key."
+    )
+
+
+def _social_response(question: str) -> str:
+    '''Respond naturally to a greeting or self-introduction.'''
+    name = _extract_name(question) or 'bạn'
+    return (
+        f'Rất vui được làm quen với {name}! Mình là VDaAgent, trợ lý profiling dữ liệu.\n\n'
+        'Bạn có thể bắt đầu bằng cách upload một dataset. Sau đó:\n'
+        '- Chọn Sampling hoặc Full scan để tính metrics.\n'
+        '- Review và xác nhận các proposals metadata.\n'
+        '- Hỏi mình về chất lượng dữ liệu, PII, outlier, cardinality hoặc candidate key.'
     )
 
 
@@ -260,7 +312,7 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
         }
 
-    if _SOCIAL_GREETING.search(question):
+    if _SOCIAL_GREETING.search(question) or _extract_name(question):
         return {
             "question": question,
             "question_type": "qualitative",
@@ -270,7 +322,10 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
         }
 
     remembered_name = _remembered_name(state)
-    if remembered_name and _NAME_RECALL_QUESTION.search(question):
+    if remembered_name and (
+        _NAME_RECALL_QUESTION.search(question)
+        or _NAME_RECALL_QUESTION_NO_ACCENTS.search(question)
+    ):
         return {
             "question": question,
             "question_type": "qualitative",
@@ -324,7 +379,7 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
                 ],
                 prompt_id="qa_router",
             )
-            label = str(response.content).strip().lower()
+            label = response_text(response).strip().lower()
             question_type = (
                 label
                 if label in {"quantitative", "qualitative", "clarify"}
@@ -389,7 +444,7 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
             ],
             prompt_id="qa_clarify",
         )
-        answer = _guard_answer(str(response.content))
+        answer = _guard_answer(response_text(response))
     except (LLMNotConfiguredError, Exception):  # noqa: BLE001
         preview = ", ".join(columns[:10]) or "(chưa có cột nào được profiling)"
         answer = (
@@ -571,7 +626,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         ),
     )
     return {
-        "answer": _guard_answer(str(getattr(response, "content", ""))),
+        "answer": _guard_answer(response_text(response)),
         "answer_sources": sources,
         "tool_calls": state.get("tool_calls", 0) + calls_used,
     }
@@ -760,7 +815,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             ],
             prompt_id="qa_vector",
         )
-        answer = _guard_answer(str(response.content))
+        answer = _guard_answer(response_text(response))
     except LLMNotConfiguredError:
         answer = (
             _profile_fallback_summary(run_id)

@@ -1,7 +1,7 @@
 # Thông tin nhóm
 
 - **Tên nhóm:** VduAgents
-- **Link demo:** [https://p170-web-08140019.azurewebsites.net/](https://p170-web-08140019.azurewebsites.net/)
+- **Link demo:** <https://p170-web-08140019.azurewebsites.net/>
 
 ## Thành viên nhóm
 
@@ -15,257 +15,128 @@
 - SĐT: 0375049906
 - Email: minhhieuhh2k5@gmail.com
 
-# VDaAgent — Data Profiling
+# VDaAgent — Data Profiling Workspace
 
-VDaAgent giúp Analyst biến một tệp dữ liệu thành hồ sơ có thể kiểm tra, biểu đồ
-có bằng chứng và báo cáo có thể truy nguyên. **Profile Run** là đơn vị làm việc
-trung tâm: mọi phân tích, biểu đồ, câu trả lời của Agent và report đều thuộc về
-một Profile Run trong một workspace cụ thể.
+VDaAgent biến một tệp dữ liệu thành hồ sơ có thể kiểm tra, biểu đồ có bằng
+chứng và báo cáo có thể truy nguyên. Đơn vị làm việc trung tâm là **Profile
+Run** thuộc một **workspace**; profile, chart, câu trả lời của Agent, report,
+audit event và trace đều phải gắn với đúng workspace đó.
 
 ```text
-Tải dataset → tạo Profile Run dạng job → worker profiling deterministic
-       → Review metadata/PII (nếu có) → worker tiếp tục → Profile Run hoàn tất
-       ├─ Biểu đồ: plan → Preview → Official evidence → insight
-       ├─ Hỏi Agent: trả lời theo evidence đã được phép đọc
-       └─ Report Draft → snapshot bất biến → PDF/JSON
+Đăng nhập / guest trial
+        → workspace
+        → upload dataset
+        → tạo Profile Run dạng job
+        → profiling deterministic trong worker
+        → review metadata / PII nếu cần
+        → Profile Run completed
+             ├─ Charts: plan → Preview → Official evidence → insight
+             ├─ Chat Agent: hỏi đáp theo evidence của Profile Run
+             ├─ Compare: drift giữa hai Profile Run
+             └─ Report Draft → snapshot bất biến → PDF / JSON
 ```
 
-Các nguyên tắc của dự án:
+Các nguyên tắc chính:
 
-- Số liệu được tạo bằng compute deterministic; LLM chỉ hỗ trợ lập kế hoạch,
-  diễn giải và hỏi đáp trong phạm vi evidence được cấp.
+- Các con số do DuckDB/pandas và các compute adapter tạo ra; LLM chỉ lập kế
+  hoạch, diễn giải hoặc trả lời trong phạm vi evidence được cấp.
 - UI, Agent và report không cung cấp raw row hoặc giá trị PII thô.
-- Browser không gửi SQL hay mã thực thi tự do. Mọi aggregate dùng `QuerySpec`
-  có allow-list, ngân sách thời gian và giới hạn kết quả.
-- Backend luôn xác thực workspace, role và capability trước khi đọc hoặc ghi
-  một resource.
+- Browser không gửi SQL, Python hay shell tùy ý. Mọi phân tích dùng
+  `QuerySpec` có allow-list, giới hạn thời gian và giới hạn kết quả.
+- Backend xác thực identity, workspace và capability trước mọi thao tác nhạy
+  cảm. Frontend permission check chỉ là lớp UX; backend mới là ranh giới bảo
+  mật cuối cùng.
 
-## Vấn đề
+## Sản phẩm hiện tại
 
-Analyst thường mất nhiều thời gian để kiểm tra chất lượng dữ liệu, chọn biểu đồ
-phù hợp và giải thích kết quả theo cách có thể kiểm chứng. Các công cụ chatbot
-hoặc notebook tự do dễ tạo ra câu trả lời không có provenance, truy vấn vượt
-phạm vi dữ liệu được phép hoặc vô tình đưa raw row/PII vào kết quả chia sẻ.
+VDaAgent phục vụ Data Analyst và Business Analyst cần khám phá dữ liệu, kiểm
+tra chất lượng và trình bày insight có provenance. Luồng chính gồm:
 
-VDaAgent giải quyết khoảng trống này bằng một workflow có kiểm soát: số liệu do
-compute deterministic tạo ra; AI chỉ lập kế hoạch, diễn giải và trả lời trong
-phạm vi evidence đã được backend cấp quyền.
+- Profiling CSV, TSV, Parquet và JSON: schema, kiểu dữ liệu, missingness,
+  cardinality, uniqueness, duplicate, outlier, top values, correlation và
+  risk/PII proposal.
+- Profile job bền vững: API trả `202 Accepted`, worker claim job từ
+  PostgreSQL bằng lease, retry lỗi tạm thời trong giới hạn và resume sau bước
+  human-in-the-loop review.
+- Charts tại `/charts`: profile pack tự động hoặc câu hỏi tự nhiên → chart
+  plan → Preview bounded → Official evidence. Backend kiểm tra cột, phép
+  aggregate, PII policy, context version, budget và idempotency.
+- 15 loại chart native đang được phát hành: line, bar, table, KPI, histogram,
+  scatter, box, heatmap, missing-value bar/heatmap, correlation heatmap,
+  cardinality, violin, donut và outlier.
+- Forecast chuỗi thời gian với catalog **28 model**. Model chỉ chạy khi
+  dependency và contract dữ liệu phù hợp; kết quả có interval và limitation,
+  không phải giá trị chắc chắn.
+- Chat Agent tại `/chat`, Q&A theo Profile Run, evidence và trace đã redact.
+- Compare tại `/compare`: PSI, cardinality, null rate và distribution giữa hai
+  Profile Run hoàn tất.
+- Report Draft: ghim Official evidence, chỉnh sửa insight, tạo snapshot bất
+  biến và xuất PDF/JSON. Snapshot là nguồn chính thức để chia sẻ.
+- Workspace: tạo, archive/restore, thành viên, invitation, cấu hình AI/nghiệp
+  vụ, theme, compute/statistics, PII policy và audit activity.
+- Admin system: đăng nhập bằng cùng giao diện `/login`, sau đó truy cập
+  `/admin` nếu có system role `admin`; có thể xem, tìm kiếm, khóa/mở khóa,
+  đổi role `analyst`/`admin` và xóa tài khoản người dùng.
+- Guest trial: chỉ bắt đầu khi người dùng chủ động chọn role Analyst; dữ liệu
+  nằm trong storage/retention policy riêng và không thay thế workspace
+  production.
 
-## Giải pháp
+## Auth, role và route
 
-VDaAgent là workspace **evidence-first** cho quy trình từ dataset đến báo cáo:
+### Đăng nhập người dùng và admin
 
-- Profile dữ liệu có cấu trúc và review metadata/PII trước khi dùng làm ngữ
-  cảnh phân tích.
-- Tạo chart qua Preview có giới hạn, sau đó promote thành Official evidence có
-  provenance và `result_hash`.
-- Hỏi Agent trong phạm vi evidence của Profile Run; trace được redact để quan
-  sát runtime mà không lưu raw prompt, raw row, secret hoặc chain-of-thought.
-- Lưu chart/evidence/insight vào Report Draft, đóng băng snapshot rồi xuất
-  PDF/JSON có thể truy nguyên.
+Frontend có một giao diện đăng nhập chung tại `/login`, dùng Supabase Auth với
+email và mật khẩu. Không có `/admin/login` riêng. Sau khi đăng nhập, backend
+đồng bộ user profile và trả về workspace cùng `effective_permissions` qua
+`GET /api/v1/workspace-bootstrap`.
 
-## Người dùng mục tiêu
+Signup công khai tại `/signup` chỉ tạo tài khoản Analyst khi
+`AUTH_ALLOW_SIGNUP=true` và `NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true`. Supabase
+email confirmation là bắt buộc trong cấu hình production. `/forgot-password`
+và `/account/update-password` xử lý đổi mật khẩu.
 
-- **Chính:** Data Analyst và Business Analyst cần khám phá, kiểm tra và trình
-  bày insight từ một dataset một cách có căn cứ.
-- **Phụ:** Data/AI team, quản trị workspace và reviewer cần kiểm tra provenance,
-  quyền truy cập, audit và chất lượng đầu ra AI.
+Hệ thống có hai khái niệm cần phân biệt:
+
+- **System role:** lưu ở `user_profiles.role`, hiện có `analyst` và `admin`.
+  `admin` nhận toàn bộ quyền Analyst cộng quyền quản trị tài khoản và hệ
+  thống. Các email trong `GLOBAL_ADMIN_EMAILS` được nâng role admin khi profile
+  được đồng bộ; admin hiện hữu cũng có thể đổi role qua API admin.
+- **Workspace membership role:** membership workspace hiện chuẩn hóa về
+  `analyst`. System admin được overlay thành effective admin khi backend tạo
+  request context. Việc mời thành viên workspace không tự cấp system admin.
+
+Các route frontend chính:
+
+| Nhóm | Route |
+| --- | --- |
+| Public | `/`, `/about`, `/guide`, `/docs`, `/contact` |
+| Auth | `/login`, `/signup`, `/forgot-password`, `/auth/callback`, `/account/update-password` |
+| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/activity`, `/settings`, `/account` |
+| System admin | `/admin`, `/account` |
+| PDF/health | `/api/reports/profile/{runId}`, `/health` |
+
+`/admin` được kiểm tra bởi permission `user.accounts.read`; các thao tác thay
+đổi tài khoản yêu cầu `user.account.manage`. API vẫn kiểm tra Bearer token,
+workspace context và permission cho mỗi request, kể cả khi UI đã ẩn route.
 
 ## Tech stack
 
-| Lớp | Công nghệ đang dùng |
+| Lớp | Công nghệ |
 | --- | --- |
-| Frontend | Next.js 15, React 19, TypeScript, React Query, Supabase SSR |
-| Backend | FastAPI, Python 3.11+, Pydantic, SQLAlchemy/Alembic |
-| AI Agent | LangGraph, LangChain, Gemini hoặc LLM provider cấu hình, LangSmith |
+| Frontend | Next.js 15, React 19, TypeScript, React Query, Supabase SSR/PKCE |
+| Backend | FastAPI, Python 3.11+, Pydantic, SQLAlchemy, Alembic |
+| Agent | LangGraph, LangChain, OpenAI/Gemini/Ollama tùy cấu hình, LangSmith tùy chọn |
 | Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
-| Data & Auth | Supabase Auth/PostgreSQL/Storage; Google Drive tùy chọn |
-| DevOps & chất lượng | Docker, Azure App Service containers, GitHub Actions, pytest, Ruff, Vitest, Playwright |
+| Forecast | 28 adapter; model ngoài core chỉ khả dụng khi dependency được cài |
+| Data/Auth | PostgreSQL/Supabase Auth, Supabase Storage hoặc Google Drive tùy chọn |
+| Quality/Deploy | pytest, Ruff, Vitest, Playwright, Docker, Azure App Service, GitHub Actions |
 
 ## Quick start
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
-
-corepack enable
-Set-Location frontend
-pnpm install
-Set-Location ..
-```
-
-Điền `DATABASE_URL` và các biến cần thiết trong `.env`, chạy migration rồi mở
-backend/frontend theo phần [Cài đặt local](#cài-đặt-local). `frontend/next.config.ts`
-chỉ forward allow-list biến `NEXT_PUBLIC_*` từ root `.env` vào browser bundle; có
-thể dùng `frontend/.env.local` để override riêng frontend. Không commit `.env`,
-`frontend/.env.local`, API key, OAuth secret hay database URL nào.
-
-## Tính năng hiện có
-
-- **Data profiling** cho CSV, TSV, Parquet và JSON: schema, kiểu dữ liệu,
-  missingness, cardinality, uniqueness, duplicate, outlier, top values và
-  correlation.
-- **Profile job bền vững**: API nhận request và trả `202 Accepted`; worker riêng
-  claim job từ PostgreSQL, gia hạn lease, tự phục hồi lease hết hạn và xử lý lại
-  lỗi tạm thời trong giới hạn số lần thử. UI theo dõi trạng thái qua
-  `GET /profiling-jobs/{job_id}`.
-- **Human-in-the-loop review** cho semantic type, candidate key và đề xuất PII
-  còn chờ quyết định trước khi dùng chúng làm ngữ cảnh evidence.
-- **Biểu đồ & phân tích trực quan** tại `/charts`: chọn Profile Run đã hoàn
-  tất, nhập câu hỏi hoặc tạo profile pack tự động, sau đó kiểm tra Preview và
-  promote thành Official evidence.
-- **15 loại biểu đồ native**: line, bar, table, KPI, histogram, scatter, box,
-  heatmap, missing-value bar/heatmap, correlation heatmap, cardinality, violin,
-  donut và outlier. Renderer chỉ nhận kết quả aggregate.
-- **Forecast chuỗi thời gian** với catalog 30 mô hình. Khả dụng thực tế phụ
-  thuộc dependency cài trong môi trường và contract dữ liệu; các model cần giá
-  trị ngoại sinh tương lai sẽ được đánh dấu không khả dụng thay vì tự suy đoán.
-- **Chart planning an toàn**: LLM trả structured candidate khi được cấu hình;
-  nếu không khả dụng, planner quy tắc vẫn tạo plan bounded từ metadata đã được
-  duyệt. Backend mới là nơi validate cột, thuật toán và `QuerySpec`.
-- **Agent Q&A, kiểm định và drift** theo Profile Run, với trace/provenance đã
-  redact khi bật runtime trace.
-- **Report Draft** lưu chart, evidence và insight; snapshot bất biến là nguồn
-  chuẩn cho export/chia sẻ. Trang chi tiết vẫn có thể đọc draft hiện hành trước
-  snapshot đầu tiên và gắn nhãn `snapshot_hash: "draft"`; cần tạo snapshot trước
-  khi xem đó là bản báo cáo chính thức.
-- **Workspace, Auth và storage**: Supabase Auth/PostgreSQL/Storage, Google
-  Drive tùy chọn cho file nguồn lớn và local storage cho development/test.
-- **Khởi động workspace tối ưu**: `GET /workspace-bootstrap` trả session,
-  workspace/quyền hiệu lực và dashboard summary trong một round trip; frontend
-  seed cache theo workspace còn backend vẫn kiểm tra capability ở mỗi request.
-- **So sánh drift** tại `/compare` giữa hai Profile Run hoàn tất, hiển thị PSI,
-  cardinality, null rate và distribution do backend tính.
-- **Vận hành workspace**: quản lý thành viên/lời mời, archive/restore, cấu hình
-  AI-nghiệp vụ, giao diện, compute và chính sách PII; `/activity` hiển thị audit
-  event theo capability.
-- **Vòng đời báo cáo** ngoài Snapshot gồm submit, review, publish và archive.
-- **Chat Agent** dùng route `/chat` và chọn một Profile Run hoàn tất làm context.
-- **MCP stdio adapter** cho trusted local clients, cung cấp tool profile/chart
-  có giới hạn. Đây không phải endpoint MCP công khai.
-
-## Luồng sử dụng
-
-1. Vào **Tải dữ liệu**, tải một dataset và tạo Profile Run ở chế độ `sample`
-   hoặc `full`. API xếp request vào hàng đợi; giao diện theo dõi job cho đến khi
-   profiling dừng ở bước review hoặc hoàn tất.
-2. Nếu có proposal metadata/PII, review, chỉnh sửa hoặc từ chối. Backend lưu
-   quyết định và xếp continuation vào hàng đợi; worker tiếp tục từ checkpoint.
-   Khi không còn bước chờ, Profile Run chuyển sang `completed`.
-3. Vào **Biểu đồ** (`/charts`), chọn Profile Run đã `completed`, rồi nhập câu hỏi kinh
-   doanh hoặc tạo bộ biểu đồ profile tự động.
-4. Kiểm tra **Preview**. Đây là kết quả có ngân sách thời gian và có thể dùng
-   sample nên chưa phải evidence báo cáo.
-5. Promote Preview thành **Official**. Backend kiểm tra context hiện hành,
-   quality gate và chạy lại kết quả; Official có `result_hash`/provenance.
-6. Chọn renderer, tạo insight nếu cần và ghim chart đã có Official evidence vào
-   Report Draft. Trang detail có thể xem draft hiện hành, nhưng tạo snapshot trước
-   khi xuất hoặc chia sẻ bản báo cáo chính thức.
-
-Trang `/profiles/{runId}` là Command Center cho **Tổng quan** và **Report Draft**.
-Chat Agent được mở tại `/chat` và chọn Profile Run làm context. Không gian
-**Biểu đồ** là route `/charts` riêng, nhưng dùng cùng Profile Run, Explorer
-session và Report Draft.
-
-## Kiến trúc ở mức cao
-
-```text
-Next.js / React :3000
-  ├─ Supabase SSR / PKCE, React Query và SSE
-  ├─ Profile pages, /charts và Next.js PDF route
-  └─ Bearer token + X-Workspace-Id
-                         ↓
-FastAPI :8000/api/v1
-  ├─ Auth, workspace/capability guard và audit
-  ├─ Nhận profile job, Q&A, native skill registry và trace
-  ├─ Chart planner, bounded AnalysisEngine và forecasting registry
-  ├─ DuckDB, pandas, NumPy, SciPy, statsmodels/scikit-learn khi có
-  └─ Repository + storage adapter
-                         ↓                     ↑
-PostgreSQL ── claim/lease ── Profiling worker  Object storage
-workspace/profile/evidence   LangGraph         Supabase Storage | Google Drive | local dev
-report/audit/trace
-```
-
-Nguồn tệp được materialize tạm thời cho DuckDB/pandas khi cần compute rồi bị
-xóa. Hiện tại dự án không triển khai một cloud warehouse (BigQuery/Snowflake)
-hay vector database như compute backend; retrieval dùng knowledge base cấu hình
-trong ứng dụng khi được bật.
-
-Chi tiết về data flow, ownership, API và ranh giới bảo mật nằm trong
-[ARCHITECTURE.md](ARCHITECTURE.md). Bản tóm tắt tiếng Việt tại
-[docs/summary.md](docs/summary.md).
-
-## Hiệu năng điều hướng workspace
-
-Khi vào workspace đã đăng nhập, frontend dùng `GET /workspace-bootstrap` thay vì
-chờ nhiều request nhánh cho session, workspace và dashboard. Response gồm user đã
-xác thực, workspace đã chọn/role, danh sách workspace kèm effective permissions và
-summary dashboard (count cùng tối đa 12 report gần nhất). `/dashboard` được seed
-vào React Query cache theo workspace; cache có `staleTime` 30 giây, `gcTime` 10
-phút và bị xóa khi đổi workspace để không lộ dữ liệu chéo.
-
-Backend lấy membership/workspace bằng join và summary theo aggregate query, tránh
-N+1 query; guest không update lại role/status nếu không thay đổi. Bootstrap không
-nới lỏng security boundary: tất cả endpoint nghiệp vụ sau đó vẫn kiểm tra user,
-workspace và capability. Log telemetry chỉ ghi route, status, duration và
-correlation ID; không ghi token, email hay payload.
-
-Không dùng latency của `pnpm dev` để kết luận UX production: HMR và route compile
-là chi phí development. Trước release, đo smoke trên bundle hoặc image candidate
-đã precompile:
-
-```powershell
-Set-Location frontend
-pnpm build
-pnpm start --port 3000
-```
-
-Azure frontend image build bundle ở stage builder và runtime chạy standalone server
-từ bundle đó. Smoke candidate cần truy cập ít nhất `/dashboard` và `/datasets`,
-đồng thời ghi nhận p50/p95 của API bootstrap/dashboard từ telemetry. Chưa có script
-benchmark workspace tự động; không được coi route compile/HMR là regression production.
-
-## Cấu trúc dự án
-```text
-backend/src/api/                 FastAPI routes và dependency guards
-backend/src/agents/              LangGraph, prompts, skill registry, trace/tools
-backend/src/services/            profiling, analysis, chart planner, forecast,
-                                 report, storage, auth và retrieval
-backend/src/workers/             worker claim/lease và xử lý Profile Run bất đồng bộ
-backend/src/mcp_server.py        MCP stdio adapter với bounded tools
-backend/src/models/              Pydantic contracts
-backend/migrations/              Alembic migrations
-frontend/src/app/                Next.js App Router, gồm /charts và PDF route
-frontend/src/components/         UI, profile, charts và report components
-frontend/src/lib/                API client, auth, types và SSE transport
-scripts/chart_production_smoke.py Smoke check cho chart production flow
-tests/                           Backend/API/compute/security/frontend tests
-docs/azure-deploy-cicd.md        Quy trình CI/CD và triển khai Azure App Service
-```
-
-## Yêu cầu
-
-- Python 3.11+
-- Node.js 20+ và pnpm 9+ (image frontend production dùng Node.js 22)
-- PostgreSQL; production dùng Supabase PostgreSQL
-- Git
-- Khóa LLM là tùy chọn: profiling, Preview/Official và các model forecast khả
-  dụng vẫn chạy không cần LLM; narrative, Q&A và agent chart planning cần một
-  provider LLM hoặc sẽ dùng fallback ở nơi có hỗ trợ.
-
-## Cài đặt local
+Yêu cầu tối thiểu: Python 3.11+, Node.js 20+ (CI và image frontend dùng
+Node.js 22), pnpm 11+, PostgreSQL và Git.
 
 ### Windows PowerShell
-
-Mẫu `.env.example` hướng đến production. Khi chạy local, đặt
-`APP_ENV=development`, `AUTH_MODE=dual`, `STORAGE_PROVIDER=local`,
-`GUEST_STORAGE_PROVIDER=local` và điền `DATABASE_URL` trỏ đến PostgreSQL local
-trước khi chạy migration.
-
-Từ thư mục root:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -280,28 +151,26 @@ pnpm install
 Set-Location ..
 ```
 
-Tối thiểu điền các giá trị sau trong `.env`:
+Cho local development, cập nhật `.env` tối thiểu:
 
 ```env
 APP_ENV=development
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/p170
 AUTH_MODE=dual
 AUTH_ALLOW_GUEST=true
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+AUTH_ALLOW_SIGNUP=true
+STORAGE_PROVIDER=local
+GUEST_STORAGE_PROVIDER=local
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
+NEXT_PUBLIC_AUTH_ALLOW_GUEST=true
+NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true
 UX_COMMAND_CENTER_ENABLED=true
 NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true
 ```
 
-`NEXT_PUBLIC_API_URL` trong root `.env` được `frontend/next.config.ts` forward vào
-bundle frontend. Nếu cần override URL API chỉ cho frontend (ví dụ Windows ưu tiên
-IPv4 loopback), tạo `frontend/.env.local`:
-
-```env
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1
-```
-
-Mọi thay đổi `NEXT_PUBLIC_*` yêu cầu restart frontend. Dùng `127.0.0.1` nhất quán
-cho frontend và API khi chạy local để tránh khác biệt resolve IPv6 của `localhost`.
+`AUTH_MODE=dual` chỉ dành cho local/migration window. Production phải dùng
+`AUTH_MODE=supabase`. Không commit `.env`, `frontend/.env.local`, database URL,
+service key, OAuth secret, refresh token hay LLM API key.
 
 Áp migration trước request đầu tiên:
 
@@ -310,25 +179,27 @@ $env:PYTHONPATH = backend
 alembic upgrade head
 ```
 
-Mở ba terminal. API chỉ nhận và lưu job; cả profiling ban đầu lẫn continuation
-sau HITL đều do worker riêng claim từ PostgreSQL:
+Mở ba terminal từ root repository:
 
 ```powershell
-# Terminal 1 — từ root
+# Terminal 1: FastAPI
 .\.venv\Scripts\python.exe -m uvicorn src.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
 ```
 
 ```powershell
-# Terminal 2 — từ root
-$env:PYTHONPATH = "backend"
+# Terminal 2: profiling worker
+$env:PYTHONPATH = backend
 .\.venv\Scripts\python.exe -m src.workers.profiling_worker
 ```
 
 ```powershell
-# Terminal 3 — từ root
+# Terminal 3: Next.js
 Set-Location frontend
 pnpm dev --port 3000
 ```
+
+Hoặc dùng shortcut trong [Makefile](Makefile): `make install`, `make dev`,
+`make health`, `make frontend-check` và `make frontend-build`.
 
 ### macOS/Linux
 
@@ -340,120 +211,120 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 corepack enable
 (cd frontend && pnpm install)
+PYTHONPATH=backend alembic upgrade head
 ```
 
-Áp `alembic upgrade head` với `PYTHONPATH=backend`, sau đó chạy API bằng
-`.venv/bin/python -m uvicorn src.main:app --app-dir backend --reload`, worker
-bằng `PYTHONPATH=backend .venv/bin/python -m src.workers.profiling_worker`, và
-frontend bằng `pnpm dev --port 3000` từ thư mục `frontend`.
+Chạy API bằng `.venv/bin/python -m uvicorn src.main:app --app-dir backend
+--reload`, worker bằng `PYTHONPATH=backend .venv/bin/python -m
+src.workers.profiling_worker`, và frontend bằng `pnpm dev --port 3000` trong
+thư mục `frontend`.
 
 Sau khi khởi động:
 
 - Frontend: <http://localhost:3000>
-- Health: <http://localhost:8000/health>
-- OpenAPI docs: <http://localhost:8000/docs> (ngoài production)
+- Backend health: <http://localhost:8000/health>
+- OpenAPI docs: <http://localhost:8000/docs> (không dùng để public production)
 - API prefix: <http://localhost:8000/api/v1>
 
-Các shortcut Windows trong [Makefile](Makefile): `make install`, `make dev`,
-`make health`, `make frontend-check` và `make frontend-build`.
+## Storage và cấu hình production
 
-### Forecast tùy chọn
+Supabase Auth là nguồn sự thật cho identity/session. PostgreSQL lưu user
+profile, workspace, membership, dataset metadata, Profile Run, evidence,
+report, audit và trace. Frontend chỉ nhận biến `NEXT_PUBLIC_*` an toàn.
 
-`requirements.txt` chứa model core (baseline, exponential smoothing, ARIMA,
-state space và scikit-learn). Cài nhóm model nặng tùy theo môi trường:
+`STORAGE_PROVIDER` nhận `supabase`, `google_drive` hoặc `local`. Production
+dùng Supabase Storage hoặc Google Drive; local storage chỉ dành cho
+development/test. Khi dùng Google Drive, binary dataset đi qua OAuth callback
+backend `/api/v1/google-drive/callback`; metadata, workspace và audit vẫn ở
+PostgreSQL. Guest có storage provider và retention riêng.
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-forecast-full.txt
-```
+Các biến cần chú ý:
 
-Catalog API sẽ trả từng model cùng trạng thái `available` và lý do nếu model
-không được bật.
+| Biến | Ý nghĩa |
+| --- | --- |
+| `DATABASE_URL` / `DATABASE_CHECKPOINTER_URL` | PostgreSQL cho metadata và LangGraph checkpoint |
+| `AUTH_MODE` / `AUTH_REQUIRE_EMAIL_CONFIRMED` | Cơ chế và điều kiện xác thực |
+| `AUTH_ALLOW_SIGNUP` / `AUTH_ALLOW_GUEST` | Bật signup và guest trial |
+| `GLOBAL_ADMIN_EMAILS` | Danh sách email được seed system role admin, phân tách bằng dấu phẩy |
+| `STORAGE_PROVIDER` / `GUEST_STORAGE_PROVIDER` | Backend storage cho user và guest |
+| `NEXT_PUBLIC_API_URL` | Base URL FastAPI được embed vào frontend build |
+| `UX_COMMAND_CENTER_ENABLED` | Bật contract Command Center phía backend |
+| `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật UI Command Center tại thời điểm build |
+| `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` cho trace đã redact |
+| `LANGSMITH_*` | Projection metadata-only tùy chọn, chỉ cấu hình server-side |
+| `GOOGLE_DRIVE_*` | OAuth/storage tùy chọn cho Google Drive |
 
-## Xác thực, workspace và storage
+## Quan sát AI và evaluation
 
-Supabase là nguồn sự thật cho Auth; PostgreSQL lưu workspace, membership,
-Profile Run, evidence, draft/snapshot, audit và trace. Frontend chỉ dùng biến
-công khai `NEXT_PUBLIC_*`; không đưa database URL, service key, storage secret
-hay LLM key vào browser bundle.
+Trace PostgreSQL là nguồn có thẩm quyền cho Agent. Projection sang LangSmith là
+best-effort/fail-open và chỉ gửi metadata allow-list; không gửi raw prompt,
+raw row, PII, secret, file path hoặc chain-of-thought.
 
-`AUTH_MODE=dual` chỉ phù hợp cho local/rollout. Production phải dùng
-`AUTH_MODE=supabase`. Guest trial chỉ tạo khi người dùng chủ động chọn Analyst;
-guest workspace có storage/retention riêng và không phù hợp cho dữ liệu cần lưu
-lâu dài.
-
-Storage mặc định là Supabase Storage. Có thể đặt `STORAGE_PROVIDER=google_drive`
-và cấu hình OAuth/`GOOGLE_DRIVE_*` để lưu file binary trên Google Drive; metadata,
-workspace và audit vẫn ở PostgreSQL. Không commit `.env`, OAuth secret, refresh
-token, Fernet key hay API key.
-
-## Quan sát AI và đánh giá
-
-Runtime trace của Agent hỗ trợ quan sát profiling và Q&A mà không thay đổi
-compute deterministic. Trace chỉ lưu metadata/provenance đã redact; không lưu
-raw prompt, chain-of-thought, raw row, PII hoặc secret.
-
-Để gửi trace sang LangSmith, cấu hình ở môi trường backend:
-
-```env
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=<LangSmith API key>
-LANGSMITH_PROJECT=VDaAgents
-AGENT_TRACE_MODE=shadow
-```
-
-Bộ AI evaluation nằm trong [`evaluations/`](evaluations/), gồm fixture tổng hợp,
-evaluator deterministic, test và báo cáo. Có thể kiểm tra dataset/evaluator mà
-không gọi API hay gửi kết quả lên LangSmith:
+Bộ evaluation nằm trong [`evaluations/`](evaluations/), gồm fixture tổng hợp,
+scorer deterministic, test và report. Chạy offline không gọi provider:
 
 ```powershell
 .\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --dry-run
 .\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --offline
 ```
 
-Xem chi tiết tại [hướng dẫn evaluation](evaluations/README.md) và
-[báo cáo evaluation](evaluations/results/ai_evaluation_report.md).
+Xem thêm [docs/eval_v1.md](docs/eval_v1.md),
+[evaluations/README.md](evaluations/README.md) và
+[evaluations/benchmark.md](evaluations/benchmark.md).
+
 ## API quan trọng
 
-Mọi backend endpoint có prefix `/api/v1`.
+Mọi route FastAPI dưới đây có prefix `/api/v1` và yêu cầu auth/workspace phù
+hợp, trừ health/system route được đánh dấu public.
 
 | Nhóm | Endpoint tiêu biểu |
 | --- | --- |
-| Dataset & profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202 Accepted`), `GET /profiling-jobs/{job_id}`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
-| Chart planning | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms` |
-| Bounded analysis | `POST /profile/{run_id}/explorer/session`, `POST /profile/{run_id}/explorer/previews`, `POST /profile/{run_id}/explorer/previews/{preview_id}/promote` |
-| Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}/evidence` |
-| Reports | `GET/POST /profile/{run_id}/report-draft`, `POST /reports/{report_id}/items`, `POST /reports/{report_id}/snapshots`, `GET /reports/{report_id}/export-source` |
-| Workspace | `GET /workspace-bootstrap`, `GET /session`, `GET/POST /workspaces`, member/invitation/configuration endpoints, `GET /dashboard`, `GET /audit` |
-| Quality & drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
-| Report lifecycle | Submit, review, publish và archive sau khi tạo snapshot |
+| Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
+| Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{job_id}`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
+| Quality/drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
+| Charts/Explorer | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms`, Preview và promote endpoints |
+| Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, `/trace`, `/evidence`, `/plan` |
+| Reports | Draft, `POST /reports/{report_id}/items`, snapshot, submit, review, publish, archive và `GET /reports/{report_id}/export-source` |
+| Admin | `GET /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
+| Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback và `DELETE /google-drive/connection` |
 
-PDF profile report đi qua Next.js route cùng origin:
+PDF report đi qua route cùng origin của Next.js:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
-đã được FastAPI cấp quyền rồi render PDF ở server Next.js. `GET
-/reports/{report_id}/export-source` ưu tiên snapshot mới nhất; khi report draft
-chưa có snapshot, endpoint trả draft hiện hành với `snapshot_hash: "draft"` để
-trang detail vẫn mở được. Hãy tạo snapshot trước khi dùng bản export để chia sẻ.
+đã được FastAPI cấp quyền rồi render PDF bằng Playwright Core/Chromium; snapshot
+được ưu tiên, còn draft chưa snapshot chỉ được trả với nhãn
+`snapshot_hash: draft`.
 
-Renderer dùng Playwright Core với Chromium server-side; PDF giữ text/SVG vector,
-không dùng screenshot hay browser print dialog. Image frontend Azure đã cài Chromium
-và Noto fonts. Với môi trường local khác, đặt
-`PDF_CHROMIUM_EXECUTABLE_PATH` tới executable Chromium trước khi gọi export.
+## Cấu trúc repository
+
+```text
+backend/src/api/                 FastAPI routes và dependency/capability guards
+backend/src/agents/              LangGraph, prompts, skills, trace/tools
+backend/src/services/            auth, permissions, profiling, compute, charts,
+                                 forecast, report, storage, retrieval, telemetry
+backend/src/workers/             durable profiling worker claim/lease/retry
+backend/src/models/              Pydantic request/response contracts
+backend/migrations/              Alembic migrations
+frontend/src/app/                Next.js App Router và route UI/PDF/health
+frontend/src/components/        app shell, auth, chart, report và UI components
+frontend/src/lib/                API client, auth, permissions, SSE và types
+tests/                           backend/API/compute/security/frontend tests
+scripts/chart_production_smoke.py  Smoke check chart production flow
+docs/                            summary, evaluation, performance và deployment docs
+```
 
 ## Kiểm tra trước khi commit
 
-Từ thư mục `frontend`:
+Từ `frontend/`:
 
 ```powershell
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm test:e2e
 pnpm build
-pnpm start --port 3000
 ```
 
-`pnpm start` sau `pnpm build` dùng cho smoke bundle production; không đo latency
-production từ HMR hoặc route compile trong `pnpm dev`.
-Từ root, sau khi cấu hình một PostgreSQL test database riêng:
+Từ root, dùng PostgreSQL test riêng và khác `DATABASE_URL`:
 
 ```powershell
 $env:P170_TEST_DATABASE_URL = postgresql+psycopg://p170_test:<password>@localhost:5432/p170_test
@@ -461,38 +332,67 @@ $env:P170_TEST_DATABASE_URL = postgresql+psycopg://p170_test:<password>@localhos
 .\.venv\Scripts\python.exe -m ruff check backend tests
 ```
 
-`P170_TEST_DATABASE_URL` là bắt buộc cho test tích hợp và **phải khác**
-`DATABASE_URL`. Không trỏ test vào database development hoặc production; test
-có thể tạo migration, profile và report fixture.
+`pnpm start` sau `pnpm build` dùng để smoke bundle production; không dùng HMR
+hoặc route compile của `pnpm dev` để kết luận latency production.
+
+## CI/CD và triển khai
+
+Workflow [Deploy Azure Containers](.github/workflows/azure-container-deploy.yml)
+chạy quality gate cho pull request và push vào `main`: Ruff, pytest với
+PostgreSQL service, evaluation offline, Vitest, typecheck, lint, Playwright
+E2E và frontend build.
+
+Khi deploy, workflow build/push hai image immutable lên Azure Container
+Registry:
+
+- **Backend image:** dùng cho FastAPI API và profiling worker với startup
+  command khác nhau.
+- **Frontend image:** Next.js standalone server, build-time `NEXT_PUBLIC_*`,
+  Chromium và Noto fonts cho PDF.
+
+Ba process chạy độc lập trên Azure App Service: frontend, API và profiling
+worker. Workflow chạy Alembic migration, cập nhật app settings, restart và
+health-check backend, worker và frontend. Secrets nằm trong GitHub Actions /
+Azure App Settings; không đưa secret vào browser bundle.
+
+Chi tiết resource, secret và flow nằm trong
+[docs/azure-deploy-cicd.md](docs/azure-deploy-cicd.md).
 
 ## Giới hạn hiện tại
 
-- Không có arbitrary SQL, raw-row exploration, source cleaning recipe hay join
-  nhiều bảng qua UI/Agent/MCP.
-- Preview bị giới hạn thời gian, dữ liệu và số kết quả; Preview không thể ghim
-  trực tiếp vào Report Draft.
-- Forecast là ước lượng có interval/limitation, không phải giá trị chắc chắn.
-- Hủy Profile Run chưa được hỗ trợ: pandas/DuckDB/LangGraph chưa có điểm dừng
-  hợp tác an toàn. Worker sẽ phục hồi job có lease hết hạn thay vì UI giả định
-  rằng thao tác ẩn job đã hủy compute.
-- Planner autonomy, verifier enforcement và workspace/personal memory vẫn là
-  capability feature-gated, chưa là workflow phát hành.
+- Không có arbitrary SQL, raw-row exploration, source cleaning recipe, multi-
+  table join hoặc general code execution qua UI, Agent hay MCP.
+- Preview bị giới hạn thời gian, dữ liệu và số kết quả; chỉ Official execution
+  mới đủ điều kiện làm report evidence.
+- Forecast là ước lượng có interval/limitation; model bị ẩn khi thiếu package,
+  thiếu lịch sử hoặc không đáp ứng contract.
+- Hủy Profile Run chưa được hỗ trợ vì compute pandas/DuckDB/LangGraph chưa có
+  cooperative cancellation checkpoint an toàn.
+- Planner autonomy, verifier enforcement, circuit breaking và long-term memory
+  vẫn là capability feature-gated, chưa phải workflow phát hành mặc định.
+- Short-term conversation memory is implemented for recent Q&A context; it is
+  bounded to the current conversation and is separate from long-term memory.
+- Guest workspace có retention/storage riêng và không phải nơi lưu trữ
+  production lâu dài.
 
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
+- [Google Calendar MCP guide](docs/google-calendar-mcp.md)
 - [Architecture](ARCHITECTURE.md)
 - [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
-- [AI Evaluation](docs/eval.md)
+- [Evaluation v1](docs/eval_v1.md)
+- [AI benchmark](evaluations/benchmark.md)
+- [Evaluation README](evaluations/README.md)
 - [Cấu hình mẫu](.env.example)
 - [Cấu hình ứng dụng](config.yaml)
-- [Hướng dẫn AI evaluation](evaluations/README.md)
 
 ## Checklist bàn giao
 
-- [x] Mã nguồn backend, frontend và migration
-- [x] README, technical summary và architecture
-- [x] AI trace có thể tích hợp LangSmith với dữ liệu đã redact
-- [x] Fixture, evaluator, test và báo cáo AI evaluation
+- [x] Backend, frontend và migration
+- [x] Auth Supabase, workspace authorization và system admin surface
+- [x] Durable profiling worker và human-in-the-loop review
+- [x] Charts bounded Preview/Official, Agent Q&A và report snapshot/export
+- [x] AI trace redact và offline evaluation
 - [x] Docker/Azure App Service deployment workflow
 - [ ] Video demo và pitch deck (chưa nằm trong repository)

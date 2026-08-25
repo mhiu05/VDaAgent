@@ -449,6 +449,7 @@ async def execute_preview(
     try:
         output = await _execute_bounded(
             profile_run_id=str(run_id),
+            workspace_id=context.workspace_id,
             context=semantic_context["context"],
             query=query,
             execution_kind="preview",
@@ -550,7 +551,10 @@ async def promote_preview(
     gate = session.get("quality_gate")
     if not gate or gate.get("context_version_id") != semantic_context["id"]:
         decision, issues = evaluate_quality_gate(
-            get_repository(), str(run_id), semantic_context["context"]
+            get_repository(),
+            str(run_id),
+            semantic_context["context"],
+            workspace_id=context.workspace_id,
         )
         gate = analyses.save_gate(session_id, semantic_context["id"], decision, issues)
     if gate["decision"] == "blocked":
@@ -577,6 +581,7 @@ async def promote_preview(
     try:
         output = await _execute_bounded(
             profile_run_id=str(run_id),
+            workspace_id=context.workspace_id,
             context=semantic_context["context"],
             query=preview["query_spec"],
             execution_kind="official",
@@ -730,7 +735,10 @@ async def run_quality_gate(
             status_code=409, detail="Cần approve semantic context trước quality gate."
         )
     decision, issues = evaluate_quality_gate(
-        get_repository(), source["profile_run_id"], semantic_context["context"]
+        get_repository(),
+        source["profile_run_id"],
+        semantic_context["context"],
+        workspace_id=context.workspace_id,
     )
     gate = get_analysis_repository().save_gate(
         session_id, semantic_context["id"], decision, issues
@@ -806,6 +814,7 @@ async def execute_analysis(
     try:
         output = await _execute_bounded(
             profile_run_id=source["profile_run_id"],
+            workspace_id=context.workspace_id,
             context=semantic_context["context"],
             query=payload.query.model_dump(),
             execution_kind="official",

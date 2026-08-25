@@ -3,6 +3,7 @@ set -u
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$repo_root" ] || exit 0
+export AI_LOG_DIR="$repo_root/.ai-log"
 
 script="$repo_root/scripts/log_hook.py"
 [ -f "$script" ] || exit 0

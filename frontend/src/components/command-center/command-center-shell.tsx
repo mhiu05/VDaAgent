@@ -55,7 +55,7 @@ export function CommandCenterShell({ overview }: Props) {
     {job.data?.status === "running" && <Notice><b>Profiling đang chạy.</b><p>Hệ thống đang tính thống kê và chuẩn bị đề xuất. Trang tự cập nhật; không cần gửi lại yêu cầu.</p></Notice>}
     {job.data?.status === "failed" && <Notice tone="warning"><b>Profiling không hoàn thành.</b><p>{job.data.error?.message || "Hãy kiểm tra dataset rồi tạo một profile run mới."}</p></Notice>}
     {data.status === "failed" && <Notice tone="warning"><b>Profile chạy thất bại.</b><p>{data.error || "Hãy kiểm tra source và bắt đầu một profile run mới."}</p><Link className="button secondary" href={`/datasets/${data.dataset_id}/runs`}>Mở profile runs</Link></Notice>}
-    {data.status === "pending_review" && <Notice tone="warning"><b>Cần review đề xuất trước khi tạo Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}`)}`}>Review đề xuất</Link></Notice>}
+    {data.pending_proposals > 0 && <Notice tone="warning"><b>Cần review đề xuất trước khi tạo Báo cáo.</b><p>Xử lý đề xuất đang chờ để giữ evidence và PII policy chính xác.</p><Link className="button primary" href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/profiles/${runId}`)}`}>Review đề xuất</Link></Notice>}
 
     <section className="command-center-panel">
       {overview}

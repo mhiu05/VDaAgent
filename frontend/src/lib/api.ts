@@ -174,6 +174,70 @@ export async function connectGoogleDrive(targetWindow?: Window | null): Promise<
   }
 }
 
+export type CalendarStatus = {
+  provider: 'google_calendar';
+  configured: boolean;
+  connected: boolean;
+  calendar_id: string | null;
+  can_connect: boolean;
+};
+
+export type CalendarEvent = {
+  id: string;
+  status: string | null;
+  summary: string;
+  description: string;
+  location: string;
+  html_link: string | null;
+  start: string | null;
+  end: string | null;
+  time_zone: string | null;
+  attendees: Array<{ email: string; response_status: string | null }>;
+};
+
+export function getCalendarStatus(): Promise<CalendarStatus> {
+  return request<CalendarStatus>('/calendar/status');
+}
+
+export async function connectGoogleCalendar(targetWindow?: Window | null): Promise<void> {
+  const payload = await request<{ authorization_url: string }>('/calendar/connect');
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.replace(payload.authorization_url);
+    return;
+  }
+  const opened = window.open(payload.authorization_url, '_blank', 'noopener,noreferrer');
+  if (!opened) throw new ApiError('Trình duyệt đã chặn tab Google mới.', 0);
+}
+
+export function listCalendarEvents(params: { timeMin?: string; timeMax?: string; limit?: number } = {}): Promise<{ events: CalendarEvent[] }> {
+  const query = new URLSearchParams();
+  if (params.timeMin) query.set('time_min', params.timeMin);
+  if (params.timeMax) query.set('time_max', params.timeMax);
+  if (params.limit) query.set('limit', String(params.limit));
+  const suffix = query.toString() ? '?' + query.toString() : '';
+  return request<{ events: CalendarEvent[] }>('/calendar/events' + suffix);
+}
+
+export function createCalendarEvent(payload: {
+  summary: string;
+  start: string;
+  end: string;
+  time_zone: string;
+  description?: string;
+  location?: string;
+  attendees?: string[];
+}): Promise<{ event: CalendarEvent }> {
+  return request<{ event: CalendarEvent }>('/calendar/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteCalendarEvent(eventId: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>('/calendar/events/' + encodeURIComponent(eventId), { method: 'DELETE' });
+}
+
 export function getDashboard<T>(): Promise<T> {
   return request<T>("/dashboard");
 }
@@ -427,11 +491,13 @@ export function listRuns(datasetId: string, signal?: AbortSignal): Promise<Profi
 }
 
 export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile> {
-  return request<Profile>(`/profile/${encodeURIComponent(runId)}`, { signal });
+  // Profile state changes immediately after HITL review. Bypass the browser
+  // HTTP cache so a reconciliation/refetch cannot resurrect pending proposals.
+  return request<Profile>(`/profile/${encodeURIComponent(runId)}`, { signal, cache: "no-store" });
 }
 
 export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<ProfilingJob> {
-  return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal });
+  return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal, cache: "no-store" });
 }
 
 function pollingDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -507,10 +573,11 @@ export function confirmProposals(
       note?: string;
     }>;
   },
-): Promise<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[] }> {
-  return request<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[] }>(`/profile/${encodeURIComponent(runId)}/confirm`, {
+  idempotencyKey = crypto.randomUUID(),
+): Promise<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[]; proposals?: Profile["proposals"] }> {
+  return request<{ profile_run_id: string; applied: number; pending_proposals: number; status: string; narrative_report?: string | null; answer?: string | null; test_results?: TestResult[]; proposals?: Profile["proposals"] }>(`/profile/${encodeURIComponent(runId)}/confirm`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(payload),
   });
 }

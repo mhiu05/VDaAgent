@@ -18,6 +18,10 @@ from uuid import uuid4
 from mcp.server.fastmcp import FastMCP
 from src.agents.tools.registry import run_tool
 from src.config import get_settings
+from src.services.google_calendar import (
+    GoogleCalendarClient,
+    GoogleCalendarError,
+)
 from src.services.analysis_engine import AnalysisEngine, AnalysisQueryError
 from src.services.analysis_repository import get_analysis_repository
 from src.services.forecasting import (
@@ -25,7 +29,13 @@ from src.services.forecasting import (
     available_forecast_algorithms,
     forecast_algorithm_catalog,
 )
-from src.services.permissions import ANALYSIS_RUN, canonical_role, permissions_for_role
+from src.services.permissions import (
+    ANALYSIS_RUN,
+    CALENDAR_READ,
+    CALENDAR_WRITE,
+    canonical_role,
+    permissions_for_role,
+)
 from src.services.quality_gate import evaluate_quality_gate
 from src.services.repository import get_repository, is_expired
 
@@ -636,12 +646,14 @@ def list_forecast_algorithms() -> dict[str, Any]:
 def _execute_chart(
     *,
     profile_run_id: str,
+    workspace_id: str,
     context: dict[str, Any],
     query: dict[str, Any],
     execution_kind: Literal["preview", "official"],
 ) -> dict[str, Any]:
     return AnalysisEngine(get_repository()).execute(
         profile_run_id=profile_run_id,
+        workspace_id=workspace_id,
         context=context,
         query=query,
         execution_kind=execution_kind,
@@ -683,6 +695,7 @@ def preview_chart_plan(
         try:
             output = _execute_chart(
                 profile_run_id=profile_run_id,
+                workspace_id=workspace_id,
                 context=context["context"],
                 query=query,
                 execution_kind="preview",
@@ -820,7 +833,10 @@ def promote_chart_plan(
                 raise AnalysisQueryError("Analysis context is unavailable.")
             if not gate or gate.get("context_version_id") != context["id"]:
                 decision, issues = evaluate_quality_gate(
-                    repository, profile_run_id, context["context"]
+                    repository,
+                    profile_run_id,
+                    context["context"],
+                    workspace_id=workspace_id,
                 )
                 gate = analyses.save_gate(session_id, context["id"], decision, issues)
             if gate["decision"] == "blocked":
@@ -835,6 +851,7 @@ def promote_chart_plan(
                 continue
             output = _execute_chart(
                 profile_run_id=profile_run_id,
+                workspace_id=workspace_id,
                 context=context["context"],
                 query=preview["query_spec"],
                 execution_kind="official",
@@ -870,6 +887,162 @@ def promote_chart_plan(
             "Mỗi chart được promote độc lập trong cùng quality gate/context.",
         ],
     }
+
+
+def _calendar_scope(
+    workspace_id: str, actor_user_id: str, permission: str
+) -> dict[str, Any] | None:
+    membership = get_repository().get_membership(workspace_id, actor_user_id)
+    role = canonical_role(str((membership or {}).get('role', '')))
+    if (
+        not membership
+        or membership.get('status') != 'active'
+        or permission not in permissions_for_role(role)
+    ):
+        return {
+            'error_code': 'forbidden_scope',
+            'error': 'The Analyst is not authorized for calendar access in this workspace.',
+        }
+    return None
+
+
+@mcp.tool(
+    annotations={
+        'title': 'List Analyst calendar events',
+        'readOnlyHint': True,
+        'destructiveHint': False,
+        'idempotentHint': True,
+        'openWorldHint': True,
+    }
+)
+def list_calendar_events(
+    workspace_id: str,
+    actor_user_id: str,
+    time_min: str | None = None,
+    time_max: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    '''List the Analyst's bounded Google Calendar events.'''
+    failure = _calendar_scope(workspace_id, actor_user_id, CALENDAR_READ)
+    if failure:
+        return {'tool': 'list_calendar_events', **failure}
+    current = datetime.now(UTC)
+    start = time_min or current.isoformat()
+    end = time_max or (current + timedelta(days=7)).isoformat()
+    try:
+        events = GoogleCalendarClient().list_events(
+            workspace_id,
+            actor_user_id,
+            time_min=start,
+            time_max=end,
+            limit=max(1, min(limit, 100)),
+        )
+    except GoogleCalendarError as exc:
+        return {'tool': 'list_calendar_events', 'error_code': 'calendar_error', 'error': str(exc)}
+    return {
+        'tool': 'list_calendar_events',
+        'workspace_id': workspace_id,
+        'events': events,
+        'time_min': start,
+        'time_max': end,
+    }
+
+
+@mcp.tool(
+    annotations={
+        'title': 'Create Analyst calendar event',
+        'readOnlyHint': False,
+        'destructiveHint': False,
+        'idempotentHint': False,
+        'openWorldHint': True,
+    }
+)
+def create_calendar_event(
+    workspace_id: str,
+    actor_user_id: str,
+    summary: str,
+    start: str,
+    end: str,
+    time_zone: str = 'Asia/Bangkok',
+    description: str = '',
+    location: str = '',
+    attendees: list[str] | None = None,
+) -> dict[str, Any]:
+    '''Create one Google Calendar event after workspace authorization.'''
+    failure = _calendar_scope(workspace_id, actor_user_id, CALENDAR_WRITE)
+    if failure:
+        return {'tool': 'create_calendar_event', **failure}
+    if not summary.strip() or len(summary) > 200:
+        return {
+            'tool': 'create_calendar_event',
+            'error_code': 'invalid_argument',
+            'error': 'summary must contain 1 to 200 characters.',
+        }
+    try:
+        start_value = datetime.fromisoformat(start)
+        end_value = datetime.fromisoformat(end)
+    except ValueError:
+        return {
+            'tool': 'create_calendar_event',
+            'error_code': 'invalid_argument',
+            'error': 'start and end must be ISO-8601 datetimes with timezone offsets.',
+        }
+    if (
+        start_value.tzinfo is None
+        or end_value.tzinfo is None
+        or end_value <= start_value
+    ):
+        return {
+            'tool': 'create_calendar_event',
+            'error_code': 'invalid_argument',
+            'error': 'end must be after start.',
+        }
+    try:
+        event = GoogleCalendarClient().create_event(
+            workspace_id,
+            actor_user_id,
+            summary=summary.strip(),
+            start=start,
+            end=end,
+            time_zone=time_zone,
+            description=description[:5000],
+            location=location[:500],
+            attendees=attendees or [],
+        )
+    except GoogleCalendarError as exc:
+        return {'tool': 'create_calendar_event', 'error_code': 'calendar_error', 'error': str(exc)}
+    return {'tool': 'create_calendar_event', 'event': event}
+
+
+@mcp.tool(
+    annotations={
+        'title': 'Cancel Analyst calendar event',
+        'readOnlyHint': False,
+        'destructiveHint': True,
+        'idempotentHint': True,
+        'openWorldHint': True,
+    }
+)
+def delete_calendar_event(
+    workspace_id: str,
+    actor_user_id: str,
+    event_id: str,
+) -> dict[str, Any]:
+    '''Cancel one event from the Analyst's connected Google Calendar.'''
+    failure = _calendar_scope(workspace_id, actor_user_id, CALENDAR_WRITE)
+    if failure:
+        return {'tool': 'delete_calendar_event', **failure}
+    if not event_id or len(event_id) > 512:
+        return {
+            'tool': 'delete_calendar_event',
+            'error_code': 'invalid_argument',
+            'error': 'event_id is required and must be at most 512 characters.',
+        }
+    try:
+        GoogleCalendarClient().delete_event(workspace_id, actor_user_id, event_id)
+    except GoogleCalendarError as exc:
+        return {'tool': 'delete_calendar_event', 'error_code': 'calendar_error', 'error': str(exc)}
+    return {'tool': 'delete_calendar_event', 'event_id': event_id, 'deleted': True}
 
 
 def main() -> None:

@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.api.dependencies import RequestContext, require_permission
+from src.api.dependencies import SystemContext, require_system_permission
 from src.services.permissions import USER_ACCOUNT_MANAGE, USER_ACCOUNTS_READ
 from src.services.repository import get_repository
 from src.services.security import get_audit
@@ -25,7 +25,7 @@ class UserRolePayload(BaseModel):
 
 @router.get("/users")
 async def list_users(
-    context: RequestContext = Depends(require_permission(USER_ACCOUNTS_READ)),
+    context: SystemContext = Depends(require_system_permission(USER_ACCOUNTS_READ)),
     search: str | None = Query(default=None, description="Tìm kiếm theo email, tên, user ID"),
     role: str | None = Query(default=None, description="Lọc theo role (admin, analyst, all)"),
     status_filter: str | None = Query(default=None, alias="status", description="Lọc theo status (active, locked, all)"),
@@ -47,7 +47,7 @@ async def list_users(
 async def update_user_status(
     user_id: str,
     payload: UserStatusPayload,
-    context: RequestContext = Depends(require_permission(USER_ACCOUNT_MANAGE)),
+    context: SystemContext = Depends(require_system_permission(USER_ACCOUNT_MANAGE)),
 ) -> dict[str, Any]:
     """Lock or unlock a user account."""
     if user_id == context.user_id and payload.status == "locked":
@@ -73,7 +73,7 @@ async def update_user_status(
 
     get_audit().log(
         "admin.user.status_updated",
-        workspace_id=context.workspace_id,
+        workspace_id=None,
         actor_user_id=context.user_id,
         resource_type="user_profile",
         resource_id=user_id,
@@ -89,7 +89,7 @@ async def update_user_status(
 async def update_user_role(
     user_id: str,
     payload: UserRolePayload,
-    context: RequestContext = Depends(require_permission(USER_ACCOUNT_MANAGE)),
+    context: SystemContext = Depends(require_system_permission(USER_ACCOUNT_MANAGE)),
 ) -> dict[str, Any]:
     """Update role for a user (admin / analyst)."""
     repo = get_repository()
@@ -108,7 +108,7 @@ async def update_user_role(
 
     get_audit().log(
         "admin.user.role_updated",
-        workspace_id=context.workspace_id,
+        workspace_id=None,
         actor_user_id=context.user_id,
         resource_type="user_profile",
         resource_id=user_id,
@@ -122,7 +122,7 @@ async def update_user_role(
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: str,
-    context: RequestContext = Depends(require_permission(USER_ACCOUNT_MANAGE)),
+    context: SystemContext = Depends(require_system_permission(USER_ACCOUNT_MANAGE)),
 ) -> dict[str, Any]:
     """Permanently delete a user account."""
     if user_id == context.user_id:
@@ -148,7 +148,7 @@ async def delete_user(
 
     get_audit().log(
         "admin.user.deleted",
-        workspace_id=context.workspace_id,
+        workspace_id=None,
         actor_user_id=context.user_id,
         resource_type="user_profile",
         resource_id=user_id,

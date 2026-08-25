@@ -37,6 +37,7 @@ export default function WorkspacesPage() {
   const [targetAudience, setTargetAudience] = useState<string>(workspaceTemplates[0].targetAudience);
   const [primaryColor, setPrimaryColor] = useState<string>(workspaceTemplates[0].primaryColor);
   const [secondaryColor, setSecondaryColor] = useState<string>(workspaceTemplates[0].secondaryColor);
+  const [isCreateExpanded, setIsCreateExpanded] = useState(false);
   const workspaces = useQuery({ queryKey: ["workspaces"], queryFn: listWorkspaces, enabled: Boolean(me) });
   const archivedWorkspaces = useQuery({
     queryKey: ["archived-workspaces"],
@@ -48,6 +49,7 @@ export default function WorkspacesPage() {
     onSuccess: async (workspace) => {
       await client.invalidateQueries({ queryKey: ["workspaces"] });
       setName("");
+      setIsCreateExpanded(false);
       const defaultDraft = getTemplateDraft(workspaceTemplates[0]);
       setSelectedTemplate(workspaceTemplates[0]);
       setDomain(defaultDraft.domain);
@@ -166,35 +168,52 @@ export default function WorkspacesPage() {
     {purging.isError && <ErrorNotice error={purging.error} retry={() => purging.reset()} />}
     {restoration.isError && <ErrorNotice error={restoration.error} retry={() => restoration.reset()} />}
 
-    {canCreate && <section className="panel workspace-create-panel">
-      <div className="workspace-create-intro" style={{ display: 'flex', flexDirection: 'column', gap: '32px', height: '100%' }}>
-        <div>
-          <p className="eyebrow">NEW WORKSPACE</p><h2>Tạo workspace mới</h2><p className="muted">Chọn một chủ đề để thiết lập sẵn context và màu sắc phù hợp. Bạn vẫn có thể chỉnh chi tiết ngay bên dưới hoặc trong Cài đặt sau này.</p>
-        </div>
-        <div className="workspace-create-gallery" aria-label="Minh họa tạo workspace">
-          <Image src="/img/create_new_workspace_1.jpg" alt="Minh họa không gian workspace" width={1200} height={900} sizes="(max-width: 768px) 100vw, 50vw" />
-          <Image src="/img/create_new_workspace_2.jpg" alt="Minh họa cấu hình workspace" width={3000} height={3000} sizes="(max-width: 768px) 100vw, 50vw" />
-        </div>
-      </div>
-      <form className="workspace-create-form workspace-template-form" onSubmit={submitCreate}>
-        <label className="workspace-name-field" htmlFor="workspace-name">Tên workspace<input id="workspace-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ví dụ: Phân tích khách hàng" maxLength={255} autoFocus /></label>
-        <fieldset className="workspace-template-picker"><legend>Chọn chủ đề phù hợp</legend><div className="workspace-template-grid">{workspaceTemplates.map((template) => {
-          const selected = template.id === selectedTemplate.id;
-          return <button className={selected ? "workspace-template selected" : "workspace-template"} key={template.id} type="button" aria-pressed={selected} onClick={() => selectTemplate(template)}>
-            <span className="workspace-template-swatch" style={{ "--template-primary": template.primaryColor, "--template-secondary": template.secondaryColor } as CSSProperties} aria-hidden="true" />
-            <span><strong>{template.name}</strong><small>{template.description}</small></span>
-          </button>;
-        })}</div></fieldset>
-        <div className="workspace-config-fields">
-          <div className="workspace-config-heading"><b>Context sẵn sàng cho {selectedTemplate.name}</b><span>Đã điền từ preset, có thể chỉnh sửa.</span></div>
-          <label>Lĩnh vực<input value={domain} onChange={(event) => setDomain(event.target.value)} maxLength={120} /></label>
-          <label>Mục tiêu chính<input value={primaryGoal} onChange={(event) => setPrimaryGoal(event.target.value)} maxLength={500} /></label>
-          <label>Đối tượng đọc<input value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={120} /></label>
-          <div className="workspace-color-fields"><label>Màu chính<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} /></label><label>Màu phụ<input type="color" value={secondaryColor} onChange={(event) => setSecondaryColor(event.target.value)} /></label></div>
-        </div>
-        <div className="workspace-create-actions"><span>Context và theme sẽ được lưu cùng workspace.</span><button className="button primary" type="submit" disabled={creation.isPending || name.trim().length < 2}>{creation.isPending ? "Đang tạo…" : "Tạo workspace"}</button></div>
-      </form>
-    </section>}
+    {canCreate && (
+      <section className="panel workspace-create-panel" style={isCreateExpanded ? { position: "relative" } : { padding: "24px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", flexDirection: "row" }} onClick={() => !isCreateExpanded && setIsCreateExpanded(true)}>
+        {!isCreateExpanded ? (
+          <>
+            <div>
+              <h2 style={{ fontSize: "1.2rem", margin: 0, fontWeight: 700 }}>Tạo workspace mới</h2>
+              <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.95rem" }}>Thiết lập không gian làm việc mới cho dự án của bạn.</p>
+            </div>
+            <button className="button primary" onClick={(e) => { e.stopPropagation(); setIsCreateExpanded(true); }}>
+              <span aria-hidden="true" style={{ marginRight: 6 }}>+</span> Tạo mới
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="button secondary" type="button" onClick={(e) => { e.stopPropagation(); setIsCreateExpanded(false); }} style={{ position: "absolute", top: "24px", right: "24px", padding: "6px 16px", borderRadius: "20px", zIndex: 10 }}>Đóng</button>
+            <div className="workspace-create-intro" style={{ display: 'flex', flexDirection: 'column', gap: '32px', height: '100%' }}>
+              <div>
+                <p className="eyebrow">NEW WORKSPACE</p><h2>Tạo workspace mới</h2><p className="muted">Chọn một chủ đề để thiết lập sẵn context và màu sắc phù hợp. Bạn vẫn có thể chỉnh chi tiết ngay bên dưới hoặc trong Cài đặt sau này.</p>
+              </div>
+              <div className="workspace-create-gallery" aria-label="Minh họa tạo workspace">
+                <Image src="/img/create_new_workspace_1.jpg" alt="Minh họa không gian workspace" width={1200} height={900} sizes="(max-width: 768px) 100vw, 50vw" />
+                <Image src="/img/create_new_workspace_2.jpg" alt="Minh họa cấu hình workspace" width={3000} height={3000} sizes="(max-width: 768px) 100vw, 50vw" />
+              </div>
+            </div>
+            <form className="workspace-create-form workspace-template-form" onSubmit={submitCreate}>
+              <label className="workspace-name-field" htmlFor="workspace-name">Tên workspace<input id="workspace-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ví dụ: Phân tích khách hàng" maxLength={255} autoFocus /></label>
+              <fieldset className="workspace-template-picker"><legend>Chọn chủ đề phù hợp</legend><div className="workspace-template-grid">{workspaceTemplates.map((template) => {
+                const selected = template.id === selectedTemplate.id;
+                return <button className={selected ? "workspace-template selected" : "workspace-template"} key={template.id} type="button" aria-pressed={selected} onClick={() => selectTemplate(template)}>
+                  <span className="workspace-template-swatch" style={{ "--template-primary": template.primaryColor, "--template-secondary": template.secondaryColor } as CSSProperties} aria-hidden="true" />
+                  <span><strong>{template.name}</strong><small>{template.description}</small></span>
+                </button>;
+              })}</div></fieldset>
+              <div className="workspace-config-fields">
+                <div className="workspace-config-heading"><b>Context sẵn sàng cho {selectedTemplate.name}</b><span>Đã điền từ preset, có thể chỉnh sửa.</span></div>
+                <label>Lĩnh vực<input value={domain} onChange={(event) => setDomain(event.target.value)} maxLength={120} /></label>
+                <label>Mục tiêu chính<input value={primaryGoal} onChange={(event) => setPrimaryGoal(event.target.value)} maxLength={500} /></label>
+                <label>Đối tượng đọc<input value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={120} /></label>
+                <div className="workspace-color-fields"><label>Màu chính<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} /></label><label>Màu phụ<input type="color" value={secondaryColor} onChange={(event) => setSecondaryColor(event.target.value)} /></label></div>
+              </div>
+              <div className="workspace-create-actions"><span>Context và theme sẽ được lưu cùng workspace.</span><button className="button primary" type="submit" disabled={creation.isPending || name.trim().length < 2}>{creation.isPending ? "Đang tạo…" : "Tạo workspace"}</button></div>
+            </form>
+          </>
+        )}
+      </section>
+    )}
 
     {!workspaces.isPending && !workspaces.isError && <section className="workspace-grid" aria-label="Danh sách workspace">{items.map((workspace) => {
       const current = workspace.id === workspaceId;
@@ -204,7 +223,7 @@ export default function WorkspacesPage() {
         <h2>{workspace.name}</h2>
         <p className="workspace-card-capabilities">{roleDescription}</p>
         <p className="workspace-card-slug">/{workspace.slug}</p>
-        <div className="workspace-card-actions"><button className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} disabled={workspaceActionBusy}>{current ? "Đang mở" : "Mở workspace"}</button>{removable && <><button className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} disabled={workspaceActionBusy}>{deletion.isPending ? "Đang lưu trữ…" : "Lưu trữ"}</button><button className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending ? "Đang xóa…" : "Xóa workspace"}</button></>}</div>
+        <div className="workspace-card-actions"><button className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} disabled={workspaceActionBusy}>{current ? "Đang mở" : "Mở workspace"}</button>{removable && <><button className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} disabled={workspaceActionBusy}>{deletion.isPending && deletion.variables === workspace.id ? "Đang lưu trữ…" : "Lưu trữ"}</button><button className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa workspace"}</button></>}</div>
       </article>;
     })}</section>}
 
@@ -213,7 +232,7 @@ export default function WorkspacesPage() {
       <div className="workspace-grid">{archivedItems.map((workspace) => <article className="workspace-card archived" key={workspace.id}>
         <div className="workspace-card-top"><span className="workspace-card-icon" aria-hidden="true">□</span><span className="workspace-role">Đã lưu trữ</span></div>
         <h2>{workspace.name}</h2><p className="workspace-card-capabilities">Workspace tạm ngừng hoạt động; dataset và báo cáo chưa bị xóa.</p><p className="workspace-card-slug">/{workspace.slug}</p>
-        <div className="workspace-card-actions"><button className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} disabled={workspaceActionBusy}>{restoration.isPending ? "Đang khôi phục…" : "Khôi phục"}</button><button className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending ? "Đang xóa…" : "Xóa vĩnh viễn"}</button></div>
+        <div className="workspace-card-actions"><button className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} disabled={workspaceActionBusy}>{restoration.isPending && restoration.variables === workspace.id ? "Đang khôi phục…" : "Khôi phục"}</button><button className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa vĩnh viễn"}</button></div>
       </article>)}</div>
     </section>}
 

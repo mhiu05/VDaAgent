@@ -112,3 +112,131 @@ test("profile submission returns immediately and shows durable queued state", as
   await expect(page).toHaveURL(/\/profiles\/run-queued$/);
   await expect(page.getByText("Profiling đã được xếp hàng.")).toBeVisible();
 });
+
+test("review confirmation hydrates the saved decision before returning to the detail", async ({ page }) => {
+  await useAnalystWorkspace(page);
+  let profileRequests = 0;
+  let jobRequests = 0;
+  let reviewSaved = false;
+  let completed = false;
+  const reviewedProfile = {
+    ...profile,
+    profile_run_id: "review-run",
+    status: "pending_review",
+    pending_proposals: 1,
+    proposals: {
+      pii: [{
+        id: "proposal-pii-1",
+        status: "pending",
+        column_name: "email",
+        pii_type: "email",
+        confidence_score: 0.98,
+        detection_method: "rule",
+        evidence: "Email pattern",
+      }],
+    },
+  };
+
+  await page.route("**/api/v1/profile/review-run**", async (route) => {
+    if (route.request().method() === "PATCH") {
+      const request = route.request().postDataJSON() as { decisions?: Array<{ proposal_id: string; decision: string }> };
+      expect(request.decisions).toEqual([{ kind: "pii", proposal_id: "proposal-pii-1", decision: "confirm" }]);
+      reviewSaved = true;
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          profile_run_id: "review-run",
+          applied: 1,
+          pending_proposals: 0,
+          status: "resuming",
+          proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] },
+        }),
+      });
+      return;
+    }
+
+    profileRequests += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(completed
+        ? { ...reviewedProfile, status: "completed", pending_proposals: 0, proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] } }
+        : reviewSaved
+          // Exercise the guard independently of the transient domain status:
+          // resolved proposals must never render a review action.
+          ? { ...reviewedProfile, status: "pending_review", pending_proposals: 0, proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] } }
+          : reviewedProfile),
+    });
+  });
+  await page.route("**/api/v1/profiling-jobs/review-run", async (route) => {
+    jobRequests += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        job_id: "review-run",
+        profiling_run_id: "review-run",
+        dataset_id: "dataset-1",
+        status: completed ? "succeeded" : reviewSaved ? "queued" : "succeeded",
+        stage: completed ? "completed" : reviewSaved ? "resume_queued" : "completed",
+        attempt_count: 1,
+        created_at: new Date().toISOString(),
+        duplicate: false,
+      }),
+    });
+  });
+
+  await page.goto("/profiles/review-run");
+  await expect(page.getByRole("link", { name: "Review đề xuất" })).toBeVisible();
+  await page.getByRole("link", { name: "Review đề xuất" }).click();
+  await page.getByRole("button", { name: "Xác nhận tất cả" }).click();
+  await page.getByRole("button", { name: "Lưu quyết định & tiếp tục pipeline" }).click();
+
+  await expect(page).toHaveURL(/\/profiles\/review-run$/);
+  await expect(page.getByRole("link", { name: "Review đề xuất" })).toHaveCount(0);
+  await expect(page.getByText("Profile đang được xử lý")).toBeVisible();
+  // The post-review profile is hydrated from the atomic PATCH snapshot; a
+  // stale intermediate GET must not be required before navigation.
+  expect(profileRequests).toBeGreaterThanOrEqual(1);
+  expect(jobRequests).toBeGreaterThanOrEqual(2);
+
+  completed = true;
+  await page.reload();
+  await expect(page.getByRole("link", { name: "Review đề xuất" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Tạo biểu đồ & phân tích" })).toBeVisible();
+});
+
+test("review confirmation reconciles a committed decision when the first response races", async ({ page }) => {
+  await useAnalystWorkspace(page);
+  let saved = false;
+  let patchAttempts = 0;
+  const reviewedProfile = {
+    ...profile,
+    profile_run_id: "review-reconcile",
+    status: "pending_review",
+    pending_proposals: 1,
+    proposals: { pii: [{ id: "proposal-pii-reconcile", status: "pending", column_name: "email", pii_type: "email", confidence_score: 0.98, detection_method: "rule", evidence: "Email pattern" }] },
+  };
+  await page.route("**/api/v1/profile/review-reconcile**", async (route) => {
+    if (route.request().method() === "PATCH") {
+      patchAttempts += 1;
+      saved = true;
+      await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "Review khác đang resume run này." }) });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(saved
+      ? { ...reviewedProfile, status: "resuming", pending_proposals: 0, proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] } }
+      : reviewedProfile) });
+  });
+  await page.route("**/api/v1/profiling-jobs/review-reconcile", (route) => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ job_id: "review-reconcile", profiling_run_id: "review-reconcile", dataset_id: "dataset-1", status: "queued", stage: "resume_queued", attempt_count: 1, created_at: new Date().toISOString(), duplicate: false }),
+  }));
+
+  await page.goto("/profiles/review-reconcile");
+  await page.getByRole("link", { name: "Review đề xuất" }).click();
+  await page.getByRole("button", { name: "Xác nhận tất cả" }).click();
+  await page.getByRole("button", { name: "Lưu quyết định & tiếp tục pipeline" }).click();
+
+  await expect(page).toHaveURL(/\/profiles\/review-reconcile$/);
+  await expect(page.getByRole("link", { name: "Review đề xuất" })).toHaveCount(0);
+  expect(patchAttempts).toBe(1);
+});

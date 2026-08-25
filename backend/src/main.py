@@ -11,6 +11,7 @@ ngôn ngữ tự nhiên.
 
 from __future__ import annotations
 
+from src.api.calendar_routes import router as calendar_router
 import logging
 import re
 import time
@@ -29,6 +30,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse
+# pyrefly: ignore [missing-import]
+from sqlalchemy.exc import OperationalError
 from src.api.agent_routes import router as agent_router
 from src.api.analysis_routes import (
     router as analysis_router,
@@ -50,14 +53,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger("p170")
 
-_WORKSPACE_TIMING_PATHS = {
-    "/api/v1/session",
-    "/api/v1/workspace-bootstrap",
-    "/api/v1/dashboard",
-    "/api/v1/datasets",
-    "/api/v1/workspaces",
-}
 _CORRELATION_ID = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+# PERF-001: concrete IDs are collapsed to a stable route template so telemetry
+# cardinality stays bounded and no workspace/resource identifier is ever logged.
+# Ordered longest-prefix first; the first match wins.
+_ROUTE_TEMPLATE_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
+    (re.compile(pattern), template)
+    for pattern, template in (
+        (r"^/api/v1/workspace-bootstrap$", "/workspace-bootstrap"),
+        (r"^/api/v1/session$", "/session"),
+        (r"^/api/v1/dashboard$", "/dashboard"),
+        (r"^/api/v1/workspaces(/.*)?$", "/workspaces"),
+        (r"^/api/v1/datasets/[^/]+/runs$", "/datasets/{id}/runs"),
+        (r"^/api/v1/datasets(/[^/]+)?$", "/datasets"),
+        (r"^/api/v1/profiling-jobs/[^/]+$", "/profiling-jobs/{id}"),
+        (r"^/api/v1/profile/[^/]+/explorer/.*$", "/profile/{id}/explorer"),
+        (r"^/api/v1/profile/[^/]+/charts/.*$", "/profile/{id}/charts"),
+        (r"^/api/v1/profile/[^/]+/report-draft$", "/profile/{id}/report-draft"),
+        (r"^/api/v1/profile/[^/]+/report$", "/profile/{id}/report"),
+        (r"^/api/v1/profile/[^/]+/drift$", "/profile/{id}/drift"),
+        (r"^/api/v1/profile/[^/]+/.*$", "/profile/{id}/*"),
+        (r"^/api/v1/profile/[^/]+$", "/profile/{id}"),
+        (r"^/api/v1/profile$", "/profile"),
+        (r"^/api/v1/activity$", "/activity"),
+        (r"^/api/v1/compare(/.*)?$", "/compare"),
+        (r"^/api/v1/qa/stream$", "/qa/stream"),
+        (r"^/api/v1/qa$", "/qa"),
+    )
+)
+
+
+def _route_template(path: str) -> str | None:
+    """Map a concrete request path to a low-cardinality, PII-safe template."""
+    for pattern, template in _ROUTE_TEMPLATE_RULES:
+        if pattern.match(path):
+            return template
+    return None
 
 
 def _request_correlation_id(request: Request) -> str:
@@ -67,6 +99,7 @@ def _request_correlation_id(request: Request) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
+    app.include_router(calendar_router, prefix='/api/v1')
     """Khởi tạo DB và báo phần cấu hình còn thiếu.
 
     Production intentionally has no local persistence bootstrap: datasets,
@@ -166,37 +199,105 @@ app = FastAPI(
 )
 
 
+def _measure_payload(response: Any, perf_ctx: Any) -> None:
+    """Record response size without buffering a streaming body (PERF-001)."""
+    from starlette.responses import StreamingResponse
+    from src.services import perf_telemetry
+
+    content_length = response.headers.get("content-length")
+    if content_length is not None:
+        try:
+            perf_telemetry.record_serialization(0.0, int(content_length))
+        except ValueError:
+            pass
+        return
+    if isinstance(response, StreamingResponse):
+        perf_ctx.payload_streaming = True
+        original_iterator = response.body_iterator
+
+        async def _counting_iterator() -> Any:
+            total = 0
+            async for chunk in original_iterator:
+                total += len(chunk) if isinstance(chunk, (bytes, bytearray)) else len(
+                    str(chunk).encode("utf-8")
+                )
+                yield chunk
+            perf_ctx.payload_bytes += total
+
+        response.body_iterator = _counting_iterator()
+        return
+    body = getattr(response, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        perf_telemetry.record_serialization(0.0, len(body))
+
+
 @app.middleware("http")
 async def workspace_request_timing(request: Request, call_next: Any) -> Any:
-    """Log a PII-safe timing record for high-traffic workspace navigation."""
+    """Decompose each workspace request into PII-safe latency/query phases.
+
+    PERF-001: for every workspace route this records total/auth/workspace/db/
+    query_count/serialization/payload in a request-local contextvar, emits one
+    structured log line, and (when guarded on) exposes a Server-Timing header.
+    Non-workspace routes keep only the correlation id, exactly as before.
+    """
+    from src.services import perf_telemetry
+
     path = request.url.path
     correlation_id = _request_correlation_id(request)
     request.state.correlation_id = correlation_id
-    if path not in _WORKSPACE_TIMING_PATHS:
+    template = _route_template(path)
+
+    if template is None or not settings.perf_telemetry_enabled:
         response = await call_next(request)
         response.headers["X-Correlation-Id"] = correlation_id
         return response
+
+    token = perf_telemetry.begin(template, correlation_id, request.method)
+    perf_ctx = perf_telemetry.current()
     started = time.perf_counter()
     try:
         response = await call_next(request)
     except Exception:
+        total_ms = (time.perf_counter() - started) * 1000
+        if perf_ctx is not None:
+            perf_telemetry.emit_log(perf_ctx, 500, total_ms)
+        # Preserve the legacy timing line so existing dashboards keep matching.
         logger.info(
             "workspace_request_timing route=%s status=500 "
             "duration_ms=%d correlation_id=%s",
-            path,
-            round((time.perf_counter() - started) * 1000),
+            template,
+            round(total_ms),
             correlation_id,
         )
+        perf_telemetry.reset(token)
         raise
-    duration_ms = round((time.perf_counter() - started) * 1000)
+
+    if perf_ctx is not None:
+        _measure_payload(response, perf_ctx)
+    total_ms = (time.perf_counter() - started) * 1000
     response.headers["X-Correlation-Id"] = correlation_id
-    logger.info(
-        "workspace_request_timing route=%s status=%d duration_ms=%d correlation_id=%s",
-        path,
-        response.status_code,
-        duration_ms,
-        correlation_id,
-    )
+
+    if perf_ctx is not None:
+        if settings.perf_server_timing_enabled:
+            response.headers["Server-Timing"] = (
+                f"auth;dur={perf_ctx.auth_local_ms + perf_ctx.auth_remote_ms:.1f}, "
+                f"ws;dur={perf_ctx.workspace_ms:.1f}, "
+                f"db;dur={perf_ctx.db_ms:.1f};desc=\"q={perf_ctx.query_count}\", "
+                f"total;dur={total_ms:.1f}"
+            )
+        perf_telemetry.emit_log(perf_ctx, response.status_code, total_ms)
+        perf_telemetry.maybe_log_slow_query(
+            settings.perf_slow_query_ms, settings.perf_slow_query_sample_rate
+        )
+        # Preserve the legacy timing contract that existing log consumers rely on.
+        logger.info(
+            "workspace_request_timing route=%s status=%d duration_ms=%d correlation_id=%s",
+            template,
+            response.status_code,
+            round(total_ms),
+            correlation_id,
+        )
+    perf_telemetry.reset(token)
     return response
 
 
@@ -216,6 +317,28 @@ async def validation_exception_handler(
     return JSONResponse(
         status_code=422,
         content={"detail": errors},
+    )
+
+
+@app.exception_handler(OperationalError)
+async def database_exception_handler(
+    request: Request, exc: OperationalError
+) -> JSONResponse:
+    """Return a retryable response when PostgreSQL is temporarily unavailable."""
+    correlation_id = _request_correlation_id(request)
+    logger.warning(
+        "Database unavailable path=%s correlation_id=%s error_type=%s",
+        request.url.path,
+        correlation_id,
+        type(exc).__name__,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database đang tạm thời hết kết nối. Hãy thử lại sau ít giây.",
+            "request_id": correlation_id,
+        },
+        headers={"X-Correlation-Id": correlation_id, "Retry-After": "3"},
     )
 
 

@@ -236,6 +236,9 @@ class ConfirmResponse(BaseModel):
     answer: str | None = None
     answer_sources: list[dict[str, Any]] = Field(default_factory=list)
     test_results: list[dict[str, Any]] = Field(default_factory=list)
+    # Snapshot after the atomic review transaction.  The client can update its
+    # profile cache without racing a stale GET while the resume job is queued.
+    proposals: dict[str, list[ProposalOut]] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #

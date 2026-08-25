@@ -141,3 +141,45 @@ def test_full_profile_masks_pii_columns(client, profile_run: dict) -> None:  # n
     assert by_name["email"]["pii_masked"] is True
     # Cột không phải PII vẫn giữ giá trị mẫu để Analyst xem được phân phối.
     assert by_name["city"].get("top_k_values")
+
+
+def test_full_profile_derives_pending_count_without_extra_queries(
+    client,  # noqa: ANN001
+    profile_run: dict,
+) -> None:
+    """PERF-103: `full_profile` không được query lại PII/pending sau proposals.
+
+    Nó phải suy ra pending count và tập cột PII từ các dòng proposal đã đọc,
+    không phát sinh thêm `confirmed_pii_columns` (1 query) và ba
+    `pending_count` COUNT() query. Đây là regression test đếm query cố định,
+    không phụ thuộc số cột/proposal.
+    """
+    from src.services import perf_telemetry
+    from src.services.repository import get_repository
+
+    repo = get_repository()
+    run_id = profile_run["profile_run_id"]
+
+    token = perf_telemetry.begin("test", "corr-full-profile")
+    try:
+        profile = repo.full_profile(run_id, mask_pii=True)
+        ctx = perf_telemetry.current()
+        assert ctx is not None
+        query_count = ctx.query_count
+    finally:
+        perf_telemetry.reset(token)
+
+    assert profile is not None
+    # run + dataset + column_stats + 3 proposal tables + tests + drift = 8.
+    # Không còn confirmed_pii_columns (1) và 3 pending_count -> tối đa 8.
+    assert query_count <= 8, f"full_profile phát sinh {query_count} query (>8)"
+
+    # pending_proposals suy ra khớp với đếm thủ công từ chính proposals.
+    expected_pending = sum(
+        1
+        for rows in profile["proposals"].values()
+        for row in rows
+        if row.get("status") == "pending"
+    )
+    assert profile["pending_proposals"] == expected_pending
+    assert profile["pending_proposals"] == profile_run["pending_proposals"]

@@ -1,7 +1,7 @@
 "use client";
 
-import { MarkdownContent } from "@/components/markdown";
-import { EmptyState, ErrorNotice, LoadingBlock, Notice } from "@/components/ui";
+import { MarkdownContent, normalizeMarkdownText } from "@/components/markdown";
+import { EmptyState, ErrorNotice, Notice } from "@/components/ui";
 import type { AnalysisExecution, AutoChartPlan, ChartRenderer, ChartSpec, ChartType, ForecastAlgorithm, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 import {
   autoPlanChart,
@@ -341,6 +341,11 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
   onExplain: (execution: AnalysisExecution) => void;
   onPin?: () => void;
 }) {
+  // Normalize cached/legacy insight content before it reaches the textarea.
+  if (typeof chart.insight === "string") {
+    const insight = normalizeMarkdownText(chart.insight);
+    if (insight !== chart.insight) chart = { ...chart, insight };
+  }
   const validation = analysisError(chart);
   const algorithms = chart.problem ? PROBLEM_ALGORITHMS[chart.problem] : [];
   const chartTypes = chart.algorithm && ["histogram", "box", "scatter", "heatmap"].includes(chart.algorithm)
@@ -425,8 +430,18 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
 
 export function ChartsTab({ runId, profile, onExplain }: Props) {
   const queryClient = useQueryClient();
-  const explorer = useQuery({ queryKey: ["command-center", runId, "explorer-session"], queryFn: () => ensureExplorerSession(runId) });
-  const forecastCatalog = useQuery({ queryKey: ["command-center", runId, "forecast-algorithms"], queryFn: () => listForecastAlgorithms(runId) });
+  const explorer = useQuery({
+    queryKey: ["command-center", runId, "explorer-session"],
+    queryFn: () => ensureExplorerSession(runId),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
+  const forecastCatalog = useQuery({
+    queryKey: ["command-center", runId, "forecast-algorithms"],
+    queryFn: () => listForecastAlgorithms(runId),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
   const [understanding, setUnderstanding] = useState(() => {
     if (typeof window === "undefined") return "";
     try { return localStorage.getItem(`p170_charts_understanding_${runId}`) || ""; } catch { return ""; }
@@ -441,7 +456,12 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       const cached = localStorage.getItem(`p170_charts_state_${runId}`);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((item) => ({
+            ...item,
+            insight: typeof item?.insight === "string" ? normalizeMarkdownText(item.insight) : item?.insight,
+          }));
+        }
       }
     } catch { }
     return [draftChart()];
@@ -464,6 +484,22 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       localStorage.setItem(`p170_charts_state_${runId}`, JSON.stringify(charts));
     } catch { }
   }, [charts, runId]);
+
+  // Migrate chart drafts already held in memory (including Fast Refresh
+  // sessions) so the edit textarea never receives a serialized content block.
+  useEffect(() => {
+    setCharts((current) => {
+      let changed = false;
+      const normalized = current.map((item) => {
+        if (typeof item.insight !== "string") return item;
+        const insight = normalizeMarkdownText(item.insight);
+        if (insight === item.insight) return item;
+        changed = true;
+        return { ...item, insight };
+      });
+      return changed ? normalized : current;
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !runId) return;
@@ -660,7 +696,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       if (event.event === "done" && event.data && typeof event.data === "object") { const done = event.data as { agent_run_id?: unknown; evidence_status?: unknown }; agentRunId = String(done.agent_run_id || "") || null; evidenceStatus = String(done.evidence_status || evidenceStatus); }
       if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent không thể viết insight."));
     });
-    return { generated: true, insight: insight || "Agent không trả về insight.", insight_agent_run_id: agentRunId, insight_evidence_status: evidenceStatus, insight_reviewed: false };
+    return { generated: true, insight: normalizeMarkdownText(insight || "Agent không trả về insight."), insight_agent_run_id: agentRunId, insight_evidence_status: evidenceStatus, insight_reviewed: false };
   }
 
   async function generateAndWriteInsight(chart: ChartDraft) {
@@ -747,9 +783,9 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       } : {}),
     } : chart));
   }
-  if (explorer.isLoading) return <LoadingBlock label="Đang tạo context cho Biểu đồ…" />;
   if (explorer.isError) return <ErrorNotice error={explorer.error} retry={() => explorer.refetch()} />;
-  if (!context) return <EmptyState title="Biểu đồ chưa có context" detail="Hãy hoàn tất Profile và review metadata trước khi tạo biểu đồ." />;
+  if (!explorer.isPending && !context) return <EmptyState title="Biểu đồ chưa có context" detail="Hãy hoàn tất Profile và review metadata trước khi tạo biểu đồ." />;
+  const contextIsPreparing = explorer.isPending;
   const busy = autoProfile.isPending || automate.isPending || understand.isPending || preview.isPending || promote.isPending || pin.isPending;
   const forecastGroups = Object.entries((forecastCatalog.data?.algorithms ?? []).reduce<Record<string, ForecastAlgorithmCapability[]>>((groups, item) => {
     (groups[item.family] ||= []).push(item);
@@ -757,6 +793,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
   }, {}));
 
   return <section className="command-charts">
+    {contextIsPreparing && <Notice tone="info">Đang chuẩn bị metadata biểu đồ trong nền. Bạn có thể đọc và nhập câu hỏi trước; các nút tạo biểu đồ sẽ sẵn sàng ngay khi context hoàn tất.</Notice>}
     {/* Unified Hero Panel: Question Input + 1-Click Auto Analysis Pack */}
     <section className="panel chart-auto-profile-pack">
       <div className="panel-title" style={{ marginBottom: 10 }}>
@@ -770,7 +807,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       </div>
 
       {/* Primary Input: Business Question */}
-          <div className="chart-business-question-panel">
+      <div className="chart-business-question-panel">
         <label className="chart-business-question" style={{ margin: 0 }}>
           <div className="chart-business-question-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span style={{ fontWeight: 800, fontSize: "0.88rem", color: "#14254b" }}>
@@ -800,7 +837,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
               type="button"
               className="button primary chart-auto-submit chart-action-button"
               onClick={() => automate.mutate()}
-              disabled={busy || businessQuestion.trim().length < 3 || charts.filter((chart) => chart.question).length >= MAX_CHARTS}
+              disabled={contextIsPreparing || busy || businessQuestion.trim().length < 3 || charts.filter((chart) => chart.question).length >= MAX_CHARTS}
               style={{ fontWeight: 800 }}
             >
               {automate.isPending ? `Agent đang xử lý (${autoQuestionProgress?.percent ?? 0}%)` : "✨ Agent tự động tạo biểu đồ"}
@@ -810,7 +847,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
               type="button"
               className="button secondary chart-action-button"
               onClick={() => autoProfile.mutate()}
-              disabled={busy}
+              disabled={contextIsPreparing || busy}
               style={{ fontWeight: 700, border: "1px solid #b2cbfd", background: "#f0f5ff" }}
             >
               {autoProfile.isPending ? `Đang tạo Analysis Pack (${autoProfileProgress?.percent ?? 0}%)` : "⚡ Hoặc Tự động tạo trọn gói 5–8 biểu đồ"}
@@ -934,9 +971,9 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     </header>
     {message && <Notice tone="info">{message}</Notice>}
     {[autoProfile, automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
-    <details className="panel chart-model-catalog"><summary>Danh mục thuật toán dự báo · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
+    <details className="panel chart-model-catalog"><summary>Danh sách thuật toán được sử dụng · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
 
-    <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
+    <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled={!contextIsPreparing} onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
     {charts.filter((chart) => chart.question).length > 0 && (
       <aside className="report-toc-sidebar">
         <div className="report-toc-container">

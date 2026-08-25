@@ -1,5 +1,41 @@
 import type { ReactNode } from "react";
 
+/**
+ * Providers may serialize a response's content blocks as a Python-list
+ * string (for example `[{"type": "text", "text": "..."}]`). Keep this
+ * compatibility path at the rendering boundary so legacy insights and
+ * summaries show their Markdown instead of the transport envelope.
+ */
+export function normalizeMarkdownText(input: string): string {
+  const value = input.trim();
+  if (!/^\[\s*\{\s*['"]type['"]\s*:\s*['"]text['"]/.test(value)) return input;
+
+  const parts: string[] = [];
+  const field = /['"]text['"]\s*:\s*(['"])/g;
+  let match: RegExpExecArray | null;
+  while ((match = field.exec(value))) {
+    const quote = match[1];
+    let escaped = false;
+    let text = "";
+    let index = field.lastIndex;
+    for (; index < value.length; index += 1) {
+      const character = value[index];
+      if (character === quote && !escaped) break;
+      if (escaped) {
+        text += character === "n" ? "\n" : character === "r" ? "\r" : character === "t" ? "\t" : character;
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else {
+        text += character;
+      }
+    }
+    if (index < value.length && text.trim()) parts.push(text);
+    field.lastIndex = index + 1;
+  }
+  return parts.length ? parts.join("\n") : input;
+}
+
 function renderInlineMarkdown(text: string): ReactNode {
   const cleaned = text.replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
   const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*)/g);
@@ -23,7 +59,7 @@ const getCleanId = (text: string) => {
 };
 
 export function MarkdownContent({ text, className = "markdown-message" }: { text: string; className?: string }) {
-  const lines = text.split("\n");
+  const lines = normalizeMarkdownText(text).split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
   let inDetailSection = false;

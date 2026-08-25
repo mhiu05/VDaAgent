@@ -27,7 +27,7 @@ export default function Home() {
               <h1>Biến một tệp dữ liệu thành<br /><span>hồ sơ có thể kiểm tra.</span></h1>
               <p>VDaAgent giúp nhà phân tích thấu hiểu cấu trúc, chất lượng và các vấn đề tiềm ẩn của tập dữ liệu trước khi đi sâu vào phân tích.</p>
               <div className="pub-hero-actions">
-                <Link href="/dashboard" className="pub-btn pub-btn-primary">Bắt đầu ngay <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
+                <Link href="/workspaces" className="pub-btn pub-btn-primary">Bắt đầu ngay <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
                 <Link href="/guide" className="pub-btn pub-btn-ghost">Xem quy trình <span aria-hidden="true" style={{ marginLeft: 4 }}>↗</span></Link>
               </div>
               <div style={{ marginTop: "40px", fontSize: "14px", color: "var(--pub-muted)", display: "flex", gap: "24px", fontWeight: 500 }}>
@@ -74,7 +74,7 @@ export default function Home() {
               Bắt đầu từ một dataset và để VDaAgent giúp bạn nhìn thấy cấu trúc và các vấn đề cần chú ý trước khi đưa ra quyết định.
             </p>
             <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-              <Link href="/dashboard" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
+              <Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
               <Link href="/guide" className="pub-btn pub-btn-secondary">Xem hướng dẫn</Link>
             </div>
           </div>
