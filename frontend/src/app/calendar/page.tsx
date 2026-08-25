@@ -11,6 +11,7 @@ import {
   type CalendarStatus,
 } from '@/lib/api';
 import { ApiError } from '@/lib/api';
+import { LoadingButton } from '@/components/ui';
 
 function localDateTime(daysFromNow = 0, hour = 9): string {
   const date = new Date();
@@ -38,6 +39,8 @@ export default function CalendarPage() {
   const [location, setLocation] = useState('');
   const [attendees, setAttendees] = useState('');
   const [busy, setBusy] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -75,11 +78,14 @@ export default function CalendarPage() {
   );
 
   async function connect() {
+    setConnecting(true);
     setError('');
     try {
       await connectGoogleCalendar();
     } catch (reason) {
       setError(reason instanceof ApiError ? reason.message : 'Không thể kết nối Google Calendar.');
+    } finally {
+      setConnecting(false);
     }
   }
 
@@ -113,6 +119,7 @@ export default function CalendarPage() {
 
   async function cancel(eventId: string) {
     if (!window.confirm('Bạn có chắc muốn hủy lịch hẹn này không?')) return;
+    setCancellingId(eventId);
     setBusy(true);
     setError('');
     try {
@@ -123,6 +130,7 @@ export default function CalendarPage() {
       setError(reason instanceof ApiError ? reason.message : 'Không thể hủy lịch hẹn.');
     } finally {
       setBusy(false);
+      setCancellingId(null);
     }
   }
 
@@ -135,10 +143,10 @@ export default function CalendarPage() {
           <p className='page-description'>Xem, tạo và hủy lịch hẹn trong Google Calendar của bạn.</p>
         </div>
         <div className='inline-actions'>
-          <button className='button secondary' type='button' onClick={() => void load()} disabled={busy}>Làm mới</button>
-          <button className='button primary' type='button' onClick={() => void connect()} disabled={busy || !status?.can_connect}>
+          <LoadingButton className='button secondary' type='button' onClick={() => void load()} busy={busy}>Làm mới</LoadingButton>
+          <LoadingButton className='button primary' type='button' onClick={() => void connect()} busy={connecting} disabled={busy || !status?.can_connect}>
             {status?.connected ? 'Kết nối lại Google' : 'Kết nối Google Calendar'}
-          </button>
+          </LoadingButton>
         </div>
       </header>
 
@@ -156,7 +164,7 @@ export default function CalendarPage() {
           <label>Địa điểm<input value={location} onChange={(event) => setLocation(event.target.value)} placeholder='Phòng họp hoặc link' /></label>
           <label>Người tham dự<input value={attendees} onChange={(event) => setAttendees(event.target.value)} placeholder='a@example.com, b@example.com' /></label>
           <label>Mô tả<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
-          <button className='button primary' type='submit' disabled={busy || !status?.connected}>Tạo lịch</button>
+          <LoadingButton className='button primary' type='submit' busy={busy} disabled={!status?.connected}>Tạo lịch</LoadingButton>
         </form>
       </section>
 
@@ -164,7 +172,7 @@ export default function CalendarPage() {
         <div className='workspace-section-heading'><div><p className='eyebrow'>UPCOMING</p><h2>Lịch sắp tới</h2></div><span className='workspace-count'>{upcoming.length} lịch</span></div>
         {!status?.connected ? <p className='muted'>Chưa kết nối Google Calendar.</p> : upcoming.length === 0 ? <p className='muted'>Không có lịch trong 7 ngày tới.</p> : (
           <div className='workspace-table-wrap'><table className='workspace-member-table'><thead><tr><th>Lịch hẹn</th><th>Thời gian</th><th>Địa điểm</th><th /></tr></thead><tbody>
-            {upcoming.map((item) => <tr key={item.id}><td><b>{item.summary}</b>{item.description && <small>{item.description}</small>}</td><td>{displayDate(item.start)}<br />→ {displayDate(item.end)}</td><td>{item.location || '—'}</td><td><button className='button danger' type='button' onClick={() => void cancel(item.id)} disabled={busy}>Hủy</button></td></tr>)}
+            {upcoming.map((item) => <tr key={item.id}><td><b>{item.summary}</b>{item.description && <small>{item.description}</small>}</td><td>{displayDate(item.start)}<br />→ {displayDate(item.end)}</td><td>{item.location || '—'}</td><td><LoadingButton className='button danger' type='button' onClick={() => void cancel(item.id)} busy={cancellingId === item.id} disabled={busy && cancellingId !== item.id}>Hủy</LoadingButton></td></tr>)}
           </tbody></table></div>
         )}
       </section>

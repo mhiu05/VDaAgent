@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { connectGoogleDrive, createProfile, getGoogleDriveStatus, setDatasetCollection, uploadDataset, ApiError, type GoogleDriveStatus } from "@/lib/api";
 import { humanFileSize } from "@/lib/format";
 import type { UploadResult } from "@/lib/types";
-import { ErrorNotice, Notice, PageHeader } from "@/components/ui";
+import { ErrorNotice, LoadingButton, Notice, PageHeader, ProgressSteps } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 
 const supportedExtensions = ["csv", "tsv", "parquet", "json"];
@@ -292,7 +292,7 @@ export default function NewDatasetPage() {
     {driveStatus?.provider === "google_drive" && <Notice tone={driveStatus.connected ? "success" : "info"}>
       <b>{driveStatus.connected ? "Google Drive đã kết nối." : "Cần kết nối Google Drive trước khi upload."}</b>
       {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn chỉ cần kết nối Google Drive 1 lần trong 1 workspace." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
-      {!driveStatus.connected && driveStatus.can_connect && <button className="button secondary" onClick={handleConnectDrive} disabled={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</button>}
+      {!driveStatus.connected && driveStatus.can_connect && <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</LoadingButton>}
     </Notice>}
     <div className="grid two">
       <section className="panel"><div className="panel-title"><h2>1. Chọn dữ liệu</h2><small>Chọn một, nhiều file hoặc cả thư mục</small></div>
@@ -303,12 +303,13 @@ export default function NewDatasetPage() {
             {busy === "upload" && <><div className="upload-progress"><span style={{ width: `${progress}%` }} /></div><small>{progress}% đang tải lên</small></>}
           </div>
         </div>
-        <div className="form-actions">{!allUploaded ? <><button className="button primary" disabled={!files.length || busy !== null || (driveBlocked && !driveStatus?.can_connect)} onClick={handleUploadClick}>{busy === "upload" ? "Đang tải lên…" : driveBlocked ? driveStatus?.can_connect ? "Kết nối Drive để tải" : "Drive chưa sẵn sàng" : uploadedCount ? `Tải tiếp ${files.length - uploadedCount} file` : "Tải dữ liệu lên"}</button>{busy === "upload" && <button className="button secondary" onClick={() => abortRef.current?.abort()}>Hủy tải lên</button>}</> : <Notice tone="success"><b>Đã tải lên an toàn.</b><p>{files.length} file đã được lưu vào workspace.</p></Notice>}</div>
+        <div className="form-actions">{!allUploaded ? <><LoadingButton className="button primary" busy={busy === "upload"} disabled={!files.length || busy !== null || (driveBlocked && !driveStatus?.can_connect)} onClick={handleUploadClick}>{busy === "upload" ? "Đang tải lên…" : driveBlocked ? driveStatus?.can_connect ? "Kết nối Drive để tải" : "Drive chưa sẵn sàng" : uploadedCount ? `Tải tiếp ${files.length - uploadedCount} file` : "Tải dữ liệu lên"}</LoadingButton>{busy === "upload" && <button className="button secondary" onClick={() => abortRef.current?.abort()}>Hủy tải lên</button>}</> : <Notice tone="success"><b>Đã tải lên an toàn.</b><p>{files.length} file đã được lưu vào workspace.</p></Notice>}</div>
       </section>
       <section className="panel"><div className="panel-title"><h2>2. Cấu hình profiling</h2><small>Sampling có thể tái lập</small></div>
         <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên bộ dữ liệu</label><input id="dataset-name" value={datasetName} onChange={(event) => { setDatasetName(event.target.value); setCollectionSaved(false); }} placeholder="Ví dụ: Dữ liệu bán hàng tháng 8" maxLength={255} disabled={!files.length || busy !== null || savingCollection} /><small className="muted">{files.length > 1 ? `Tên này gộp ${files.length} file thành một bộ; tên từng file vẫn được giữ nguyên.` : "Tên này dùng để phân loại dataset trong workspace."}{collectionSaved ? " Đã lưu." : ""}</small></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!allUploaded}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div></div>
         <Notice tone="info"><b>Bảo mật quyền riêng tư</b><p>Hệ thống sẽ không hiển thị các dữ liệu mẫu nhạy cảm. Mọi phát hiện về thông tin cá nhân hoặc định danh đều cần bạn xác nhận trước khi lưu.</p></Notice>
-        <div className="form-actions"><button className="button primary" disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</button></div>
+        {busy === "profile" && <ProgressSteps steps={["Chuẩn bị", "Đang profiling", "Hoàn tất"]} activeStep={profiledCount === files.length ? 2 : 1} detail={`Đã xử lý ${profiledCount}/${files.length} file. Hệ thống đang tính metric từ dữ liệu thật.`} />}
+        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</LoadingButton></div>
       </section>
     </div>
   </>;

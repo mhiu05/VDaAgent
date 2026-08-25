@@ -7,7 +7,7 @@ import { detectDrift, listDatasets, listRuns } from "@/lib/api";
 import { formatDate, formatNumber } from "@/lib/format";
 import type { DriftFinding, DriftResponse, ProfileRunSummary } from "@/lib/types";
 import { useAuth } from "@/components/auth-provider";
-import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, Notice, PageHeader } from "@/components/ui";
+import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, LoadingButton, Notice, PageHeader, useToast } from "@/components/ui";
 
 type CompletedRun = ProfileRunSummary & { datasetName: string };
 type Severity = DriftFinding["severity"];
@@ -89,6 +89,7 @@ function FindingDetail({ finding }: { finding: DriftFinding }) {
 
 export function CompareWorkspace() {
   const { workspaceId } = useAuth();
+  const toast = useToast();
   const [baselineId, setBaselineId] = useState("");
   const [currentId, setCurrentId] = useState("");
   const [result, setResult] = useState<DriftResponse | null>(null);
@@ -128,6 +129,7 @@ export function CompareWorkspace() {
     onSuccess: (nextResult) => {
       const firstColumn = groupFindings(nextResult.findings)[0]?.name ?? null;
       setResult(nextResult); setSelectedColumn(firstColumn); setSearch(""); setSeverity("all");
+      toast.success(nextResult.findings.length ? "Đã hoàn tất so sánh và tổng hợp evidence." : "Đã hoàn tất: không phát hiện drift đáng chú ý.");
     },
   });
   const columns = useMemo(() => groupFindings(result?.findings ?? []), [result]);
@@ -158,7 +160,7 @@ export function CompareWorkspace() {
       <section className="panel compare-selector-panel" aria-labelledby="compare-selector-title">
         <div className="compare-selector-heading"><div><p className="eyebrow">CHỌN NGỮ CẢNH</p><h2 id="compare-selector-title">Chọn Profile Run để so sánh</h2><p>Baseline là mốc đối chiếu; Current là phiên cần kiểm tra thay đổi.</p></div><span className={canCompare ? "compare-ready" : "compare-not-ready"}>{canCompare ? "Sẵn sàng gửi yêu cầu" : "Chọn đủ hai Profile Run"}</span></div>
         <div className="compare-run-grid"><RunSelector id="compare-baseline" role="Baseline" description="Mốc dữ liệu dùng để đối chiếu." value={baselineId} runs={completedRuns} excludeRunId={currentId} disabled={comparison.isPending} onChange={selectBaseline} /><span className="compare-direction" aria-hidden="true">→</span><RunSelector id="compare-current" role="Current" description="Phiên cần kiểm tra thay đổi." value={currentId} runs={completedRuns} excludeRunId={baselineId} disabled={comparison.isPending} onChange={selectCurrent} /></div>
-        <div className="compare-selector-footer"><p>{canCompare ? "Backend sẽ kiểm tra quyền truy cập và tính evidence từ column statistics đã lưu." : "Chọn Baseline và Current khác nhau để tiếp tục."}</p><button type="button" className="button primary" disabled={!canCompare || comparison.isPending} onClick={() => comparison.mutate()}>{comparison.isPending ? "Đang phân tích drift…" : "So sánh dữ liệu"}</button></div>
+        <div className="compare-selector-footer"><p>{canCompare ? "Backend sẽ kiểm tra quyền truy cập và tính evidence từ column statistics đã lưu." : "Chọn Baseline và Current khác nhau để tiếp tục."}</p><LoadingButton type="button" className="button primary" busy={comparison.isPending} disabled={!canCompare} onClick={() => comparison.mutate()}>{comparison.isPending ? "Đang phân tích drift…" : "So sánh dữ liệu"}</LoadingButton></div>
         {comparison.isError && <ErrorNotice error={comparison.error} retry={() => comparison.mutate()} />}
       </section>
       {!result && !comparison.isPending && <section className="compare-awaiting-result" aria-live="polite"><span aria-hidden="true">↔</span><div><b>Kết quả so sánh sẽ xuất hiện tại đây</b><p>Chỉ số và severity đều do deterministic backend tính từ Profile Run đã chọn.</p></div></section>}

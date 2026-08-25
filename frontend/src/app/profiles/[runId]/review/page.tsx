@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { ApiError, confirmProposals, getProfile } from "@/lib/api";
 import { formatPercent, toTitle } from "@/lib/format";
-import { EmptyState, ErrorNotice, LoadingBlock, Notice, PageHeader, StatusBadge } from "@/components/ui";
+import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, Notice, PageHeader, ProgressSteps, StatusBadge } from "@/components/ui";
 import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
 
 type Selection = { decision: ProposalDecisionType; finalType?: string; note?: string };
@@ -170,7 +170,7 @@ export default function ReviewPage() {
         <span className="reviewer-card-icon" aria-hidden="true">✓</span>
         <div><small>REVIEWER ĐANG THỰC HIỆN</small><b>{reviewerName}</b><span>{toTitle(reviewerRole)} · Tự động ghi vào audit log</span></div>
       </div>
-      <div className="review-bulk-actions"><small>THAO TÁC HÀNG LOẠT</small><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")}>Từ chối tất cả</button></div></div>
+      <div className="review-bulk-actions"><small>THAO TÁC HÀNG LOẠT</small><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")} disabled={mutation.isPending}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")} disabled={mutation.isPending}>Từ chối tất cả</button></div></div>
     </section>
     {pending.length === 0 ? (
       <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
@@ -211,6 +211,6 @@ export default function ReviewPage() {
         })}
       </div>
     )}
-    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><button className="button primary" disabled={mutation.isPending || !completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tiếp tục pipeline…" : "Lưu quyết định & tiếp tục pipeline"}</button><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div></section>}
+    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><LoadingButton className="button primary" busy={mutation.isPending} disabled={!completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tiếp tục pipeline…" : "Lưu quyết định & tiếp tục pipeline"}</LoadingButton><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div>{mutation.isPending && <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Cập nhật profile"]} activeStep={1} detail="Backend đang tiếp tục checkpoint; bạn không cần gửi lại thao tác." />}</section>}
   </>;
 }
