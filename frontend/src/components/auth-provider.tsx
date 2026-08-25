@@ -49,6 +49,7 @@ function requiresWorkspaceBootstrap(pathname: string): boolean {
     "/reports",
     "/chat",
     "/datasets",
+    "/connectors",
     "/profiles",
     "/charts",
     "/compare",
@@ -65,6 +66,17 @@ function apiBase() {
   return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
 }
 
+function apiBaseCandidates() {
+  const candidates = [apiBase()];
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    candidates.push(`${window.location.protocol}//${host}:8000/api/v1`);
+    if (host === "localhost") candidates.push(`${window.location.protocol}//127.0.0.1:8000/api/v1`);
+    if (host === "127.0.0.1") candidates.push(`${window.location.protocol}//localhost:8000/api/v1`);
+  }
+  return [...new Set(candidates)];
+}
+
 async function readWorkspaceError(response: Response): Promise<Error> {
   try {
     const body = await response.clone().json() as { detail?: unknown };
@@ -75,18 +87,39 @@ async function readWorkspaceError(response: Response): Promise<Error> {
   return new Error("Phiên đăng nhập không có quyền truy cập workspace.");
 }
 
-async function fetchSessionResource(url: string, headers: Headers): Promise<Response> {
+async function fetchSessionResource(path: string, headers: Headers): Promise<Response> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  let lastError: unknown;
   try {
-    return await fetch(url, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
+    for (const base of apiBaseCandidates()) {
+      try {
+        return await fetch(`${base}${path}`, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
+      } catch (reason) {
+        if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
+        lastError = reason;
+      }
+    }
+    throw lastError ?? new Error("Không thể kết nối API workspace.");
   } catch (reason) {
     if (reason instanceof DOMException && reason.name === "AbortError") {
-      throw new Error("Không thể kết nối workspace trong 12 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
+      throw new Error("Không thể kết nối workspace trong 20 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
     }
     throw reason;
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+function tokenExpiresSoon(token: string, withinSeconds = 60): boolean {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return true;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))) as { exp?: unknown };
+    return typeof decoded.exp !== "number" || decoded.exp <= Math.floor(Date.now() / 1000) + withinSeconds;
+  } catch {
+    return true;
   }
 }
 
@@ -127,11 +160,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabaseAccessToken = useCallback(async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return null;
-    const { data } = await withTimeout(
+    let { data } = await withTimeout(
       client.auth.getSession(),
       12_000,
       "Supabase không trả phiên đăng nhập trong 12 giây. Hãy tải lại trang và thử lại.",
     );
+    if (data.session?.access_token && tokenExpiresSoon(data.session.access_token)) {
+      try {
+        const refreshed = await withTimeout(client.auth.refreshSession(), 8_000, "Supabase refresh timeout");
+        if (!refreshed.data.session?.access_token) return null;
+        data = refreshed.data;
+      } catch {
+        return null;
+      }
+    }
     return data.session?.access_token ?? null;
   }, []);
 
@@ -230,7 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? requestedWorkspace ?? window.localStorage.getItem("p170-workspace-id")
           : null;
         if (saved) headers.set("X-Workspace-Id", saved);
-        let response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+        let response = await fetchSessionResource("/workspace-bootstrap", headers);
         // Supabase can return a locally cached token that has just expired.
         // Refresh it once at the auth boundary, then let the normal error
         // state handle a genuinely invalid or revoked session.
@@ -239,7 +281,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (refreshed && refreshed !== supabaseToken) {
             tokenForRequest = refreshed;
             headers.set("Authorization", `Bearer ${tokenForRequest}`);
-            response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+            response = await fetchSessionResource("/workspace-bootstrap", headers);
           }
         }
         // A workspace id is persisted for convenience, but it may belong to a
@@ -247,7 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // treating the session as unauthorized.
         if (!response.ok && response.status === 404 && saved) {
           headers.delete("X-Workspace-Id");
-          response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+          response = await fetchSessionResource("/workspace-bootstrap", headers);
         }
         // Supabase Auth users can exist without an application workspace when
         // they were created from the Supabase dashboard or an older signup
@@ -269,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers.set("Authorization", `Bearer ${tokenForRequest}`);
           await provisionSelfSignup(role, tokenForProvision);
           if (sequence !== loadSequence.current) return false;
-          response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+          response = await fetchSessionResource("/workspace-bootstrap", headers);
         }
         // A guest can change role while this request is in flight. Ignore the
         // old response instead of allowing it to replace the newer workspace.
