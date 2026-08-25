@@ -11,6 +11,7 @@ export const routeAccess: Array<{ prefix: string; permission: Permission }> = [
   { prefix: "/profiles", permission: PERMISSIONS.profileRead },
   { prefix: "/charts", permission: PERMISSIONS.profileRead },
   { prefix: "/compare", permission: PERMISSIONS.driftRun },
+  { prefix: '/calendar', permission: PERMISSIONS.calendarRead },
 ];
 
 export function requiredPermissionForPath(pathname: string): Permission | undefined {

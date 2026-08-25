@@ -227,6 +227,28 @@ google_drive_oauth_states = Table(
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
 )
 
+google_calendar_connections = Table(
+    'google_calendar_connections',
+    metadata,
+    Column('workspace_id', String(36), ForeignKey('workspaces.id'), primary_key=True),
+    Column('user_id', String(36), primary_key=True),
+    Column('calendar_id', String(255), nullable=False, default='primary'),
+    Column('encrypted_refresh_token', Text, nullable=False),
+    Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
+    Column('updated_at', DateTime(timezone=True), default=_now, nullable=False),
+)
+
+google_calendar_oauth_states = Table(
+    'google_calendar_oauth_states',
+    metadata,
+    Column('id', String(64), primary_key=True),
+    Column('workspace_id', String(36), ForeignKey('workspaces.id'), nullable=False, index=True),
+    Column('user_id', String(36), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=False),
+    Column('used_at', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
+)
+
 datasets = Table(
     "datasets",
     metadata,
@@ -3147,6 +3169,111 @@ class Repository:
             result = conn.execute(
                 google_drive_connections.delete().where(
                     google_drive_connections.c.workspace_id == workspace_id
+                )
+            )
+            return bool(result.rowcount)
+
+    # --- Google Calendar connections ----------------------------------- #
+    def create_google_calendar_oauth_state(
+        self, state_id: str, workspace_id: str, user_id: str, expires_at: datetime
+    ) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(
+                google_calendar_oauth_states.insert().values(
+                    id=state_id,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    expires_at=expires_at,
+                    created_at=_now(),
+                )
+            )
+
+    def consume_google_calendar_oauth_state(self, state_id: str) -> dict[str, Any] | None:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(google_calendar_oauth_states)
+                    .where(
+                        google_calendar_oauth_states.c.id == state_id,
+                        google_calendar_oauth_states.c.used_at.is_(None),
+                        google_calendar_oauth_states.c.expires_at > now,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
+            )
+            if not row:
+                return None
+            conn.execute(
+                google_calendar_oauth_states.update()
+                .where(google_calendar_oauth_states.c.id == state_id)
+                .values(used_at=now)
+            )
+            return dict(row)
+
+    def save_google_calendar_connection(
+        self,
+        workspace_id: str,
+        user_id: str,
+        calendar_id: str,
+        encrypted_refresh_token: str,
+    ) -> None:
+        now = _now()
+        with self.engine.begin() as conn:
+            existing = conn.execute(
+                select(google_calendar_connections.c.workspace_id).where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
+                )
+            ).first()
+            values = {
+                'calendar_id': calendar_id,
+                'encrypted_refresh_token': encrypted_refresh_token,
+                'updated_at': now,
+            }
+            if existing:
+                conn.execute(
+                    google_calendar_connections.update()
+                    .where(
+                        google_calendar_connections.c.workspace_id == workspace_id,
+                        google_calendar_connections.c.user_id == user_id,
+                    )
+                    .values(**values)
+                )
+            else:
+                conn.execute(
+                    google_calendar_connections.insert().values(
+                        workspace_id=workspace_id,
+                        user_id=user_id,
+                        created_at=now,
+                        **values,
+                    )
+                )
+
+    def get_google_calendar_connection(
+        self, workspace_id: str, user_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = (
+                conn.execute(
+                    select(google_calendar_connections).where(
+                        google_calendar_connections.c.workspace_id == workspace_id,
+                        google_calendar_connections.c.user_id == user_id,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            return dict(row) if row else None
+
+    def delete_google_calendar_connection(self, workspace_id: str, user_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                google_calendar_connections.delete().where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
                 )
             )
             return bool(result.rowcount)

@@ -55,6 +55,7 @@ function requiresWorkspaceBootstrap(pathname: string): boolean {
     "/activity",
     "/account",
     "/settings",
+    "/admin",
   ].some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 

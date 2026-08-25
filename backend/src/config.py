@@ -332,6 +332,17 @@ class Settings(BaseSettings):
     google_drive_frontend_url: str = "http://localhost:3000"
     google_drive_oauth_state_ttl_seconds: int = Field(default=600, ge=60, le=1800)
     google_drive_chunk_mb: int = Field(default=8, ge=1, le=64)
+    google_calendar_client_id: str = ''
+    google_calendar_client_secret: str = ''
+    google_calendar_redirect_uri: str = (
+        'http://localhost:8000/api/v1/calendar/callback'
+    )
+    google_calendar_token_encryption_key: str = ''
+    google_calendar_frontend_url: str = 'http://localhost:3000'
+    google_calendar_default_id: str = 'primary'
+    google_calendar_timezone: str = 'Asia/Bangkok'
+    google_calendar_oauth_state_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+    google_calendar_max_events: int = Field(default=50, ge=1, le=100)
     database_url: str = ""
     database_migration_url: str = ""
     database_checkpointer_url: str = ""
@@ -452,6 +463,15 @@ class Settings(BaseSettings):
             and self.google_drive_redirect_uri
             and self.google_drive_folder_id
             and self.google_drive_token_encryption_key
+        )
+
+    @property
+    def google_calendar_configured(self) -> bool:
+        return bool(
+            self.google_calendar_client_id
+            and self.google_calendar_client_secret
+            and self.google_calendar_redirect_uri
+            and self.google_calendar_token_encryption_key
         )
 
     @property

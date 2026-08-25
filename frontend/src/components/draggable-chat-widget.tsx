@@ -136,6 +136,13 @@ export function DraggableChatWidget({
     }
   }, [profileRunGroups, selectedDatasetId, selectedRunId]);
 
+  // Auto-select the first available run if none is selected
+  useEffect(() => {
+    if (!selectedRunId && profileRunGroups.length > 0 && profileRunGroups[0].runs.length > 0) {
+      setSelectedRunId(profileRunGroups[0].runs[0].id);
+    }
+  }, [profileRunGroups, selectedRunId]);
+
   // Initialize position to bottom right
   useEffect(() => {
     const saved = localStorage.getItem("p170_chat_widget_pos");
@@ -695,7 +702,7 @@ export function DraggableChatWidget({
                     fontSize: "0.78rem",
                   }}
                 >
-                  <option value="">{profileRunsLoading ? "Đang tải Profile Run…" : "Chọn Profile Run đã hoàn tất…"}</option>
+                  {profileRunsLoading && <option value="">Đang tải Profile Run…</option>}
                   {profileRunGroups.map((group) => (
                     <optgroup key={group.dataset.id} label={group.dataset.name}>
                       {group.runs.map((run) => <option key={run.id} value={run.id}>{profileRunOptionLabel(run)}</option>)}

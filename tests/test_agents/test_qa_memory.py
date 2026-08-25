@@ -20,6 +20,27 @@ def test_qa_remembers_name_from_recent_conversation() -> None:
     assert "Hiếu" in routed["answer"]
 
 
+def test_qa_remembers_name_from_plain_self_introduction() -> None:
+    history = [
+        {'role': 'user', 'text': 'tôi là Hiếu'},
+        {'role': 'agent', 'text': 'Rất vui được làm quen!'},
+    ]
+    state = initial_qa_state('bạn biết mình tên gì không', history=history)
+
+    assert _remembered_name(state) == 'Hiếu'
+    routed = qa_router_node(state)
+    assert 'Hiếu' in routed['answer']
+
+
+def test_qa_remembers_name_from_unaccented_recall_question() -> None:
+    history = [{'role': 'user', 'text': 'tôi là Hiếu'}]
+    state = initial_qa_state('ban biet minh ten gi khong', history=history)
+
+    routed = qa_router_node(state)
+
+    assert 'Hiếu' in routed['answer']
+
+
 def test_qa_resolves_vague_reference_from_history() -> None:
     history = [
         {"role": "user", "text": "cột revenue có bao nhiêu dòng null?"},

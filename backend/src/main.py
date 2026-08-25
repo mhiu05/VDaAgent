@@ -11,6 +11,7 @@ ngôn ngữ tự nhiên.
 
 from __future__ import annotations
 
+from src.api.calendar_routes import router as calendar_router
 import logging
 import re
 import time
@@ -98,6 +99,7 @@ def _request_correlation_id(request: Request) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
+    app.include_router(calendar_router, prefix='/api/v1')
     """Khởi tạo DB và báo phần cấu hình còn thiếu.
 
     Production intentionally has no local persistence bootstrap: datasets,

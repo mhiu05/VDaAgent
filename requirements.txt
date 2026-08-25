@@ -49,6 +49,7 @@ supabase>=2.15.0                     # Supabase Storage backend-only client
 google-api-python-client>=2.170.0    # Google Drive resumable upload/download
 google-auth-oauthlib>=1.2.1          # Google OAuth web-server flow
 google-auth-httplib2>=0.2.0          # Google API HTTP transport
+cryptography>=43.0.0                 # Fernet encryption for OAuth refresh tokens
 PyJWT[crypto]>=2.10.0                 # asymmetric Supabase JWT/JWKS verification
 
 # --- Retrieval (nhánh QA định tính) ---

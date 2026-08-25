@@ -20,6 +20,15 @@ class WorkspaceContext:
 
 
 @dataclass(frozen=True, slots=True)
+class SystemContext:
+    user_id: str
+    email: str
+    role: str
+    effective_permissions: frozenset[str]
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
 class RequestContext:
     actor: AuthContext
     workspace: WorkspaceContext
@@ -134,11 +143,54 @@ def require_permission(permission: str) -> Callable[..., RequestContext]:
     return dependency
 
 
+async def get_system_context(
+    user: Annotated[AuthContext, Depends(get_current_user)],
+) -> SystemContext:
+    repo = get_repository()
+    
+    if repo.is_user_locked(user.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa bởi Quản trị viên hệ thống. Vui lòng liên hệ quản trị để được hỗ trợ mở khóa.",
+        )
+
+    profile = repo.get_user_profile(user.user_id)
+    role = canonical_role(str(profile.get("role", "analyst"))) if profile else "analyst"
+    account_status = str(profile.get("status", "active")) if profile else "active"
+    
+    return SystemContext(
+        user_id=user.user_id,
+        email=user.email,
+        role=role,
+        effective_permissions=permissions_for_role(role),
+        status=account_status,
+    )
+
+
+def require_system_permission(permission: str) -> Callable[..., SystemContext]:
+    """Create a reusable FastAPI dependency for system capabilities, independent of workspaces."""
+    
+    async def dependency(
+        context: Annotated[SystemContext, Depends(get_system_context)],
+    ) -> SystemContext:
+        if permission not in context.effective_permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "insufficient_permission", "permission": permission},
+            )
+        return context
+
+    return dependency
+
+
 __all__ = [
     "RequestContext",
+    "SystemContext",
     "WorkspaceContext",
     "get_current_user",
     "get_current_workspace",
     "get_request_context",
+    "get_system_context",
     "require_permission",
+    "require_system_permission",
 ]

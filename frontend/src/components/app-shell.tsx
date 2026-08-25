@@ -13,6 +13,7 @@ import { InfoTip } from "@/components/ui";
 import { DraggableChatWidget } from "@/components/draggable-chat-widget";
 
 function SidebarIcon({ name }: { name: string }) {
+  if (name === '/calendar') return <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'><rect x='3' y='5' width='18' height='16' rx='2' /><path d='M16 3v4M8 3v4M3 10h18' /><path d='M8 14h3M8 17h5' /></svg>;
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
   if (name === "home") return <svg {...common}><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>;
   if (name === "logout") return <svg {...common}><path d="M10 5H5v14h5" /><path d="m14 8 4 4-4 4" /><path d="M18 12H9" /></svg>;
@@ -38,6 +39,7 @@ const adminNavigation = [
 ] as const;
 
 const analystNavigation = [
+  { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
   { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
   { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
   { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
