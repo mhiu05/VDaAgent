@@ -27,7 +27,11 @@ function statusClass(status: string): string {
 export default function ReportsPage() {
   const { me } = useAuth();
   const client = useQueryClient();
-  const reports = useQuery({ queryKey: ["published-reports"], queryFn: () => listPublishedReports<{ reports: Report[] }>() });
+  const reports = useQuery({
+    queryKey: ["published-reports"],
+    queryFn: () => listPublishedReports<{ reports: Report[] }>(),
+    staleTime: 60_000,
+  });
   const deletion = useMutation({
     mutationFn: deleteReport,
     onSuccess: async () => { await client.invalidateQueries({ queryKey: ["published-reports"] }); },

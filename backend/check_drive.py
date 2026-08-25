@@ -1,6 +1,8 @@
-import os
+"""Manual smoke check for materialising a persisted dataset source."""
+# ruff: noqa: E402
+
 import sys
-from pathlib import Path
+
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 
@@ -8,7 +10,6 @@ sys.path.insert(0, r"d:\VinUIniAi\DataProfiling\P-170\backend")
 load_dotenv(r"d:\VinUIniAi\DataProfiling\P-170\.env")
 
 from src.services.repository import get_repository
-from src.services.google_drive import GoogleDriveStorage
 from src.config import get_settings
 
 repo = get_repository()

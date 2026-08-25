@@ -8,6 +8,7 @@ metadata database.
 from __future__ import annotations
 
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -89,7 +90,11 @@ class GoogleDriveOAuth:
         url, _ = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
-            prompt="consent",
+            # Ask Google to show the account chooser even when the browser
+            # already has an active Google session.  ``prompt`` accepts a
+            # space-separated list of values, so the user can deliberately
+            # choose the Drive account before granting consent.
+            prompt="select_account consent",
             state=state,
         )
         return url
@@ -233,16 +238,36 @@ class GoogleDriveStorage:
         except ImportError as exc:  # pragma: no cover
             raise GoogleDriveNotConfiguredError("Thiếu google-api-python-client.") from exc
         service, _ = self._service(workspace_id)
-        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-        with target.open("wb") as handle:
-            downloader = MediaIoBaseDownload(
-                handle,
-                request,
-                chunksize=self.settings.google_drive_chunk_mb * 1024 * 1024,
-            )
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
+        # Drive's resumable download can fail transiently with a 5xx/429 or a
+        # dropped connection. Retry only those cases; auth/permission errors
+        # must surface immediately so the worker can report a useful source
+        # error instead of spinning on a permanent failure.
+        for attempt in range(3):
+            try:
+                request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+                with target.open("wb") as handle:
+                    downloader = MediaIoBaseDownload(
+                        handle,
+                        request,
+                        chunksize=self.settings.google_drive_chunk_mb * 1024 * 1024,
+                    )
+                    done = False
+                    while not done:
+                        _, done = downloader.next_chunk()
+                return
+            except Exception as exc:
+                response = getattr(exc, "resp", None)
+                status_code = getattr(response, "status", None)
+                retryable = status_code in {408, 425, 429} or (
+                    isinstance(status_code, int) and status_code >= 500
+                ) or exc.__class__.__name__ in {
+                    "ConnectionError",
+                    "TimeoutError",
+                    "ReadTimeout",
+                }
+                if not retryable or attempt == 2:
+                    raise
+                time.sleep(2**attempt)
 
     def remove(self, workspace_id: str, file_id: str) -> None:
         service, _ = self._service(workspace_id)

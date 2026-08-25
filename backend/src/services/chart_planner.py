@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 # pyrefly: ignore [missing-import]
 from pydantic import BaseModel, Field
+# pyrefly: ignore [missing-import]
 from src.services.forecasting import (
     CAPABILITIES,
     ForecastAlgorithm,
@@ -109,6 +110,7 @@ RENDERER_FOR_CHART = {
 
 
 def _plain(value: str) -> str:
+    value = value.replace("đ", "d").replace("Đ", "d")
     value = unicodedata.normalize("NFD", value.casefold())
     value = "".join(char for char in value if unicodedata.category(char) != "Mn")
     return re.sub(r"[^a-z0-9]+", " ", value).strip()
@@ -118,20 +120,111 @@ def _mentions(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _tokenize_name(name: str) -> set[str]:
+    """Extract lowercase alphanumeric word tokens from a column name or string."""
+    plain = _plain(name)
+    tokens = set(plain.split())
+    stop_words = {"of", "the", "a", "an", "in", "on", "at", "to", "for", "and", "or", "by", "is", "it", "va", "cua", "theo", "cac", "tung", "moi", "nhom"}
+    return {t for t in tokens if len(t) > 1 and t not in stop_words}
+
+
 COLUMN_SYNONYMS: dict[str, tuple[str, ...]] = {
-    "gia": ("price", "cost", "amount", "salary", "fee", "rate", "revenue", "val", "spend"),
+    # Lương / Thu nhập / Thù lao
+    "luong": ("salary", "salary_estimate", "avg_salary", "min_salary", "max_salary", "wage", "compensation", "income", "pay", "earning", "rate", "remuneration"),
+    "muc luong": ("salary", "salary_estimate", "avg_salary", "wage", "income", "pay"),
+    "thu nhap": ("income", "salary", "wage", "earnings", "revenue", "compensation"),
+    "thu lao": ("compensation", "salary", "fee", "pay"),
+    # Giá cả / Chi phí / Tiền tệ
+    "gia": ("price", "cost", "amount", "fee", "rate", "revenue", "val", "spend", "expense", "salary"),
+    "gia ca": ("price", "cost", "amount", "fee"),
+    "chi phi": ("cost", "expense", "spend", "expenditure", "fee", "price"),
+    "gia tien": ("price", "amount", "cost", "total"),
+    "tien": ("money", "amount", "cash", "price", "cost", "salary", "revenue"),
     "price": ("price", "cost", "amount", "fee"),
-    "so luong": ("quantity", "qty", "volume", "count", "num", "units", "sl"),
+    # Doanh thu / Doanh số / Lợi nhuận
+    "doanh thu": ("revenue", "sales", "turnover", "income", "gross_revenue", "total_revenue"),
+    "doanh so": ("sales", "revenue", "volume", "units_sold", "turnover"),
+    "ban hang": ("sales", "sell", "order", "revenue"),
+    "loi nhuan": ("profit", "margin", "gain", "net_profit", "ebitda"),
+    # Đánh giá / Điểm số / Xếp hạng
+    "danh gia": ("rating", "score", "rank", "diem", "eval", "review", "stars", "feedback"),
+    "diem": ("rating", "score", "point", "rank", "grade", "diem"),
+    "diem so": ("score", "rating", "point", "grade"),
+    "diem danh gia": ("rating", "score", "review_rating"),
+    "sao": ("stars", "rating", "score"),
+    # Số lượng / Đếm / Tần suất
+    "so luong": ("quantity", "qty", "volume", "count", "num", "units", "sl", "total", "amount"),
+    "so": ("count", "number", "num", "quantity", "amount", "total"),
+    "tong so": ("total", "sum", "count", "aggregate", "amount"),
     "quantity": ("quantity", "qty", "volume", "count", "num"),
+    # Ngành nghề / Lĩnh vực
+    "nganh": ("industry", "sector", "category", "field", "domain", "discipline"),
+    "nganh nghe": ("industry", "sector", "occupation", "job", "career"),
+    "nganh cong nghiep": ("industry", "sector", "manufacturing"),
+    "linh vuc": ("sector", "industry", "field", "domain", "area"),
     "danh muc": ("category", "cat", "type", "genre", "group", "class", "industry", "sector"),
-    "nganh": ("industry", "sector", "category", "field", "domain"),
-    "kho": ("warehouse", "store", "location", "facility", "site", "depot"),
-    "vi tri": ("location", "aisle", "shelf", "bin", "site", "place"),
-    "nha cung cap": ("supplier", "vendor", "provider", "distributor"),
-    "trang thai": ("status", "state", "condition", "stage"),
-    "danh gia": ("rating", "score", "rank", "diem", "eval"),
+    # Công việc / Chức danh / Vị trí
+    "cong viec": ("job", "job_title", "title", "role", "position", "occupation", "career"),
+    "vi tri cong viec": ("job_title", "job", "title", "role", "position"),
+    "chuc danh": ("title", "job_title", "role", "position", "designation"),
+    "chuc vu": ("role", "title", "position", "job_title", "job"),
+    "nghe nghiep": ("occupation", "job", "career", "profession", "title"),
+    "tin tuyen dung": ("job", "job_title", "title", "posting", "opening", "listing"),
+    "tuyen dung": ("recruitment", "hiring", "job", "opening", "posting"),
+    # Công ty / Doanh nghiệp / Tổ chức
+    "cong ty": ("company", "company_name", "employer", "firm", "corp", "enterprise", "business", "org"),
+    "ten cong ty": ("company_name", "company", "employer", "business_name"),
+    "doanh nghiep": ("company", "enterprise", "business", "firm", "corp"),
+    "nha tuyen dung": ("employer", "company", "company_name", "recruiter"),
+    "to chuc": ("organization", "org", "company", "institution"),
+    # Loại hình / Sở hữu / Cơ cấu
+    "loai hinh": ("type", "type_of_ownership", "ownership", "kind", "category", "class"),
+    "loai hinh cong ty": ("type_of_ownership", "ownership", "company_type", "type"),
+    "loai hinh so huu": ("type_of_ownership", "ownership", "owner_type"),
+    "so huu": ("ownership", "type_of_ownership", "owner", "holder"),
+    "chu so huu": ("owner", "ownership", "type_of_ownership"),
+    "hinh thuc": ("type", "form", "mode", "category", "ownership"),
+    "loai": ("type", "kind", "class", "category", "genre"),
+    # Địa điểm / Khu vực / Vị trí địa lý
+    "dia diem": ("location", "city", "state", "region", "address", "site", "place", "headquarters", "hq"),
+    "noi lam viec": ("location", "workplace", "site", "office"),
+    "thanh pho": ("city", "location", "town", "metro", "municipality"),
+    "tinh thanh": ("state", "province", "city", "region", "location"),
+    "khu vuc": ("region", "area", "zone", "location", "district"),
+    "tru so": ("headquarters", "hq", "location", "main_office"),
+    "tru so chinh": ("headquarters", "hq", "location"),
+    "vi tri": ("location", "position", "site", "place", "job_title", "role"),
+    "quoc gia": ("country", "nation", "nationality"),
+    # Quy mô / Kích thước / Nhân sự
+    "quy mo": ("size", "scale", "headcount", "employees", "staff", "company_size"),
+    "kich thuoc": ("size", "dimension", "scale"),
+    "nhan su": ("employees", "staff", "headcount", "size", "workforce"),
+    "nhan vien": ("employees", "staff", "headcount", "size", "workers"),
+    # Năm thành lập / Tuổi / Thời gian
+    "nam thanh lap": ("founded", "year_founded", "established", "year"),
+    "thanh lap": ("founded", "year_founded", "established", "creation"),
+    "tuoi": ("age", "founded", "tenure", "years"),
+    "do tuoi": ("age", "age_group"),
+    "kinh nghiem": ("experience", "years_experience", "seniority", "tenure"),
+    "so nam kinh nghiem": ("years_experience", "experience", "seniority"),
+    "tham nien": ("seniority", "tenure", "experience", "years"),
+    # Thời gian / Ngày tháng
+    "ngay": ("date", "time", "day", "created_at", "updated_at", "timestamp", "order_date"),
+    "thang": ("month", "date", "time", "period"),
+    "quy": ("quarter", "date", "period"),
+    "nam": ("year", "founded", "date", "period"),
+    "thoi gian": ("date", "time", "timestamp", "created_at", "period", "duration"),
+    # Đối thủ / Khách hàng / Sản phẩm / Kho
+    "doi thu": ("competitors", "rivals", "competition"),
+    "doi thu canh tranh": ("competitors", "rivals"),
+    "khach hang": ("customer", "client", "buyer", "user", "consumer", "account"),
     "san pham": ("product", "item", "goods", "sku", "title", "name"),
-    "ngay": ("date", "time", "restocked", "created", "updated", "timestamp", "year"),
+    "don hang": ("order", "invoice", "transaction", "purchase"),
+    "kho": ("warehouse", "store", "location", "facility", "site", "depot"),
+    "trang thai": ("status", "state", "condition", "stage"),
+    "ky nang": ("skill", "skills", "competency", "tools", "tech_stack"),
+    "mo ta": ("description", "desc", "job_description", "summary", "detail"),
+    "mo ta cong viec": ("job_description", "description", "details"),
 }
 
 
@@ -139,19 +232,64 @@ def _best_column(question: str, columns: list[str], preferred: tuple[str, ...] =
     if not columns:
         return None
     intent = _plain(question)
-    directly_named = [column for column in columns if _plain(column) in intent]
-    if directly_named:
-        return directly_named[0]
-    for key, tokens in COLUMN_SYNONYMS.items():
-        if key in intent:
-            for token in tokens:
-                for column in columns:
-                    if token in _plain(column):
-                        return column
+    intent_tokens = _tokenize_name(intent)
+
+    best_match: str | None = None
+    best_score = -1
+
+    for column in columns:
+        col_plain = _plain(column)
+        col_tokens = _tokenize_name(col_plain)
+        score = 0
+
+        # Exact full column match
+        if col_plain == intent:
+            score = 120
+        # Substring in question
+        elif col_plain in intent:
+            score = 100
+        else:
+            # Multi-word or single-word synonym matches
+            for key, tokens in COLUMN_SYNONYMS.items():
+                is_matched = False
+                key_plain = _plain(key)
+                if " " in key_plain:
+                    if key_plain in intent:
+                        is_matched = True
+                else:
+                    if key_plain in intent_tokens or key_plain in intent.split():
+                        is_matched = True
+
+                if is_matched:
+                    for token in tokens:
+                        if token in col_plain or any(token == ct for ct in col_tokens):
+                            weight = 85 if " " in key_plain else 65
+                            score = max(score, weight)
+                            break
+
+            # Token overlap between column name and question
+            if col_tokens and (col_tokens & intent_tokens):
+                overlap = len(col_tokens & intent_tokens)
+                score = max(score, 55 + overlap * 10)
+
+            # Preferred fallback keywords
+            for token in preferred:
+                if token in col_plain:
+                    score = max(score, 30)
+
+        if score > best_score:
+            best_score = score
+            best_match = column
+
+    if best_match and best_score > 0:
+        return best_match
+
+    # Fallback to preferred tokens
     for token in preferred:
         for column in columns:
             if token in _plain(column):
                 return column
+
     return columns[0]
 
 
@@ -159,9 +297,9 @@ def _best_dimension(question: str, dimensions: list[str]) -> str | None:
     if not dimensions:
         return None
     text = _plain(question)
-    match = re.search(r"(?:theo|theo tung|theo cac|giua cac|giua|theo moi|theo nhom|cac|tung)\s+([^,.;]+)", text)
+    match = re.search(r"(?:top\s*\d*|xep hang|danh sach|so sanh|theo|theo tung|theo cac|giua cac|giua|theo moi|theo nhom|phan theo|nhom theo|cua cac|cua moi|cho cac|cho tung|cac|tung)\s+([^,.;]+)", text)
     if match:
-        target = match.group(1)
+        target = match.group(1).strip()
         found = _best_column(target, dimensions)
         if found:
             return found
@@ -245,17 +383,19 @@ def _fallback_candidate(
     )
     if times and _mentions(text, explicit_forecast):
         problem: ProblemType = "forecast"
-    elif times and _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time")):
+    elif times and _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time", "lich su", "timeline")):
         problem: ProblemType = "trend"
-    elif _mentions(text, ("missing", "null", "thieu du lieu", "du lieu thieu", "cardinality", "unique", "trung lap", "outlier chart", "ty le outlier", "outlier theo cot", "missing_bar", "missing_heatmap")):
+    elif _mentions(text, ("missing", "null", "thieu du lieu", "du lieu thieu", "cardinality", "unique", "trung lap", "outlier chart", "ty le outlier", "outlier theo cot", "missing_bar", "missing_heatmap", "chat luong")):
         problem = "quality"
-    elif _mentions(text, ("phan phoi", "histogram", "tan suat", "box plot", "violin", "outlier", "ngoai le", "boxplot")):
+    elif _mentions(text, ("ty trong", "co cau", "thanh phan", "chiem bao nhieu", "pie", "donut", "phan tram", "ty le phan tram", "share", "proportion", "breakdown")):
+        problem = "composition"
+    elif _mentions(text, ("phan phoi", "phan bo", "histogram", "tan suat", "box plot", "violin", "outlier", "ngoai le", "boxplot", "do lech", "khoang gia tri")):
         problem = "distribution"
-    elif _mentions(text, ("tuong quan", "moi quan he", "relationship", "correlation", "scatter", "heatmap")):
+    elif _mentions(text, ("tuong quan", "moi quan he", "quan he", "lien he", "anh huong", "relationship", "correlation", "scatter", "heatmap", "ma tran")):
         problem = "relationship"
-    elif _mentions(text, ("top ", "cao nhat", "thap nhat", "xep hang", "ranking", "bar chart", "bieu do cot", "cot")):
+    elif _mentions(text, ("top ", "cao nhat", "thap nhat", "nhieu nhat", "it nhat", "dan dau", "xep hang", "ranking", "leaderboard", "hang dau", "bar chart", "bieu do cot", "cot")):
         problem = "ranking"
-    elif not dimensions or _mentions(text, ("tong cong", "kpi", "toan bo", "kpi card")):
+    elif not dimensions or _mentions(text, ("tong cong", "kpi", "toan bo", "kpi card", "tong quat")):
         problem = "summary"
     else:
         problem = "compare"
@@ -263,9 +403,9 @@ def _fallback_candidate(
     measure = _best_column(
         question,
         measures,
-        ("price", "revenue", "sales", "amount", "total", "doanh thu", "doanh so", "value", "rating", "cost", "salary"),
+        ("price", "revenue", "sales", "amount", "total", "doanh thu", "doanh so", "value", "rating", "cost", "salary", "score", "income", "compensation"),
     )
-    if not measure and _mentions(text, ("gia", "price", "cost", "fee", "luong", "salary")):
+    if not measure and _mentions(text, ("gia", "price", "cost", "fee", "luong", "salary", "rating", "score", "income", "thu nhap")):
         numeric_candidates = [
             c for c in list(column_stats.keys())
             if c in measures or any(token in str((column_stats.get(c) or {}).get("dtype", "")).casefold() for token in ("float", "double", "int", "numeric", "decimal"))
@@ -279,7 +419,7 @@ def _fallback_candidate(
         aggregate = "mean"
     elif _mentions(text, ("trung vi", "median")) and measure:
         aggregate = "median"
-    elif _mentions(text, ("so luong", "bao nhieu", "count", "dem")):
+    elif _mentions(text, ("so luong", "bao nhieu", "count", "dem", "tong so")):
         aggregate = "count"
 
     x_column: str | None = dimension
@@ -289,6 +429,7 @@ def _fallback_candidate(
     algorithm: AnalysisMethod = aggregate
     forecast_horizon = 12
     season_length = 12
+
     if problem == "forecast":
         horizon_match = re.search(r"\b(\d{1,2})\s*(?:ky|ngay|tuan|thang|quy|nam|period|day|week|month|quarter|year)", text)
         forecast_horizon = min(max(int(horizon_match.group(1)), 1), 60) if horizon_match else 12
@@ -308,9 +449,13 @@ def _fallback_candidate(
         available = available_forecast_algorithms()
         algorithm = preferred if preferred in available else "seasonal_naive" if "seasonal_naive" in available and _mentions(text, ("mua vu", "season")) else "drift"
         x_column = time_column
-    if problem == "trend":
+    elif problem == "trend":
         x_column = time_column
         time_grain = "month" if "thang" in text or "month" in text else "quarter" if "quy" in text or "quarter" in text else "year" if "nam" in text or "year" in text else "month"
+    elif problem == "composition":
+        algorithm = "donut"
+        x_column = dimension or (dimensions[0] if dimensions else None)
+        y_column = None
     elif problem == "quality":
         if _mentions(text, ("missing heatmap", "missing value heatmap", "null heatmap", "pattern missing", "mau thieu")):
             algorithm = "missing_heatmap"
@@ -328,9 +473,9 @@ def _fallback_candidate(
             algorithm = "box"
         else:
             algorithm = "histogram"
-        has_group = _mentions(text, ("theo", "giua", "by", "per", "across"))
+        has_group = _mentions(text, ("theo", "giua", "by", "per", "across", "phan theo"))
         x_column = dimension if (algorithm in {"box", "violin"} and has_group) else None
-        y_column = measure or _best_column(question, measures) or (measures[0] if measures else None)
+        y_column = measure or (measures[0] if measures else None)
     elif problem == "relationship":
         if len(measures) >= 2 and _mentions(text, ("tuong quan", "correlation")):
             algorithm = "correlation_heatmap"
@@ -354,7 +499,7 @@ def _fallback_candidate(
             if 1 <= int((column_stats.get(name) or {}).get("cardinality") or 0) <= 8
             and name not in times
         ]
-        if len(dimensions) >= 2 and _mentions(text, ("ma tran", "matrix", "va ", "giua ", "theo ca ", "cross")):
+        if len(dimensions) >= 2 and _mentions(text, ("ma tran", "matrix", "bang cheo", "cross tab", "pivot", "2 chieu", "hai chieu")):
             problem = "relationship"
             algorithm = "heatmap"
             x_column = dimension or dimensions[0]
@@ -418,11 +563,10 @@ def build_chart_plan(
     if problem == "forecast" and not times:
         problem, algorithm = fallback.problem, fallback.algorithm
     if algorithm not in PROBLEM_ALGORITHMS[problem]:
-        salvaged_problem = next((p for p, algos in PROBLEM_ALGORITHMS.items() if algorithm in algos), None)
-        if salvaged_problem:
-            problem = salvaged_problem
-        else:
-            problem, algorithm = fallback.problem, fallback.algorithm
+        # Keep the model's declared analytical question stable.  An algorithm
+        # from another problem family is incompatible and must fall back to a
+        # deterministic plan instead of silently changing the question.
+        problem, algorithm = fallback.problem, fallback.algorithm
 
     if algorithm == "scatter" and len(measures) < 2:
         problem, algorithm = fallback.problem, fallback.algorithm
@@ -467,9 +611,14 @@ def build_chart_plan(
     if algorithm == "scatter" and y_column == x_column:
         y_column = next((item for item in measures if item != x_column), None)
     if algorithm in {"sum", "mean", "median", "histogram", "box", "scatter", "violin"} and not y_column:
-        problem, algorithm = "summary", "count"
-        x_column = y_column = second_dimension = None
-        time_grain = None
+        if measures and algorithm in {"histogram", "box", "violin", "mean", "median"}:
+            y_column = measures[0]
+        else:
+            problem, algorithm = "summary", "count"
+            x_column = y_column = second_dimension = None
+            time_grain = None
+    if problem == "composition" and not x_column and dimensions:
+        x_column = dimensions[0]
     if problem in {"trend", "forecast"} and not x_column:
         problem = "summary"
         algorithm = "sum" if y_column else "count"
@@ -489,10 +638,10 @@ def build_chart_plan(
         cardinality = column_stats[x_column].get("cardinality", 0)
 
     if problem == "composition":
-        if cardinality <= 5 and cardinality > 0:
+        if cardinality <= 10 or cardinality == 0:
             chart_type = "donut"
             algorithm = "donut"
-            rationale += f" (Hệ thống xác nhận: Dimension có {cardinality} nhóm, Pie/Donut là lý tưởng)."
+            rationale += " (Hệ thống xác nhận: Phân tích tỷ trọng thành phần ưu tiên dùng Pie/Donut)."
         else:
             chart_type = "bar"
             if algorithm == "donut":

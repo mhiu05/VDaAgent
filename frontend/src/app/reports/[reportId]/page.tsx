@@ -204,6 +204,43 @@ function EditableChartsSection({ runId, onSnapshotCreated }: { runId: string, on
   );
 }
 
+function ReportSkeletonLoader() {
+  return (
+    <main className="page" style={{ animation: "fadeIn 0.2s ease" }}>
+      <header className="report-full-header" style={{ marginBottom: "1.5rem" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ width: "160px", height: "14px", background: "#e2e8f0", borderRadius: "4px", marginBottom: "8px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "380px", height: "28px", background: "#cbd5e1", borderRadius: "6px", marginBottom: "8px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "260px", height: "16px", background: "#e2e8f0", borderRadius: "4px", animation: "pulse 1.5s infinite ease-in-out" }} />
+        </div>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <div style={{ width: "130px", height: "36px", background: "#cbd5e1", borderRadius: "6px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "120px", height: "36px", background: "#e2e8f0", borderRadius: "6px", animation: "pulse 1.5s infinite ease-in-out" }} />
+        </div>
+      </header>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="panel" style={{ padding: "1.25rem", borderRadius: "10px", background: "#ffffff" }}>
+            <div style={{ width: "80px", height: "12px", background: "#e2e8f0", borderRadius: "4px", marginBottom: "10px", animation: "pulse 1.5s infinite ease-in-out" }} />
+            <div style={{ width: "120px", height: "24px", background: "#cbd5e1", borderRadius: "4px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "1.5rem" }}>
+        <div className="panel" style={{ padding: "2rem", borderRadius: "12px", background: "#ffffff" }}>
+          <div style={{ width: "220px", height: "20px", background: "#cbd5e1", borderRadius: "4px", marginBottom: "1.5rem", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "100%", height: "16px", background: "#f1f5f9", borderRadius: "4px", marginBottom: "10px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "90%", height: "16px", background: "#f1f5f9", borderRadius: "4px", marginBottom: "10px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "75%", height: "16px", background: "#f1f5f9", borderRadius: "4px", marginBottom: "20px", animation: "pulse 1.5s infinite ease-in-out" }} />
+          <div style={{ width: "100%", height: "260px", background: "#f8fafc", borderRadius: "8px", border: "1px dashed #e2e8f0", animation: "pulse 1.5s infinite ease-in-out" }} />
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default function ReportPage() {
   const params = useParams<{ reportId: string }>();
   const [exporting, setExporting] = useState(false);
@@ -214,6 +251,8 @@ export default function ReportPage() {
   const reportQuery = useQuery({
     queryKey: ["report-export-source", params.reportId],
     queryFn: () => getReportExportSource(params.reportId),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   async function exportFullPdf(profileRunId: string) {
@@ -238,7 +277,7 @@ export default function ReportPage() {
   }
 
   if (reportQuery.isPending) {
-    return <main className="page"><div className="panel" style={{ padding: "2rem", textAlign: "center" }}><p className="muted">⏳ Đang tải báo cáo hoàn chỉnh...</p></div></main>;
+    return <ReportSkeletonLoader />;
   }
 
   if (reportQuery.isError || !reportQuery.data) {

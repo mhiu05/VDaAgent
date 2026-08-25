@@ -167,3 +167,108 @@ def test_data_formulation_transforms_and_lineage() -> None:
     hist_plan = build_chart_plan("Phân phối sales", CONTEXT, STATS)
     assert any(t["step"] == "binning" for t in hist_plan.get("transforms", []))
 
+
+GLASSDOOR_CONTEXT = {
+    "dimensions": [
+        "Job Title", "Job Description", "Company Name", "Location",
+        "Headquarters", "Size", "Type of ownership", "Industry", "Sector"
+    ],
+    "measures": ["Salary Estimate", "Rating", "Founded"],
+    "time_column": None,
+}
+GLASSDOOR_STATS = {
+    "Job Title": {"dtype": "string", "cardinality": 200},
+    "Job Description": {"dtype": "string", "cardinality": 500},
+    "Company Name": {"dtype": "string", "cardinality": 300},
+    "Location": {"dtype": "string", "cardinality": 80},
+    "Headquarters": {"dtype": "string", "cardinality": 70},
+    "Size": {"dtype": "string", "cardinality": 8},
+    "Type of ownership": {"dtype": "string", "cardinality": 5},
+    "Industry": {"dtype": "string", "cardinality": 25},
+    "Sector": {"dtype": "string", "cardinality": 15},
+    "Salary Estimate": {"dtype": "float", "mean": 105000.0, "cardinality": 150},
+    "Rating": {"dtype": "float", "mean": 3.8, "cardinality": 35},
+    "Founded": {"dtype": "int", "cardinality": 85},
+}
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_problem", "expected_chart", "expected_x", "expected_y"),
+    [
+        (
+            "So sánh số lượng tin tuyển dụng giữa các ngành công nghiệp (Industry) hàng đầu",
+            "ranking",
+            "bar",
+            "Industry",
+            None,
+        ),
+        (
+            "Phân phối điểm đánh giá Rating của các công ty",
+            "distribution",
+            "histogram",
+            None,
+            "Rating",
+        ),
+        (
+            "Tỷ trọng phân bổ loại hình công ty Type of ownership",
+            "composition",
+            "donut",
+            "Type of ownership",
+            None,
+        ),
+        (
+            "Phân phối mức lương Salary Estimate",
+            "distribution",
+            "histogram",
+            None,
+            "Salary Estimate",
+        ),
+        (
+            "Top 10 địa điểm có nhiều việc làm nhất",
+            "ranking",
+            "bar",
+            "Location",
+            None,
+        ),
+        (
+            "Mối quan hệ giữa Rating và Salary Estimate",
+            "relationship",
+            "scatter",
+            None,
+            None,
+        ),
+        (
+            "Cơ cấu loại hình sở hữu bằng biểu đồ donut",
+            "composition",
+            "donut",
+            "Type of ownership",
+            None,
+        ),
+        (
+            "So sánh mức lương trung bình theo vị trí công việc",
+            "compare",
+            "bar",
+            "Job Title",
+            "Salary Estimate",
+        ),
+    ],
+)
+def test_diverse_business_questions_match_columns_and_intents(
+    question: str,
+    expected_problem: str,
+    expected_chart: str,
+    expected_x: str | None,
+    expected_y: str | None,
+) -> None:
+    plan = build_chart_plan(question, GLASSDOOR_CONTEXT, GLASSDOOR_STATS)
+
+    assert plan["problem"] == expected_problem
+    assert plan["chart_type"] == expected_chart
+    if expected_x is not None:
+        assert plan["x_column"] == expected_x or (plan["query"]["dimensions"] and plan["query"]["dimensions"][0] == expected_x)
+    if expected_y is not None:
+        assert plan["y_column"] == expected_y or plan["query"]["column"] == expected_y or plan["query"].get("y_column") == expected_y
+    if plan["problem"] == "relationship" and plan["chart_type"] == "scatter":
+        assert {plan["query"]["x_column"], plan["query"]["y_column"]} == {"Rating", "Salary Estimate"}
+
+

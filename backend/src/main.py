@@ -27,22 +27,31 @@ from fastapi.exceptions import RequestValidationError
 
 # pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 # pyrefly: ignore [missing-import]
 from fastapi.responses import JSONResponse
 # pyrefly: ignore [missing-import]
 from sqlalchemy.exc import OperationalError
 from src.api.agent_routes import router as agent_router
+# pyrefly: ignore [missing-import]
 from src.api.analysis_routes import (
     router as analysis_router,
     profile_router as command_center_router,
 )
+# pyrefly: ignore [missing-import]
 from src.api.admin_routes import router as admin_router
+# pyrefly: ignore [missing-import]
 from src.api.authz_routes import router as authz_router
+# pyrefly: ignore [missing-import]
 from src.api.google_drive_routes import router as google_drive_router
+# pyrefly: ignore [missing-import]
 from src.api.routes import router
+# pyrefly: ignore [missing-import]
 from src.api.skill_routes import router as skill_router
+# pyrefly: ignore [missing-import]
 from src.config import get_settings
+# pyrefly: ignore [missing-import]
 from src.models.schemas import HealthResponse
 
 settings = get_settings()
@@ -117,6 +126,7 @@ async def lifespan(app: FastAPI) -> Any:
 
     # Tạo bảng ngay lúc start để request đầu tiên không phải chờ migrate.
     try:
+        # pyrefly: ignore [missing-import]
         from src.services.repository import get_repository
 
         get_repository()
@@ -158,6 +168,7 @@ async def lifespan(app: FastAPI) -> Any:
             )
         if settings.auth_mode == "supabase":
             try:
+                # pyrefly: ignore [missing-import]
                 from src.services.auth import get_jwt_verifier
 
                 keys = get_jwt_verifier(settings)._jwks_client().get_signing_keys()
@@ -197,6 +208,8 @@ app = FastAPI(
     docs_url=None if settings.app_env == "production" else "/docs",
     redoc_url=None if settings.app_env == "production" else "/redoc",
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 def _measure_payload(response: Any, perf_ctx: Any) -> None:

@@ -8,6 +8,7 @@ import type { AnswerSource, Profile } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, listConversations, updateConversationSnapshot, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
 import { profileRunOptionLabel } from "@/components/profile-run-picker";
+import { sanitizeGeneratedText } from "@/lib/generated-text";
 
 type AgentState = "ready" | "uploading" | "profiling" | "thinking" | "error";
 type ScanMode = "sample" | "full";
@@ -44,7 +45,7 @@ function renderInlineMarkdown(text: string): ReactNode {
 }
 
 function MarkdownMessage({ text, profile }: { text: string; profile: Profile | null }) {
-  const lines = text.split("\n");
+  const lines = sanitizeGeneratedText(text).split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
 
@@ -145,7 +146,24 @@ export default function ChatPage() {
   const activeConversationRef = useRef<string | null>(null);
   const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
   const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
-  const runs = useQuery({ queryKey: ["chat-runs", selectedDatasetId], queryFn: () => listRuns(selectedDatasetId), enabled: Boolean(selectedDatasetId) });
+  const datasetIsAvailable = Boolean(selectedDatasetId) && Boolean(
+    datasets.data?.some((dataset) => dataset.id === selectedDatasetId),
+  );
+  const runs = useQuery({
+    queryKey: ["chat-runs", selectedDatasetId],
+    queryFn: () => listRuns(selectedDatasetId),
+    // Conversation snapshots can outlive a deleted dataset or a workspace
+    // switch. Do not turn that stale browser state into a backend 404.
+    enabled: datasetIsAvailable,
+  });
+
+  useEffect(() => {
+    if (!datasets.isSuccess || !selectedDatasetId) return;
+    if (datasets.data.some((dataset) => dataset.id === selectedDatasetId)) return;
+    setSelectedDatasetId("");
+    setSelectedRunId("");
+    setProfile(null);
+  }, [datasets.data, datasets.isSuccess, selectedDatasetId]);
   const completedRuns = runs.data?.filter((run) => run.status === "completed") || [];
 
   function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null, savedProfileRunId?: string | null) {

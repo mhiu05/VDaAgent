@@ -38,6 +38,7 @@ from sqlalchemy import (
     or_,
     select,
 )
+from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
 # pyrefly: ignore [missing-import]
@@ -1914,16 +1915,28 @@ class Repository:
             .first()
         )
         if not profile:
-            conn.execute(
-                user_profiles.insert().values(
-                    user_id=user_id,
-                    email=normalised_email,
-                    role=effective_role,
-                    status="active",
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
+            # Auth bootstrap can be called concurrently by several frontend
+            # requests. Use a savepoint so a concurrent insert race does not
+            # abort the surrounding transaction; the winner's row is then
+            # read back normally.
+            try:
+                with conn.begin_nested():
+                    conn.execute(
+                        user_profiles.insert().values(
+                            user_id=user_id,
+                            email=normalised_email,
+                            role=effective_role,
+                            status="active",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+            except IntegrityError:
+                pass
+            if conn.execute(
+                select(user_profiles.c.user_id).where(user_profiles.c.user_id == user_id)
+            ).first() is None:
+                raise RuntimeError("Không thể tạo user profile xác thực.")
             return
         updates: dict[str, Any] = {"updated_at": now}
         if normalised_email and profile["email"] != normalised_email:
@@ -2039,9 +2052,9 @@ class Repository:
                         updated_at=now,
                     )
                 )
-            elif membership["role"] != canonical or membership["status"] != "active":
-                # A normal guest bootstrap is read-only. Only repair a
-                # membership when it was actually changed or suspended.
+            elif membership["status"] == "active" and membership["role"] != canonical:
+                # A normal guest bootstrap may normalize a stale role, but it
+                # must never reactivate a membership suspended by an admin.
                 conn.execute(
                     workspace_memberships.update()
                     .where(
@@ -2157,6 +2170,14 @@ class Repository:
             # Do this before the idempotent early return so a returning user
             # still has an email available to workspace collaborators.
             self._sync_user_profile(conn, user_id, email, now)
+            # Serialize first-workspace provisioning per user. Without this
+            # lock, two simultaneous bootstrap requests can both observe no
+            # workspace and create competing personal workspaces.
+            conn.execute(
+                select(user_profiles.c.user_id)
+                .where(user_profiles.c.user_id == user_id)
+                .with_for_update()
+            ).first()
             candidates = (
                 conn.execute(
                     select(
@@ -3353,8 +3374,47 @@ class Repository:
 
     def list_datasets(self, *, workspace_id: str) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
+            # Return the newest profile run with each dataset so clients can
+            # show queued/running/failed state without making one request per
+            # dataset. The window keeps this query correct when a dataset has
+            # several historical runs.
+            ranked_runs = (
+                select(
+                    profile_runs.c.dataset_id,
+                    profile_runs.c.id.label("latest_run_id"),
+                    profile_runs.c.status.label("latest_run_status"),
+                    profile_runs.c.job_stage.label("latest_run_stage"),
+                    profile_runs.c.created_at.label("latest_run_created_at"),
+                    profile_runs.c.error.label("latest_run_error"),
+                    func.row_number()
+                    .over(
+                        partition_by=profile_runs.c.dataset_id,
+                        order_by=(profile_runs.c.created_at.desc(), profile_runs.c.id.desc()),
+                    )
+                    .label("run_rank"),
+                )
+                .where(profile_runs.c.workspace_id == workspace_id)
+                .subquery("ranked_dataset_runs")
+            )
+            latest_runs = (
+                select(ranked_runs)
+                .where(ranked_runs.c.run_rank == 1)
+                .subquery("latest_dataset_runs")
+            )
             rows = conn.execute(
-                select(datasets)
+                select(
+                    datasets,
+                    latest_runs.c.latest_run_id,
+                    latest_runs.c.latest_run_status,
+                    latest_runs.c.latest_run_stage,
+                    latest_runs.c.latest_run_created_at,
+                    latest_runs.c.latest_run_error,
+                )
+                .select_from(
+                    datasets.outerjoin(
+                        latest_runs, latest_runs.c.dataset_id == datasets.c.id
+                    )
+                )
                 .where(datasets.c.workspace_id == workspace_id)
                 .order_by(datasets.c.created_at.desc())
             ).mappings()
@@ -5290,26 +5350,20 @@ def build_engine(settings: Settings | None = None) -> Engine:
     url = make_url(cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
         raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
-    # Supabase's session-mode pooler has a small hard client limit. Keeping an
-    # SQLAlchemy pool alive on top of that pooler makes every API/worker process
-    # reserve idle sessions and eventually produces EMAXCONNSESSION. Let the
-    # pooler own pooling for remote Supabase URLs; each request gets one short-
-    # lived connection which is returned immediately at transaction end.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
     if is_supabase_pooler:
         engine = create_engine(
             url,
             future=True,
+            connect_args={"prepare_threshold": None},
             poolclass=NullPool,
             pool_pre_ping=True,
         )
     else:
-        # Local PostgreSQL benefits from a small bounded pool. Never use
-        # SQLAlchemy defaults (5 + 10 overflow), which can consume all sessions
-        # in a small DB.
         engine = create_engine(
             url,
             future=True,
+            connect_args={"prepare_threshold": None},
             pool_pre_ping=True,
             pool_size=3,
             max_overflow=0,
@@ -5317,14 +5371,12 @@ def build_engine(settings: Settings | None = None) -> Engine:
             pool_recycle=300,
         )
 
-    # PERF-001: attach timing-only SQL hooks once per engine so request
-    # telemetry can attribute query count/time without adding any queries.
     if getattr(cfg, "perf_telemetry_enabled", True):
         try:
             from src.services.perf_telemetry import install_sql_instrumentation
 
             install_sql_instrumentation(engine)
-        except Exception:  # pragma: no cover - instrumentation must never break DB
+        except Exception:
             pass
     return engine
 

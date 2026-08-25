@@ -101,6 +101,11 @@ async function fetchWithLocalFallback(path: string, init: RequestInit): Promise<
   throw lastConnectionError;
 }
 
+/** Fetch an auth-boundary request using the same loopback fallback as API calls. */
+export function fetchApiWithLocalFallback(path: string, init: RequestInit): Promise<Response> {
+  return fetchWithLocalFallback(path, init);
+}
+
 async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   let response: Response;
   const headers = await authHeaders(init.headers);
@@ -397,7 +402,7 @@ export async function provisionSelfSignup(role: SelfSignupRole, accessToken: str
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
   try {
-    const response = await fetch(`${apiBase()}/onboarding/provision`, {
+    const response = await fetchWithLocalFallback("/onboarding/provision", {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -422,7 +427,7 @@ export async function provisionSelfSignup(role: SelfSignupRole, accessToken: str
 
 export async function cleanupGuestSession(accessToken: string): Promise<void> {
   try {
-    await fetch(`${apiBase()}/guest/session`, {
+    await fetchWithLocalFallback("/guest/session", {
       method: "DELETE",
       headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
       credentials: "include",

@@ -239,6 +239,30 @@ class ProfileService:
                 error_code="database_unavailable",
                 retryable=True,
             ) from exc
+        except (OSError, ConnectionError, TimeoutError) as exc:
+            # ``materialize_source`` wraps remote-storage failures (including
+            # Google Drive download/auth/network errors) in ``OSError``.  They
+            # are transient from the worker's point of view and must not be
+            # presented as a permanent, opaque profiling failure.  Keep the
+            # underlying exception in server logs/trace only; the UI receives
+            # a safe message and the queue retries according to max_attempts.
+            logger.warning(
+                "Profiling source unavailable job_id=%s error_type=%s",
+                run_id,
+                type(exc).__name__,
+            )
+            fail_agent_run(
+                agent_run_id,
+                workspace_id=workspace_id,
+                error=exc,
+                error_code="source_unavailable",
+            )
+            raise ProfileError(
+                "Không thể đọc dataset từ storage. Hãy kiểm tra kết nối Google Drive rồi chạy lại.",
+                502,
+                error_code="source_unavailable",
+                retryable=True,
+            ) from exc
         except Exception as exc:
             logger.exception("Profiling job failed job_id=%s", run_id)
             fail_agent_run(agent_run_id, workspace_id=workspace_id, error=exc)

@@ -17,7 +17,8 @@ vi.mock("next/image", () => ({ default: ({ alt }: { alt?: string }) => <span ari
 vi.mock("react-markdown", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/api", () => api);
 vi.mock("@/lib/chat-history", () => ({
-  createConversation: vi.fn(),
+  createConversation: vi.fn((title = "Cuộc trò chuyện mới") => ({ id: "conv-test", title, createdAt: "2026-08-25T00:00:00Z", updatedAt: "2026-08-25T00:00:00Z", hasUploadedData: false })),
+  getConversation: vi.fn(),
   getConversationSnapshot: vi.fn(),
   updateConversationSnapshot: vi.fn(),
   listConversations: vi.fn(() => []),

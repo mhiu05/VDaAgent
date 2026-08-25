@@ -1,7 +1,8 @@
 "use client";
 
 import { MarkdownContent, normalizeMarkdownText } from "@/components/markdown";
-import { EmptyState, ErrorNotice, Notice } from "@/components/ui";
+import { EmptyState, ErrorNotice, LoadingBlock, Notice } from "@/components/ui";
+import { sanitizeGeneratedText } from "@/lib/generated-text";
 import type { AnalysisExecution, AutoChartPlan, ChartRenderer, ChartSpec, ChartType, ForecastAlgorithm, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 import {
   autoPlanChart,
@@ -325,11 +326,31 @@ function generatedReady(chart: ChartDraft): boolean {
     && chart.renderer
     && chart.generated
     && chart.insight
+    && chart.insight_reviewed
     && !chart.pinned
   );
 }
 
-function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, enabled, onChange, onRemove, onGenerate, onExplain, onPin }: {
+/**
+ * "Official" only means that the aggregate query was re-run against the
+ * current dataset.  Keep that evidence state separate from the user-facing
+ * completion state, because the AI explanation is a second asynchronous step.
+ */
+function chartCompletionState(chart: ChartDraft): { label: string; tone: "" | "success" | "warning" | "danger" } {
+  if (chart.pinned) return { label: "Đã ghim báo cáo", tone: "success" };
+  if (chart.execution?.execution_kind !== "official") {
+    return chart.status === "failed"
+      ? { label: "Chưa hoàn tất", tone: "danger" }
+      : { label: "Chờ Official evidence", tone: "warning" };
+  }
+  if (!chart.chart_type || !chart.renderer) return { label: "Cần chọn biểu đồ", tone: "warning" };
+  if (chart.insight_busy) return { label: "Đang viết insight", tone: "warning" };
+  if (chart.insight) return { label: chart.insight_reviewed ? "Sẵn sàng ghim" : "Cần duyệt insight", tone: "warning" };
+  if (chart.error) return { label: "Insight lỗi · thử lại", tone: "danger" };
+  return { label: "Cần tạo insight", tone: "warning" };
+}
+
+function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, enabled, onChange, onRemove, onGenerate, onRetry, retrying, onExplain, onPin, onSinglePreview, onSinglePromote, previewing, promoting }: {
   chart: ChartDraft;
   dimensions: string[];
   measures: string[];
@@ -338,8 +359,14 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
   onChange: (next: Partial<ChartDraft>) => void;
   onRemove: () => void;
   onGenerate: () => void;
+  onRetry?: () => void;
+  retrying?: boolean;
   onExplain: (execution: AnalysisExecution) => void;
   onPin?: () => void;
+  onSinglePreview?: () => void;
+  onSinglePromote?: () => void;
+  previewing?: boolean;
+  promoting?: boolean;
 }) {
   // Normalize cached/legacy insight content before it reaches the textarea.
   if (typeof chart.insight === "string") {
@@ -354,6 +381,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
   const official = chart.execution?.execution_kind === "official";
   const selectionExplanation = chartSelectionExplanation(chart);
   const displayTitle = chartDisplayTitle(chart);
+  const completion = chartCompletionState(chart);
   return <article id={chart.id} className="panel chart-builder-card chart-workflow-card">
     <header className="chart-card-header">
       <div>
@@ -375,55 +403,24 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
             </button>
           )
         )}
-        <span className={`chip ${chart.status === "official" ? "success" : chart.status === "preview" ? "warning" : chart.status === "failed" ? "danger" : ""}`}>
+        <span className={`chip ${completion.tone}`} title="Trạng thái hoàn tất biểu đồ và AI insight">
+          {completion.label}
+        </span>
+        <span className={`chip ${chart.status === "official" ? "success" : chart.status === "preview" ? "warning" : chart.status === "failed" ? "danger" : ""}`} title="Trạng thái evidence">
           {chart.status === "official" ? "Official" : chart.status === "preview" ? "Preview" : chart.status === "failed" ? "Lỗi" : "Nháp"}
         </span>
+        {chart.status === "failed" && onRetry && (
+          <button type="button" className="button secondary" disabled={retrying} onClick={onRetry}>
+            {retrying ? "Đang chạy lại…" : "Chạy lại biểu đồ"}
+          </button>
+        )}
         <button type="button" className="button danger chart-remove" onClick={onRemove}>Xóa</button>
       </div>
     </header>
     <fieldset className="chart-workflow-fieldset" disabled={!enabled}>
+      {chart.error && <section className="notice error" role="alert"><b>Biểu đồ chưa tạo được.</b><p>{chart.error}</p>{chart.execution?.execution_kind === "preview" && <p>Preview đã có; hãy chạy lại để xác nhận Official evidence.</p>}</section>}
       {chart.problem && chart.algorithm && chart.chart_type && chart.renderer && <div className="chart-auto-decision"><div className="chart-auto-decision-chips"><span className="chip">{PROBLEMS.find((item) => item.value === chart.problem)?.label}</span><span className="chip">{ALGORITHM_LABELS[chart.algorithm]}</span><span className="chip">{CHART_LABELS[chart.chart_type]}</span><span className="chip">{RENDERER_LABELS[chart.renderer]}</span>{chart.planning_mode && <span className={`chip ${chart.planning_mode === "agent" ? "success" : "warning"}`}>{chart.planning_mode === "agent" ? "Agent đã lập kế hoạch" : "Kế hoạch dự phòng"}</span>}</div>{chart.rationale && <p>{chart.rationale}</p>}{chart.transforms && chart.transforms.length > 0 && <div className="chart-formulation-pipeline" style={{ marginTop: "0.5rem", padding: "0.4rem 0.6rem", background: "rgba(99, 102, 241, 0.08)", borderRadius: "6px", fontSize: "0.8rem" }}><div style={{ fontWeight: 600, color: "#4338ca", marginBottom: "0.25rem" }}>⚡ Data Formulation Pipeline (AI Wrangling)</div><div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem" }}>{chart.transforms.map((t, idx) => <span key={idx} className="chip" style={{ fontSize: "0.75rem", background: "#e0e7ff", color: "#3730a3" }}>{idx + 1}. {t.detail}</span>)}</div></div>}</div>}
-      <details className="chart-advanced" open={!chart.problem}>
-        <summary>Tùy chỉnh nâng cao · xem hoặc thay đổi quyết định kỹ thuật</summary>
-        <div className="chart-flow-section"><span className="chart-flow-number">3</span><div><b>Chọn bài toán</b><p>Nhập câu hỏi và xác nhận loại bài toán cần giải quyết.</p></div></div>
-        <div className="chart-config-fields chart-step-fields">
-          <label>Câu hỏi<input value={chart.question} placeholder="Ví dụ: Doanh số thay đổi thế nào trong 12 tháng?" onChange={(event) => onChange({ question: event.target.value, title: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>
-          <label>Bài toán<select value={chart.problem} onChange={(event) => onChange({ problem: event.target.value as ProblemType, algorithm: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn bài toán</option>{PROBLEMS.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
-          {chart.problem && <p className="chart-step-hint">{PROBLEMS.find((item) => item.value === chart.problem)?.detail}</p>}
-        </div>
-        <div className="chart-flow-section"><span className="chart-flow-number">4</span><div><b>Chọn thuật toán</b><p>Chỉ các phép tính nằm trong bounded allow-list được hiển thị.</p></div></div>
-        <div className="chart-config-fields chart-step-fields">
-          <label>Thuật toán<select value={chart.algorithm} disabled={!chart.problem} onChange={(event) => onChange({ algorithm: event.target.value as AnalysisMethod, x_column: "", y_column: "", second_dimension: "", chart_type: "", renderer: "", status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn thuật toán</option>{algorithms.map((item) => { const capability = chart.problem === "forecast" ? forecastAlgorithms.find((entry) => entry.id === item) : undefined; return <option value={item} key={item} disabled={chart.problem === "forecast" ? !capability?.available : false}>{ALGORITHM_LABELS[item]}{chart.problem === "forecast" && capability && !capability.available ? ` · chưa khả dụng (${capability.dependency || "cần dữ liệu ngoại sinh"})` : ""}</option>; })}</select></label>
-          <label>{chart.algorithm === "scatter" ? "Measure trục X" : chart.algorithm === "heatmap" ? "Dimension trục X" : "Dimension / nhóm"}<select value={chart.x_column} disabled={!chart.problem || chart.problem === "summary" || chart.algorithm === "histogram"} onChange={(event) => onChange({ x_column: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">{chart.algorithm === "box" ? "Không chia nhóm" : "Chọn trường"}</option>{(chart.algorithm === "scatter" ? measures : dimensions).map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-          {chart.algorithm === "heatmap" && <label>Dimension trục Y<select value={chart.second_dimension} onChange={(event) => onChange({ second_dimension: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn dimension thứ hai</option>{dimensions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>}
-          <label>{chart.algorithm === "scatter" ? "Measure trục Y" : "Measure"}<select value={chart.y_column} disabled={!chart.algorithm || chart.algorithm === "count" || chart.algorithm === "heatmap"} onChange={(event) => onChange({ y_column: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">{chart.algorithm === "count" || chart.algorithm === "heatmap" ? "Không cần measure" : "Chọn measure"}</option>{measures.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-          {["trend", "forecast"].includes(chart.problem) && <label>Mức thời gian<select value={chart.time_grain} onChange={(event) => onChange({ time_grain: event.target.value as ChartDraft["time_grain"], status: "draft", execution: undefined, generated: false, insight: undefined })}><option value="">Chọn mức thời gian</option><option value="day">Theo ngày</option><option value="week">Theo tuần</option><option value="month">Theo tháng</option><option value="quarter">Theo quý</option><option value="year">Theo năm</option></select></label>}
-          {chart.problem === "forecast" && <label>Số kỳ cần dự báo<input type="number" min={1} max={60} value={chart.forecast_horizon} onChange={(event) => onChange({ forecast_horizon: Number(event.target.value), status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-          {chart.problem === "forecast" && <label>Độ dài mùa vụ<input type="number" min={2} max={365} value={chart.season_length} onChange={(event) => onChange({ season_length: Number(event.target.value), status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-          {chart.problem === "trend" && <label>Từ ngày (không bắt buộc)<input type="date" value={chart.date_from} onChange={(event) => onChange({ date_from: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-          {chart.problem === "trend" && <label>Đến ngày (không bắt buộc)<input type="date" value={chart.date_to} onChange={(event) => onChange({ date_to: event.target.value, status: "draft", execution: undefined, generated: false, insight: undefined })} /></label>}
-          {validation && <p className="chart-validation">{validation}</p>}
-          {chart.error && <p className="chart-validation">{chart.error}</p>}
-        </div>
-        <div className="chart-flow-section"><span className="chart-flow-number">5</span><div><b>Phân tích kết quả</b><p>Chạy Preview, kiểm tra kết quả rồi xác nhận Official evidence.</p></div></div>
-        {chart.execution ? <div className="chart-analysis-summary"><span className={official ? "chip success" : "chip warning"}>{official ? "Official" : "Preview"}</span><span>{chart.execution.query_summary}</span><code>{chart.execution.result_hash.slice(0, 12)}</code></div> : <div className="chart-empty-stage">Kết quả sẽ xuất hiện sau khi chạy Preview tất cả.</div>}
-        <div className="chart-flow-section"><span className="chart-flow-number">6</span><div><b>Chọn loại biểu đồ</b><p>Loại chart chỉ được chọn sau khi có Official result.</p></div></div>
-        <div className="chart-config-fields chart-step-fields"><label>Loại biểu đồ<select value={chart.chart_type} disabled={!official} onChange={(event) => { const chartType = event.target.value as ChartType; onChange({ chart_type: chartType, renderer: "", generated: false, insight: undefined }); }}><option value="">Chọn loại biểu đồ</option>{chartTypes.map((item) => <option value={item} key={item}>{CHART_LABELS[item]}</option>)}</select></label></div>
-        <div className="chart-flow-section"><span className="chart-flow-number">7</span><div><b>Chọn tool vẽ</b><p>Renderer được giới hạn theo loại biểu đồ để kết quả tái tạo được.</p></div></div>
-        <div className="chart-config-fields chart-step-fields"><label>Renderer<select value={chart.renderer} disabled={!chart.chart_type} onChange={(event) => onChange({ renderer: event.target.value as ChartRenderer, generated: false, insight: undefined })}><option value="">Chọn renderer</option>{chart.chart_type && <option value={RENDERER_FOR_CHART[chart.chart_type]}>{RENDERER_LABELS[RENDERER_FOR_CHART[chart.chart_type]]}</option>}</select></label></div>
-      </details>
-      <div className="chart-flow-section">
-        <span className="chart-flow-number chart-flow-icon" aria-hidden="true" title="Biểu đồ & Insight">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="20" x2="18" y2="10" />
-            <line x1="12" y1="20" x2="12" y2="4" />
-            <line x1="6" y1="20" x2="6" y2="14" />
-          </svg>
-        </span>
-        <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div>
-        <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
-      </div>
-      {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
+      {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel" aria-live="polite"><span className="eyebrow">{chart.insight_busy ? "AGENT INSIGHT · ĐANG SOẠN" : "AGENT INSIGHT · CẦN DUYỆT"}</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" />{!chart.insight_busy && <><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></>}</> : <p className="muted">{chart.insight_busy ? "Agent đang đọc Official evidence và soạn insight…" : "Agent chưa tạo được insight."}</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
     </fieldset>
   </article>;
 }
@@ -451,20 +448,22 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     try { return localStorage.getItem(`p170_charts_understanding_run_${runId}`) || null; } catch { return null; }
   });
   const [charts, setCharts] = useState<ChartDraft[]>(() => {
-    if (typeof window === "undefined") return [draftChart()];
+    if (typeof window === "undefined") return [];
     try {
       const cached = localStorage.getItem(`p170_charts_state_${runId}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((item) => ({
-            ...item,
-            insight: typeof item?.insight === "string" ? normalizeMarkdownText(item.insight) : item?.insight,
-          }));
+          return parsed
+            .filter((item: ChartDraft) => item.question || item.execution || item.status !== "draft" || item.problem)
+            .map((item) => ({
+              ...item,
+              insight: typeof item?.insight === "string" ? normalizeMarkdownText(item.insight) : item?.insight,
+            }));
         }
       }
     } catch { }
-    return [draftChart()];
+    return [];
   });
   const [message, setMessage] = useState("");
   const [businessQuestion, setBusinessQuestion] = useState(() => {
@@ -474,6 +473,9 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
   const [autoStage, setAutoStage] = useState("");
   const [autoProfileProgress, setAutoProfileProgress] = useState<{ percent: number; step: string; current: number; total: number } | null>(null);
   const [autoQuestionProgress, setAutoQuestionProgress] = useState<{ percent: number; step: string } | null>(null);
+  const [retryingChartId, setRetryingChartId] = useState<string | null>(null);
+  const [previewingChartId, setPreviewingChartId] = useState<string | null>(null);
+  const [promotingChartId, setPromotingChartId] = useState<string | null>(null);
   const context = explorer.data?.context;
   const dimensions = context?.context.dimensions ?? [];
   const measures = context?.context.measures ?? [];
@@ -565,12 +567,22 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
           const insightStep = `[${index + 1}/${total}] Agent đang viết AI Insight: ${chartTitle}`;
           setAutoStage(insightStep);
           setAutoProfileProgress({ percent: Math.min(basePercent + Math.round((0.6 / total) * 85), 98), step: insightStep, current: index + 1, total });
-          const written = await writeInsightForChart(officialChart);
-          const finished = { ...officialChart, ...written, insight_busy: false };
+          const written = await writeInsightForChart(officialChart, (partialInsight) => {
+            setCharts((current) => current.map((item) => item.id === planned.id ? {
+              ...item, insight: partialInsight, insight_busy: true,
+            } : item));
+          });
+          const finished = { ...officialChart, ...written, insight_busy: false, error: undefined };
           completed.push(finished);
           setCharts((current) => current.map((item) => item.id === planned.id ? finished : item));
         } catch (reason) {
-          setCharts((current) => current.map((item) => item.id === planned.id ? { ...item, status: "failed", insight_busy: false, error: reason instanceof Error ? reason.message : "Phân tích biểu đồ tự động thất bại." } : item));
+          setCharts((current) => current.map((item) => item.id === planned.id ? {
+            ...item,
+            // A failed explanation must not erase a successfully re-run Official query.
+            status: item.execution?.execution_kind === "official" ? "official" : "failed",
+            insight_busy: false,
+            error: reason instanceof Error ? reason.message : "Phân tích biểu đồ tự động thất bại.",
+          } : item));
         }
       }
       setAutoProfileProgress({ percent: 100, step: `Đã hoàn tất phân tích ${completed.length}/${total} biểu đồ thành công!`, current: total, total });
@@ -590,10 +602,10 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
 
   const automate = useMutation({
     mutationFn: async () => {
-      // Split questions by newline or semicolon, removing bullet points / numbering
+      // Split questions by newline or semicolon, removing bullet points / numbering / question labels
       const questions = businessQuestion
         .split(/\n+|;+/)
-        .map((q) => q.replace(/^[\d\s.\-•*]+/, "").trim())
+        .map((q) => q.replace(/^(?:câu\s*hỏi\s*\d*[:.-]?\s*|câu\s*\d*[:.-]?\s*|\d+[\s.)\-:]\s*|[-*•]\s*)/i, "").trim())
         .filter((q) => q.length >= 3);
 
       if (!questions.length) throw new Error("Hãy nhập ít nhất một câu hỏi phân tích cụ thể.");
@@ -609,16 +621,21 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
           setAutoQuestionProgress({ percent: basePercent + Math.round((0.15 / total) * 100), step: `${stepPrefix}Đang lập kế hoạch: "${question.slice(0, 45)}…"` });
           setAutoStage(`${stepPrefix}Agent đang phân tích câu hỏi: "${question.slice(0, 45)}…"`);
 
+          // Create a visible card before invoking the planner. If planning fails,
+          // the question and its actionable error must remain visible to the user.
+          const pending: ChartDraft = { ...draftChart(), question, title: question, status: "draft" };
+          chartId = pending.id;
+          setCharts((current) => current.length === 1 && !current[0].question ? [pending] : [pending, ...current]);
+
           const plan = await autoPlanChart(runId, question);
-          const planned = chartFromPlan(plan);
-          chartId = planned.id;
+          const planned: ChartDraft = { ...chartFromPlan(plan), id: pending.id };
 
           if (index === 0 || total === 1) {
             setUnderstanding(`**Agent đã hiểu yêu cầu:** ${plan.rationale}\n\nKế hoạch: ${PROBLEMS.find((item) => item.value === plan.problem)?.label} → ${ALGORITHM_LABELS[plan.algorithm]} → ${CHART_LABELS[plan.chart_type]} → ${RENDERER_LABELS[plan.renderer]}.`);
             setUnderstandingRunId(plan.agent_run_id ?? null);
           }
 
-          setCharts((current) => current.length === 1 && !current[0].question ? [planned] : [planned, ...current]);
+          setCharts((current) => current.map((item) => item.id === pending.id ? planned : item));
 
           setAutoQuestionProgress({ percent: basePercent + Math.round((0.45 / total) * 100), step: `${stepPrefix}Đang chạy DuckDB Preview: ${planned.title || planned.algorithm}` });
           const previewResult = await previewExplorer(runId, plan.query);
@@ -634,13 +651,23 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
           setCharts((current) => current.map((item) => item.id === planned.id ? officialChart : item));
 
           setAutoQuestionProgress({ percent: basePercent + Math.round((0.90 / total) * 100), step: `${stepPrefix}Agent đang viết AI Insight: ${planned.title || planned.algorithm}` });
-          const written = await writeInsightForChart(officialChart);
-          const finished = { ...officialChart, ...written, insight_busy: false };
+          const written = await writeInsightForChart(officialChart, (partialInsight) => {
+            setCharts((current) => current.map((item) => item.id === planned.id ? {
+              ...item, insight: partialInsight, insight_busy: true,
+            } : item));
+          });
+          const finished = { ...officialChart, ...written, insight_busy: false, error: undefined };
           completed.push(finished);
           setCharts((current) => current.map((item) => item.id === planned.id ? finished : item));
         } catch (reason) {
           if (chartId) {
-            setCharts((current) => current.map((item) => item.id === chartId ? { ...item, status: "failed", insight_busy: false, error: reason instanceof Error ? reason.message : "Không thể hoàn tất phân tích tự động." } : item));
+            setCharts((current) => current.map((item) => item.id === chartId ? {
+              ...item,
+              // Keep the verified evidence visible when only the insight step failed.
+              status: item.execution?.execution_kind === "official" ? "official" : "failed",
+              insight_busy: false,
+              error: reason instanceof Error ? reason.message : "Không thể hoàn tất phân tích tự động.",
+            } : item));
           }
         }
       }
@@ -661,10 +688,121 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     },
   });
 
+  async function retryChart(chart: ChartDraft) {
+    setRetryingChartId(chart.id);
+    let planned = chart;
+    try {
+      // A failure during planning has no executable fields yet, so plan the
+      // original business question again. Other failures reuse the persisted,
+      // bounded query so the retry is reproducible.
+      if (!planned.problem || !planned.algorithm || !planned.chart_type || !planned.renderer) {
+        const plan = await autoPlanChart(runId, planned.question);
+        planned = { ...chartFromPlan(plan), id: chart.id };
+      }
+
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item,
+        ...planned,
+        status: "draft",
+        execution: undefined,
+        generated: false,
+        insight: undefined,
+        insight_busy: false,
+        insight_reviewed: false,
+        pinned: false,
+        error: undefined,
+      } : item));
+
+      const previewResult = await previewExplorer(runId, chartQuery(planned));
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item, execution: previewResult, status: "preview", error: undefined,
+      } : item));
+
+      const officialResult = await promoteExplorerPreview(
+        runId,
+        previewResult.id,
+        previewResult.context_version_id ?? planned.execution?.context_version_id ?? context?.id ?? "",
+      );
+      const officialChart: ChartDraft = {
+        ...planned,
+        execution: officialResult,
+        status: "official",
+        generated: true,
+        insight_busy: true,
+      };
+      setCharts((current) => current.map((item) => item.id === chart.id ? officialChart : item));
+
+      const written = await writeInsightForChart(officialChart, (partialInsight) => {
+        setCharts((current) => current.map((item) => item.id === chart.id ? {
+          ...item, insight: partialInsight, insight_busy: true,
+        } : item));
+      });
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...officialChart, ...written, insight_busy: false, error: undefined,
+      } : item));
+      setMessage(`Đã tạo lại biểu đồ "${chartDisplayTitle(officialChart)}" thành công.`);
+    } catch (reason) {
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item,
+        status: item.execution?.execution_kind === "official" ? "official" : "failed",
+        insight_busy: false,
+        error: reason instanceof Error ? reason.message : "Không thể chạy lại biểu đồ.",
+      } : item));
+    } finally {
+      setRetryingChartId(null);
+    }
+  }
+
   const validCharts = useMemo(() => charts.filter((chart) => !analysisError(chart)), [charts]);
+
+  async function runSinglePreview(chart: ChartDraft) {
+    const error = analysisError(chart);
+    if (error) {
+      setMessage(error);
+      return;
+    }
+    setPreviewingChartId(chart.id);
+    setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, status: "draft", error: undefined } : item));
+    try {
+      const previewResult = await previewExplorer(runId, chartQuery(chart));
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item, execution: previewResult, status: "preview", error: undefined, generated: false, insight: undefined,
+      } : item));
+      setMessage(`Đã chạy Preview thành công cho "${chartDisplayTitle(chart)}".`);
+    } catch (reason) {
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item, status: "failed", error: reason instanceof Error ? reason.message : "Preview thất bại.",
+      } : item));
+    } finally {
+      setPreviewingChartId(null);
+    }
+  }
+
+  async function runSinglePromote(chart: ChartDraft) {
+    if (!chart.execution || chart.execution.execution_kind !== "preview") return;
+    setPromotingChartId(chart.id);
+    try {
+      const officialResult = await promoteExplorerPreview(
+        runId,
+        chart.execution.id,
+        chart.execution.context_version_id ?? context?.id ?? "",
+      );
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item, execution: officialResult, status: "official", error: undefined,
+      } : item));
+      setMessage(`Đã xác nhận Official evidence cho "${chartDisplayTitle(chart)}". Tiếp tục chọn loại biểu đồ và renderer.`);
+    } catch (reason) {
+      setCharts((current) => current.map((item) => item.id === chart.id ? {
+        ...item, status: "failed", error: reason instanceof Error ? reason.message : "Official thất bại.",
+      } : item));
+    } finally {
+      setPromotingChartId(null);
+    }
+  }
+
   const preview = useMutation({
     mutationFn: async () => {
-      if (!understanding) throw new Error("Hãy để Agent hiểu dữ liệu trước.");
+      if (!understanding && !context) throw new Error("Hãy để Agent hiểu dữ liệu trước.");
       if (!validCharts.length) throw new Error("Hãy hoàn tất ít nhất một bài toán và thuật toán.");
       const results = await Promise.allSettled(validCharts.map((chart) => previewExplorer(runId, chartQuery(chart))));
       return { results, ids: validCharts.map((chart) => chart.id) };
@@ -681,7 +819,10 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     onSuccess: ({ results, ids }) => { setCharts((current) => current.map((chart) => { const result = results[ids.indexOf(chart.id)]; if (!result) return chart; return result.status === "fulfilled" ? { ...chart, execution: result.value, status: "official", error: undefined } : { ...chart, status: "failed", error: result.reason instanceof Error ? result.reason.message : "Official thất bại." }; })); setMessage("Official evidence đã sẵn sàng. Tiếp tục chọn chart type và renderer."); },
   });
 
-  async function writeInsightForChart(chart: ChartDraft): Promise<Partial<ChartDraft>> {
+  async function writeInsightForChart(
+    chart: ChartDraft,
+    onProgress?: (partialInsight: string) => void,
+  ): Promise<Partial<ChartDraft>> {
     if (!chart.execution || chart.execution.execution_kind !== "official" || !chart.chart_type || !chart.renderer) {
       throw new Error("Biểu đồ chưa có Official evidence hợp lệ.");
     }
@@ -692,19 +833,26 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       analysis_execution_id: chart.execution.id,
       workspace_context_version_id: chart.execution.context_version_id,
     }, (event) => {
-      if (event.event === "token" && event.data && typeof event.data === "object") insight += String((event.data as { text?: unknown }).text || "");
+      if (event.event === "token" && event.data && typeof event.data === "object") {
+        insight += String((event.data as { text?: unknown }).text || "");
+        onProgress?.(sanitizeGeneratedText(insight));
+      }
       if (event.event === "done" && event.data && typeof event.data === "object") { const done = event.data as { agent_run_id?: unknown; evidence_status?: unknown }; agentRunId = String(done.agent_run_id || "") || null; evidenceStatus = String(done.evidence_status || evidenceStatus); }
       if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent không thể viết insight."));
     });
-    return { generated: true, insight: normalizeMarkdownText(insight || "Agent không trả về insight."), insight_agent_run_id: agentRunId, insight_evidence_status: evidenceStatus, insight_reviewed: false };
+    return { generated: true, insight: sanitizeGeneratedText(normalizeMarkdownText(insight || "Agent không trả về insight.")), insight_agent_run_id: agentRunId, insight_evidence_status: evidenceStatus, insight_reviewed: false };
   }
 
   async function generateAndWriteInsight(chart: ChartDraft) {
     if (!chart.execution || chart.execution.execution_kind !== "official" || !chart.chart_type || !chart.renderer) return;
     setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, generated: true, insight_busy: true, insight: undefined, insight_reviewed: false, pinned: false, pin_idempotency_key: crypto.randomUUID(), error: undefined } : item));
     try {
-      const written = await writeInsightForChart(chart);
-      setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, ...written, insight_busy: false } : item));
+      const written = await writeInsightForChart(chart, (partialInsight) => {
+        setCharts((current) => current.map((item) => item.id === chart.id ? {
+          ...item, insight: partialInsight, insight_busy: true,
+        } : item));
+      });
+      setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, ...written, status: "official", insight_busy: false, error: undefined } : item));
     } catch (reason) {
       setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, generated: true, insight_busy: false, error: reason instanceof Error ? reason.message : "Không thể viết insight." } : item));
     }
@@ -725,7 +873,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
             chart.execution!.id,
             chartDisplayTitle(chart),
             chartSpec(chart),
-            { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
+            { text: chart.insight!, reviewed: chart.insight_reviewed, agentRunId: chart.insight_agent_run_id || "" },
             chart.pin_idempotency_key || crypto.randomUUID(),
           );
           successfulIds.push(chart.id);
@@ -754,7 +902,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         chart.execution!.id,
         chartDisplayTitle(chart),
         chartSpec(chart),
-        { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
+        { text: chart.insight!, reviewed: chart.insight_reviewed, agentRunId: chart.insight_agent_run_id || "" },
         chart.pin_idempotency_key || crypto.randomUUID(),
       );
       setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, pinned: true, insight_reviewed: true } : item));
@@ -778,6 +926,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         pinned: false,
         pin_idempotency_key: crypto.randomUUID(),
         insight_reviewed: false,
+        error: undefined,
         ...(changesQuery ? { planned_query: undefined, planning_mode: undefined, planner_agent_run_id: undefined, rationale: undefined } : {}),
         ...(next.insight === undefined ? { insight_agent_run_id: undefined, insight_evidence_status: undefined } : {}),
       } : {}),
@@ -794,6 +943,43 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
 
   return <section className="command-charts">
     {contextIsPreparing && <Notice tone="info">Đang chuẩn bị metadata biểu đồ trong nền. Bạn có thể đọc và nhập câu hỏi trước; các nút tạo biểu đồ sẽ sẵn sàng ngay khi context hoàn tất.</Notice>}
+    {profile.pending_proposals > 0 && (
+      <Notice tone="warning">
+        <b>Cần review đề xuất trước khi tạo Official evidence.</b>
+        <p>Phiên profiling còn {profile.pending_proposals} đề xuất metadata/PII cần xác nhận. Hãy review để đảm bảo evidence và PII policy chính xác.</p>
+        <Link href={`/profiles/${runId}/review?returnTo=${encodeURIComponent(`/charts?runId=${runId}`)}`} className="button primary" style={{ marginTop: "8px", display: "inline-block" }}>
+          Review {profile.pending_proposals} đề xuất →
+        </Link>
+      </Notice>
+    )}
+    {profile.status !== "completed" && (
+      <Notice tone="warning">
+        <b>Profile chưa hoàn tất ({profile.status}).</b>
+        <p>Official evidence và xuất bản báo cáo chỉ khả dụng khi phiên profiling đã ở trạng thái hoàn tất.</p>
+      </Notice>
+    )}
+
+    {/* Step 2: Agent understanding panel when available */}
+    {understanding && (
+      <section className="panel chart-agent-understanding-panel" style={{ marginBottom: "1rem", border: "1px solid rgba(49, 94, 251, 0.25)", background: "rgba(49, 94, 251, 0.02)" }}>
+        <div className="panel-title" style={{ marginBottom: "0.5rem" }}>
+          <div>
+            <span className="eyebrow" style={{ color: "#315efb", fontWeight: 700 }}>BƯỚC 2 · AGENT HIỂU DỮ LIỆU & SEMANTIC CONTEXT</span>
+            <h3 style={{ margin: "2px 0 0", fontSize: "1.05rem" }}>Tóm tắt bối cảnh phân tích</h3>
+          </div>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => understand.mutate()}
+            disabled={busy}
+            style={{ fontSize: "0.78rem" }}
+          >
+            {understand.isPending ? "Đang đọc lại…" : "🔄 Đọc lại Profile"}
+          </button>
+        </div>
+        <MarkdownContent text={understanding} className="report report-markdown" />
+      </section>
+    )}
     {/* Unified Hero Panel: Question Input + 1-Click Auto Analysis Pack */}
     <section className="panel chart-auto-profile-pack">
       <div className="panel-title" style={{ marginBottom: 10 }}>
@@ -851,6 +1037,16 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
               style={{ fontWeight: 700, border: "1px solid #b2cbfd", background: "#f0f5ff" }}
             >
               {autoProfile.isPending ? `Đang tạo Analysis Pack (${autoProfileProgress?.percent ?? 0}%)` : "⚡ Hoặc Tự động tạo trọn gói 5–8 biểu đồ"}
+            </button>
+
+            <button
+              type="button"
+              className="button secondary chart-action-button"
+              onClick={() => understand.mutate()}
+              disabled={busy}
+              style={{ fontWeight: 600 }}
+            >
+              {understand.isPending ? "Agent đang đọc Profile…" : "🔍 Cho Agent hiểu dữ liệu"}
             </button>
 
             {charts.some((c) => c.question || c.generated || c.status === "failed") && (
@@ -954,32 +1150,56 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         <li className={autoProfileProgress && autoProfileProgress.percent >= 95 ? "active" : ""}>Evidence insight</li>
         <li className={autoProfileProgress && autoProfileProgress.percent === 100 ? "done" : ""}>Review & Report</li>
       </ol>
-
-
     </section>
 
-    {/* Header & Workspace */}
-    <header className="command-charts-header">
-      <div>
-        <p className="eyebrow">CÂU HỎI → BIỂU ĐỒ → INSIGHT</p>
-        <h2>Workspace Biểu đồ</h2>
-      </div>
-      <div className="chart-workspace-count">
-        <strong>{charts.filter((chart) => chart.question).length}/{MAX_CHARTS}</strong>
-        <span>bài phân tích</span>
-      </div>
-    </header>
     {message && <Notice tone="info">{message}</Notice>}
     {[autoProfile, automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
-    <details className="panel chart-model-catalog"><summary>Danh sách thuật toán được sử dụng · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
 
-    <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled={!contextIsPreparing} onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>
-    {charts.filter((chart) => chart.question).length > 0 && (
+    {charts.length > 0 && (
+      <>
+        {/* Header & Workspace */}
+        <header className="command-charts-header">
+          <div>
+            <p className="eyebrow">CÂU HỎI → BIỂU ĐỒ → INSIGHT</p>
+            <h2>Workspace Biểu đồ</h2>
+          </div>
+          <div className="chart-workspace-count">
+            <strong>{charts.length}/{MAX_CHARTS}</strong>
+            <span>bài phân tích</span>
+          </div>
+        </header>
+
+        <div className="chart-builder-list">
+          {charts.map((chart) => (
+            <ChartWorkflowCard
+              key={chart.id}
+              chart={chart}
+              dimensions={dimensions}
+              measures={measures}
+              forecastAlgorithms={forecastCatalog.data?.algorithms ?? []}
+              enabled={!busy}
+              onChange={(next) => updateChart(chart.id, next)}
+              onRemove={() => setCharts((current) => current.filter((item) => item.id !== chart.id))}
+              onGenerate={() => void generateAndWriteInsight(chart)}
+              onRetry={() => void retryChart(chart)}
+              retrying={retryingChartId === chart.id}
+              onExplain={onExplain}
+              onPin={() => void pinSingleChart(chart)}
+              onSinglePreview={() => void runSinglePreview(chart)}
+              onSinglePromote={() => void runSinglePromote(chart)}
+              previewing={previewingChartId === chart.id}
+              promoting={promotingChartId === chart.id}
+            />
+          ))}
+        </div>
+      </>
+    )}
+    {charts.some((chart) => chart.question) && (
       <aside className="report-toc-sidebar">
         <div className="report-toc-container">
           <h3 className="report-toc-title">Danh mục biểu đồ</h3>
           <ul className="report-toc-list">
-            {charts.filter((chart) => chart.question).map(chart => (
+            {charts.map(chart => (
               <li key={chart.id}>
                 <a href={`#${chart.id}`} onClick={(e) => {
                   e.preventDefault();

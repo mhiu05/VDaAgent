@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 
 import { PDFDocument } from "pdf-lib";
 import { chromium } from "playwright-core";
+import { sanitizeGeneratedText } from "@/lib/generated-text";
 
 type DataRecord = Record<string, unknown>;
 type ReportSource = {
@@ -239,7 +240,7 @@ function buildSections(source: ReportSource): Section[] {
   }
 
   if (run.narrative_report) {
-    const lines = String(run.narrative_report).split(/\r?\n/);
+    const lines = sanitizeGeneratedText(String(run.narrative_report)).split(/\r?\n/);
     let preamble = "";
     const children: Section[] = [];
     let currentChild: { title: string, lines: string[], subChildren: Section[] } | null = null;
@@ -333,7 +334,7 @@ function buildSections(source: ReportSource): Section[] {
         const tableRows = hasReportedValues
           ? data.slice(0, 40).map((row) => reportedColumns.map((column) => row[column]))
           : data.slice(0, 40).map((row) => [row.label ?? row.name ?? row.category ?? row.x, row.value ?? row.count ?? row.y]);
-        const body = [item.note ? `<div class="callout"><strong>Ghi chú</strong><p>${escapeHtml(item.note)}</p></div>` : "", evidenceChart(text(item.title, `Phân tích ${index + 1}`), item), columns.length ? table(columns, tableRows) : "", content?.insight ? `<div class="narrative"><strong>Insight đã lưu</strong>${markdown(content.insight)}</div>` : "", content?.answer ? `<div class="narrative">${markdown(content.answer)}</div>` : ""].join("");
+        const body = [item.note ? `<div class="callout"><strong>Ghi chú</strong><p>${escapeHtml(item.note)}</p></div>` : "", evidenceChart(text(item.title, `Phân tích ${index + 1}`), item), columns.length ? table(columns, tableRows) : "", content?.insight ? `<div class="narrative"><strong>Insight đã lưu</strong>${markdown(sanitizeGeneratedText(String(content.insight)))}</div>` : "", content?.answer ? `<div class="narrative">${markdown(sanitizeGeneratedText(String(content.answer)))}</div>` : ""].join("");
         return { title: text(item.title, `Phân tích ${index + 1}`), body: body || "<p>Không có nội dung có thể xuất cho mục này.</p>" };
       })
     });

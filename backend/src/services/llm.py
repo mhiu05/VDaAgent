@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import re
 from functools import lru_cache
+import re
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -53,6 +54,26 @@ def safe_llm_warning(value: Any) -> str:
     return LLM_RUNTIME_NOTICE if is_llm_runtime_warning(value) else str(value or "").strip()
 
 
+_INTERNAL_TRANSPORT_FIELD = re.compile(
+    r"(?:^|[\n,\[{])\s*['\"]?(?:extras|signature)['\"]?\s*:",
+    re.IGNORECASE,
+)
+
+
+def sanitize_model_text(value: str) -> str:
+    """Remove provider transport metadata accidentally persisted by older flows.
+
+    Gemini may attach a thought signature in an ``extras`` block.  It is not
+    user-facing content, must never be written into reports, and can be very
+    large.  Truncating at the first transport field also repairs historical
+    text that was produced with ``str(response.content)``.
+    """
+    match = _INTERNAL_TRANSPORT_FIELD.search(value)
+    if match:
+        value = value[: match.start()]
+    return value.strip(" \t\r\n,;[{\"")
+
+
 def response_text(response: Any) -> str:
     """Extract only textual parts from LangChain/Gemini model responses.
 
@@ -70,9 +91,6 @@ def response_text(response: Any) -> str:
             try:
                 return response_text(ast.literal_eval(value))
             except (SyntaxError, ValueError):
-                # Some legacy rows contain apostrophes in the model text, so
-                # their Python repr is not parseable as a whole. Extract only
-                # the quoted `text` blocks while honoring escaped quotes.
                 parts: list[str] = []
                 for match in re.finditer(r"['\"]text['\"]\s*:\s*(['\"])", value):
                     quote = match.group(1)
@@ -93,11 +111,11 @@ def response_text(response: Any) -> str:
                             escaped = False
                 if parts:
                     return "\n".join(parts)
-        return content
+        return sanitize_model_text(content)
     if isinstance(content, dict):
-        text = content.get("text")
+        text = content.get("text") or content.get("content")
         if isinstance(text, str):
-            return text
+            return sanitize_model_text(text)
         return ""
     if isinstance(content, (list, tuple)):
         parts: list[str] = []
@@ -106,25 +124,24 @@ def response_text(response: Any) -> str:
             if text.strip():
                 parts.append(text.strip())
         return "\n".join(parts)
-    return str(content)
+    return sanitize_model_text(str(content))
+
+
+def model_response_text(response_or_content: Any) -> str:
+    """Extract displayable text from a provider response without serializing metadata."""
+    return response_text(response_or_content)
 
 
 def report_text(response: Any) -> str:
     """Return clean Markdown suitable for the profile summary renderer."""
 
     text = response_text(response).replace("\r\n", "\n").strip()
-    # Old profile runs persisted the provider's whole 401/429 payload above
-    # the deterministic fallback report. Remove that transport error on read;
-    # keeping it would be noisy and could reveal key fragments in exports.
     text = "\n".join(
         line for line in text.splitlines() if not is_llm_runtime_warning(line)
     ).strip()
-    # Models occasionally wrap an otherwise valid report in a Markdown fence.
     if text.startswith("```") and text.endswith("```"):
         lines = text.splitlines()
         text = "\n".join(lines[1:-1]).strip()
-    # Horizontal rules add no structure in the compact summary card and were
-    # previously rendered as stray paragraphs between every section.
     lines = [line for line in text.splitlines() if line.strip() != "---"]
     compact: list[str] = []
     blank = False
@@ -175,4 +192,15 @@ def llm_available() -> bool:
     return get_settings().llm_configured
 
 
-__all__ = ["LLMNotConfiguredError", "LLM_RUNTIME_NOTICE", "get_llm", "is_llm_runtime_warning", "llm_available", "report_text", "response_text", "safe_llm_warning"]
+__all__ = [
+    "LLMNotConfiguredError",
+    "LLM_RUNTIME_NOTICE",
+    "get_llm",
+    "is_llm_runtime_warning",
+    "llm_available",
+    "model_response_text",
+    "report_text",
+    "response_text",
+    "safe_llm_warning",
+    "sanitize_model_text",
+]

@@ -57,6 +57,21 @@ function ProfileOverview() {
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}
     <section className="panel compact" style={{ marginBottom: 18 }}><div className="inline-actions"><StatusBadge status={data.status} /><span className="chip">{data.scan_mode || "—"} scan {data.is_approximate && "· sampled"}</span>{data.is_approximate && <span className="chip">≈ Có uncertainty (độ bất định)</span>}</div></section>
     
+    {(!hasReview && runComplete) && (
+      <section className="panel report-actions-panel" style={{ marginBottom: 18, background: "linear-gradient(135deg, rgba(2, 132, 199, 0.12) 0%, rgba(14, 165, 233, 0.06) 100%)", border: "1px solid rgba(56, 189, 248, 0.4)" }}>
+        <div>
+          <p className="eyebrow" style={{ color: "#0284c7" }}>BƯỚC TIẾP THEO SẴN SÀNG</p>
+          <h2 style={{ color: "#0369a1", margin: "2px 0 6px" }}>Tạo biểu đồ & phân tích</h2>
+          <p className="muted" style={{ margin: 0 }}>Tạo biểu đồ trực quan từ dữ liệu đã profile, đặt câu hỏi cho AI Agent và đưa kết quả vào Báo cáo hoàn chỉnh.</p>
+        </div>
+        <div className="inline-actions">
+          <Link href={`/charts?runId=${encodeURIComponent(runId)}`} className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "10px 20px", fontSize: "0.95rem", fontWeight: 700 }}>
+            📊 Tạo biểu đồ & phân tích →
+          </Link>
+        </div>
+      </section>
+    )}
+
     {(hasReview || !runComplete) && <section className="panel report-actions-panel report-next-actions">
       {hasReview ? <>
         <div><p className="eyebrow">Bước cần hoàn tất</p><h2>Review đề xuất trước</h2><p className="muted">Còn {formatNumber(data.pending_proposals)} đề xuất cần được xác nhận, chỉnh sửa hoặc từ chối. Profile sẽ tiếp tục hoàn thành sau khi Review xong.</p></div>

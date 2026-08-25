@@ -28,17 +28,17 @@ help:
 backend:
 	cd backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
+worker:
+	cd backend && set PYTHONPATH=. && $(BACKEND_PYTHON) -m src.workers.profiling_worker
+
 frontend:
 	cd frontend && pnpm.cmd dev --port $(FRONTEND_PORT)
-
-worker:
-	cd /d $(CURDIR) && set PYTHONPATH=backend&& $(ROOT_PYTHON) -m src.workers.profiling_worker
 
 # Windows helper: starts each long-running process in its own terminal window.
 # Run this target only when no VDaAgent backend/frontend process is already running.
 dev:
 	cmd.exe /d /c start "VDaAgent backend" cmd.exe /k "cd /d $(CURDIR)\backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
-	cmd.exe /d /c start "VDaAgent worker" cmd.exe /k "cd /d $(CURDIR) && set PYTHONPATH=backend&& $(ROOT_PYTHON) -m src.workers.profiling_worker"
+	cmd.exe /d /c start "VDaAgent worker" cmd.exe /k "cd /d $(CURDIR)\backend && set PYTHONPATH=. && $(BACKEND_PYTHON) -m src.workers.profiling_worker"
 	cmd.exe /d /c start "VDaAgent frontend" cmd.exe /k "cd /d $(CURDIR)\frontend && pnpm.cmd dev --port $(FRONTEND_PORT)"
 
 install: install-backend install-frontend

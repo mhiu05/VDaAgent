@@ -8,9 +8,10 @@ import Image from "next/image";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { listDatasets, listRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource } from "@/lib/types";
-import { createConversation, getConversationSnapshot, updateConversationSnapshot, listConversations, type ChatConversation, type ChatMessage } from "@/lib/chat-history";
+import { createConversation, getConversation, getConversationSnapshot, updateConversationSnapshot, listConversations, type ChatConversation, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
 import { profileRunOptionLabel } from "@/components/profile-run-picker";
+import { sanitizeGeneratedText } from "@/lib/generated-text";
 
 const starters = [
   "Tóm tắt chất lượng dữ liệu hiện tại",
@@ -68,7 +69,14 @@ export function DraggableChatWidget({
   });
 
   // Copilot QA State
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem("p170_active_widget_conv_id") || null;
+    } catch {
+      return null;
+    }
+  });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
@@ -81,7 +89,7 @@ export function DraggableChatWidget({
     positionRef.current = position;
   }, [position]);
 
-  // Sync convList
+  // Sync convList from storage whenever conversations change or widget opens
   useEffect(() => {
     setConvList(listConversations());
   }, [conversations, isOpen]);
@@ -136,13 +144,6 @@ export function DraggableChatWidget({
     }
   }, [profileRunGroups, selectedDatasetId, selectedRunId]);
 
-  // Auto-select the first available run if none is selected
-  useEffect(() => {
-    if (!selectedRunId && profileRunGroups.length > 0 && profileRunGroups[0].runs.length > 0) {
-      setSelectedRunId(profileRunGroups[0].runs[0].id);
-    }
-  }, [profileRunGroups, selectedRunId]);
-
   // Initialize position to bottom right
   useEffect(() => {
     const saved = localStorage.getItem("p170_chat_widget_pos");
@@ -171,37 +172,62 @@ export function DraggableChatWidget({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Initialize or load conversation
+  // Initialize or load conversation without wiping ongoing chats
   useEffect(() => {
-    if (!activeConversationId) {
-      const active = conversations[0];
-      if (active) {
-        setActiveConversationId(active.id);
-        const snapshot = getConversationSnapshot(active.id);
-        if (snapshot && snapshot.messages.length > 0) {
-          setMessages(snapshot.messages);
-          if (snapshot.datasetId) setSelectedDatasetId(snapshot.datasetId);
-          if (snapshot.profileRunId) setSelectedRunId(snapshot.profileRunId);
-        } else {
-          setMessages([
-            makeMessage(
-              "agent",
-              "Xin chào! Tôi là Trợ lý AI Data Agent. Bạn có thể hỏi bất kỳ điều gì về dataset, thống kê cột, rủi ro PII, hay đề xuất biểu đồ ngay tại đây.",
-              "Sẵn sàng"
-            ),
-          ]);
-        }
+    const allConvs = listConversations();
+    setConvList(allConvs);
+
+    let targetConvId = activeConversationId;
+    if (!targetConvId || !allConvs.some((c) => c.id === targetConvId)) {
+      targetConvId = allConvs[0]?.id || null;
+    }
+
+    if (targetConvId) {
+      if (targetConvId !== activeConversationId) {
+        setActiveConversationId(targetConvId);
+        try { localStorage.setItem("p170_active_widget_conv_id", targetConvId); } catch {}
+      }
+      const snapshot = getConversationSnapshot(targetConvId);
+      if (snapshot && snapshot.messages && snapshot.messages.length > 0) {
+        setMessages(snapshot.messages);
+        if (snapshot.datasetId) setSelectedDatasetId(snapshot.datasetId);
+        if (snapshot.profileRunId) setSelectedRunId(snapshot.profileRunId);
       } else {
-        setMessages([
-          makeMessage(
-            "agent",
-            "Xin chào! Tôi là Trợ lý AI Data Agent. Bạn có thể vừa thao tác dữ liệu vừa hỏi đáp với tôi ở khung này.",
-            "Sẵn sàng"
-          ),
-        ]);
+        const welcome = makeMessage(
+          "agent",
+          "Xin chào! Tôi là Trợ lý AI Data Agent. Bạn có thể vừa thao tác dữ liệu vừa hỏi đáp với tôi ở khung này.",
+          "Sẵn sàng"
+        );
+        setMessages([welcome]);
+        updateConversationSnapshot(targetConvId, {
+          messages: [welcome],
+          profile: null,
+          datasetId: selectedDatasetId || null,
+          profileRunId: selectedRunId || null,
+        });
+      }
+    } else {
+      // Auto-create initial conversation so all messages are persistently saved
+      const newConv = createConversation("Cuộc trò chuyện mới");
+      if (newConv?.id) {
+        setActiveConversationId(newConv.id);
+        try { localStorage.setItem("p170_active_widget_conv_id", newConv.id); } catch {}
+        setConvList(listConversations());
+        const welcome = makeMessage(
+          "agent",
+          "Xin chào! Tôi là Trợ lý AI Data Agent. Bạn có thể vừa thao tác dữ liệu vừa hỏi đáp với tôi ở khung này.",
+          "Sẵn sàng"
+        );
+        setMessages([welcome]);
+        updateConversationSnapshot(newConv.id, {
+          messages: [welcome],
+          profile: null,
+          datasetId: selectedDatasetId || null,
+          profileRunId: selectedRunId || null,
+        });
       }
     }
-  }, [activeConversationId, conversations]);
+  }, [conversations]); // Only re-evaluate when workspace scope or conversation list changes
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -263,10 +289,43 @@ export function DraggableChatWidget({
       return;
     }
 
+    // Ensure we always have a valid persistent conversation ID
+    let convId = activeConversationId;
+    if (!convId || !getConversation(convId)) {
+      const newConv = createConversation(query.slice(0, 42) || "Cuộc trò chuyện mới");
+      convId = newConv.id;
+      setActiveConversationId(convId);
+      try { localStorage.setItem("p170_active_widget_conv_id", convId); } catch {}
+      setConvList(listConversations());
+    }
+
+    if (!selectedRunId) {
+      const warningMsg = makeMessage(
+        "agent",
+        "Hãy chọn một Profile Run đã hoàn tất để Agent có bằng chứng phân tích trước khi trả lời."
+      );
+      const updated = [...messages, warningMsg];
+      setMessages(updated);
+      updateConversationSnapshot(convId, {
+        messages: updated,
+        profile: null,
+        datasetId: selectedDatasetId || null,
+        profileRunId: selectedRunId || null,
+      });
+      return;
+    }
+
     setInput("");
     const userMsg = makeMessage("user", query);
     const newHistory = [...messages, userMsg];
     setMessages(newHistory);
+    // Save user message immediately to storage
+    updateConversationSnapshot(convId, {
+      messages: newHistory,
+      profile: null,
+      datasetId: selectedDatasetId || null,
+      profileRunId: selectedRunId || null,
+    });
     setIsThinking(true);
 
     const botMsgId = `${Date.now()}-${Math.random()}`;
@@ -309,48 +368,62 @@ export function DraggableChatWidget({
       );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Đã xảy ra lỗi khi kết nối với AI Agent.";
+      botText = `⚠️ ${errMsg}`;
       setMessages((prev) => [
-        ...prev,
-        { id: botMsgId, role: "agent", text: `⚠️ ${errMsg}`, label: "Lỗi kết nối" },
+        ...prev.filter((m) => m.id !== botMsgId),
+        { id: botMsgId, role: "agent", text: botText, label: "Lỗi kết nối" },
       ]);
     } finally {
       setIsThinking(false);
-      if (activeConversationId) {
-        updateConversationSnapshot(activeConversationId, {
-          messages: [...newHistory, { id: botMsgId, role: "agent", text: botText, sources: botSources }],
-          profile: null,
-          datasetId: selectedDatasetId || null,
-          profileRunId: selectedRunId || null,
-        });
-      }
+      const finalBotText = botText || "Agent không có phản hồi.";
+      const finalMessages = [...newHistory, { id: botMsgId, role: "agent" as const, text: finalBotText, sources: botSources }];
+      updateConversationSnapshot(convId, {
+        messages: finalMessages,
+        profile: null,
+        datasetId: selectedDatasetId || null,
+        profileRunId: selectedRunId || null,
+      });
+      setConvList(listConversations());
     }
   };
 
   const handleStartNewChat = () => {
     const newConv = createConversation("Cuộc trò chuyện mới");
     setActiveConversationId(newConv.id);
+    try { localStorage.setItem("p170_active_widget_conv_id", newConv.id); } catch {}
     setConvList(listConversations());
-    setMessages([
-      makeMessage(
-        "agent",
-        "Đã tạo cuộc trò chuyện mới. Hãy chọn dataset/phiên profiling và đặt câu hỏi cho tôi nhé!",
-        "Mới"
-      ),
-    ]);
+    const initialMsg = makeMessage(
+      "agent",
+      "Đã tạo cuộc trò chuyện mới. Hãy chọn dataset/phiên profiling và đặt câu hỏi cho tôi nhé!",
+      "Mới"
+    );
+    setMessages([initialMsg]);
+    updateConversationSnapshot(newConv.id, {
+      messages: [initialMsg],
+      profile: null,
+      datasetId: selectedDatasetId || null,
+      profileRunId: selectedRunId || null,
+    });
     setViewMode("chat");
   };
 
   const handleSelectConversation = (conv: ChatConversation) => {
     setActiveConversationId(conv.id);
+    try { localStorage.setItem("p170_active_widget_conv_id", conv.id); } catch {}
     const snap = getConversationSnapshot(conv.id);
     if (snap && snap.messages.length > 0) {
       setMessages(snap.messages);
       if (snap.datasetId) setSelectedDatasetId(snap.datasetId);
       if (snap.profileRunId) setSelectedRunId(snap.profileRunId);
     } else {
-      setMessages([
-        makeMessage("agent", `Đã mở đoạn chat "${conv.title}". Hãy tiếp tục câu hỏi của bạn!`, "Sẵn sàng"),
-      ]);
+      const initialMsg = makeMessage("agent", `Đã mở đoạn chat "${conv.title}". Hãy tiếp tục câu hỏi của bạn!`, "Sẵn sàng");
+      setMessages([initialMsg]);
+      updateConversationSnapshot(conv.id, {
+        messages: [initialMsg],
+        profile: null,
+        datasetId: selectedDatasetId || null,
+        profileRunId: selectedRunId || null,
+      });
     }
     setViewMode("chat");
   };
@@ -690,7 +763,19 @@ export function DraggableChatWidget({
                 <select
                   id="widget-profile-run"
                   value={selectedRunId}
-                  onChange={(e) => setSelectedRunId(e.target.value)}
+                  onChange={(e) => {
+                    const newRunId = e.target.value;
+                    setSelectedRunId(newRunId);
+                    if (activeConversationId) {
+                      const snap = getConversationSnapshot(activeConversationId);
+                      if (snap) {
+                        updateConversationSnapshot(activeConversationId, {
+                          ...snap,
+                          profileRunId: newRunId,
+                        });
+                      }
+                    }
+                  }}
                   disabled={profileRunsLoading}
                   style={{
                     width: "100%",
@@ -702,7 +787,8 @@ export function DraggableChatWidget({
                     fontSize: "0.78rem",
                   }}
                 >
-                  {profileRunsLoading && <option value="">Đang tải Profile Run…</option>}
+                  <option value="">Chọn Profile Run…</option>
+                  {profileRunsLoading && <option value="" disabled>Đang tải Profile Run…</option>}
                   {profileRunGroups.map((group) => (
                     <optgroup key={group.dataset.id} label={group.dataset.name}>
                       {group.runs.map((run) => <option key={run.id} value={run.id}>{profileRunOptionLabel(run)}</option>)}
@@ -772,7 +858,7 @@ export function DraggableChatWidget({
                                 pre: ({node, ...props}) => <pre style={{background: "#f1f5f9", padding: "8px", borderRadius: "8px", overflowX: "auto", fontSize: "0.8rem", margin: "0.5rem 0"}} {...props} />,
                               }}
                             >
-                              {m.text}
+                              {sanitizeGeneratedText(m.text)}
                             </ReactMarkdown>
                           </div>
                         )}
@@ -811,7 +897,8 @@ export function DraggableChatWidget({
                         borderRadius: "6px",
                         color: "#1d4ed8",
                         fontSize: "0.72rem",
-                        cursor: "pointer",
+                        cursor: selectedRunId && !isThinking ? "pointer" : "not-allowed",
+                        opacity: selectedRunId ? 1 : 0.55,
                         textAlign: "left",
                         fontWeight: 500,
                       }}

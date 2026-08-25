@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("removes a rejected guest session without retrying the workspace bootstrap", async ({ page }) => {
-  let sessionRequests = 0;
+  let bootstrapRequests = 0;
   const consoleErrors: string[] = [];
 
   page.on("console", (message) => {
@@ -15,7 +15,7 @@ test("removes a rejected guest session without retrying the workspace bootstrap"
     );
   });
   await page.route("**/api/v1/workspace-bootstrap", async (route) => {
-    sessionRequests += 1;
+    bootstrapRequests += 1;
     await route.fulfill({
       status: 401,
       contentType: "application/json",
@@ -29,7 +29,7 @@ test("removes a rejected guest session without retrying the workspace bootstrap"
   await expect(page).toHaveTitle(/Profile/);
   await expect(page.locator("#login-title")).toBeVisible();
   await expect(page.locator("[data-nextjs-dialog-overlay]")).toHaveCount(0);
-  await expect.poll(() => sessionRequests).toBe(1);
+  await expect.poll(() => bootstrapRequests).toBe(1);
   expect(await page.evaluate(() => window.sessionStorage.getItem("p170-guest-session-v1"))).toBeNull();
   // The intentionally mocked 401 is reported by Chromium as a console error;
   // all other client-side errors would indicate a broken recovery screen.

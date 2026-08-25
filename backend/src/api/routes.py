@@ -73,8 +73,13 @@ from src.services.google_drive import (
     is_google_drive_ref,
     parse_google_drive_ref,
 )
-from src.services.guardrails import audit_question_fields, enforce_output_guardrails
-from src.services.llm import LLMNotConfiguredError, llm_available, report_text, safe_llm_warning
+from src.services.llm import (
+    LLMNotConfiguredError,
+    llm_available,
+    report_text,
+    safe_llm_warning,
+    sanitize_model_text,
+)
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -175,7 +180,6 @@ def _build_profile_response(
         "scan_mode": run.get("scan_mode"),
         "random_seed": run.get("random_seed"),
         "executed_query": run.get("executed_query"),
-        "is_approximate": bool(run.get("is_approximate")),
         "narrative_report": report_text(run.get("narrative_report"))
         if run.get("narrative_report")
         else None,
@@ -190,7 +194,7 @@ def _build_profile_response(
         "proposals": profile["proposals"],
         "test_results": profile["test_results"],
         "question_type": run.get("question_type"),
-        "answer": run.get("answer"),
+        "answer": sanitize_model_text(str(run.get("answer") or "")) or None,
         "answer_sources": run.get("answer_sources") or [],
         "error": run.get("error"),
     }
@@ -472,7 +476,7 @@ def _profile_report_payload(
     warnings = [safe_llm_warning(item) for item in (run.get("risk_warnings") or [])]
     analysis_count = len(report_payload.get("analysis_sessions") or [])
 
-    summary = run.get("narrative_report") or (
+    summary = sanitize_model_text(str(run.get("narrative_report") or "")) or (
         f"Profile v{version} đã hoàn tất cho bộ dữ liệu {dataset_name}. "
         f"Báo cáo gồm {len(stats)} cột và {run.get('row_count') or 0} dòng."
     )
@@ -1528,7 +1532,13 @@ async def list_runs(
         dataset_id, limit=limit, workspace_id=context.workspace_id
     )
     return [
-        ProfileRunSummary(**{**run, "version": run.get("version") or None})
+        ProfileRunSummary(
+            **{
+                **run,
+                "version": run.get("version") or None,
+                "error": run.get("error") or run.get("job_error_message"),
+            }
+        )
         for run in runs
     ]
 

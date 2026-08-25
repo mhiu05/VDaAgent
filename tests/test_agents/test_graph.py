@@ -20,6 +20,7 @@ from src.agents.graph import (
     route_hitl,
 )
 from src.agents.nodes.qa_nodes import (
+    _deterministic_profile_answer,
     classify_question_type,
     qa_router_node,
     qa_structured_node,
@@ -122,6 +123,83 @@ def test_router_blocks_prompt_injection_without_calling_llm() -> None:
     assert result["question_type"] == "guardrail"
     assert result["answer_sources"] == []
     assert "không thể" in result["answer"].lower()
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Tóm tắt chất lượng dữ liệu hiện tại",
+        "Có cột nào phù hợp làm candidate key không?",
+        "Cột nào có rủi ro PII hoặc null cao?",
+    ],
+)
+def test_router_uses_structured_evidence_for_widget_starters(question: str) -> None:
+    result = qa_router_node(
+        {"question": question, "profile_run_id": "run-1", "column_names": []}
+    )
+    assert result["question_type"] == "quantitative"
+
+
+def test_router_preserves_official_execution_for_chart_insight() -> None:
+    execution = {"id": "execution-1", "result": {"data": []}}
+    result = qa_router_node(
+        {
+            "question": "Hãy viết insight cho biểu đồ theo Official execution.",
+            "profile_run_id": "run-1",
+            "column_names": ["department"],
+            "qa_context": {"analysis_execution": execution},
+        }
+    )
+
+    assert result["question_type"] == "quantitative"
+    assert result["qa_context"]["analysis_execution"] == execution
+
+
+def test_quality_summary_starter_is_deterministic_and_cites_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_results = {
+        "get_profile_overview": {
+            "data": {"dataset_name": "hr", "row_count": 20, "column_count": 3, "scan_mode": "full"}
+        },
+        "list_quality_issues": {
+            "data": {
+                "issues": [
+                    {
+                        "column_name": "email",
+                        "issue_type": "high_missingness",
+                        "metric_name": "null_pct",
+                        "observed_value": 55.0,
+                    }
+                ]
+            }
+        },
+        "get_risk_warnings": {"data": {"risk_warnings": ["Email cần được bảo vệ."]}},
+        "get_governance_summary": {
+            "data": {"pii_count": 1, "candidate_key_count": 1, "quasi_identifier_count": 0}
+        },
+    }
+
+    def fake_run_tool(name: str, args: dict, profile_run_id: str | None = None) -> dict:
+        assert profile_run_id == "run-1"
+        return tool_results[name]
+
+    monkeypatch.setattr("src.agents.nodes.qa_nodes.run_tool", fake_run_tool)
+    result = _deterministic_profile_answer(
+        "Tóm tắt chất lượng dữ liệu hiện tại", "run-1"
+    )
+
+    assert result is not None
+    answer, sources, calls_used = result
+    assert "55.00%" in answer
+    assert calls_used == 4
+    assert {source["tool"] for source in sources} == {
+        "get_profile_overview",
+        "list_quality_issues",
+        "get_risk_warnings",
+        "get_governance_summary",
+    }
+    assert all(source["profile_run_id"] == "run-1" for source in sources)
 
 
 def test_vector_qa_never_falls_back_to_another_profile_run(

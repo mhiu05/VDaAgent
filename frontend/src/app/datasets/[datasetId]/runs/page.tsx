@@ -20,7 +20,13 @@ export default function DatasetRunsPage() {
   const [profiling, setProfiling] = useState(false);
   const [profileError, setProfileError] = useState<unknown>(null);
   const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
-  const runs = useQuery({ queryKey: ["runs", datasetId], queryFn: ({ signal }) => listRuns(datasetId, signal), enabled: Boolean(datasetId) });
+  const runs = useQuery({
+    queryKey: ["runs", datasetId],
+    queryFn: ({ signal }) => listRuns(datasetId, signal),
+    enabled: Boolean(datasetId),
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => ["queued", "running", "resuming"].includes(run.status)) ? 3_000 : false,
+  });
 
   function openCreateModal() {
     const nextVersion = (runs.data?.[0]?.version ?? 0) + 1;

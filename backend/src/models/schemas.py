@@ -409,6 +409,11 @@ class DatasetOut(BaseModel):
     source_ref: str | None = None
     collection_name: str | None = None
     last_profiled_at: datetime | None = None
+    latest_run_id: str | None = None
+    latest_run_status: str | None = None
+    latest_run_stage: str | None = None
+    latest_run_created_at: datetime | None = None
+    latest_run_error: str | None = None
 
 
 class DatasetCollectionUpdate(BaseModel):
@@ -458,6 +463,7 @@ class ProfileRunSummary(BaseModel):
     row_count: int | None = None
     is_approximate: bool = False
     created_at: datetime | None = None
+    error: str | None = None
 
 
 class StatusResponse(BaseModel):

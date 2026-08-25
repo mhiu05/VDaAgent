@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
-import { cleanupGuestSession, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
+import { cleanupGuestSession, fetchApiWithLocalFallback, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
 import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
 import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
 import { requestedSignupRole } from "@/lib/auth/onboarding";
@@ -59,12 +59,6 @@ function requiresWorkspaceBootstrap(pathname: string): boolean {
   ].some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
-function apiBase() {
-  const configured = process.env.NEXT_PUBLIC_API_URL;
-  if (configured) return configured.replace(/\/$/, "");
-  return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
-}
-
 async function readWorkspaceError(response: Response): Promise<Error> {
   try {
     const body = await response.clone().json() as { detail?: unknown };
@@ -75,11 +69,11 @@ async function readWorkspaceError(response: Response): Promise<Error> {
   return new Error("Phiên đăng nhập không có quyền truy cập workspace.");
 }
 
-async function fetchSessionResource(url: string, headers: Headers): Promise<Response> {
+async function fetchSessionResource(path: string, headers: Headers): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 12_000);
   try {
-    return await fetch(url, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
+    return await fetchApiWithLocalFallback(path, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
   } catch (reason) {
     if (reason instanceof DOMException && reason.name === "AbortError") {
       throw new Error("Không thể kết nối workspace trong 12 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
@@ -230,7 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? requestedWorkspace ?? window.localStorage.getItem("p170-workspace-id")
           : null;
         if (saved) headers.set("X-Workspace-Id", saved);
-        let response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+        let response = await fetchSessionResource("/workspace-bootstrap", headers);
         // Supabase can return a locally cached token that has just expired.
         // Refresh it once at the auth boundary, then let the normal error
         // state handle a genuinely invalid or revoked session.
@@ -239,7 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (refreshed && refreshed !== supabaseToken) {
             tokenForRequest = refreshed;
             headers.set("Authorization", `Bearer ${tokenForRequest}`);
-            response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+            response = await fetchSessionResource("/workspace-bootstrap", headers);
           }
         }
         // A workspace id is persisted for convenience, but it may belong to a
@@ -247,7 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // treating the session as unauthorized.
         if (!response.ok && response.status === 404 && saved) {
           headers.delete("X-Workspace-Id");
-          response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+          response = await fetchSessionResource("/workspace-bootstrap", headers);
         }
         // Supabase Auth users can exist without an application workspace when
         // they were created from the Supabase dashboard or an older signup
@@ -269,7 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           headers.set("Authorization", `Bearer ${tokenForRequest}`);
           await provisionSelfSignup(role, tokenForProvision);
           if (sequence !== loadSequence.current) return false;
-          response = await fetchSessionResource(`${apiBase()}/workspace-bootstrap`, headers);
+          response = await fetchSessionResource("/workspace-bootstrap", headers);
         }
         // A guest can change role while this request is in flight. Ignore the
         // old response instead of allowing it to replace the newer workspace.

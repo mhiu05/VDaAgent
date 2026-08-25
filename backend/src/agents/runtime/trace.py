@@ -533,6 +533,7 @@ def record_retrieval_call(
     profile_run_id: str | None,
     profile_hits: list[Any],
     knowledge_hits: list[Any],
+    external_knowledge_enabled: bool | None = None,
 ) -> None:
     """Trace retrieval provenance without persisting a query or document text."""
 
@@ -559,7 +560,11 @@ def record_retrieval_call(
                 "sanitized_args": {
                     "query_hash": stable_hash(query),
                     "profile_run_id": profile_run_id,
-                    "external_knowledge_enabled": cfg.retrieval_external_knowledge_enabled,
+                    "external_knowledge_enabled": (
+                        cfg.retrieval_external_knowledge_enabled
+                        if external_knowledge_enabled is None
+                        else external_knowledge_enabled
+                    ),
                     "embedding_model": cfg.retrieval_embedding_model,
                     "rerank_model": cfg.retrieval_rerank_model
                     if cfg.retrieval_enable_rerank
