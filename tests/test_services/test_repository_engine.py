@@ -95,6 +95,8 @@ def test_save_gate_transitions_without_nested_connection(
     )
 
     assert gate["session_id"] == session_id
+    if decision == "blocked":
+        assert gate["issues"][0]["dimension"] == "general"
     refreshed = analyses.get_session(session_id, workspace_id=workspace_id)
     assert refreshed is not None
     assert refreshed["status"] == expected_status

@@ -224,6 +224,17 @@ class AnalysisRepository:
         decision: str,
         issues: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        normalized_issues = [
+            {
+                **issue,
+                # ``quality_issues.dimension`` is required by the metadata
+                # schema. Manual or future callers may provide a compact
+                # issue without a dimension, so persist it in the neutral
+                # bucket instead of failing the whole quality-gate transaction.
+                "dimension": str(issue.get("dimension") or "general"),
+            }
+            for issue in issues
+        ]
         gate = {
             "id": _id(),
             "session_id": session_id,
@@ -233,12 +244,16 @@ class AnalysisRepository:
         }
         with self.engine.begin() as conn:
             conn.execute(quality_gate_runs.insert().values(**gate))
-            if issues:
+            if normalized_issues:
                 conn.execute(
                     quality_issues.insert(),
                     [
-                        {"id": _id(), "quality_gate_run_id": gate["id"], **issue}
-                        for issue in issues
+                        {
+                            "id": _id(),
+                            "quality_gate_run_id": gate["id"],
+                            **issue,
+                        }
+                        for issue in normalized_issues
                     ],
                 )
             # PERF-201 (nested-checkout fix): read `mode` on the SAME connection
@@ -261,7 +276,7 @@ class AnalysisRepository:
                 .where(analysis_sessions.c.id == session_id)
                 .values(status=status, updated_at=_now())
             )
-        return {**gate, "issues": issues}
+        return {**gate, "issues": normalized_issues}
 
     def acknowledge_issue(self, session_id: str, issue_id: str, note: str) -> bool:
         with self.engine.begin() as conn:
