@@ -57,7 +57,7 @@ export function PublicNavbar() {
     <div className="pub-navbar-wrapper">
       <header className={`pub-navbar${useGuestNavbar ? " guest-navbar" : ""}`}>
         <Link href="/" className="pub-nav-brand" aria-label="VDaAgent Trang chủ">
-          <Image src="/img/logo.png" alt="Logo" width={32} height={32} style={{ objectFit: "contain", background: "transparent" }} priority />
+          <Image src="/img/logo.png" alt="Logo" width={32} height={32} unoptimized style={{ objectFit: "contain", background: "transparent" }} priority />
           <span>VDaAgent</span>
         </Link>
         
