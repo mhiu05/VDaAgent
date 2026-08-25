@@ -49,6 +49,9 @@ from src.config import get_settings
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
+    DatasourceConnectResponse,
+    DatasourceRequest,
+    DatasourceTestResponse,
     DatasetCollectionUpdate,
     DatasetOut,
     DriftRequest,
@@ -74,6 +77,14 @@ from src.services.google_drive import (
     parse_google_drive_ref,
 )
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
+from src.services.datasource import (
+    DatasourceError,
+    connection_id_from_ref,
+    encrypt_config,
+    normalize_config,
+    probe,
+    source_ref_for_connection,
+)
 from src.services.llm import LLMNotConfiguredError, llm_available, report_text, safe_llm_warning
 from src.services.permissions import (
     DATASET_DELETE,
@@ -1173,6 +1184,83 @@ async def ask_question_stream(
 # --------------------------------------------------------------------------- #
 # Dataset / hệ thống
 # --------------------------------------------------------------------------- #
+@router.post("/datasets/datasource/test", response_model=DatasourceTestResponse)
+async def test_datasource(
+    request: DatasourceRequest,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> DatasourceTestResponse:
+    """Validate an external source without persisting its credentials."""
+    get_rate_limiter().check(context.user_id)
+    try:
+        normalized = normalize_config(request.kind, request.config)
+        objects = await asyncio.to_thread(probe, request.kind, normalized)
+    except DatasourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Datasource probe failed", extra={"kind": request.kind})
+        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
+    return DatasourceTestResponse(
+        kind=request.kind,
+        objects=objects,
+        detail=f"Kết nối {request.kind} thành công.",
+    )
+
+
+@router.post("/datasets/datasource", response_model=DatasourceConnectResponse, status_code=201)
+async def connect_datasource(
+    request: DatasourceRequest,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> DatasourceConnectResponse:
+    """Create a tenant-owned dataset backed by an encrypted external source."""
+    get_rate_limiter().check(context.user_id)
+    try:
+        normalized = normalize_config(request.kind, request.config)
+        await asyncio.to_thread(probe, request.kind, normalized)
+        encrypted = encrypt_config(normalized)
+    except DatasourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Datasource connection failed", extra={"kind": request.kind})
+        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
+
+    connection_id = uuid4().hex
+    try:
+        get_repository().create_datasource_connection(
+            connection_id,
+            workspace_id=context.workspace_id,
+            created_by_user_id=context.user_id,
+            name=request.name,
+            kind=request.kind,
+            config_encrypted=encrypted,
+        )
+        dataset_id = uuid4().hex
+        get_repository().create_dataset(
+            dataset_id,
+            request.name,
+            request.kind,
+            source_ref_for_connection(connection_id),
+            workspace_id=context.workspace_id,
+            content_sha256=hashlib.sha256(encrypted.encode()).hexdigest(),
+            source_version="connection-v1",
+        )
+    except Exception as exc:
+        logger.exception("Không lưu được datasource metadata")
+        try:
+            get_repository().delete_datasource_connection(connection_id)
+        except Exception:
+            logger.warning("Không rollback được datasource metadata", exc_info=True)
+        raise HTTPException(status_code=500, detail="Không thể lưu datasource.") from exc
+
+    object_name = normalized.get("table") or normalized.get("collection") or "query"
+    _audit(context, "api_datasource_connected", resource_type="dataset", resource_id=dataset_id, kind=request.kind)
+    return DatasourceConnectResponse(
+        dataset_id=dataset_id,
+        name=request.name,
+        source_type=request.kind,
+        object_name=str(object_name),
+    )
+
+
 @router.post("/datasets/upload", response_model=UploadResponse, status_code=201)
 async def upload_dataset(
     file: UploadFile = File(..., description="CSV / TSV / Parquet / JSON"),  # noqa: B008
@@ -1459,6 +1547,21 @@ async def delete_dataset(
 
     deleted_file = False
     source_ref = str(deleted["source_ref"])
+    if source_ref.lower().startswith("datasource://"):
+        try:
+            get_repository().delete_datasource_connection(connection_id_from_ref(source_ref))
+        except Exception:
+            logger.warning("Không xóa được metadata datasource %s", source_ref, exc_info=True)
+        _audit(
+            context,
+            "api_delete_dataset",
+            dataset_id=dataset_id,
+            resource_type="dataset",
+            resource_id=dataset_id,
+            deleted_runs=len(run_ids),
+            deleted_file=False,
+        )
+        return {"dataset_id": dataset_id, "deleted_runs": len(run_ids), "deleted_file": False}
     if is_supabase_ref(source_ref):
         try:
             bucket, object_path = parse_supabase_ref(source_ref)

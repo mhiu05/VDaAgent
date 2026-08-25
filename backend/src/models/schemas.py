@@ -446,6 +446,37 @@ class UploadResponse(BaseModel):
     suggested_name: str | None = None
 
 
+DatasourceKind = Literal["mysql", "mongodb", "duckdb"]
+
+
+class DatasourceRequest(BaseModel):
+    kind: DatasourceKind
+    config: dict[str, Any] = Field(default_factory=dict)
+    name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(ord(char) < 32 for char in normalized):
+            raise ValueError("Tên datasource không hợp lệ.")
+        return normalized
+
+
+class DatasourceTestResponse(BaseModel):
+    ok: bool = True
+    kind: DatasourceKind
+    objects: list[str] = Field(default_factory=list)
+    detail: str
+
+
+class DatasourceConnectResponse(BaseModel):
+    dataset_id: str
+    name: str
+    source_type: DatasourceKind
+    object_name: str | None = None
+
+
 class ProfileRunSummary(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -500,6 +531,9 @@ __all__ = [
     "ColumnStatOut",
     "ConfirmRequest",
     "ConfirmResponse",
+    "DatasourceConnectResponse",
+    "DatasourceRequest",
+    "DatasourceTestResponse",
     "DatasetCollectionUpdate",
     "DatasetOut",
     "DriftFinding",

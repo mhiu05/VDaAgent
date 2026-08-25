@@ -16,6 +16,7 @@ from typing import Any
 # pyrefly: ignore [missing-import]
 import duckdb
 from src.services.forecasting import ForecastingError, forecast_series
+from src.services.datasource import DatasourceError
 from src.services.repository import Repository
 from src.services.storage import materialize_source
 
@@ -367,6 +368,7 @@ class AnalysisEngine:
                 names = [item[0] for item in connection.description]
         except (
             duckdb.Error,
+            DatasourceError,
             FileNotFoundError,
             OSError,
             TimeoutError,

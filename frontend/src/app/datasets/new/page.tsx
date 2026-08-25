@@ -6,6 +6,7 @@ import { connectGoogleDrive, createProfile, getGoogleDriveStatus, setDatasetColl
 import { humanFileSize } from "@/lib/format";
 import type { UploadResult } from "@/lib/types";
 import { ErrorNotice, LoadingButton, Notice, PageHeader, ProgressSteps } from "@/components/ui";
+import { DatasourceConnector } from "@/components/datasource-connector";
 import { useAuth } from "@/components/auth-provider";
 
 const supportedExtensions = ["csv", "tsv", "parquet", "json"];
@@ -26,6 +27,7 @@ export default function NewDatasetPage() {
   const [savingCollection, setSavingCollection] = useState(false);
   const [collectionSaved, setCollectionSaved] = useState(false);
   const [busy, setBusy] = useState<"upload" | "profile" | null>(null);
+  const [sourceMode, setSourceMode] = useState<"file" | "datasource">("file");
   const [error, setError] = useState<unknown>(null);
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [driveStatus, setDriveStatus] = useState<GoogleDriveStatus | null>(null);
@@ -294,7 +296,8 @@ export default function NewDatasetPage() {
       {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn chỉ cần kết nối Google Drive 1 lần trong 1 workspace." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
       {!driveStatus.connected && driveStatus.can_connect && <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</LoadingButton>}
     </Notice>}
-    <div className="grid two">
+    <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MySQL / MongoDB / DuckDB</button></div>
+    {sourceMode === "datasource" ? <DatasourceConnector /> : <div className="grid two">
       <section className="panel"><div className="panel-title"><h2>1. Chọn dữ liệu</h2><small>Chọn một, nhiều file hoặc cả thư mục</small></div>
         <div className={`drop-zone ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={fileDrop}>
           <div><strong>Kéo thả một hoặc nhiều file vào đây</strong><p className="muted">CSV, TSV, Parquet hoặc JSON</p><div className="inline-actions file-picker-actions"><label className="button secondary">Chọn file<input type="file" multiple accept=".csv,.tsv,.parquet,.json,application/json,text/csv" onChange={fileInput} /></label><label className="button secondary">Chọn thư mục<input ref={folderInputRef} type="file" multiple accept=".csv,.tsv,.parquet,.json,application/json,text/csv" onChange={fileInput} /></label></div>
@@ -311,6 +314,6 @@ export default function NewDatasetPage() {
         {busy === "profile" && <ProgressSteps steps={["Chuẩn bị", "Đang profiling", "Hoàn tất"]} activeStep={profiledCount === files.length ? 2 : 1} detail={`Đã xử lý ${profiledCount}/${files.length} file. Hệ thống đang tính metric từ dữ liệu thật.`} />}
         <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</LoadingButton></div>
       </section>
-    </div>
+    </div>}
   </>;
 }
