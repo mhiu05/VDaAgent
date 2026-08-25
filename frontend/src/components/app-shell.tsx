@@ -85,25 +85,13 @@ const analystNavigation = [
   }
 ];
 
-type SidebarNavigationItem = {
-  href: string;
-  label: string;
-  icon: string;
-  description: string;
-  permission: Permission;
-};
-
-const analystNavigationItems = analystNavigation.reduce<SidebarNavigationItem[]>(
-  (items, group) => [...items, ...group.children],
-  [],
-);
-
 function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const [openNavigationGroup, setOpenNavigationGroup] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
   const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
   const isHome = pathname === "/";
@@ -112,6 +100,21 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAdmin = Boolean(me?.workspace.role === "admin" || can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
   const roleNavigation = isAdmin ? adminNavigation : analystNavigation;
+
+  useEffect(() => {
+    if (isAdmin) return;
+    const activeGroup = analystNavigation.find((group) => group.children.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)));
+    if (activeGroup) {
+      setOpenNavigationGroup(activeGroup.id);
+      return;
+    }
+    const savedGroup = window.localStorage.getItem("p170-sidebar-group");
+    if (savedGroup && analystNavigation.some((group) => group.id === savedGroup)) setOpenNavigationGroup(savedGroup);
+  }, [isAdmin, pathname]);
+
+  useEffect(() => {
+    if (openNavigationGroup) window.localStorage.setItem("p170-sidebar-group", openNavigationGroup);
+  }, [openNavigationGroup]);
 
   // Load custom profile & listen for avatar updates
   useEffect(() => {
@@ -337,9 +340,37 @@ function AppShellContent({ children }: { children: ReactNode }) {
             </nav>
           ) : (
             <nav className="nav-list sidebar-navigation" aria-label="Điều hướng phân tích dữ liệu">
-              {analystNavigationItems.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
+              {analystNavigation.map((group) => {
+                const items = group.children.filter((item) => can(me?.effective_permissions, item.permission));
+                if (items.length === 0) return null;
+                const groupActive = items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+                const expanded = openNavigationGroup === group.id;
+                return <div className="sidebar-nav-group" key={group.id}>
+                  <button
+                    type="button"
+                    className={`nav-link sidebar-group-btn${groupActive ? " active-parent" : ""}`}
+                    aria-label={group.label}
+                    aria-expanded={expanded}
+                    aria-controls={`sidebar-submenu-${group.id}`}
+                    onClick={() => setOpenNavigationGroup(expanded ? null : group.id)}
+                  >
+                    <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={group.icon} /></span>
+                    <span className="sidebar-link-label">{group.label}</span>
+                    <span className={`chevron${expanded ? " open" : ""}`} aria-hidden="true">⌄</span>
+                  </button>
+                  {expanded && <div className="sidebar-sub-menu" id={`sidebar-submenu-${group.id}`}>
+                    {items.map((item) => {
+                      const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                      return <div className="sidebar-nav-item sidebar-sub-item" key={item.href}>
+                        <Link className={active ? "nav-link active" : "nav-link"} href={item.href} aria-current={active ? "page" : undefined}>
+                          <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.icon} /></span>
+                          <span className="sidebar-link-label">{item.label}</span>
+                        </Link>
+                        <InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip>
+                      </div>;
+                    })}
+                  </div>}
+                </div>;
               })}
             </nav>
           )}

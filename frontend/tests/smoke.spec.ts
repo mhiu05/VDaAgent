@@ -21,6 +21,9 @@ test("analyst can navigate from dataset list to safe upload workflow", async ({ 
   await page.waitForLoadState("networkidle");
   await expect(page).toHaveURL(/\/datasets$/);
   await expect(page.getByRole("heading", { name: "Bộ dữ liệu", exact: true })).toBeVisible();
+  await page.locator(".sidebar").hover();
+  await expect(page.getByRole("button", { name: "Dữ liệu", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("link", { name: "Tải dữ liệu", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "+ Bộ dữ liệu mới" }).click();
   await page.waitForLoadState("networkidle");
   await expect(page.getByRole("heading", { name: "Tải lên và bắt đầu profiling" })).toBeVisible();
