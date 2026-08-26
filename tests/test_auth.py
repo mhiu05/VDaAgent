@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import httpx
+import jwt
 import pytest
 from src.api import authz_routes
 from src.config import Settings
@@ -47,6 +49,34 @@ def test_email_confirmation_uses_supabase_user_record_when_jwt_claim_is_missing(
         "apikey": "publishable-test-key",
         "Authorization": "Bearer access-token",
     }
+
+
+def test_jwt_verifier_passes_bounded_clock_skew_to_pyjwt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier = _verifier()
+    captured: dict[str, object] = {}
+    verifier._client = SimpleNamespace(
+        get_signing_key_from_jwt=lambda _token: SimpleNamespace(key="signing-key")
+    )
+
+    monkeypatch.setattr(jwt, "get_unverified_header", lambda _token: {"alg": "ES256", "kid": "kid-1"})
+
+    def fake_decode(*_args: object, **kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "sub": "00000000-0000-0000-0000-000000000123",
+            "email": "analyst@example.com",
+            "email_confirmed_at": "2026-08-13T08:00:00Z",
+            "role": "authenticated",
+        }
+
+    monkeypatch.setattr(jwt, "decode", fake_decode)
+
+    context = verifier.verify("signed-token")
+
+    assert context.user_id == "00000000-0000-0000-0000-000000000123"
+    assert captured["leeway"] == 30
 
 
 def test_email_confirmation_rejects_user_without_confirmation_timestamp(

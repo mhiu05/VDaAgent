@@ -25,6 +25,8 @@ type WorkspaceBootstrap = Me & {
   };
 };
 
+const WORKSPACE_BOOTSTRAP_TIMEOUT_MS = 45_000;
+
 type AuthValue = {
   me: Me | null;
   authenticated: boolean;
@@ -90,7 +92,7 @@ async function readWorkspaceError(response: Response): Promise<Error> {
 
 async function fetchSessionResource(path: string, headers: Headers): Promise<Response> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  const timeout = window.setTimeout(() => controller.abort(), WORKSPACE_BOOTSTRAP_TIMEOUT_MS);
   let lastError: unknown;
   try {
     for (const base of apiBaseCandidates()) {
@@ -104,7 +106,7 @@ async function fetchSessionResource(path: string, headers: Headers): Promise<Res
     throw lastError ?? new Error("Không thể kết nối API workspace.");
   } catch (reason) {
     if (reason instanceof DOMException && reason.name === "AbortError") {
-      throw new Error("Không thể kết nối workspace trong 20 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
+      throw new Error("Không thể kết nối workspace trong 45 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
     }
     throw reason;
   } finally {
@@ -410,7 +412,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setWorkspaceId(null);
       setError("Không thể xác định phiên và workspace trong 20 giây. Hãy tải lại trang để thử lại.");
       setLoading(false);
-    }, 20_000);
+    }, WORKSPACE_BOOTSTRAP_TIMEOUT_MS + 5_000);
     return () => {
       if (bootstrapWatchdog.current !== null) window.clearTimeout(bootstrapWatchdog.current);
       bootstrapWatchdog.current = null;

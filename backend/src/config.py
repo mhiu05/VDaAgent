@@ -228,6 +228,10 @@ class Settings(BaseSettings):
     )
     auth_jwks_cache_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     auth_jwks_timeout_seconds: float = Field(default=3.0, ge=0.5, le=30.0)
+    # Supabase Auth and a local development machine can differ by a small
+    # amount when a freshly-issued token is checked. Allow bounded clock skew
+    # for exp/iat/nbf validation without weakening token verification.
+    auth_jwt_leeway_seconds: int = Field(default=30, ge=0, le=300)
     auth_jwt_algorithms: tuple[str, ...] = ("ES256", "RS256")
     # Used only by AUTH_MODE=dual.  It is a stable, valid UUID so legacy data
     # can be backfilled into a real membership instead of becoming unscoped.
