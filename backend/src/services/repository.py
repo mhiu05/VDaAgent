@@ -1928,13 +1928,28 @@ class Repository:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, "p170:legacy-workspace"))
 
     def _sync_user_profile(
-        self, conn: Any, user_id: str, email: str | None, now: datetime, role: str = "analyst"
+        self,
+        conn: Any,
+        user_id: str,
+        email: str | None,
+        now: datetime,
+        role: str = "analyst",
+        *,
+        allow_default_admin_bootstrap: bool = True,
     ) -> None:
-        """Create a local identity record or refresh its canonical email and role."""
+        """Create a local identity record and refresh only its email projection.
+
+        GLOBAL_ADMIN_EMAILS is a one-time bootstrap seed. Existing rows remain
+        authoritative so an administrator downgrade cannot be undone by login.
+        """
         normalised_email = _normalise_email(email)
         admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
-        is_default_admin = bool(normalised_email and normalised_email in admin_emails)
-        effective_role = "admin" if is_default_admin else role
+        is_default_admin = bool(
+            allow_default_admin_bootstrap
+            and normalised_email
+            and normalised_email in admin_emails
+        )
+        effective_role = "admin" if is_default_admin else canonical_role(role)
 
         profile = (
             conn.execute(
@@ -1963,13 +1978,6 @@ class Repository:
         updates: dict[str, Any] = {"updated_at": now}
         if normalised_email and profile["email"] != normalised_email:
             updates["email"] = normalised_email
-        if is_default_admin and profile.get("role") != "admin":
-            updates["role"] = "admin"
-            conn.execute(
-                workspace_memberships.update()
-                .where(workspace_memberships.c.user_id == user_id)
-                .values(role="admin", updated_at=now)
-            )
         if len(updates) > 1:
             conn.execute(
                 user_profiles.update()
@@ -1977,10 +1985,29 @@ class Repository:
                 .values(**updates)
             )
 
-    def sync_user_profile(self, user_id: str, email: str | None, role: str = "analyst") -> None:
-        """Synchronise the signed-in user's public identity from Auth."""
+    def sync_user_profile(
+        self,
+        user_id: str,
+        email: str | None,
+        role: str = "analyst",
+        *,
+        allow_default_admin_bootstrap: bool = True,
+    ) -> None:
+        """Synchronise the signed-in user's public identity from Auth.
+
+        Account creation by a System Admin can opt out of the initial
+        ``GLOBAL_ADMIN_EMAILS`` bootstrap so its requested Analyst role is
+        preserved.
+        """
         with self.engine.begin() as conn:
-            self._sync_user_profile(conn, user_id, email, _now(), role)
+            self._sync_user_profile(
+                conn,
+                user_id,
+                email,
+                _now(),
+                role,
+                allow_default_admin_bootstrap=allow_default_admin_bootstrap,
+            )
 
     def ensure_bootstrap_workspace(self, bootstrap_user_id: str) -> str:
         """Create the one deterministic legacy workspace/membership if needed."""
@@ -2817,7 +2844,7 @@ class Repository:
             ).mappings().all()
 
             total = len(all_profiles)
-            active_count = sum(1 for p in all_profiles if p.get("status") != "locked")
+            active_count = sum(1 for p in all_profiles if p.get("status") == "active")
             locked_count = sum(1 for p in all_profiles if p.get("status") == "locked")
             admin_count = sum(1 for p in all_profiles if p.get("role") == "admin")
             analyst_count = sum(1 for p in all_profiles if p.get("role") != "admin")
@@ -2874,6 +2901,18 @@ class Repository:
             values["locked_by_user_id"] = None
 
         with self.engine.begin() as conn:
+            target_role = conn.execute(
+                select(user_profiles.c.role).where(user_profiles.c.user_id == user_id)
+            ).scalar_one_or_none()
+            if status == "locked" and target_role == "admin":
+                active_admins = conn.execute(
+                    select(func.count()).select_from(user_profiles).where(
+                        user_profiles.c.role == "admin",
+                        user_profiles.c.status == "active",
+                    )
+                ).scalar_one()
+                if int(active_admins or 0) <= 1:
+                    raise ValueError("Không thể khóa System Admin cuối cùng.")
             conn.execute(
                 user_profiles.update().where(user_profiles.c.user_id == user_id).values(**values)
             )
@@ -2903,6 +2942,18 @@ class Repository:
             raise ValueError("Role chỉ có thể là analyst hoặc admin.")
         now = _now()
         with self.engine.begin() as conn:
+            current_role = conn.execute(
+                select(user_profiles.c.role).where(user_profiles.c.user_id == user_id)
+            ).scalar_one_or_none()
+            if current_role == "admin" and canonical == "analyst":
+                active_admins = conn.execute(
+                    select(func.count()).select_from(user_profiles).where(
+                        user_profiles.c.role == "admin",
+                        user_profiles.c.status == "active",
+                    )
+                ).scalar_one()
+                if int(active_admins or 0) <= 1:
+                    raise ValueError("Không thể hạ quyền System Admin cuối cùng.")
             conn.execute(
                 user_profiles.update()
                 .where(user_profiles.c.user_id == user_id)
@@ -2911,7 +2962,7 @@ class Repository:
             conn.execute(
                 workspace_memberships.update()
                 .where(workspace_memberships.c.user_id == user_id)
-                .values(role=canonical, updated_at=now)
+                .values(role="analyst", updated_at=now)
             )
             row = conn.execute(
                 select(user_profiles).where(user_profiles.c.user_id == user_id)
@@ -2931,7 +2982,7 @@ class Repository:
             }
 
     def delete_user_account(self, user_id: str, actor_user_id: str) -> dict[str, Any]:
-        """Permanently delete a user account and associated memberships/invitations."""
+        """Delete access and associated data while retaining a deny tombstone."""
         if user_id == actor_user_id:
             raise ValueError("Bạn không thể tự xóa tài khoản của chính mình.")
 
@@ -2946,10 +2997,15 @@ class Repository:
             if not profile:
                 raise LookupError("Không tìm thấy tài khoản người dùng.")
 
-            email = profile.get("email")
-            admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
-            if email and email.strip().casefold() in admin_emails:
-                raise ValueError("Không thể xóa tài khoản Quản trị viên mặc định của hệ thống.")
+            if profile.get("role") == "admin":
+                active_admins = conn.execute(
+                    select(func.count()).select_from(user_profiles).where(
+                        user_profiles.c.role == "admin",
+                        user_profiles.c.status == "active",
+                    )
+                ).scalar_one()
+                if int(active_admins or 0) <= 1:
+                    raise ValueError("Không thể xóa System Admin cuối cùng.")
 
             # Delete memberships
             conn.execute(
@@ -2968,9 +3024,13 @@ class Repository:
                 )
             )
 
-            # Delete user profile
+            # Keep a tombstone so an already-issued JWT cannot recreate an
+            # account through the login-time profile sync path.  Protected
+            # dependencies reject every status other than ``active``.
             conn.execute(
-                user_profiles.delete().where(user_profiles.c.user_id == user_id)
+                user_profiles.update()
+                .where(user_profiles.c.user_id == user_id)
+                .values(status="deleted", updated_at=_now())
             )
 
         # Best-effort removal from Supabase Auth if configured

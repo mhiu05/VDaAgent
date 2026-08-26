@@ -4,7 +4,9 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/components/auth-provider";
 import {
   listAdminUsers,
+  createAdminUser,
   updateAdminUserStatus,
+  updateAdminUserRole,
   deleteAdminUser,
   type AdminUser,
   type AdminUserStats,
@@ -80,6 +82,10 @@ export default function AdminUsersPage() {
 
   const [deleteModalUser, setDeleteModalUser] = useState<AdminUser | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null);
 
   const currentUserId = me?.user.id;
 
@@ -123,6 +129,26 @@ export default function AdminUsersPage() {
   const handleClearSearch = () => {
     setSearchInput("");
     setSearchQuery("");
+  };
+
+  const handleCreateUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsCreating(true);
+    try {
+      const created = await createAdminUser({ email: newEmail, ...(newPassword ? { password: newPassword, send_invite: false } : { send_invite: true }) });
+      setSuccessMessage(
+        created.invited
+          ? `Đã gửi email mời cho Analyst "${created.email || created.user_id}".`
+          : `Đã tạo tài khoản Analyst "${created.email || created.user_id}".`,
+      );
+      setNewEmail("");
+      setNewPassword("");
+      void loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không thể tạo tài khoản Analyst.");
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   // Open Status Modal
@@ -173,6 +199,20 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleToggleRole = async (user: AdminUser) => {
+    if (user.user_id === currentUserId) return;
+    setUpdatingRoleId(user.user_id);
+    try {
+      await updateAdminUserRole(user.user_id, { role: user.role === "admin" ? "analyst" : "admin" });
+      setSuccessMessage("Đã cập nhật vai trò tài khoản.");
+      void loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Không thể cập nhật vai trò tài khoản.");
+    } finally {
+      setUpdatingRoleId(null);
+    }
+  };
+
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
@@ -194,6 +234,12 @@ export default function AdminUsersPage() {
         title="Quản trị hệ thống & Tài khoản"
         description="Xem toàn bộ danh sách tài khoản trong hệ thống, theo dõi thời gian đăng ký và hoạt động, thực hiện khóa / mở khóa hoặc xóa tài khoản người dùng."
       />
+
+      <form onSubmit={handleCreateUser} className="panel" style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap", marginTop: "1rem", padding: "1rem" }}>
+        <label style={{ flex: "1 1 260px" }}>Email Analyst<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="analyst@company.com" /></label>
+        <label style={{ flex: "1 1 220px" }}>Mật khẩu (tuỳ chọn)<input type="password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Để trống để gửi lời mời" /></label>
+        <button className="button primary" type="submit" disabled={isCreating}>{isCreating ? "Đang tạo…" : "Tạo Analyst"}</button>
+      </form>
 
       {/* SUCCESS TOAST */}
       {successMessage && (
@@ -589,6 +635,7 @@ export default function AdminUsersPage() {
                 {filteredUsers.map((u) => {
                   const isSelf = u.user_id === currentUserId;
                   const isLocked = u.status === "locked";
+                  const isDeleted = u.status === "deleted";
                   const isAdmin = u.role === "admin";
                   const name = u.display_name || (u.email ? u.email.split("@")[0] : "Người dùng");
                   const registeredTime = u.created_at;
@@ -599,7 +646,7 @@ export default function AdminUsersPage() {
                       key={u.user_id}
                       style={{
                         borderBottom: "1px solid var(--line)",
-                        background: isLocked ? "rgba(239, 68, 68, 0.03)" : "transparent",
+                        background: isDeleted ? "rgba(100, 116, 139, 0.05)" : isLocked ? "rgba(239, 68, 68, 0.03)" : "transparent",
                         transition: "background 0.15s ease",
                       }}
                     >
@@ -705,7 +752,26 @@ export default function AdminUsersPage() {
 
                       {/* Cột 3: Tình trạng tài khoản */}
                       <td style={{ padding: "14px 20px" }}>
-                        {isLocked ? (
+                        {isDeleted ? (
+                          <span
+                            title="Tài khoản đã xóa không còn quyền truy cập hệ thống."
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              padding: "4px 9px",
+                              borderRadius: "7px",
+                              background: "rgba(100, 116, 139, 0.12)",
+                              border: "1px solid rgba(100, 116, 139, 0.28)",
+                              color: "#475569",
+                              fontSize: "0.82rem",
+                              fontWeight: 700,
+                              width: "fit-content",
+                            }}
+                          >
+                            Đã xóa
+                          </span>
+                        ) : isLocked ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
                             <span
                               style={{
@@ -828,7 +894,10 @@ export default function AdminUsersPage() {
                           }}
                         >
                           {/* Nút Khóa / Mở Khóa */}
-                          {isLocked ? (
+                          <button type="button" onClick={() => void handleToggleRole(u)} disabled={isSelf || isDeleted || updatingRoleId === u.user_id} title={isSelf ? "Không thể tự hạ quyền" : isDeleted ? "Tài khoản đã xóa" : "Thay đổi vai trò hệ thống"}>
+                            {updatingRoleId === u.user_id ? "Đang cập nhật…" : isAdmin ? "Hạ quyền Analyst" : "Nâng quyền Admin"}
+                          </button>
+                          {isDeleted ? null : isLocked ? (
                             <button
                               type="button"
                               onClick={() => openStatusModal(u)}
@@ -852,7 +921,7 @@ export default function AdminUsersPage() {
                             <button
                               type="button"
                               onClick={() => openStatusModal(u)}
-                              disabled={isSelf}
+                              disabled={isSelf || isDeleted}
                               title={
                                 isSelf
                                   ? "Không thể tự khóa tài khoản của chính mình"
@@ -866,8 +935,8 @@ export default function AdminUsersPage() {
                                 color: "#dc2626",
                                 border: "1px solid rgba(239, 68, 68, 0.3)",
                                 fontWeight: 700,
-                                opacity: isSelf ? 0.45 : 1,
-                                cursor: isSelf ? "not-allowed" : "pointer",
+                                opacity: isSelf || isDeleted ? 0.45 : 1,
+                                cursor: isSelf || isDeleted ? "not-allowed" : "pointer",
                                 display: "inline-flex",
                                 alignItems: "center",
                                 gap: "4px",
@@ -881,7 +950,7 @@ export default function AdminUsersPage() {
                           <button
                             type="button"
                             onClick={() => setDeleteModalUser(u)}
-                            disabled={isSelf}
+                            disabled={isSelf || isDeleted}
                             title={
                               isSelf
                                 ? "Không thể tự xóa tài khoản của chính mình"
@@ -895,8 +964,8 @@ export default function AdminUsersPage() {
                               color: "#dc2626",
                               border: "1px solid rgba(239, 68, 68, 0.22)",
                               fontWeight: 600,
-                              opacity: isSelf ? 0.45 : 1,
-                              cursor: isSelf ? "not-allowed" : "pointer",
+                              opacity: isSelf || isDeleted ? 0.45 : 1,
+                              cursor: isSelf || isDeleted ? "not-allowed" : "pointer",
                               display: "inline-flex",
                               alignItems: "center",
                               gap: "4px",

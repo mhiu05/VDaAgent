@@ -386,6 +386,11 @@ class Settings(BaseSettings):
                 raise ValueError("AUTH_MODE=supabase yêu cầu SUPABASE_URL.")
             if not self.auth_issuer:
                 raise ValueError("AUTH_MODE=supabase yêu cầu SUPABASE_AUTH_ISSUER.")
+        if self.app_env == "production":
+            if self.auth_mode != "supabase":
+                raise ValueError("Production bắt buộc AUTH_MODE=supabase.")
+            if not self.auth_require_email_confirmed:
+                raise ValueError("Production bắt buộc AUTH_REQUIRE_EMAIL_CONFIRMED=true.")
         # The planner/verifier/queue switches are intentionally fail-closed
         # until their capability registry, deterministic evaluation and durable
         # execution phases have shipped. A truthy flag must never expose an

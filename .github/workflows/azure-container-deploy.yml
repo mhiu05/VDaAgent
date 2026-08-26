@@ -222,8 +222,8 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}
-          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}
+          NEXT_PUBLIC_AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
+          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
         run: |
           set -euo pipefail
           docker build \
@@ -271,8 +271,8 @@ jobs:
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
-          AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'true' }}
-          AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'true' }}
+          AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
+          AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
           STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
           GUEST_STORAGE_PROVIDER: ${{ vars.GUEST_STORAGE_PROVIDER || 'supabase' }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}

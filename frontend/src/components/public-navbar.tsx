@@ -16,7 +16,7 @@ export function PublicNavbar() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
-  const currentRole = me?.workspace.role;
+  const currentRole = me?.workspace?.role;
   const isOverviewPage = pathname === "/" || pathname.startsWith("/guide") || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
   

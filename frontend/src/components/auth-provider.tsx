@@ -11,15 +11,15 @@ import { requestedSignupRole } from "@/lib/auth/onboarding";
 
 export type Workspace = { id: string; name: string; slug: string; role: string; created_by_user_id?: string; is_project?: boolean };
 export type Me = {
-  user: { id: string; email: string | null };
-  workspace: { id: string; role: string };
+  user: { id: string; email: string | null; role?: string; status?: string };
+  workspace: { id: string; role: string } | null;
   effective_permissions: string[];
   workspaces: Workspace[];
 };
 
 type WorkspaceBootstrap = Me & {
   dashboard: {
-    kind: "analyst";
+    kind: "analyst" | "system";
     reports?: Array<{ id: string; title: string; status: string }>;
     counts?: Record<string, number>;
   };
@@ -223,6 +223,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChatHistoryScope(null, null);
   }, []);
 
+  const handleUnauthorized = useCallback(() => {
+    clearSupabaseLocalSession();
+    queryClient.clear();
+    clearChatHistory();
+    resetUnauthenticatedState();
+    if (pathnameRef.current !== "/login") router.replace("/login?reason=session_expired");
+  }, [queryClient, resetUnauthenticatedState, router]);
+
   const load = useCallback((requestedWorkspace?: string | null, force = false, preferGuest = false, background = false) => {
     if (loadInFlight.current && !force) return loadInFlight.current;
 
@@ -283,7 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers.set("Authorization", `Bearer ${tokenForRequest}`);
         // Guest sessions have exactly one short-lived workspace. Avoid sending
         // a stale signed-in workspace id when a visitor starts a new trial.
-        const saved = supabaseToken
+        const saved = supabaseToken && !pathnameRef.current.startsWith("/admin")
           ? requestedWorkspace ?? window.localStorage.getItem("p170-workspace-id")
           : null;
         if (saved) headers.set("X-Workspace-Id", saved);
@@ -351,11 +359,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         if (!response.ok) throw await readWorkspaceError(response);
         const payload = await response.json() as WorkspaceBootstrap;
-        const selected = payload.workspace.id;
-        queryClient.setQueryData(["dashboard", selected], payload.dashboard);
+        const selected = payload.workspace?.id ?? null;
+        if (selected && payload.dashboard) queryClient.setQueryData(["dashboard", selected], payload.dashboard);
         workspaceIdRef.current = selected;
         setWorkspaceId(selected);
-        window.localStorage.setItem("p170-workspace-id", selected);
+        if (selected) window.localStorage.setItem("p170-workspace-id", selected);
+        else window.localStorage.removeItem("p170-workspace-id");
         setMe(payload);
         setAuthenticated(Boolean(supabaseToken));
         setIsGuest(Boolean(guestSession));
@@ -370,6 +379,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (background && workspaceIdRef.current) return false;
         if (sawSupabaseSession) {
           setError(reason instanceof Error ? reason.message : String(reason));
+          if (!background && requiresWorkspaceBootstrap(pathnameRef.current) && pathnameRef.current !== "/login") {
+            router.replace("/login?reason=bootstrap_failed");
+          }
           return false;
         }
         resetUnauthenticatedState();
@@ -394,9 +406,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    setApiAuthTransport({ accessToken, workspaceId: () => workspaceIdRef.current, refresh });
+    setApiAuthTransport({ accessToken, workspaceId: () => workspaceIdRef.current, refresh, onUnauthorized: handleUnauthorized });
     return () => setApiAuthTransport(null);
-  }, [accessToken, refresh]);
+  }, [accessToken, handleUnauthorized, refresh]);
 
   // A browser auth lock, an unreachable Supabase endpoint, or a stalled API
   // must never leave the whole workspace shell in a permanent loading state.
@@ -531,7 +543,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChatHistoryScope(null, null);
     guestModeRef.current = false;
     await getSupabaseBrowserClient()?.auth.signOut();
-    window.location.assign("/");
+    window.location.assign("/login");
   }, [queryClient]);
 
   const enterGuestRole = useCallback(async (role: GuestRole) => {

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-WorkspaceRole = Literal["analyst", "admin"]
+# Workspace memberships intentionally expose one business role.  ``admin`` is
+# a system role and must never be treated as a workspace superuser.
+WorkspaceRole = Literal["analyst"]
 
 REPORT_PUBLISHED_READ: Final = "report.published.read"
 REPORT_PUBLISHED_EXPORT: Final = "report.published.export"
@@ -83,7 +85,7 @@ _ANALYST = frozenset({
     AGENT_TRACE_DEBUG_READ,
 })
 
-_ADMIN = frozenset(_ANALYST | {
+_SYSTEM_ADMIN = frozenset({
     USER_ACCOUNTS_READ,
     USER_ACCOUNT_MANAGE,
     SYSTEM_ADMIN,
@@ -91,15 +93,38 @@ _ADMIN = frozenset(_ANALYST | {
 
 ROLE_PERMISSIONS: Final[dict[WorkspaceRole, frozenset[str]]] = {
     "analyst": _ANALYST,
-    "admin": _ADMIN,
 }
 
-ALL_PERMISSIONS: Final[frozenset[str]] = _ADMIN
+# Kept as a union for callers that need to validate a capability identifier;
+# it is not a role grant.
+ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(_ANALYST | _SYSTEM_ADMIN)
 
 
 def permissions_for_role(role: WorkspaceRole | str) -> frozenset[str]:
-    """Return an immutable permission set and fail closed for unknown roles."""
+    """Return the canonical permission set for a system role identifier.
+
+    ``admin`` is intentionally a system-only set; workspace authorization
+    should call :func:`workspace_permissions_for_role` after membership
+    normalization.
+    """
+    if canonical_role(str(role)) == "admin":
+        return _SYSTEM_ADMIN
     return ROLE_PERMISSIONS.get(role if role in ROLE_PERMISSIONS else "", frozenset())
+
+
+def workspace_permissions_for_role(role: str) -> frozenset[str]:
+    """Return permissions granted by a workspace membership only."""
+    return ROLE_PERMISSIONS.get(canonical_workspace_role(role), frozenset())
+
+
+def system_permissions_for_role(role: str) -> frozenset[str]:
+    """Return system-context permissions without any workspace capabilities."""
+    return _SYSTEM_ADMIN if canonical_role(role) == "admin" else frozenset()
+
+
+def canonical_workspace_role(role: str) -> str:
+    """Normalize legacy membership values to the single Analyst role."""
+    return "analyst" if role in {"owner", "viewer", "admin", "analyst"} else role
 
 
 def canonical_role(role: str) -> str:
@@ -113,10 +138,8 @@ def canonical_role(role: str) -> str:
 
 def role_can_manage_target(actor_role: str, target_role: str) -> bool:
     """Check whether actor can manage target role."""
-    actor = canonical_role(actor_role)
-    target = canonical_role(target_role)
-    if actor == "admin":
-        return True
+    actor = canonical_workspace_role(actor_role)
+    target = canonical_workspace_role(target_role)
     return actor == "analyst" and target == "analyst"
 
 
@@ -159,6 +182,9 @@ __all__ = [
     "WORKSPACE_STORAGE_CONNECT",
     "WorkspaceRole",
     "canonical_role",
+    "canonical_workspace_role",
     "permissions_for_role",
+    "workspace_permissions_for_role",
+    "system_permissions_for_role",
     "role_can_manage_target",
 ]

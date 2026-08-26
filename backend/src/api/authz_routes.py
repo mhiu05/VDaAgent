@@ -6,7 +6,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from src.api.dependencies import RequestContext, get_current_user, require_permission
+from src.api.dependencies import (
+    RequestContext,
+    get_active_analyst_user,
+    get_active_user,
+    require_permission,
+)
 from src.config import get_settings
 from src.models.auth_schemas import (
     InvitationAccept,
@@ -36,7 +41,10 @@ from src.services.permissions import (
     WORKSPACE_MEMBERS_MANAGE,
     WORKSPACE_SETTINGS_MANAGE,
     canonical_role,
+    canonical_workspace_role,
     permissions_for_role,
+    system_permissions_for_role,
+    workspace_permissions_for_role,
     role_can_manage_target,
 )
 from src.services.report_draft_repository import (
@@ -73,7 +81,7 @@ def _workspace_items(repo: Any, user_id: str) -> list[dict[str, Any]]:
             "id": membership["workspace_id"],
             "name": membership["name"],
             "slug": membership["slug"],
-            "role": canonical_role(str(membership["role"])),
+            "role": canonical_workspace_role(str(membership["role"])),
             "created_by_user_id": membership["created_by_user_id"],
             "is_project": isinstance(membership.get("settings"), dict)
             and bool(membership["settings"].get("project_workspace")),
@@ -84,7 +92,7 @@ def _workspace_items(repo: Any, user_id: str) -> list[dict[str, Any]]:
 
 @router.get("/session")
 async def session(
-    user: AuthContext = Depends(get_current_user),
+    user: AuthContext = Depends(get_active_user),
     workspace_header: str | None = Header(default=None, alias="X-Workspace-Id"),
 ) -> dict[str, Any]:
     """Return the authenticated workspace snapshot in one round trip."""
@@ -96,13 +104,12 @@ async def session(
         repo.ensure_guest_workspace(
             user.user_id, str(user.raw_claims.get("role", "analyst"))
         )
-    else:
-        # Keep the application identity projection in sync with the verified
-        # Auth claim.
-        repo.sync_user_profile(user.user_id, user.email)
     if user.is_legacy:
         repo.ensure_bootstrap_workspace(user.user_id)
 
+    profile = repo.get_user_profile(user.user_id)
+    if not profile or str(profile.get("status", "active")) != "active":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản đã bị khóa hoặc vô hiệu hóa.")
     workspaces = _workspace_items(repo, user.user_id)
     if not workspaces and not user.is_guest and get_settings().auth_allow_signup:
         # A first sign-in used to require a second browser round trip to
@@ -112,21 +119,17 @@ async def session(
         repo.provision_self_signup_workspace(user.user_id, user.email, "analyst")
         workspaces = _workspace_items(repo, user.user_id)
         
-    profile = repo.get_user_profile(user.user_id)
-    system_role = canonical_role(str(profile.get("role", "analyst"))) if profile else "analyst"
+    system_role = canonical_role(str(profile.get("role", "analyst")))
+    if system_role == "admin":
+        return {
+            "user": {"id": user.user_id, "email": user.email, "role": system_role, "status": profile.get("status", "active")},
+            "workspace": None,
+            "effective_permissions": sorted(system_permissions_for_role(system_role)),
+            "workspaces": [],
+        }
 
     if not workspaces:
-        if system_role == "admin":
-            # For System Admins with 0 workspaces, we bypass workspace checks in the frontend shell
-            # so we can return a synthetic workspace snapshot.
-            selected = None
-            effective_role = "admin"
-            workspace_id = "system"
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Bạn không có membership workspace đang hoạt động.",
-            )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có membership workspace đang hoạt động.")
     else:
         selected = (
             next((item for item in workspaces if item["id"] == workspace_header), None)
@@ -137,14 +140,8 @@ async def session(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy workspace."
             )
-        effective_role = "admin" if system_role == "admin" else selected["role"]
+        effective_role = canonical_workspace_role(str(selected["role"]))
         workspace_id = selected["id"]
-
-    if repo.is_user_locked(user.user_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tài khoản của bạn đã bị khóa bởi Quản trị viên hệ thống. Vui lòng liên hệ quản trị để được hỗ trợ mở khóa.",
-        )
 
     return {
         "user": {
@@ -154,23 +151,23 @@ async def session(
             "status": profile.get("status") if profile else "active",
         },
         "workspace": {"id": workspace_id, "role": effective_role},
-        "effective_permissions": sorted(permissions_for_role(effective_role)),
+        "effective_permissions": sorted(workspace_permissions_for_role(effective_role)),
         "workspaces": workspaces,
     }
 
 
 @router.get("/workspace-bootstrap")
 async def workspace_bootstrap(
-    user: AuthContext = Depends(get_current_user),
+    user: AuthContext = Depends(get_active_user),
     workspace_header: str | None = Header(default=None, alias="X-Workspace-Id"),
 ) -> dict[str, Any]:
     """Return session and dashboard data together to avoid browser waterfall."""
     snapshot = await session(user, workspace_header)
-    if snapshot["workspace"]["id"] == "system":
-        snapshot["dashboard"] = {"kind": "analyst", "counts": {}}
+    if snapshot.get("workspace") is None:
+        snapshot["dashboard"] = {"kind": "system", "counts": {}}
         return snapshot
 
-    if REPORT_PUBLISHED_READ not in permissions_for_role(snapshot["workspace"]["role"]):
+    if REPORT_PUBLISHED_READ not in workspace_permissions_for_role(snapshot["workspace"]["role"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -211,13 +208,16 @@ async def me(
 
 @router.get("/workspaces")
 async def list_my_workspaces(
-    user: AuthContext = Depends(get_current_user),
+    user: AuthContext = Depends(get_active_user),
 ) -> dict[str, Any]:
     repo = get_repository()
     if user.is_guest:
         repo.ensure_guest_workspace(
             user.user_id, str(user.raw_claims.get("role", "analyst"))
         )
+    profile = repo.get_user_profile(user.user_id)
+    if profile and canonical_role(str(profile.get("role", "analyst"))) == "admin":
+        return {"workspaces": []}
     return {"workspaces": _workspace_items(repo, user.user_id)}
 
 
@@ -413,7 +413,7 @@ async def delete_workspace(
 
 @router.post("/onboarding/provision", status_code=201)
 async def provision_self_signup(
-    payload: SelfSignupProvision, user: AuthContext = Depends(get_current_user)
+    payload: SelfSignupProvision, user: AuthContext = Depends(get_active_analyst_user)
 ) -> dict[str, Any]:
     settings = get_settings()
     if not settings.auth_allow_signup:
@@ -441,7 +441,7 @@ async def provision_self_signup(
 
 @router.delete("/guest/session")
 async def cleanup_guest_session(
-    user: AuthContext = Depends(get_current_user),
+    user: AuthContext = Depends(get_active_user),
 ) -> dict[str, bool]:
     if not user.is_guest:
         raise HTTPException(
@@ -453,7 +453,7 @@ async def cleanup_guest_session(
 
 @router.post("/invitations/accept")
 async def accept_invitation(
-    payload: InvitationAccept, user: AuthContext = Depends(get_current_user)
+    payload: InvitationAccept, user: AuthContext = Depends(get_active_analyst_user)
 ) -> dict[str, Any]:
     membership = get_repository().accept_invitation(
         payload.token, user.user_id, user.email

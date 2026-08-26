@@ -91,10 +91,17 @@ frontend build. Để tắt guest, đặt cả hai là `false` rồi build/resta
 không chỉ ẩn nút ở UI.
 
 System role được lưu trong `user_profiles.role` (`analyst` hoặc `admin`). Email
-trong `GLOBAL_ADMIN_EMAILS` được seed thành admin khi user profile sync. Admin
-API đọc toàn bộ user và cho phép đổi trạng thái, đổi role hoặc xóa tài khoản,
-với audit event và guard chống tự khóa/tự xóa. Workspace invitation chỉ cấp
-Analyst, không cấp system admin.
+trong `GLOBAL_ADMIN_EMAILS` chỉ được seed thành admin khi profile mới được tạo;
+trạng thái PostgreSQL là authority về sau. Admin API đọc toàn bộ user, tạo
+Analyst hoặc gửi Supabase email invite, và cho phép đổi trạng thái, đổi role
+hoặc xóa tài khoản, với audit event và guard
+chống tự khóa/tự xóa/loại bỏ System Admin cuối cùng. Workspace invitation chỉ
+cấp Analyst, không cấp system admin; System Admin không inherit Analyst
+capabilities.
+
+Mọi request bearer JWT của permanent account kiểm tra `user_profiles.status` ở backend. JWT còn hạn
+không thể vượt qua trạng thái `locked` hoặc tombstone `deleted`; chỉ Analyst
+active mới nhận invitation hoặc provision workspace.
 
 Backend dùng join/aggregate cho bootstrap và mọi endpoint sau bootstrap vẫn
 kiểm tra workspace/capability. Telemetry chỉ ghi route, status, duration,
@@ -258,7 +265,7 @@ Mọi endpoint FastAPI dùng prefix `/api/v1`.
 | Charts/Explorer | auto-plan, auto-profile-pack, algorithms, session, previews và promote endpoints |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, trace, plan và evidence endpoints |
 | Reports | report-draft, items, snapshots, export-source, submit, review, publish, archive |
-| Admin | `GET /admin/users`, status, role và delete user endpoints |
+| Admin | `GET/POST /admin/users`, status, role và delete user endpoints |
 | Google Drive | status, connect, callback và delete connection endpoints |
 | Google Calendar | status, OAuth connect/callback/disconnect, list/create/update/delete event endpoints |
 
