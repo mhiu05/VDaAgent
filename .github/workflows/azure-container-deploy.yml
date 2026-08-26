@@ -135,6 +135,7 @@ jobs:
           ACR_PULL_PASSWORD: ${{ secrets.ACR_PULL_PASSWORD }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          DATASOURCE_ENCRYPTION_KEY: ${{ secrets.DATASOURCE_ENCRYPTION_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
@@ -149,7 +150,7 @@ jobs:
             AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID \
             WORKER_APP \
             ACR_PULL_USERNAME ACR_PULL_PASSWORD \
-            DATABASE_URL SUPABASE_SECRET_KEY \
+            DATABASE_URL SUPABASE_SECRET_KEY DATASOURCE_ENCRYPTION_KEY \
             NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
             test -n "${!name}" || { echo "Missing production secret: $name"; exit 1; }
           done
@@ -265,6 +266,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          DATASOURCE_ENCRYPTION_KEY: ${{ secrets.DATASOURCE_ENCRYPTION_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
@@ -308,6 +310,7 @@ jobs:
             AUTH_ALLOW_GUEST="$AUTH_ALLOW_GUEST"
             AUTH_ALLOW_SIGNUP="$AUTH_ALLOW_SIGNUP"
             AUTH_REQUIRE_EMAIL_CONFIRMED=true
+            SUPABASE_AUTH_ISSUER="${SUPABASE_URL%/}/auth/v1"
             SUPABASE_AUTH_AUDIENCE=authenticated
             SUPABASE_URL="$SUPABASE_URL"
             SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
@@ -325,6 +328,7 @@ jobs:
           [ -n "${DATABASE_URL:-}" ] && settings+=(DATABASE_URL="$DATABASE_URL")
           [ -n "${DATABASE_CHECKPOINTER_URL:-}" ] && settings+=(DATABASE_CHECKPOINTER_URL="$DATABASE_CHECKPOINTER_URL")
           [ -n "${SUPABASE_SECRET_KEY:-}" ] && settings+=(SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY")
+          [ -n "${DATASOURCE_ENCRYPTION_KEY:-}" ] && settings+=(DATASOURCE_ENCRYPTION_KEY="$DATASOURCE_ENCRYPTION_KEY")
           [ -n "${LLM_API_KEY:-}" ] && settings+=(LLM_API_KEY="$LLM_API_KEY")
           [ -n "${LANGSMITH_TRACING:-}" ] && settings+=(LANGSMITH_TRACING="$LANGSMITH_TRACING")
           [ -n "${LANGSMITH_API_KEY:-}" ] && settings+=(LANGSMITH_API_KEY="$LANGSMITH_API_KEY")

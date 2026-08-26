@@ -15,7 +15,7 @@ review proposal metadata/PII; sau đó dùng Profile Run hoàn tất làm nguồ
 chart, Agent, compare và report.
 
 ```text
-Đăng nhập Supabase / guest trial
+Đăng nhập Supabase (guest trial chỉ khi được bật)
   → workspace
   → upload dataset
   → POST /profile trả 202
@@ -74,6 +74,21 @@ workspace; cache stale sau 30 giây, giữ 10 phút và xóa khi đổi workspac
 Supabase token được backend verify bằng JWKS/Auth API. `AUTH_MODE=dual` chỉ là
 compatibility path cho local/migration; production dùng `AUTH_MODE=supabase`.
 `AUTH_REQUIRE_EMAIL_CONFIRMED=true` chặn session chưa xác nhận email.
+
+Signup và confirmation dùng Supabase Auth/PKCE. Link xác nhận signup hoàn tất
+tại `/auth/callback`; email reset password quay về `/account/update-password`.
+`/auth/confirm` chưa được triển khai trong app hiện tại. Supabase Redirect URLs
+tối thiểu là `http://localhost:3000/auth/callback`,
+`http://localhost:3000/account/update-password`,
+`https://p170-web-08140019.azurewebsites.net/auth/callback` và
+`https://p170-web-08140019.azurewebsites.net/account/update-password`.
+`SUPABASE_AUTH_ISSUER`
+nên là `<SUPABASE_URL>/auth/v1`, còn audience là `authenticated`.
+
+Guest trial là feature flag hai lớp: `AUTH_ALLOW_GUEST` được backend enforce,
+`NEXT_PUBLIC_AUTH_ALLOW_GUEST` quyết định UI/middleware và được nhúng lúc
+frontend build. Để tắt guest, đặt cả hai là `false` rồi build/restart frontend;
+không chỉ ẩn nút ở UI.
 
 System role được lưu trong `user_profiles.role` (`analyst` hoặc `admin`). Email
 trong `GLOBAL_ADMIN_EMAILS` được seed thành admin khi user profile sync. Admin
@@ -212,9 +227,13 @@ export source.
 | `AUTH_MODE` | `dual` cho local/migration, `supabase` cho production |
 | `AUTH_ALLOW_SIGNUP` / `AUTH_ALLOW_GUEST` | Signup và guest trial |
 | `AUTH_REQUIRE_EMAIL_CONFIRMED` | Bắt buộc email confirmation |
+| `SUPABASE_URL` / `SUPABASE_AUTH_ISSUER` / `SUPABASE_AUTH_AUDIENCE` | Project Supabase và verify JWT; issuer production là `<SUPABASE_URL>/auth/v1`, audience `authenticated` |
 | `GLOBAL_ADMIN_EMAILS` | Email được seed system admin |
 | `STORAGE_PROVIDER` / `GUEST_STORAGE_PROVIDER` | `supabase`, `google_drive` hoặc `local` tùy môi trường |
 | `DATASOURCE_ENCRYPTION_KEY` | Fernet key bắt buộc ở production để mã hóa credential connector |
+| `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_API_URL` | Origin frontend và URL API được nhúng lúc build |
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser client; chỉ publishable key được phép public |
+| `NEXT_PUBLIC_AUTH_ALLOW_SIGNUP` / `NEXT_PUBLIC_AUTH_ALLOW_GUEST` | Cờ UI/middleware; phải đồng bộ với backend và build lại khi đổi |
 | `UX_COMMAND_CENTER_ENABLED` / `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Contract backend và UI Command Center |
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Projection trace metadata-only tùy chọn |
@@ -254,6 +273,16 @@ Vitest, typecheck, lint, Playwright E2E và frontend build. Workflow Azure sau
 quality gate build/push backend và frontend image, chạy Alembic migration, cập
 nhật ba App Service process và health-check API/worker/frontend.
 
+Smoke local đã xác minh: backend `/health` trả `200`, `/login`, `/signup` và
+`/auth/callback` render được; request chưa có Bearer token tới
+`/api/v1/workspace-bootstrap` trả `401` như thiết kế. Kiểm thử signup thật sẽ
+ghi user vào Supabase Auth, vì vậy nên dùng project staging hoặc email test.
+Local test database phải đi qua `P170_TEST_DATABASE_URL`, tách khỏi
+`DATABASE_URL` của ứng dụng.
+
 Đánh giá latency workspace phải chạy bundle/image đã precompile (`pnpm build`
 rồi `pnpm start`, hoặc frontend container candidate). HMR và route compile của
 `pnpm dev` là chi phí development, không phải production regression.
+
+Production checklist Azure/Supabase, gồm redirect URL, SMTP, pooler, secrets và
+auth smoke test, nằm tại [production-supabase.md](production-supabase.md).

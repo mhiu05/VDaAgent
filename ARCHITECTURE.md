@@ -194,6 +194,8 @@ Vitest, typecheck, lint, Playwright E2E and frontend build. A deploy then:
 Secrets stay in GitHub Actions secrets or Azure App Settings. `NEXT_PUBLIC_*`
 may be public browser configuration, but database URLs, Supabase secret/service
 keys, OAuth credentials, storage credentials and LLM keys remain server-side.
+The concrete Supabase/Auth/Storage/session checklist is maintained in
+[`docs/production-supabase.md`](docs/production-supabase.md).
 
 Supabase is the identity provider. Google Drive is a separate OAuth storage
 integration with callback `/api/v1/google-drive/callback`. The selected
