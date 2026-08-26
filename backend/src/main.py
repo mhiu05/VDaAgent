@@ -141,6 +141,7 @@ async def lifespan(app: FastAPI) -> Any:
             "DATABASE_URL",
             "SUPABASE_URL",
             "SUPABASE_PUBLISHABLE_KEY",
+            "DATASOURCE_ENCRYPTION_KEY",
             "AUTH_MODE=supabase",
         }
         if settings.storage_provider == "supabase":

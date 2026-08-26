@@ -184,8 +184,16 @@ Repo GitHub cần các secrets sau:
 AZURE_CLIENT_ID
 AZURE_TENANT_ID
 AZURE_SUBSCRIPTION_ID
+ACR_PULL_USERNAME
+ACR_PULL_PASSWORD
+DATABASE_URL
+DATABASE_MIGRATION_URL
+DATABASE_CHECKPOINTER_URL
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+SUPABASE_SECRET_KEY
+DATASOURCE_ENCRYPTION_KEY
+LLM_API_KEY
 ```
 
 Ý nghĩa:
@@ -195,6 +203,28 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 - `AZURE_SUBSCRIPTION_ID`: subscription ID của Azure.
 - `NEXT_PUBLIC_SUPABASE_URL`: Supabase URL dùng khi build frontend.
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key dùng khi build frontend.
+- `SUPABASE_SECRET_KEY`: secret key chỉ dành cho backend Storage/server operations.
+- `DATASOURCE_ENCRYPTION_KEY`: Fernet key cố định để mã hóa connector credentials;
+  workflow sẽ fail-fast nếu thiếu.
+- `DATABASE_URL`: transaction pooler cho API/worker; `DATABASE_MIGRATION_URL` nên
+  là direct/session connection cho Alembic.
+
+Repository variables nên đặt:
+
+```text
+AZURE_PROFILING_WORKER_APP=<worker-app-name>
+STORAGE_PROVIDER=supabase
+GUEST_STORAGE_PROVIDER=supabase
+NEXT_PUBLIC_AUTH_ALLOW_SIGNUP=true
+NEXT_PUBLIC_AUTH_ALLOW_GUEST=false
+```
+
+Workflow truyền `SUPABASE_AUTH_ISSUER=<SUPABASE_URL>/auth/v1` và
+`SUPABASE_AUTH_AUDIENCE=authenticated` vào API. Không cần lưu issuer thành secret.
+
+Hướng dẫn cấu hình Supabase Dashboard (Email confirmation, SMTP, redirect URL,
+session policy, bucket private và smoke test) xem tại
+[production-supabase.md](production-supabase.md).
 
 ## Cách deploy thật bằng CI/CD
 
