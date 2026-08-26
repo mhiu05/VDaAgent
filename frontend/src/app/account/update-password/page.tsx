@@ -37,7 +37,7 @@ export default function UpdatePasswordPage() {
         return;
       }
       setMessage("Mật khẩu mới đã được lưu. Bạn sẽ được chuyển về workspace.");
-      window.setTimeout(() => router.replace("/workspaces"), 600);
+      window.setTimeout(() => router.replace("/workspaces"), 400);
     } catch (updateException) {
       setError(updateException instanceof Error ? updateException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
     } finally {

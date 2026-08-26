@@ -588,6 +588,10 @@ export function listRuns(datasetId: string, signal?: AbortSignal): Promise<Profi
   return request<ProfileRunSummary[]>(`/datasets/${encodeURIComponent(datasetId)}/runs`, { signal });
 }
 
+export function listAllRuns(signal?: AbortSignal, limit: number = 100): Promise<ProfileRunSummary[]> {
+  return request<ProfileRunSummary[]>(`/runs?limit=${limit}`, { signal });
+}
+
 export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile> {
   // Profile state changes immediately after HITL review. Bypass the browser
   // HTTP cache so a reconciliation/refetch cannot resurrect pending proposals.

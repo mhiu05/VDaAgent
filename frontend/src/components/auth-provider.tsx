@@ -136,6 +136,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabaseAccessToken = useCallback(async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return null;
+
+    try {
+      if (typeof window !== "undefined") {
+        const storageKey = Object.keys(window.localStorage).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
+        if (storageKey) {
+          const stored = window.localStorage.getItem(storageKey);
+          if (stored) {
+            const session = JSON.parse(stored);
+            if (session?.access_token && !tokenExpiresSoon(session.access_token, 300)) {
+              return session.access_token;
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore storage errors and fall back
+    }
+
     let { data } = await withTimeout(
       client.auth.getSession(),
       12_000,

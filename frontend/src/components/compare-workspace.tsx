@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
-import { detectDrift, listDatasets, listRuns } from "@/lib/api";
+import { detectDrift, listDatasets, listAllRuns } from "@/lib/api";
 import { formatDate, formatNumber } from "@/lib/format";
 import type { DriftFinding, DriftResponse, ProfileRunSummary } from "@/lib/types";
 import { useAuth } from "@/components/auth-provider";
@@ -99,18 +99,23 @@ export function CompareWorkspace() {
   const previousWorkspaceId = useRef<string | null>(workspaceId);
 
   const datasets = useQuery({ queryKey: ["compare", workspaceId, "datasets"], queryFn: ({ signal }) => listDatasets(signal), enabled: Boolean(workspaceId) });
-  const runQueries = useQueries({
-    queries: (datasets.data ?? []).map((dataset) => ({
-      queryKey: ["compare", workspaceId, "runs", dataset.id],
-      queryFn: ({ signal }: { signal: AbortSignal }) => listRuns(dataset.id, signal),
-      enabled: Boolean(workspaceId),
-    })),
+  const allRuns = useQuery({
+    queryKey: ["compare", workspaceId, "runs", "all"],
+    queryFn: ({ signal }) => listAllRuns(signal),
+    enabled: Boolean(workspaceId),
   });
-  const completedRuns = useMemo<CompletedRun[]>(() => (datasets.data ?? []).flatMap((dataset, index) =>
-    (runQueries[index]?.data ?? []).filter((run) => run.status === "completed").map((run) => ({ ...run, datasetName: dataset.name })),
-  ).sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")), [datasets.data, runQueries]);
-  const catalogLoading = datasets.isPending || runQueries.some((query) => query.isPending);
-  const catalogError = datasets.error ?? runQueries.find((query) => query.error)?.error;
+
+  const completedRuns = useMemo<CompletedRun[]>(() => {
+    if (!datasets.data || !allRuns.data) return [];
+    const datasetMap = new Map(datasets.data.map((d) => [d.id, d.name]));
+    return allRuns.data
+      .filter((run) => run.status === "completed" && datasetMap.has(run.dataset_id))
+      .map((run) => ({ ...run, datasetName: datasetMap.get(run.dataset_id) as string }))
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+  }, [datasets.data, allRuns.data]);
+
+  const catalogLoading = datasets.isPending || allRuns.isPending;
+  const catalogError = datasets.error ?? allRuns.error;
 
   useEffect(() => {
     if (previousWorkspaceId.current === workspaceId) return;
@@ -154,7 +159,7 @@ export function CompareWorkspace() {
   return <div className="compare-workspace">
     <PageHeader eyebrow="DATA DRIFT" title="So sánh dữ liệu" description="Phát hiện thay đổi về phân phối, chất lượng và cấu trúc giữa hai Profile Run đã hoàn tất." action={<span className="compare-methodology"><span>Phương pháp đánh giá</span><MethodologyTip /></span>} />
     {catalogLoading && <LoadingBlock label="Đang tải các Profile Run trong workspace…" />}
-    {catalogError && <ErrorNotice error={catalogError} retry={() => { void datasets.refetch(); void Promise.all(runQueries.map((query) => query.refetch())); }} />}
+    {catalogError && <ErrorNotice error={catalogError} retry={() => { void datasets.refetch(); void allRuns.refetch(); }} />}
     {!catalogLoading && !catalogError && completedRuns.length < 2 && <EmptyState title={completedRuns.length === 0 ? "Chưa có Profile Run phù hợp" : "Cần thêm một Profile Run"} detail={completedRuns.length === 0 ? "Bạn cần ít nhất hai Profile Run đã hoàn tất để thực hiện so sánh drift." : "Workspace hiện chỉ có một Profile Run đã hoàn tất. Hãy hoàn tất thêm một phiên để bắt đầu so sánh."} action={<Link href="/datasets" className="button primary">Xem Profile Runs</Link>} />}
     {!catalogLoading && !catalogError && completedRuns.length >= 2 && <>
       <section className="panel compare-selector-panel" aria-labelledby="compare-selector-title">

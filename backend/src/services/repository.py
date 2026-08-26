@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -42,12 +43,12 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
-# pyrefly: ignore [missing-import]
-from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 from src.services.permissions import canonical_role
 metadata = MetaData()
+
+_FULL_PROFILE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
 ProposalStatus = Literal["pending", "confirmed", "rejected", "auto_confirmed"]
@@ -1199,6 +1200,11 @@ class Repository:
             self._migrate_upload_provenance_columns()
             self._migrate_profile_job_columns()
 
+    def _invalidate_profile_cache(self, run_id: str) -> None:
+        keys = [k for k in _FULL_PROFILE_CACHE if k.startswith(f"{run_id}:")]
+        for k in keys:
+            _FULL_PROFILE_CACHE.pop(k, None)
+
     def _migrate_profile_job_columns(self) -> None:
         """Keep existing development/test databases aligned with Alembic head."""
         # pyrefly: ignore [missing-import]
@@ -2049,7 +2055,7 @@ class Repository:
                 guest_user_id,
                 None,
                 now,
-                role=canonical,
+                role=role,
             )
             exists = conn.execute(
                 select(workspaces.c.id).where(workspaces.c.id == workspace_id)
@@ -4443,6 +4449,7 @@ class Repository:
                 .mappings()
                 .first()
             )
+            self._invalidate_profile_cache(run_id)
             return {
                 "ok": True,
                 "duplicate": False,
@@ -4466,6 +4473,7 @@ class Repository:
                 )
                 .values(**fields)
             )
+        self._invalidate_profile_cache(run_id)
 
     def get_profile_run(
         self, run_id: str, *, workspace_id: str | None = None
@@ -4519,6 +4527,7 @@ class Repository:
                 column_stats.delete().where(column_stats.c.profile_run_id == run_id)
             )
             conn.execute(column_stats.insert(), rows)
+        self._invalidate_profile_cache(run_id)
 
     def column_stats_rows(
         self, run_id: str, column_name: str | None = None
@@ -4577,6 +4586,7 @@ class Repository:
             )
             if rows:
                 conn.execute(table.insert(), rows)
+        self._invalidate_profile_cache(run_id)
         return ids
 
     def get_proposals(
@@ -4623,6 +4633,14 @@ class Repository:
             if run_id:
                 query = query.where(table.c.profile_run_id == run_id)
             result = conn.execute(query.values(**values))
+            if result.rowcount > 0:
+                # Need to lookup run_id if not provided
+                if not run_id:
+                    run_id = conn.execute(
+                        select(table.c.profile_run_id).where(table.c.id == proposal_id)
+                    ).scalar()
+                if run_id:
+                    self._invalidate_profile_cache(run_id)
             return result.rowcount > 0
 
     def save_terminal_result(
@@ -4729,6 +4747,8 @@ class Repository:
                     created_at=_now(),
                 )
             )
+        self._invalidate_profile_cache(run_a)
+        self._invalidate_profile_cache(run_b)
         return report_id
 
     def get_drift_reports(self, run_id: str) -> list[dict[str, Any]]:
@@ -4746,39 +4766,55 @@ class Repository:
         self, run_id: str, mask_pii: bool = True, *, workspace_id: str | None = None
     ) -> dict[str, Any] | None:
         """Toàn bộ hồ sơ của một run. `mask_pii=True` xoá top_k_values của cột PII."""
-        run = self.get_profile_run(run_id, workspace_id=workspace_id)
-        if not run:
-            return None
+        cache_key = f"{run_id}:{mask_pii}:{workspace_id}"
+        if cache_key in _FULL_PROFILE_CACHE:
+            expire_at, data = _FULL_PROFILE_CACHE[cache_key]
+            if time.time() < expire_at:
+                return data
+            _FULL_PROFILE_CACHE.pop(cache_key, None)
 
-        # Load proposals once, then derive both the PII mask set and the
-        # pending-proposal count from the rows already in memory instead of
-        # issuing a separate `confirmed_pii_columns` query plus three
-        # `pending_count` COUNT() queries (PERF-103).
-        proposals = self.get_proposals(run_id)
-        pii_cols = _pii_mask_columns(proposals.get("pii", []))
-        pending_proposals = sum(
-            1
-            for rows in proposals.values()
-            for row in rows
-            if row.get("status") == "pending"
-        )
+        import concurrent.futures
 
-        stats = self.column_stats_rows(run_id)
-        if mask_pii:
-            for st in stats:
-                if st["column_name"] in pii_cols:
-                    st["top_k_values"] = None
-                    st["pii_masked"] = True
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            future_run = executor.submit(self.get_profile_run, run_id, workspace_id=workspace_id)
+            future_proposals = executor.submit(self.get_proposals, run_id)
+            future_stats = executor.submit(self.column_stats_rows, run_id)
+            future_test = executor.submit(self.get_test_results, run_id)
+            future_drift = executor.submit(self.get_drift_reports, run_id)
 
-        return {
-            "run": run,
-            "dataset": self.get_dataset(run["dataset_id"], workspace_id=workspace_id),
-            "column_stats": stats,
-            "proposals": proposals,
-            "pending_proposals": pending_proposals,
-            "test_results": self.get_test_results(run_id),
-            "drift_reports": self.get_drift_reports(run_id),
-        }
+            run = future_run.result()
+            if not run:
+                return None
+
+            future_dataset = executor.submit(self.get_dataset, run["dataset_id"], workspace_id=workspace_id)
+            proposals = future_proposals.result()
+            stats = future_stats.result()
+            
+            pii_cols = _pii_mask_columns(proposals.get("pii", []))
+            pending_proposals = sum(
+                1
+                for rows in proposals.values()
+                for row in rows
+                if row.get("status") == "pending"
+            )
+
+            if mask_pii:
+                for st in stats:
+                    if st["column_name"] in pii_cols:
+                        st["top_k_values"] = None
+                        st["pii_masked"] = True
+
+            result = {
+                "run": run,
+                "dataset": future_dataset.result(),
+                "column_stats": stats,
+                "proposals": proposals,
+                "pending_proposals": pending_proposals,
+                "test_results": future_test.result(),
+                "drift_reports": future_drift.result(),
+            }
+        _FULL_PROFILE_CACHE[cache_key] = (time.time() + 60, result)
+        return result
 
     def profile_summary_text(
         self, run_id: str, *, workspace_id: str | None = None
@@ -5610,8 +5646,11 @@ def build_engine(settings: Settings | None = None) -> Engine:
             url,
             future=True,
             connect_args={"prepare_threshold": None},
-            poolclass=NullPool,
             pool_pre_ping=True,
+            pool_size=20,
+            max_overflow=20,
+            pool_timeout=30,
+            pool_recycle=300,
         )
     else:
         engine = create_engine(
@@ -5619,8 +5658,8 @@ def build_engine(settings: Settings | None = None) -> Engine:
             future=True,
             connect_args={"prepare_threshold": None},
             pool_pre_ping=True,
-            pool_size=3,
-            max_overflow=0,
+            pool_size=20,
+            max_overflow=20,
             pool_timeout=30,
             pool_recycle=300,
         )

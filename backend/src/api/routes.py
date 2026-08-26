@@ -40,12 +40,19 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import StreamingResponse
+# pyrefly: ignore [missing-import]
 from src.agents.graph import get_qa_graph
+# pyrefly: ignore [missing-import]
 from src.agents.nodes.profiling_nodes import clear_dataframe_cache
+# pyrefly: ignore [missing-import]
 from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_agent_run
+# pyrefly: ignore [missing-import]
 from src.agents.state import initial_qa_state
+# pyrefly: ignore [missing-import]
 from src.api.dependencies import RequestContext, require_permission
+# pyrefly: ignore [missing-import]
 from src.config import get_settings
+# pyrefly: ignore [missing-import]
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
@@ -68,8 +75,11 @@ from src.models.schemas import (
     TestResponse,
     UploadResponse,
 )
+# pyrefly: ignore [missing-import]
 from src.services import drift as drift_service
+# pyrefly: ignore [missing-import]
 from src.services.analysis_repository import get_analysis_repository
+# pyrefly: ignore [missing-import]
 from src.services.google_drive import (
     GoogleDriveConnectionRequiredError,
     GoogleDriveError,
@@ -77,7 +87,9 @@ from src.services.google_drive import (
     is_google_drive_ref,
     parse_google_drive_ref,
 )
+# pyrefly: ignore [missing-import]
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
+# pyrefly: ignore [missing-import]
 from src.services.datasource import (
     DatasourceError,
     decrypt_config,
@@ -86,6 +98,7 @@ from src.services.datasource import (
     probe,
     source_ref_for_connection,
 )
+# pyrefly: ignore [missing-import]
 from src.services.llm import (
     LLMNotConfiguredError,
     llm_available,
@@ -93,6 +106,7 @@ from src.services.llm import (
     safe_llm_warning,
     sanitize_model_text,
 )
+# pyrefly: ignore [missing-import]
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -107,14 +121,19 @@ from src.services.permissions import (
     WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
 )
+# pyrefly: ignore [missing-import]
 from src.services.repository import get_repository
+# pyrefly: ignore [missing-import]
 from src.services.retrieval import get_index
+# pyrefly: ignore [missing-import]
 from src.services.security import (
     get_audit,
     get_rate_limiter,
     safe_filename,
 )
+# pyrefly: ignore [missing-import]
 from src.services.stats_tests import TESTS, run_tests
+# pyrefly: ignore [missing-import]
 from src.services.storage import (
     StorageNotConfiguredError,
     StorageUploadError,
@@ -254,6 +273,7 @@ async def create_profile(
     context: RequestContext = Depends(require_permission(PROFILE_RUN)),
 ) -> ProfileJobResponse:
     """Validate the request and durably queue profiling for a worker."""
+    # pyrefly: ignore [missing-import]
     from src.services.profile_service import ProfileError, ProfileService
 
     get_rate_limiter().check(context.user_id)
@@ -612,6 +632,7 @@ async def confirm_proposals(
     Đây là cửa duy nhất để một proposal chuyển sang `confirmed`. Agent không có
     quyền nào tự làm việc này (eval C-03).
     """
+    # pyrefly: ignore [missing-import]
     from src.services.profile_service import ProfileError, ProfileService
 
     get_rate_limiter().check(context.user_id)
@@ -686,6 +707,7 @@ async def run_statistical_tests(
     Nhiều kiểm định cùng lúc sẽ được hiệu chỉnh đa kiểm định (L1) — p điều chỉnh
     và kết luận sau hiệu chỉnh đều nằm trong response.
     """
+    # pyrefly: ignore [missing-import]
     from src.agents.nodes.profiling_nodes import get_dataframe
 
     settings = get_settings()
@@ -1109,17 +1131,7 @@ async def ask_question_stream(
             yield _sse("meta", {"question_type": qtype})
 
             if qtype == "qualitative" and llm_available() and answer:
-                # Phát lại câu trả lời theo từng câu để client thấy tiến trình
-                # mà không phải gọi LLM lần hai.
-                buffer = ""
-                for char in answer:
-                    buffer += char
-                    if char in ".!?\n" and len(buffer) > 40:
-                        yield _sse("token", {"text": buffer})
-                        buffer = ""
-                        await asyncio.sleep(0)
-                if buffer:
-                    yield _sse("token", {"text": buffer})
+                yield _sse("token", {"text": answer})
             else:
                 yield _sse("token", {"text": answer})
 
@@ -1684,6 +1696,28 @@ async def list_runs(
         )
     runs = repo.list_profile_runs(
         dataset_id, limit=limit, workspace_id=context.workspace_id
+    )
+    return [
+        ProfileRunSummary(
+            **{
+                **run,
+                "version": run.get("version") or None,
+                "error": run.get("error") or run.get("job_error_message"),
+            }
+        )
+        for run in runs
+    ]
+
+
+@router.get("/runs", response_model=list[ProfileRunSummary])
+async def list_all_runs(
+    limit: int = Query(default=100, ge=1, le=500),
+    context: RequestContext = Depends(require_permission(DATASET_READ)),
+) -> list[ProfileRunSummary]:
+    get_rate_limiter().check(context.user_id)
+    repo = get_repository()
+    runs = repo.list_profile_runs(
+        dataset_id=None, limit=limit, workspace_id=context.workspace_id
     )
     return [
         ProfileRunSummary(

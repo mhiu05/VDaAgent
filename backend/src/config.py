@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     # Durable PostgreSQL-backed profiling worker.  A conservative default
     # protects the metadata/checkpointer pools and pandas/DuckDB memory use.
     profiling_worker_concurrency: int = Field(default=1, ge=1, le=8)
-    profiling_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=30.0)
+    profiling_worker_poll_seconds: float = Field(default=0.1, ge=0.1, le=30.0)
     profiling_worker_lease_seconds: int = Field(default=300, ge=30, le=3600)
     profiling_worker_max_attempts: int = Field(default=3, ge=1, le=10)
     profiling_worker_shutdown_grace_seconds: int = Field(
@@ -247,7 +247,7 @@ class Settings(BaseSettings):
             "GLOBAL_ADMIN_EMAILS", "ADMIN_EMAILS", "global_admin_emails"
         ),
     )
-    security_user_rate_per_minute: int = Field(default=30, ge=1)
+    security_user_rate_per_minute: int = Field(default=600, ge=1)
     security_max_upload_mb: int = Field(default=500, ge=1)
     security_allow_raw_export: bool = False
     security_mask_pii_in_answers: bool = True

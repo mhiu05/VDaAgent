@@ -25,7 +25,7 @@ export default function DatasetRunsPage() {
     queryFn: ({ signal }) => listRuns(datasetId, signal),
     enabled: Boolean(datasetId),
     refetchInterval: (query) =>
-      query.state.data?.some((run) => ["queued", "running", "resuming"].includes(run.status)) ? 3_000 : false,
+      query.state.data?.some((run) => ["queued", "running", "resuming"].includes(run.status)) ? 300 : false,
   });
 
   function openCreateModal() {

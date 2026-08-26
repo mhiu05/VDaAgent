@@ -30,7 +30,7 @@ export default function DatasetsPage() {
     queryKey: ["datasets"],
     queryFn: ({ signal }) => listDatasets(signal),
     refetchInterval: (query) =>
-      query.state.data?.some((dataset) => isProfileActive(dataset.latest_run_status)) ? 3_000 : false,
+      query.state.data?.some((dataset) => isProfileActive(dataset.latest_run_status)) ? 300 : false,
   });
   const canDeleteDataset = can(me?.effective_permissions, PERMISSIONS.datasetDelete);
   const deletion = useMutation({

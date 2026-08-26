@@ -592,11 +592,11 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     onSuccess: (completed) => {
       setAutoStage("");
       setMessage(`Đã hoàn tất tự động phân tích ${completed.length} biểu đồ kèm Official evidence và AI insight.`);
-      setTimeout(() => setAutoProfileProgress(null), 3500);
+      setTimeout(() => setAutoProfileProgress(null), 400);
     },
     onError: () => {
       setAutoStage("");
-      setTimeout(() => setAutoProfileProgress(null), 3000);
+      setTimeout(() => setAutoProfileProgress(null), 400);
     },
   });
 
@@ -679,12 +679,12 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     onSuccess: (completed) => {
       setBusinessQuestion("");
       setAutoStage("");
-      setTimeout(() => setAutoQuestionProgress(null), 3000);
+      setTimeout(() => setAutoQuestionProgress(null), 400);
       setMessage(`Agent đã tự động tạo thành công ${completed.length} biểu đồ kèm số liệu và AI insight.`);
     },
     onError: () => {
       setAutoStage("");
-      setTimeout(() => setAutoQuestionProgress(null), 3000);
+      setTimeout(() => setAutoQuestionProgress(null), 400);
     },
   });
 

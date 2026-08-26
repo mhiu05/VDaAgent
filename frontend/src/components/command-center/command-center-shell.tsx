@@ -18,7 +18,7 @@ export function CommandCenterShell({ overview }: Props) {
   const { runId } = useParams<{ runId: string }>();
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
-    refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 3_000 : false,
+    refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 300 : false,
   });
   const reportDraft = useQuery({
     queryKey: ["report-draft", runId],
@@ -30,7 +30,7 @@ export function CommandCenterShell({ overview }: Props) {
     queryFn: ({ signal }) => getProfilingJob(runId, signal),
     enabled: Boolean(runId),
     retry: false,
-    refetchInterval: (query) => ["queued", "running"].includes(query.state.data?.status || "") ? 3_000 : false,
+    refetchInterval: (query) => ["queued", "running"].includes(query.state.data?.status || "") ? 300 : false,
   });
 
   if (profile.isLoading) return <LoadingBlock label="Đang tải Command Center…" />;

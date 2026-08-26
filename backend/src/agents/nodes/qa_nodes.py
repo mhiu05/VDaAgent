@@ -902,7 +902,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             include_content=settings.guardrails_audit_question_content,
         ),
     )
-    answer = model_response_text(response)
+    answer = response_text(response)
     if not evidence_available:
         answer = (
             "Mình chưa thể xác minh câu trả lời này từ profile run đang chọn, "

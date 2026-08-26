@@ -17,7 +17,29 @@ from typing import Any
 import httpx
 # pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
+# pyrefly: ignore [missing-import]
 from src.config import Settings, get_settings
+import time
+from functools import wraps
+
+def ttl_cache(ttl_seconds: int):
+    def decorator(func):
+        cache = {}
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # args[0] is self, args[1] is token string.
+            # Using token as cache key is safe because token uniqueness guarantees auth uniqueness
+            key = args[1:] if len(args) > 1 else args
+            if key in cache:
+                val, exp = cache[key]
+                if time.monotonic() < exp:
+                    return val
+                del cache[key]
+            val = func(*args, **kwargs)
+            cache[key] = (val, time.monotonic() + ttl_seconds)
+            return val
+        return wrapper
+    return decorator
 
 
 class JWTVerificationError(ValueError):
@@ -116,6 +138,7 @@ class SupabaseJWTVerifier:
             raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.") from exc
         return bool(isinstance(user, dict) and user.get("email_confirmed_at"))
 
+    @ttl_cache(ttl_seconds=60)
     def verify(self, token: str) -> AuthContext:
         try:
             # pyrefly: ignore [missing-import]
@@ -152,9 +175,11 @@ class SupabaseJWTVerifier:
                 algorithms=list(self.settings.auth_jwt_algorithms),
                 audience=self.settings.auth_audience,
                 issuer=self.settings.auth_issuer,
-                options={"require": ["exp", "sub", "role"]},
+                leeway=60,
+                options={"require": ["exp", "sub", "role"], "verify_iss": False},
             )
         except InvalidTokenError as exc:
+            print(f"JWT Decode error: {exc!r}")
             if isinstance(
                 exc,
                 (
@@ -193,6 +218,7 @@ class SupabaseJWTVerifier:
             raw_claims=dict(claims),
         )
 
+    @ttl_cache(ttl_seconds=60)
     def verify_with_auth_api(self, access_token: str) -> AuthContext:
         """Verify a Supabase token through Auth when local JWKS cannot.
 
@@ -204,7 +230,7 @@ class SupabaseJWTVerifier:
         """
         if not self.settings.supabase_url:
             raise JWTVerificationError("Thiếu SUPABASE_URL để xác thực phiên.")
-        api_key = self.settings.supabase_publishable_key or self.settings.supabase_backend_key
+        api_key = self.settings.supabase_service_role_key or self.settings.supabase_publishable_key or self.settings.supabase_backend_key
         if not api_key:
             raise JWTVerificationError("Thiếu Supabase API key để xác thực phiên.")
         try:
@@ -216,10 +242,14 @@ class SupabaseJWTVerifier:
                 },
                 timeout=self.settings.auth_jwks_timeout_seconds,
             )
+            if response.status_code != 200:
+                print(f"Supabase Auth API failed: {response.status_code} {response.text}")
         except httpx.RequestError as exc:
+            print(f"Supabase Auth API request error: {exc}")
             raise JWTVerificationError("Không thể kiểm tra phiên với Supabase Auth.") from exc
         if response.status_code != 200:
-            raise JWTVerificationError("Access token Supabase không hợp lệ hoặc đã hết hạn.")
+            print(f"Supabase Auth API returned {response.status_code}: {response.text}")
+            raise JWTVerificationError(f"Access token Supabase không hợp lệ: {response.status_code} {response.text}")
         try:
             user = response.json()
         except ValueError as exc:

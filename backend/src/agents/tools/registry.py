@@ -14,6 +14,7 @@ from src.agents.tools.drift_tools import DRIFT_TOOLS
 from src.agents.tools.governance_tools import GOVERNANCE_TOOLS
 from src.agents.tools.statistics_tools import STATISTICS_TOOLS
 from src.agents.tools.test_tools import TEST_TOOLS
+from src.agents.tools.math_tools import MATH_TOOLS
 from src.config import get_settings
 from src.services.security import get_audit
 
@@ -28,6 +29,7 @@ READ_ONLY_QA_TOOLS = [
     *GOVERNANCE_TOOLS,
     *TEST_TOOLS,
     *DRIFT_TOOLS,
+    *MATH_TOOLS,
 ]
 STRUCTURED_TOOLS = READ_ONLY_QA_TOOLS
 INTERNAL_TOOLS: list[Any] = []

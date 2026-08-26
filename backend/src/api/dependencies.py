@@ -10,6 +10,26 @@ from src.services import perf_telemetry
 from src.services.auth import AuthContext, authenticate_bearer
 from src.services.permissions import canonical_role, permissions_for_role
 from src.services.repository import get_repository
+import time
+from functools import wraps
+
+def ttl_cache(ttl_seconds: int):
+    def decorator(func):
+        cache = {}
+        @wraps(func)
+        def wrapper(user, workspace_header, *args, **kwargs):
+            # Safe caching key for _resolve_workspace: user_id + workspace_header
+            key = (user.user_id, workspace_header)
+            if key in cache:
+                val, exp = cache[key]
+                if time.monotonic() < exp:
+                    return val
+                del cache[key]
+            val = func(user, workspace_header, *args, **kwargs)
+            cache[key] = (val, time.monotonic() + ttl_seconds)
+            return val
+        return wrapper
+    return decorator
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +79,7 @@ async def get_current_workspace(
         return _resolve_workspace(user, workspace_header)
 
 
+@ttl_cache(ttl_seconds=30)
 def _resolve_workspace(
     user: AuthContext, workspace_header: str | None
 ) -> WorkspaceContext:
