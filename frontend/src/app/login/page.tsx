@@ -27,6 +27,10 @@ function LoginForm() {
     setError(null);
     try {
       const formData = new FormData(event.currentTarget);
+      const submitter = (event.nativeEvent as SubmitEvent).submitter;
+      const requestedNext = submitter instanceof HTMLElement
+        ? submitter.dataset.next
+        : null;
       const { data, error: signInError } = await client.auth.signInWithPassword({
         email: String(formData.get("email")).trim(),
         password: String(formData.get("password")),
@@ -39,7 +43,7 @@ function LoginForm() {
       // signInWithPassword has persisted the session before resolving. Keep
       // the provider mounted while navigating so the workspace bootstrap can
       // consume that session without a second click or a blank full reload.
-      router.replace(safeNext(params.get("next")));
+      router.replace(safeNext(requestedNext || params.get("next")));
     } catch (signInException) {
       setError(signInException instanceof Error ? signInException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
     } finally {
@@ -65,16 +69,18 @@ function LoginForm() {
           <div className="auth-form-meta" style={{ justifyContent: 'flex-end' }}><Link href="/forgot-password">Quên mật khẩu?</Link></div>
           {error && <div className="notice error" role="alert"><b>Sai email hoặc mật khẩu</b><p>{error}</p></div>}
           <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "1rem" }}>
-              <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ flex: 1, margin: 0 }}>
-                {busy ? "Đang xác thực…" : "Đăng nhập"}
-              </LoadingButton>
-            <Link 
-              href="/admin" 
-              className="button secondary" 
+            <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ flex: 1, margin: 0 }}>
+              {busy ? "Đang xác thực…" : "Đăng nhập"}
+            </LoadingButton>
+            <LoadingButton
+              type="submit"
+              className="button secondary"
+              busy={busy}
+              data-next="/admin"
               style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", margin: 0 }}
             >
-              Vào nhanh /admin
-            </Link>
+              {busy ? "Đang xác thực…" : "Bạn là admin?"}
+            </LoadingButton>
           </div>
         </form>
         <p className="auth-switch">Chưa có tài khoản? <Link href="/signup">Đăng ký</Link></p>
