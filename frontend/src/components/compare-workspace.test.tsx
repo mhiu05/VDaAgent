@@ -21,6 +21,8 @@ vi.mock("@/components/ui", () => ({
   LoadingBlock: ({ label }: { label?: string }) => <section>{label}</section>,
   Notice: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
   PageHeader: ({ title }: { title: string }) => <header><h1>{title}</h1></header>,
+  LoadingButton: ({ children, busy: _busy, ...props }: { children: React.ReactNode; busy?: boolean; [key: string]: unknown }) => <button {...props}>{children}</button>,
+  useToast: () => ({ success: vi.fn(), error: vi.fn(), show: vi.fn() }),
 }));
 
 const datasets = [

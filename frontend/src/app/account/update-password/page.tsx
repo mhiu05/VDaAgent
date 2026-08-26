@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
+import { LoadingButton } from "@/components/ui";
 
 export default function UpdatePasswordPage() {
   const router = useRouter();
@@ -55,7 +56,7 @@ export default function UpdatePasswordPage() {
           <label htmlFor="confirm-new-password">Xác nhận mật khẩu<input id="confirm-new-password" name="confirmation" type="password" autoComplete="new-password" minLength={8} placeholder="Nhập lại mật khẩu" required /></label>
           {error && <div className="notice error" role="alert"><b>Chưa thể đổi mật khẩu</b><p>{error}</p></div>}
           {message && <div className="notice success" role="status"><b>Đã cập nhật mật khẩu</b><p>{message}</p></div>}
-          <button className="button primary auth-submit" type="submit" disabled={busy}>{busy ? "Đang lưu…" : "Lưu mật khẩu mới"}</button>
+          <LoadingButton className="button primary auth-submit" type="submit" busy={busy}>{busy ? "Đang lưu…" : "Lưu mật khẩu mới"}</LoadingButton>
         </form>
         <p className="auth-switch">Đã nhớ mật khẩu? <Link href="/login">Quay lại đăng nhập</Link></p>
       </section>

@@ -1,18 +1,22 @@
-# Google Calendar MCP cho Analyst
+# Google Calendar integration cho Analyst
 
-Hướng dẫn kết nối Google Calendar vào VDaAgent để Analyst xem, tạo và hủy
+> Deprecated: Calendar không còn được expose qua MCP. Tài liệu này được giữ
+> để tham chiếu OAuth/migration; hãy dùng `/calendar` và các endpoint HTTP
+> `/api/v1/calendar/*`. Các tool Calendar trong `backend/src/mcp_server.py` đã
+> được gỡ bỏ.
+
+Hướng dẫn kết nối Google Calendar vào VDaAgent để Analyst xem, tạo, chỉnh sửa và hủy
 lịch hẹn. Provider mặc định là Google Calendar; connection được khóa theo
 workspace và user Analyst.
 
 ## 1. Kiến trúc
 
 UI gọi FastAPI, FastAPI dùng encrypted refresh token để gọi Google Calendar.
-MCP stdio expose cùng service qua list_calendar_events,
-create_calendar_event và delete_calendar_event.
+Profile/chart vẫn có MCP stdio riêng, nhưng không có Calendar tool.
 
-MCP server hiện là trusted-local stdio. Không expose file MCP ra Internet.
-Streamable HTTP chỉ nên triển khai sau authentication, Origin validation và
-request context cho workspace/user.
+MCP server của dự án chỉ còn trusted-local profile/chart tools. Không expose
+file MCP ra Internet; Calendar luôn đi qua HTTP API với request context cho
+workspace/user.
 
 Permission:
 
@@ -147,37 +151,15 @@ Payload tạo event dạng JSON:
 start/end bắt buộc có timezone offset. Backend reject end <= start, giới hạn
 50 attendee và giới hạn 100 event mỗi request.
 
-## 6. Kết nối MCP client
+## 6. MCP compatibility note
 
-P-170 MCP server chạy từ thư mục backend qua stdio. Với client hỗ trợ
-mcpServers, cấu hình tương đương:
+Không cấu hình Calendar như một MCP server nữa. `backend/src/mcp_server.py` chỉ
+cung cấp các tool profile/chart bounded cho trusted-local process; mọi thao tác
+Calendar đi qua HTTP API, với workspace/user context từ JWT và permission
+`calendar.read`/`calendar.write`. Client tích hợp nên mở route `/calendar` hoặc
+gọi các endpoint REST được liệt kê ở trên.
 
-    mcpServers:
-      p170-calendar:
-        command: E:\VDuAgents\P-170\.venv\Scripts\python.exe
-        args: [-m, src.mcp_server]
-        cwd: E:\VDuAgents\P-170\backend
-        env:
-          PYTHONPATH: E:\VDuAgents\P-170\backend
-
-MCP client phải spawn và sở hữu lifecycle của process; không chạy server thủ
-công rồi spawn thêm process thứ hai.
-
-| Tool | Tác dụng | Permission |
-| --- | --- | --- |
-| list_calendar_events | Xem event trong window, mặc định 7 ngày | calendar.read |
-| create_calendar_event | Tạo event có attendee/location/description | calendar.write |
-| delete_calendar_event | Hủy event theo Google event ID | calendar.write |
-
-Mỗi call phải truyền workspace_id và actor_user_id. Server kiểm tra membership
-active trước Google API. Client nên yêu cầu người dùng xác nhận trước create
-và đặc biệt trước delete; annotation destructive là hint, không thay thế auth.
-
-MCP docs:
-
-- [MCP transports](https://modelcontextprotocol.io/specification/draft/basic/transports)
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
-- [MCP client connection](https://ts.sdk.modelcontextprotocol.io/v2/clients/connect)
+Các cấu hình MCP và bảng tool lịch cũ đã bị loại bỏ để tránh triển khai nhầm.
 
 ## 7. Production/Azure
 

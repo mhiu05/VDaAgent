@@ -7,6 +7,9 @@ dist/
 build/
 .eggs/
 
+.markdown-collab/
+.playwright-mcp/
+
 # Virtual environments
 venv/
 .venv/

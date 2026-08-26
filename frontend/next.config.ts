@@ -58,6 +58,7 @@ const securityHeaders = [
 
 const isWindows = process.platform === "win32";
 const outputMode = process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : (isWindows ? undefined : "standalone");
+const distDir = process.env.NEXT_DIST_DIR || (isDevelopment ? ".next-dev" : ".next");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -65,7 +66,7 @@ const nextConfig: NextConfig = {
   output: outputMode,
   env: publicEnv,
   // Keep dev and production chunks isolated so concurrent commands cannot corrupt `.next`.
-  distDir: isDevelopment ? ".next-dev" : ".next",
+  distDir,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

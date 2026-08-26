@@ -23,6 +23,10 @@ from src.config import Settings, get_settings
 class JWTVerificationError(ValueError):
     """A token was absent, malformed, expired, or failed a required claim."""
 
+    def __init__(self, message: str, *, allow_remote_fallback: bool = True) -> None:
+        super().__init__(message)
+        self.allow_remote_fallback = allow_remote_fallback
+
 
 @dataclass(frozen=True, slots=True)
 class AuthContext:
@@ -151,6 +155,19 @@ class SupabaseJWTVerifier:
                 options={"require": ["exp", "sub", "role"]},
             )
         except InvalidTokenError as exc:
+            if isinstance(
+                exc,
+                (
+                    jwt.ExpiredSignatureError,
+                    jwt.ImmatureSignatureError,
+                    jwt.InvalidAudienceError,
+                    jwt.InvalidIssuerError,
+                ),
+            ):
+                raise JWTVerificationError(
+                    "JWT is invalid or expired.",
+                    allow_remote_fallback=False,
+                ) from exc
             raise JWTVerificationError("JWT không hợp lệ hoặc đã hết hạn.") from exc
 
         if claims.get("role") != "authenticated":
@@ -298,6 +315,8 @@ def authenticate_bearer(authorization: str | None, settings: Settings | None = N
             with perf_telemetry.timed("auth_local_ms"):
                 return get_jwt_verifier(current).verify(token)
         except JWTVerificationError as exc:
+            if not exc.allow_remote_fallback:
+                raise _unauthorized(str(exc)) from exc
             # Keep local JWT/JWKS verification as the fast path. The Auth API
             # fallback supports valid tokens from Supabase projects that use
             # legacy or otherwise different signing-key configuration.

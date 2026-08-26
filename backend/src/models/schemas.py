@@ -10,6 +10,7 @@ Quy ước:
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -451,6 +452,98 @@ class UploadResponse(BaseModel):
     suggested_name: str | None = None
 
 
+DatasourceKind = Literal["mysql", "mongodb", "duckdb"]
+
+
+class DatasourceRequest(BaseModel):
+    kind: DatasourceKind
+    config: dict[str, Any] = Field(default_factory=dict)
+    name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(ord(char) < 32 for char in normalized):
+            raise ValueError("Tên datasource không hợp lệ.")
+        return normalized
+
+
+class DatasourceTestResponse(BaseModel):
+    ok: bool = True
+    kind: DatasourceKind
+    objects: list[str] = Field(default_factory=list)
+    detail: str
+
+
+class DatasourceConnectResponse(BaseModel):
+    dataset_id: str
+    name: str
+    source_type: DatasourceKind
+    object_name: str | None = None
+
+
+class DatasourceReuseRequest(BaseModel):
+    """Create a dataset from an already saved workspace datasource."""
+
+    name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(ord(char) < 32 for char in normalized):
+            raise ValueError("Tên dataset không hợp lệ.")
+        return normalized
+
+
+class ConnectorStatus(str, Enum):
+    connected = "connected"
+    attention_required = "attention_required"
+    expired = "expired"
+    disconnected = "disconnected"
+
+
+class ConnectorOut(BaseModel):
+    """Safe connector metadata; secret fields are intentionally absent."""
+
+    id: str
+    provider: str
+    category: Literal["data", "storage", "productivity"]
+    name: str
+    owner_scope: Literal["workspace", "workspace_user"]
+    owner_user_id: str | None = None
+    connected_by_user_id: str | None = None
+    status: ConnectorStatus
+    safe_target: dict[str, Any] = Field(default_factory=dict)
+    last_tested_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_error_at: datetime | None = None
+    last_error_code: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    version: int = 1
+    dataset_count: int = 0
+    can_test: bool = False
+    can_edit: bool = False
+    can_disconnect: bool = False
+
+
+class ConnectorListResponse(BaseModel):
+    connectors: list[ConnectorOut] = Field(default_factory=list)
+    available: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ConnectorTestResponse(BaseModel):
+    id: str | None = None
+    provider: str
+    ok: bool
+    objects: list[str] = Field(default_factory=list)
+    status: ConnectorStatus
+    error_code: str | None = None
+    detail: str
+
+
 class ProfileRunSummary(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -506,6 +599,14 @@ __all__ = [
     "ColumnStatOut",
     "ConfirmRequest",
     "ConfirmResponse",
+    "DatasourceConnectResponse",
+    "DatasourceReuseRequest",
+    "DatasourceRequest",
+    "DatasourceTestResponse",
+    "ConnectorListResponse",
+    "ConnectorOut",
+    "ConnectorStatus",
+    "ConnectorTestResponse",
     "DatasetCollectionUpdate",
     "DatasetOut",
     "DriftFinding",

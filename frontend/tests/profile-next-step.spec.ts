@@ -196,7 +196,9 @@ test("review confirmation hydrates the saved decision before returning to the de
   // The post-review profile is hydrated from the atomic PATCH snapshot; a
   // stale intermediate GET must not be required before navigation.
   expect(profileRequests).toBeGreaterThanOrEqual(1);
-  expect(jobRequests).toBeGreaterThanOrEqual(2);
+  // The review page does not mount the job query while proposals are pending;
+  // the returned profile snapshot mounts it once after navigation.
+  expect(jobRequests).toBeGreaterThanOrEqual(1);
 
   completed = true;
   await page.reload();

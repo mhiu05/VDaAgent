@@ -21,8 +21,9 @@ The public frontend introduces the product through `/`, `/about`, `/guide`,
 `/forgot-password`, `/auth/callback` and `/account/update-password`.
 
 The analyst workspace includes `/dashboard`, `/workspaces`, `/datasets`,
-`/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`,
-`/reports`, `/activity`, `/settings` and `/account`.
+`/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`,
+`/charts`, `/chat`, `/compare`, `/reports`, `/calendar`, `/activity`,
+`/settings` and `/account`.
 
 There is one shared login UI at `/login`; `/admin/login` does not exist. A
 system admin uses the same Supabase email/password login and receives the
@@ -52,9 +53,12 @@ all Analyst capabilities plus `user.accounts.read`, `user.account.manage` and
 3. **All data access is workspace-scoped.** FastAPI resolves identity,
    workspace membership and capability before reading or writing a resource.
    Frontend checks are UX only; API guards are the security boundary.
-4. **No unbounded execution or raw-row path.** Browser, Agent and MCP tools use
-   structured allow-listed operations. They cannot submit raw SQL, Python,
-   shell commands, arbitrary source paths or PII values.
+4. **No unbounded execution or raw-row path.** Explorer, Chart, Agent and MCP
+   tools use structured allow-listed operations. They cannot submit SQL,
+   Python, shell commands, arbitrary source paths or PII values. At ingestion,
+   the datasource connector is a narrow exception: MySQL/DuckDB accept only a
+   validated read-only `SELECT`/`WITH` query or table name, MongoDB accepts a
+   JSON filter, and every source is materialized with a 1,000,000-row ceiling.
 5. **Export is snapshot-based.** A mutable Report Draft is snapshotted before a
    report is considered official. PDF/JSON export uses the authorized snapshot
    rather than live browser state.
@@ -94,14 +98,16 @@ flowchart LR
         Charts[Chart planner and bounded AnalysisEngine]
         Agent[Q&A, skills and redacted trace]
         Reports[Draft, snapshot and export source]
+        Sources[Datasource validation and credential encryption]
         Compute[DuckDB, pandas, NumPy, SciPy\nforecast adapters]
         Repo[Repositories and audit]
         Routes --> Guard
-        Guard --> Bootstrap & AdminAPI & ProfileJobs & Review & Charts & Agent & Reports
+        Guard --> Bootstrap & AdminAPI & ProfileJobs & Review & Charts & Agent & Reports & Sources
         ProfileJobs --> Repo
         Review --> Repo
         AdminAPI --> Repo
         Charts --> Compute & Repo
+        Sources --> Repo
         Agent --> Repo
         Reports --> Repo
     end
@@ -125,7 +131,14 @@ flowchart LR
     Profile --> Repo & Compute
     Profile --> Storage
     Charts --> Storage
+    Sources --> MySQL & Mongo & LocalDuck
     Storage --> Temp --> Compute
+
+    subgraph ExtSources[External datasource]
+        MySQL[MySQL]
+        Mongo[MongoDB]
+        LocalDuck[DuckDB file on API host]
+    end
 
     subgraph Optional[Optional integrations]
         Supabase[Supabase Auth and Storage]
@@ -181,6 +194,8 @@ Vitest, typecheck, lint, Playwright E2E and frontend build. A deploy then:
 Secrets stay in GitHub Actions secrets or Azure App Settings. `NEXT_PUBLIC_*`
 may be public browser configuration, but database URLs, Supabase secret/service
 keys, OAuth credentials, storage credentials and LLM keys remain server-side.
+The concrete Supabase/Auth/Storage/session checklist is maintained in
+[`docs/production-supabase.md`](docs/production-supabase.md).
 
 Supabase is the identity provider. Google Drive is a separate OAuth storage
 integration with callback `/api/v1/google-drive/callback`. The selected
@@ -208,13 +223,17 @@ a thread could make results or checkpoints inconsistent.
 | Forecast registry | Catalogs 28 model adapters and runs only models whose dependency/data contract is available |
 | PostgreSQL repositories | User profiles, workspace state, profile metadata, analysis sessions/executions, reports, audit and trace |
 | Storage adapters | Dataset binary persistence and temporary materialization for tabular compute |
-| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API and MCP tools for list/create/delete events |
+| Datasource connectors | Validate MySQL/MongoDB/DuckDB source contracts, encrypt credentials at rest, then materialize a bounded temporary file for the profiling pipeline |
+| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API for month/week/agenda and list/create/update/delete events |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |
 
-The supported compute source is the uploaded file materialized by the selected
-storage adapter. BigQuery, Snowflake and a standalone vector database are not
-runtime compute backends. Knowledge-base retrieval is an optional in-app
-capability, not a substitute for the Profile Run evidence boundary.
+The supported compute sources are uploaded files and external MySQL, MongoDB
+and DuckDB connections. External sources are validated by the API, stored as
+encrypted tenant-owned connection metadata, then materialized to a temporary
+CSV, JSONL or Parquet file only while DuckDB/pandas computes the profile.
+BigQuery, Snowflake and a standalone vector database are not runtime compute
+backends. Knowledge-base retrieval is an optional in-app capability, not a
+substitute for the Profile Run evidence boundary.
 
 ## Data ownership
 
@@ -223,7 +242,7 @@ capability, not a substitute for the Profile Run evidence boundary.
 | Identity and browser session | Supabase Auth | Browser uses SSR/PKCE; backend validates bearer credentials. |
 | User profile and system role | PostgreSQL `user_profiles` | Stores email projection, `analyst`/`admin` role, status and lock metadata. |
 | Workspace and membership | PostgreSQL | Protected lookups are workspace-scoped; membership role currently normalizes to Analyst. |
-| Dataset binary | Supabase Storage, Google Drive or local dev storage | PostgreSQL keeps source reference, hash and metadata, not the blob. |
+| Dataset source | Supabase Storage, Google Drive/local file or encrypted datasource connection | PostgreSQL keeps source reference, hash and metadata; external credentials are encrypted with `DATASOURCE_ENCRYPTION_KEY`, and raw rows are never stored. |
 | Profile Run and column statistics | PostgreSQL | Statistics, review decisions, quality information and provenance bind to dataset/workspace. |
 | Explorer session/execution | PostgreSQL | Preview/Official records bind query, context version, result hash and limitation. |
 | Agent run and trace | PostgreSQL | Authoritative redacted provenance; never chain-of-thought or raw messages. |
@@ -231,8 +250,11 @@ capability, not a substitute for the Profile Run evidence boundary.
 | Report Draft and snapshot | PostgreSQL | Draft is editable; snapshot is immutable and is the export source. |
 
 Remote sources are copied to a temporary local file only while DuckDB/pandas
-needs them, then removed. Production requires PostgreSQL and a configured
-remote storage provider.
+needs them, then removed. MySQL/DuckDB allow only a validated read-only table
+or `SELECT`/`WITH` source; MongoDB allows a JSON filter; materialization stops
+after 1,000,000 rows. Production requires PostgreSQL, a configured remote
+storage provider and `DATASOURCE_ENCRYPTION_KEY` when datasource connectors are
+used.
 
 ## Main flows
 
@@ -379,6 +401,8 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | --- | --- |
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, `GET/POST /workspaces`, membership, invitation, configuration and guest endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{jobId}`, `GET /profile/{runId}`, `PATCH /profile/{runId}/confirm` |
+| Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` for MySQL, MongoDB and DuckDB |
+| Connector center | Workspace-scoped lifecycle metadata, safe target summaries, health test, optimistic versioning and reusable datasource references |
 | Quality/drift | `POST /profile/{runId}/test`, `POST /profile/{runId}/drift` |
 | Charts/Explorer | `POST /profile/{runId}/charts/auto-plan`, `POST /profile/{runId}/charts/auto-profile-pack`, `GET /profile/{runId}/charts/algorithms`, session, previews and promote |
 | Analysis sessions | `/analysis-sessions` list/create/get, context version, quality gate and execution endpoints |
@@ -386,6 +410,7 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | Reports | `GET/POST /profile/{runId}/report-draft`, report items/snapshots, export source, submit, review, publish and archive |
 | Admin | `GET /admin/users`, `POST /admin/users/{userId}/status`, `POST /admin/users/{userId}/role`, `DELETE /admin/users/{userId}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback and `DELETE /google-drive/connection` |
+| Google Calendar | status, OAuth connect/callback/disconnect and list/create/update/delete-event endpoints; no Calendar MCP surface |
 | Agent skills | `GET /agent-skills`, `GET /agent-skills/{skillName}`, inspect endpoint |
 
 ## Security and operational invariants
@@ -399,6 +424,9 @@ All FastAPI endpoints use the `/api/v1` prefix.
 - Only public Supabase/browser configuration belongs in `NEXT_PUBLIC_*`.
   Database URLs, service keys, storage credentials, OAuth secrets and LLM keys
   remain server-side.
+- `DATASOURCE_ENCRYPTION_KEY` is a server-side Fernet key and is mandatory in
+  production before datasource credentials can be persisted. Decrypted
+  credentials and materialized source files are never returned to the browser.
 - Output guardrails and PII masking apply before content reaches UI, Agent,
   report, snapshot or MCP caller.
 - `AGENT_TRACE_MODE=shadow` records redacted provenance without becoming the
@@ -418,7 +446,9 @@ All FastAPI endpoints use the `/api/v1` prefix.
 ## Deliberate limits
 
 - No arbitrary SQL, raw-row analysis, data-cleaning recipe, multi-table join or
-  general code execution is exposed through UI, Agent or MCP.
+  general code execution is exposed through Explorer, Chart, Agent or MCP. The
+  datasource connector only supports the validated, read-only ingestion
+  contracts described above; it is not an analytics SQL console.
 - Preview is bounded and may be approximate; it is never durable report
   evidence until the Official promote path succeeds.
 - Forecast values are model estimates with limitations, not facts. A model is

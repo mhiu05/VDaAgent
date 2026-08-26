@@ -283,6 +283,19 @@ def reset_storage() -> None:
 @contextmanager
 def materialize_source(source_ref: str, settings: Settings | None = None) -> Iterator[Path]:
     """Yield a readable local path for a local or Supabase source reference."""
+    if source_ref.lower().startswith("datasource://"):
+        from src.services.datasource import DatasourceError, connection_id_from_ref, materialize_connection
+        from src.services.repository import get_repository
+
+        connection_id = connection_id_from_ref(source_ref)
+        # The dataset was resolved with workspace authorization before compute;
+        # the connection id is random and is not exposed to other workspaces.
+        connection = get_repository(settings).get_datasource_connection_any(connection_id)
+        if connection is None:
+            raise DatasourceError("Không tìm thấy datasource connection.")
+        with materialize_connection(connection, settings) as readable_path:
+            yield readable_path
+        return
     if source_ref.lower().startswith("gdrive://"):
         from src.services.google_drive import GoogleDriveStorage, parse_google_drive_ref
 

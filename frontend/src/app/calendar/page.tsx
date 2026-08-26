@@ -1,173 +1,75 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import {
-  connectGoogleCalendar,
-  createCalendarEvent,
-  deleteCalendarEvent,
-  getCalendarStatus,
-  listCalendarEvents,
-  type CalendarEvent,
-  type CalendarStatus,
-} from '@/lib/api';
-import { ApiError } from '@/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError, connectGoogleCalendar, createCalendarEvent, deleteCalendarEvent, disconnectGoogleCalendar, getCalendarStatus, listCalendarEvents, updateCalendarEvent, type CalendarEvent } from '@/lib/api';
+import { LoadingButton } from '@/components/ui';
+import { useAuth } from '@/components/auth-provider';
 
-function localDateTime(daysFromNow = 0, hour = 9): string {
-  const date = new Date();
-  date.setDate(date.getDate() + daysFromNow);
-  date.setHours(hour, 0, 0, 0);
-  const offset = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
+type View = 'month' | 'week' | 'agenda';
+type Draft = { id?: string; summary: string; start: string; end: string; time_zone: string; description: string; location: string; attendees: string };
+const dayMs = 24 * 60 * 60 * 1000;
 
-function displayDate(value: string | null): string {
-  if (!value) return '—';
-  return new Date(value).toLocaleString('vi-VN', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
-}
+function isoDate(date: Date) { return date.toISOString().slice(0, 10); }
+function startOfDay(date: Date) { const value = new Date(date); value.setHours(0, 0, 0, 0); return value; }
+function startOfWeek(date: Date) { const value = startOfDay(date); value.setDate(value.getDate() - value.getDay()); return value; }
+function addDays(date: Date, days: number) { const value = new Date(date); value.setDate(value.getDate() + days); return value; }
+function eventDate(value: string | null) { if (!value) return null; if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00`); return new Date(value); }
+function formatDate(value: string | null, options: Intl.DateTimeFormatOptions = {}) { const date = eventDate(value); return date ? date.toLocaleString('vi-VN', { dateStyle: 'medium', timeStyle: 'short', ...options }) : '—'; }
+function localInput(date: Date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
+function defaultDraft(): Draft { const start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1); return { summary: '', start: localInput(start), end: localInput(new Date(start.getTime() + 60 * 60000)), time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok', description: '', location: '', attendees: '' }; }
+
+function eventStart(event: CalendarEvent) { return eventDate(event.start); }
 
 export default function CalendarPage() {
-  const [status, setStatus] = useState<CalendarStatus | null>(null);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [summary, setSummary] = useState('');
-  const [start, setStart] = useState(localDateTime(0, 9));
-  const [end, setEnd] = useState(localDateTime(0, 10));
-  const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
-  const [attendees, setAttendees] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { authenticated, workspaceId } = useAuth();
+  const queryClient = useQueryClient();
+  const [view, setView] = useState<View>('month');
+  const [cursor, setCursor] = useState(() => startOfDay(new Date()));
+  const [dialog, setDialog] = useState<Draft | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const range = useMemo(() => {
+    if (view === 'week') { const start = startOfWeek(cursor); return { start, end: addDays(start, 7) }; }
+    if (view === 'agenda') return { start: startOfDay(cursor), end: addDays(startOfDay(cursor), 14) };
+    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1); const gridStart = startOfWeek(first); return { start: gridStart, end: addDays(gridStart, 42) };
+  }, [cursor, view]);
+  const timeMin = `${isoDate(range.start)}T00:00:00Z`;
+  const timeMax = `${isoDate(range.end)}T00:00:00Z`;
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const statusQuery = useQuery({ queryKey: ['calendar-status', workspaceId], queryFn: getCalendarStatus, enabled: authenticated && Boolean(workspaceId), staleTime: 30_000 });
+  const eventsQuery = useQuery({ queryKey: ['calendar-events', workspaceId, timeMin, timeMax, timezone], queryFn: () => listCalendarEvents({ timeMin, timeMax, limit: 100 }), enabled: authenticated && Boolean(workspaceId) && Boolean(statusQuery.data?.connected), staleTime: 15_000 });
+  const saveMutation = useMutation({ mutationFn: (draft: Draft) => { const payload = { summary: draft.summary.trim(), start: new Date(draft.start).toISOString(), end: new Date(draft.end).toISOString(), time_zone: draft.time_zone, description: draft.description, location: draft.location, attendees: draft.attendees.split(',').map((item) => item.trim()).filter(Boolean) }; return draft.id ? updateCalendarEvent(draft.id, payload) : createCalendarEvent(payload); }, onSuccess: () => { setDialog(null); setMessage('Đã lưu lịch hẹn.'); void queryClient.invalidateQueries({ queryKey: ['calendar-events'] }); }, onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'Không thể lưu lịch hẹn.') });
+  const deleteMutation = useMutation({ mutationFn: deleteCalendarEvent, onSuccess: () => { setMessage('Đã hủy lịch hẹn.'); void queryClient.invalidateQueries({ queryKey: ['calendar-events'] }); }, onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'Không thể hủy lịch hẹn.') });
+  const disconnectMutation = useMutation({ mutationFn: disconnectGoogleCalendar, onSuccess: () => { setMessage('Đã ngắt kết nối Google Calendar.'); void statusQuery.refetch(); void queryClient.invalidateQueries({ queryKey: ['calendar-events'] }); }, onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'Không thể ngắt kết nối Calendar.') });
+  const events = eventsQuery.data?.events || [];
+  const eventsByDay = useMemo(() => { const map = new Map<string, CalendarEvent[]>(); events.forEach((event) => { const date = eventStart(event); if (!date) return; const key = isoDate(date); map.set(key, [...(map.get(key) || []), event]); }); return map; }, [events]);
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const [nextStatus, nextEvents] = await Promise.all([
-        getCalendarStatus(),
-        listCalendarEvents({ limit: 50 }),
-      ]);
-      setStatus(nextStatus);
-      setEvents(nextEvents.events);
-    } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : 'Không thể tải lịch.');
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  useEffect(() => { const handler = (event: MessageEvent) => { const apiOrigin = new URL(process.env.NEXT_PUBLIC_API_URL ?? `${window.location.protocol}//${window.location.hostname}:8000/api/v1`).origin; if (event.origin !== apiOrigin || event.data?.type !== 'p170-google-calendar') return; setConnecting(false); if (event.data.status === 'connected') { setMessage('Google Calendar đã kết nối.'); void statusQuery.refetch(); } else setError('Kết nối Google Calendar chưa hoàn tất.'); }; window.addEventListener('message', handler); return () => window.removeEventListener('message', handler); }, [statusQuery]);
+  useEffect(() => { if (statusQuery.error) setError(statusQuery.error instanceof ApiError ? statusQuery.error.message : 'Không thể tải trạng thái Calendar.'); if (eventsQuery.error) setError(eventsQuery.error instanceof ApiError ? eventsQuery.error.message : 'Không thể tải sự kiện Calendar.'); }, [statusQuery.error, eventsQuery.error]);
 
-  useEffect(() => {
-    void load();
-    const handler = (event: MessageEvent) => {
-      if (event.data?.type !== 'p170-google-calendar') return;
-      if (event.data.status === 'connected') void load();
-      else setError('Kết nối Google Calendar chưa hoàn tất.');
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [load]);
-
-  const upcoming = useMemo(
-    () => events.filter((event) => event.status !== 'cancelled'),
-    [events],
-  );
-
+  function move(step: number) { if (view === 'month') setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + step, 1)); else setCursor(addDays(cursor, view === 'week' ? step * 7 : step * 14)); }
+  function openCreate(date?: Date) { const draft = defaultDraft(); if (date) { const start = new Date(date); start.setHours(9, 0, 0, 0); draft.start = localInput(start); draft.end = localInput(new Date(start.getTime() + 60 * 60000)); } setError(''); setDialog(draft); }
+  function openEdit(event: CalendarEvent) { const start = eventStart(event) || new Date(); const end = eventDate(event.end) || new Date(start.getTime() + 3600000); setError(''); setDialog({ id: event.id, summary: event.summary, start: localInput(start), end: localInput(end), time_zone: event.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok', description: event.description, location: event.location, attendees: event.attendees.map((item) => item.email).join(', ') }); }
+  function cancel(event: CalendarEvent) { if (!window.confirm(`Hủy lịch “${event.summary}”?`)) return; setBusyId(event.id); deleteMutation.mutate(event.id, { onSettled: () => setBusyId(null) }); }
   async function connect() {
-    setError('');
-    try {
-      await connectGoogleCalendar();
-    } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : 'Không thể kết nối Google Calendar.');
-    }
+    setConnecting(true); setError('');
+    const popup = window.open('about:blank', '_blank');
+    if (!popup) { setConnecting(false); setError('Trình duyệt đã chặn tab Google mới. Hãy cho phép popup rồi thử lại.'); return; }
+    try { await connectGoogleCalendar(popup); } catch (reason) { popup.close(); setConnecting(false); setError(reason instanceof ApiError ? reason.message : 'Không thể mở Google Calendar.'); }
   }
+  const heading = view === 'month' ? cursor.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' }) : `${range.start.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' })} – ${addDays(range.end, -1).toLocaleDateString('vi-VN', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      await createCalendarEvent({
-        summary,
-        start: new Date(start).toISOString(),
-        end: new Date(end).toISOString(),
-        time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok',
-        description,
-        location,
-        attendees: attendees.split(',').map((item) => item.trim()).filter(Boolean),
-      });
-      setSummary('');
-      setDescription('');
-      setLocation('');
-      setAttendees('');
-      setMessage('Đã tạo lịch hẹn.');
-      await load();
-    } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : 'Không thể tạo lịch hẹn.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function cancel(eventId: string) {
-    if (!window.confirm('Bạn có chắc muốn hủy lịch hẹn này không?')) return;
-    setBusy(true);
-    setError('');
-    try {
-      await deleteCalendarEvent(eventId);
-      setMessage('Đã hủy lịch hẹn.');
-      await load();
-    } catch (reason) {
-      setError(reason instanceof ApiError ? reason.message : 'Không thể hủy lịch hẹn.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <main className='page'>
-      <header className='page-header'>
-        <div>
-          <p className='eyebrow'>ANALYST CALENDAR</p>
-          <h1>Lịch hẹn</h1>
-          <p className='page-description'>Xem, tạo và hủy lịch hẹn trong Google Calendar của bạn.</p>
-        </div>
-        <div className='inline-actions'>
-          <button className='button secondary' type='button' onClick={() => void load()} disabled={busy}>Làm mới</button>
-          <button className='button primary' type='button' onClick={() => void connect()} disabled={busy || !status?.can_connect}>
-            {status?.connected ? 'Kết nối lại Google' : 'Kết nối Google Calendar'}
-          </button>
-        </div>
-      </header>
-
-      {error && <div className='notice error'>{error}</div>}
-      {message && <div className='notice success'>{message}</div>}
-      {!status?.configured && <div className='notice warning'>Backend chưa có GOOGLE_CALENDAR_CLIENT_ID, CLIENT_SECRET và TOKEN_ENCRYPTION_KEY.</div>}
-      {status?.configured && !status.connected && <div className='notice info'>Hãy kết nối Google Calendar trước khi tạo hoặc xem lịch.</div>}
-
-      <section className='workspace-section'>
-        <div className='workspace-section-heading'><div><p className='eyebrow'>CREATE EVENT</p><h2>Tạo lịch hẹn</h2></div></div>
-        <form className='workspace-create-form' onSubmit={submit}>
-          <label>Tiêu đề<input value={summary} onChange={(event) => setSummary(event.target.value)} placeholder='Ví dụ: Review profile với team' required maxLength={200} /></label>
-          <label>Bắt đầu<input type='datetime-local' value={start} onChange={(event) => setStart(event.target.value)} required /></label>
-          <label>Kết thúc<input type='datetime-local' value={end} onChange={(event) => setEnd(event.target.value)} required /></label>
-          <label>Địa điểm<input value={location} onChange={(event) => setLocation(event.target.value)} placeholder='Phòng họp hoặc link' /></label>
-          <label>Người tham dự<input value={attendees} onChange={(event) => setAttendees(event.target.value)} placeholder='a@example.com, b@example.com' /></label>
-          <label>Mô tả<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} /></label>
-          <button className='button primary' type='submit' disabled={busy || !status?.connected}>Tạo lịch</button>
-        </form>
-      </section>
-
-      <section className='workspace-section'>
-        <div className='workspace-section-heading'><div><p className='eyebrow'>UPCOMING</p><h2>Lịch sắp tới</h2></div><span className='workspace-count'>{upcoming.length} lịch</span></div>
-        {!status?.connected ? <p className='muted'>Chưa kết nối Google Calendar.</p> : upcoming.length === 0 ? <p className='muted'>Không có lịch trong 7 ngày tới.</p> : (
-          <div className='workspace-table-wrap'><table className='workspace-member-table'><thead><tr><th>Lịch hẹn</th><th>Thời gian</th><th>Địa điểm</th><th /></tr></thead><tbody>
-            {upcoming.map((item) => <tr key={item.id}><td><b>{item.summary}</b>{item.description && <small>{item.description}</small>}</td><td>{displayDate(item.start)}<br />→ {displayDate(item.end)}</td><td>{item.location || '—'}</td><td><button className='button danger' type='button' onClick={() => void cancel(item.id)} disabled={busy}>Hủy</button></td></tr>)}
-          </tbody></table></div>
-        )}
-      </section>
-    </main>
-  );
+  return <main className='page'>
+    <header className='page-header'><div><p className='eyebrow'>WORKSPACE CALENDAR</p><h1>Calendar</h1><p className='page-description'>Lên lịch review profile, báo cáo và các mốc phân tích trong workspace.</p></div><div className='inline-actions'><LoadingButton className='button secondary' type='button' busy={statusQuery.isFetching || eventsQuery.isFetching} onClick={() => { void statusQuery.refetch(); if (statusQuery.data?.connected) void eventsQuery.refetch(); }}>Làm mới</LoadingButton>{statusQuery.data?.connected && <LoadingButton className='button danger' type='button' busy={disconnectMutation.isPending} disabled={disconnectMutation.isPending || connecting} onClick={() => { if (window.confirm('Ngắt kết nối Google Calendar trong workspace này?')) disconnectMutation.mutate(); }}>Ngắt kết nối</LoadingButton>}<LoadingButton className='button primary' type='button' busy={connecting} disabled={connecting || !statusQuery.data?.can_connect} onClick={() => void connect()}>{statusQuery.data?.connected ? 'Kết nối lại Google' : 'Kết nối Google Calendar'}</LoadingButton></div></header>
+    {error && <div className='notice error'>{error}</div>}{message && <div className='notice success'>{message}</div>}
+    {!statusQuery.data?.configured && <div className='notice warning'>Calendar chưa được cấu hình ở backend. Hãy bổ sung Google OAuth settings.</div>}
+    {statusQuery.data?.configured && !statusQuery.data.connected && <div className='notice info'>Kết nối Google Calendar để xem và quản lý lịch của bạn trong workspace.</div>}
+    <section className='workspace-section calendar-shell'><div className='calendar-toolbar'><div className='inline-actions'><button className='button secondary' type='button' onClick={() => setCursor(startOfDay(new Date()))}>Hôm nay</button><button className='button secondary' type='button' aria-label='Khoảng trước' onClick={() => move(-1)}>←</button><button className='button secondary' type='button' aria-label='Khoảng sau' onClick={() => move(1)}>→</button><h2>{heading}</h2></div><div className='inline-actions' role='tablist' aria-label='Chế độ xem lịch'>{(['month', 'week', 'agenda'] as View[]).map((item) => <button key={item} type='button' role='tab' aria-selected={view === item} className={`button ${view === item ? 'primary' : 'secondary'}`} onClick={() => setView(item)}>{item === 'month' ? 'Tháng' : item === 'week' ? 'Tuần' : 'Agenda'}</button>)}<button className='button primary' type='button' disabled={!statusQuery.data?.connected} onClick={() => openCreate()}>+ Tạo lịch</button></div></div>
+      {!statusQuery.data?.connected ? <div className='calendar-empty'>Kết nối Google Calendar để bắt đầu.</div> : eventsQuery.isLoading ? <div className='calendar-loading' aria-busy='true'>Đang tải lịch…</div> : view === 'month' ? <div className='calendar-month' role='grid'>{['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'].map((day) => <div className='calendar-weekday' key={day}>{day}</div>)}{Array.from({ length: 42 }, (_, index) => { const date = addDays(range.start, index); const dayEvents = eventsByDay.get(isoDate(date)) || []; const outside = date.getMonth() !== cursor.getMonth(); return <div className={`calendar-day${outside ? ' outside' : ''}${isoDate(date) === isoDate(new Date()) ? ' today' : ''}`} role='gridcell' key={isoDate(date)}><button type='button' className='calendar-day-number' onClick={() => openCreate(date)}>{date.getDate()}</button>{dayEvents.slice(0, 3).map((event) => <button type='button' className='calendar-event-chip' key={event.id} onClick={() => openEdit(event)}>{event.summary}</button>)}{dayEvents.length > 3 && <small className='muted'>+{dayEvents.length - 3} lịch khác</small>}</div>; })}</div> : view === 'week' ? <div className='calendar-week'>{Array.from({ length: 7 }, (_, index) => { const date = addDays(range.start, index); const dayEvents = eventsByDay.get(isoDate(date)) || []; return <div className='calendar-week-column' key={isoDate(date)}><h3>{date.toLocaleDateString('vi-VN', { weekday: 'short', day: 'numeric' })}</h3>{dayEvents.map((event) => <button type='button' className='calendar-event-card' key={event.id} onClick={() => openEdit(event)}><b>{event.summary}</b><small>{formatDate(event.start, { timeStyle: 'short' })}</small></button>)}<button className='calendar-add-slot' type='button' onClick={() => openCreate(date)}>+ Thêm</button></div>; })}</div> : <div className='calendar-agenda'>{events.length === 0 ? <p className='muted'>Không có lịch trong khoảng này.</p> : events.slice().sort((a, b) => (eventStart(a)?.getTime() || 0) - (eventStart(b)?.getTime() || 0)).map((event) => <article className='calendar-agenda-row' key={event.id}><div><small className='eyebrow'>{formatDate(event.start, { dateStyle: 'full', timeStyle: undefined })}</small><h3>{event.summary}</h3><p className='muted'>{formatDate(event.start)} → {formatDate(event.end, { timeStyle: 'short' })}</p>{event.location && <small>{event.location}</small>}</div><div className='inline-actions'><button className='button secondary' type='button' onClick={() => openEdit(event)}>Chỉnh sửa</button><LoadingButton className='button danger' type='button' busy={busyId === event.id} disabled={busyId !== null} onClick={() => cancel(event)}>Hủy</LoadingButton></div></article>)}</div>}
+    </section>
+    {dialog && <div className='history-modal-backdrop' role='presentation' onClick={() => setDialog(null)}><section className='history-modal calendar-event-dialog' role='dialog' aria-modal='true' aria-labelledby='calendar-dialog-title' onClick={(event) => event.stopPropagation()}><div className='history-modal-header'><div><p className='eyebrow'>{dialog.id ? 'EDIT EVENT' : 'CREATE EVENT'}</p><h2 id='calendar-dialog-title'>{dialog.id ? 'Chỉnh sửa lịch' : 'Tạo lịch hẹn'}</h2></div><button className='history-modal-close' type='button' aria-label='Đóng' onClick={() => setDialog(null)}>×</button></div><form className='form-grid' onSubmit={(event) => { event.preventDefault(); setError(''); saveMutation.mutate(dialog); }}><div className='field full'><label htmlFor='calendar-summary'>Tiêu đề<input id='calendar-summary' required maxLength={200} value={dialog.summary} onChange={(event) => setDialog({ ...dialog, summary: event.target.value })} /></label></div><div className='field'><label htmlFor='calendar-start'>Bắt đầu<input id='calendar-start' type='datetime-local' required value={dialog.start} onChange={(event) => setDialog({ ...dialog, start: event.target.value })} /></label></div><div className='field'><label htmlFor='calendar-end'>Kết thúc<input id='calendar-end' type='datetime-local' required value={dialog.end} onChange={(event) => setDialog({ ...dialog, end: event.target.value })} /></label></div><div className='field'><label htmlFor='calendar-timezone'>Timezone<input id='calendar-timezone' required value={dialog.time_zone} onChange={(event) => setDialog({ ...dialog, time_zone: event.target.value })} /></label></div><div className='field'><label htmlFor='calendar-location'>Địa điểm<input id='calendar-location' value={dialog.location} onChange={(event) => setDialog({ ...dialog, location: event.target.value })} /></label></div><div className='field full'><label htmlFor='calendar-attendees'>Người tham dự<input id='calendar-attendees' placeholder='a@example.com, b@example.com' value={dialog.attendees} onChange={(event) => setDialog({ ...dialog, attendees: event.target.value })} /></label></div><div className='field full'><label htmlFor='calendar-description'>Mô tả<textarea id='calendar-description' rows={4} value={dialog.description} onChange={(event) => setDialog({ ...dialog, description: event.target.value })} /></label></div><div className='form-actions'><button className='button secondary' type='button' onClick={() => setDialog(null)}>Hủy</button><LoadingButton className='button primary' type='submit' busy={saveMutation.isPending}>{dialog.id ? 'Lưu thay đổi' : 'Tạo lịch'}</LoadingButton></div></form></section></div>}
+  </main>;
 }

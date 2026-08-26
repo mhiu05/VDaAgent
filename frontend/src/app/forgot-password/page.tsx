@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import { PublicNavbar } from "@/components/public-navbar";
+import { LoadingButton } from "@/components/ui";
 
 export default function ForgotPasswordPage() {
   const [message, setMessage] = useState<string | null>(null);
@@ -62,9 +63,9 @@ export default function ForgotPasswordPage() {
             </label>
             {error && <div className="notice error" role="alert"><b>Lỗi gửi liên kết</b><p>{error}</p></div>}
             {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p></div>}
-            <button className="button primary auth-submit" type="submit" disabled={busy}>
+            <LoadingButton className="button primary auth-submit" type="submit" busy={busy}>
               {busy ? "Đang xử lý…" : "Gửi liên kết khôi phục"}
-            </button>
+            </LoadingButton>
           </form>
           <p className="auth-switch">Nhớ mật khẩu? <Link href="/login">Quay lại đăng nhập</Link></p>
         </section>

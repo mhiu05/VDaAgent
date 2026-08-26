@@ -14,7 +14,6 @@ def test_native_skill_catalog_has_versioned_bounded_workflows() -> None:
         "compare-profile-drift",
         "answer-business-question",
         "generate-report",
-        "calendar-assistant",
     }
     assert "get_profile_readiness" in skills["diagnose-data-quality"].tool_names
     assert skills["compare-profile-drift"].tool_names == (

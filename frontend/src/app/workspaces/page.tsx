@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ErrorNotice, LoadingBlock } from "@/components/ui";
+import { ErrorNotice, LoadingBlock, LoadingButton, useToast } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { createWorkspace, deleteWorkspace, listArchivedWorkspaces, listWorkspaces, purgeWorkspace, restoreWorkspace, type WorkspaceSummary } from "@/lib/api";
@@ -30,6 +30,7 @@ export default function WorkspacesPage() {
   const router = useRouter();
   const client = useQueryClient();
   const { me, workspaceId, switchWorkspace } = useAuth();
+  const toast = useToast();
   const [name, setName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WorkspaceTemplate>(workspaceTemplates[0]);
   const [domain, setDomain] = useState<string>(workspaceTemplates[0].domain);
@@ -57,8 +58,9 @@ export default function WorkspacesPage() {
       setTargetAudience(defaultDraft.targetAudience);
       setPrimaryColor(defaultDraft.primaryColor);
       setSecondaryColor(defaultDraft.secondaryColor);
+      toast.success(`Đã tạo workspace “${workspace.name}”.`);
       await switchWorkspace(workspace.id);
-      router.push("/dashboard");
+      router.push("/datasets");
     },
   });
   const deletion = useMutation({
@@ -66,6 +68,7 @@ export default function WorkspacesPage() {
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["workspaces"] });
       await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
+      toast.success("Workspace đã được lưu trữ.");
     },
   });
   const purging = useMutation({
@@ -73,6 +76,7 @@ export default function WorkspacesPage() {
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["workspaces"] });
       await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
+      toast.success("Workspace đã được xóa vĩnh viễn.");
     },
   });
   const restoration = useMutation({
@@ -82,6 +86,7 @@ export default function WorkspacesPage() {
         client.invalidateQueries({ queryKey: ["workspaces"] }),
         client.invalidateQueries({ queryKey: ["archived-workspaces"] }),
       ]);
+      toast.success("Workspace đã được khôi phục.");
     },
   });
 
@@ -152,7 +157,7 @@ export default function WorkspacesPage() {
 
   async function openWorkspace(id: string) {
     if (id !== workspaceId) await switchWorkspace(id);
-    router.push("/dashboard");
+    router.push("/datasets");
   }
 
   return <main className="page workspace-page">
@@ -208,7 +213,7 @@ export default function WorkspacesPage() {
                 <label>Đối tượng đọc<input value={targetAudience} onChange={(event) => setTargetAudience(event.target.value)} maxLength={120} /></label>
                 <div className="workspace-color-fields"><label>Màu chính<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} /></label><label>Màu phụ<input type="color" value={secondaryColor} onChange={(event) => setSecondaryColor(event.target.value)} /></label></div>
               </div>
-              <div className="workspace-create-actions"><span>Context và theme sẽ được lưu cùng workspace.</span><button className="button primary" type="submit" disabled={creation.isPending || name.trim().length < 2}>{creation.isPending ? "Đang tạo…" : "Tạo workspace"}</button></div>
+              <div className="workspace-create-actions"><span>Context và theme sẽ được lưu cùng workspace.</span><LoadingButton className="button primary" type="submit" busy={creation.isPending} disabled={name.trim().length < 2}>{creation.isPending ? "Đang tạo…" : "Tạo workspace"}</LoadingButton></div>
             </form>
           </>
         )}
@@ -223,7 +228,7 @@ export default function WorkspacesPage() {
         <h2>{workspace.name}</h2>
         <p className="workspace-card-capabilities">{roleDescription}</p>
         <p className="workspace-card-slug">/{workspace.slug}</p>
-        <div className="workspace-card-actions"><button className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} disabled={workspaceActionBusy}>{current ? "Đang mở" : "Mở workspace"}</button>{removable && <><button className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} disabled={workspaceActionBusy}>{deletion.isPending && deletion.variables === workspace.id ? "Đang lưu trữ…" : "Lưu trữ"}</button><button className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa workspace"}</button></>}</div>
+        <div className="workspace-card-actions"><LoadingButton className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} busy={current && workspaceActionBusy} disabled={workspaceActionBusy}>{current ? "Đang mở" : "Mở workspace"}</LoadingButton>{removable && <><LoadingButton className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} busy={deletion.isPending && deletion.variables === workspace.id} disabled={workspaceActionBusy}>{deletion.isPending && deletion.variables === workspace.id ? "Đang lưu trữ…" : "Lưu trữ"}</LoadingButton><LoadingButton className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa workspace"}</LoadingButton></>}</div>
       </article>;
     })}</section>}
 
@@ -232,7 +237,7 @@ export default function WorkspacesPage() {
       <div className="workspace-grid">{archivedItems.map((workspace) => <article className="workspace-card archived" key={workspace.id}>
         <div className="workspace-card-top"><span className="workspace-card-icon" aria-hidden="true">□</span><span className="workspace-role">Đã lưu trữ</span></div>
         <h2>{workspace.name}</h2><p className="workspace-card-capabilities">Workspace tạm ngừng hoạt động; dataset và báo cáo chưa bị xóa.</p><p className="workspace-card-slug">/{workspace.slug}</p>
-        <div className="workspace-card-actions"><button className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} disabled={workspaceActionBusy}>{restoration.isPending && restoration.variables === workspace.id ? "Đang khôi phục…" : "Khôi phục"}</button><button className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa vĩnh viễn"}</button></div>
+        <div className="workspace-card-actions"><LoadingButton className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} busy={restoration.isPending && restoration.variables === workspace.id} disabled={workspaceActionBusy}>{restoration.isPending && restoration.variables === workspace.id ? "Đang khôi phục…" : "Khôi phục"}</LoadingButton><LoadingButton className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa vĩnh viễn"}</LoadingButton></div>
       </article>)}</div>
     </section>}
 

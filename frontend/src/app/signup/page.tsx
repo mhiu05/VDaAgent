@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
 import { getSupabaseBrowserClient } from "@/lib/auth/client";
 import type { SelfSignupRole } from "@/lib/api";
+import { LoadingButton } from "@/components/ui";
 
 export default function SignupPage() {
   const role: SelfSignupRole = "analyst";
@@ -128,7 +129,7 @@ export default function SignupPage() {
           <p className="auth-password-hint">Dùng mật khẩu dài, riêng biệt và không chia sẻ cho người khác.</p>
           {error && <div className="notice error" role="alert"><b>Không thể tạo tài khoản</b><p>{error}</p></div>}
           {message && <div className="notice success" role="status"><b>Kiểm tra email</b><p>{message}</p>{registeredEmail && <div className="signup-resend"><button className="button secondary" type="button" onClick={() => void resendConfirmation()} disabled={resendBusy || resendCooldown > 0}>{resendBusy ? "Đang gửi lại…" : resendCooldown > 0 ? `Gửi lại sau ${Math.floor(resendCooldown / 60)}:${String(resendCooldown % 60).padStart(2, "0")}` : "Gửi lại email xác nhận"}</button><small>Kiểm tra thư rác hoặc spam nếu chưa nhận được.</small></div>}</div>}
-          <button className="button primary auth-submit" type="submit" disabled={busy || !signupAllowed}>{busy ? "Đang tạo tài khoản…" : "Đăng ký"}</button>
+          <LoadingButton className="button primary auth-submit" type="submit" busy={busy} disabled={!signupAllowed}>{busy ? "Đang tạo tài khoản…" : "Đăng ký"}</LoadingButton>
         </form>
         <p className="auth-switch">Đã có tài khoản? <Link href="/login">Đăng nhập</Link></p>
       </section>

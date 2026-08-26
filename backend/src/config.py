@@ -338,6 +338,8 @@ class Settings(BaseSettings):
         'http://localhost:8000/api/v1/calendar/callback'
     )
     google_calendar_token_encryption_key: str = ''
+    # Fernet key used to encrypt credentials for external dataset sources.
+    datasource_encryption_key: str = ''
     google_calendar_frontend_url: str = 'http://localhost:3000'
     google_calendar_default_id: str = 'primary'
     google_calendar_timezone: str = 'Asia/Bangkok'
@@ -494,6 +496,8 @@ class Settings(BaseSettings):
         if not self.database_url:
             missing.append("DATABASE_URL")
         if self.app_env == "production":
+            if not self.datasource_encryption_key:
+                missing.append("DATASOURCE_ENCRYPTION_KEY")
             if not self.supabase_url:
                 missing.append("SUPABASE_URL")
             if self.storage_provider == "supabase" and not self.supabase_backend_key:

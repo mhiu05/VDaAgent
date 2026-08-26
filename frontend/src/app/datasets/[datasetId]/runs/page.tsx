@@ -6,7 +6,7 @@ import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createProfile, createProfileReport, listRuns } from "@/lib/api";
 import { formatDate, formatNumber } from "@/lib/format";
-import { EmptyState, ErrorNotice, LoadingBlock, PageHeader, StatusBadge } from "@/components/ui";
+import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, PageHeader, StatusBadge } from "@/components/ui";
 
 export default function DatasetRunsPage() {
   const params = useParams<{ datasetId: string }>();
@@ -91,7 +91,7 @@ export default function DatasetRunsPage() {
     {exportError && <ErrorNotice error={exportError} />}
     {Boolean(profileError) && !isCreateModalOpen && <ErrorNotice error={profileError} retry={() => void profileNewVersion()} />}
     {runs.data?.length === 0 && <EmptyState title="Chưa có profile run" detail="Bộ dữ liệu này chưa được profiling thành công. Hãy tạo phiên profiling mới để bắt đầu." />}
-    {!!runs.data?.length && <section className="panel"><div className="table-wrap"><table><thead><tr><th>Phiên profiling</th><th>Trạng thái</th><th>Scan</th><th>Số dòng</th><th>Thời điểm</th><th /></tr></thead><tbody>{runs.data.map((run) => <tr key={run.id}><td><b>{run.run_name || `Phiên bản v${run.version ?? "—"}`}</b><br /><small>Phiên bản v{run.version ?? "—"} · ID được quản lý nội bộ</small></td><td><StatusBadge status={run.status} /></td><td>{run.scan_mode || "—"}{run.is_approximate && " ≈"}</td><td>{formatNumber(run.row_count)}</td><td>{formatDate(run.created_at)}</td><td><div className="inline-actions"><Link href={`/profiles/${run.id}`} className="button secondary">Xem hồ sơ</Link>{run.status === "completed" && <button type="button" className="button primary" onClick={() => void exportReport(run.id)} disabled={exportingRunId !== null}>{exportingRunId === run.id ? "Đang tạo báo cáo…" : "Xuất báo cáo"}</button>}</div></td></tr>)}</tbody></table></div></section>}
+    {!!runs.data?.length && <section className="panel"><div className="table-wrap"><table><thead><tr><th>Phiên profiling</th><th>Trạng thái</th><th>Scan</th><th>Số dòng</th><th>Thời điểm</th><th /></tr></thead><tbody>{runs.data.map((run) => <tr key={run.id}><td><b>{run.run_name || `Phiên bản v${run.version ?? "—"}`}</b><br /><small>Phiên bản v{run.version ?? "—"} · ID được quản lý nội bộ</small></td><td><StatusBadge status={run.status} /></td><td>{run.scan_mode || "—"}{run.is_approximate && " ≈"}</td><td>{formatNumber(run.row_count)}</td><td>{formatDate(run.created_at)}</td><td><div className="inline-actions"><Link href={`/profiles/${run.id}`} className="button secondary">Xem hồ sơ</Link>{run.status === "completed" && <LoadingButton type="button" className="button primary" busy={exportingRunId === run.id} disabled={exportingRunId !== null} onClick={() => void exportReport(run.id)}>{exportingRunId === run.id ? "Đang tạo báo cáo…" : "Xuất báo cáo"}</LoadingButton>}</div></td></tr>)}</tbody></table></div></section>}
 
     {isCreateModalOpen && <div className="profile-modal-backdrop" role="presentation" onClick={closeCreateModal}>
       <section className="profile-modal" role="dialog" aria-modal="true" aria-labelledby="new-profile-run-title" onClick={(event) => event.stopPropagation()}>
@@ -108,7 +108,7 @@ export default function DatasetRunsPage() {
           </fieldset>
           {Boolean(profileError) && <ErrorNotice error={profileError} retry={() => void profileNewVersion()} />}
         </div>
-        <footer className="profile-modal-actions"><button type="button" className="button secondary" onClick={closeCreateModal} disabled={profiling}>Hủy</button><button type="button" className="button primary" onClick={() => void profileNewVersion()} disabled={profiling || !runName.trim()}>{profiling ? "Đang tạo phiên…" : "Bắt đầu profiling"}</button></footer>
+        <footer className="profile-modal-actions"><button type="button" className="button secondary" onClick={closeCreateModal} disabled={profiling}>Hủy</button><LoadingButton type="button" className="button primary" busy={profiling} disabled={!runName.trim()} onClick={() => void profileNewVersion()}>{profiling ? "Đang tạo phiên…" : "Bắt đầu profiling"}</LoadingButton></footer>
       </section>
     </div>}
   </>;

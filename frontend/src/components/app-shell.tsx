@@ -6,19 +6,25 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { CHAT_HISTORY_EVENT, clearChatHistory, createConversation, deleteConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
 import { useAuth } from "@/components/auth-provider";
-import { can, PERMISSIONS } from "@/lib/auth/permissions";
+import { can, PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
 import { PublicNavbar } from "@/components/public-navbar";
 import { InfoTip } from "@/components/ui";
 import { DraggableChatWidget } from "@/components/draggable-chat-widget";
 
 function SidebarIcon({ name }: { name: string }) {
-  if (name === '/calendar') return <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'><rect x='3' y='5' width='18' height='16' rx='2' /><path d='M16 3v4M8 3v4M3 10h18' /><path d='M8 14h3M8 17h5' /></svg>;
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (name === "database") return <svg {...common}><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" /></svg>;
+  if (name === "bar-chart") return <svg {...common}><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>;
+  if (name === "briefcase") return <svg {...common}><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>;
+  if (name === "user-circle") return <svg {...common}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;
+  if (name === "chevron-down") return <svg {...common}><polyline points="6 9 12 15 18 9" /></svg>;
+  if (name === '/calendar') return <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'><rect x='3' y='5' width='18' height='16' rx='2' /><path d='M16 3v4M8 3v4M3 10h18' /><path d='M8 14h3M8 17h5' /></svg>;
   if (name === "home") return <svg {...common}><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>;
   if (name === "logout") return <svg {...common}><path d="M10 5H5v14h5" /><path d="m14 8 4 4-4 4" /><path d="M18 12H9" /></svg>;
   if (name === "/reports") return <svg {...common}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>;
   if (name === "/datasets") return <svg {...common}><path d="M4 6h16M4 12h16M4 18h16" /><path d="M7 4v16M17 4v16" /></svg>;
+  if (name === "/connectors") return <svg {...common}><path d="M8 12h8" /><path d="M12 8v8" /><path d="M7 7a4 4 0 1 0 0 8h2" /><path d="M17 9h-2a4 4 0 1 0 0 8h2a4 4 0 1 0 0-8Z" /></svg>;
   if (name === "/charts") return <svg {...common}><path d="M4 20V10M10 20V4M16 20v-7M22 20V7" /><path d="M2 20h22" /></svg>;
   if (name === "/compare") return <svg {...common}><path d="M7 7h11" /><path d="m15 3 4 4-4 4" /><path d="M17 17H6" /><path d="m9 13-4 4 4 4" /></svg>;
   if (name === "/activity") return <svg {...common}><circle cx="12" cy="12" r="8" /><path d="M12 8v4l3 2" /></svg>;
@@ -34,20 +40,50 @@ function accountInitials(email: string | null) {
 }
 
 const adminNavigation = [
+  { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
   { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
   { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản Admin và đổi mật khẩu.", permission: PERMISSIONS.userAccountsRead },
 ] as const;
 
 const analystNavigation = [
-  { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
-  { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
-  { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
-  { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
-  { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
-  { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
-  { href: "/account", label: "Hồ sơ", icon: "👤", description: "Xem thông tin tài khoản cá nhân, phân quyền và bảo mật.", permission: PERMISSIONS.datasetRead },
-  { href: "/settings", label: "Cài đặt", icon: "⚙", description: "Cấu hình context, theme màu sắc và ngôn ngữ cho workspace.", permission: PERMISSIONS.datasetRead },
-] as const;
+  {
+    id: "data",
+    label: "Dữ liệu",
+    icon: "database",
+    children: [
+      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
+      { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
+    ]
+  },
+  {
+    id: "analysis",
+    label: "Phân tích dữ liệu",
+    icon: "bar-chart",
+    children: [
+      { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
+      { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
+      { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
+    ]
+  },
+  {
+    id: "work",
+    label: "Công việc",
+    icon: "briefcase",
+    children: [
+      { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo, chỉnh sửa và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
+      { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
+    ]
+  },
+  {
+    id: "account",
+    label: "Tài khoản",
+    icon: "user-circle",
+    children: [
+      { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản cá nhân, phân quyền và bảo mật.", permission: PERMISSIONS.datasetRead },
+      { href: "/settings", label: "Cài đặt", icon: "⚙", description: "Cấu hình context, theme màu sắc và ngôn ngữ cho workspace.", permission: PERMISSIONS.datasetRead },
+    ]
+  }
+];
 
 function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -55,14 +91,30 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const [openNavigationGroup, setOpenNavigationGroup] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
-  const { me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
+  const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
   const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAdmin = Boolean(me?.workspace.role === "admin" || can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
   const roleNavigation = isAdmin ? adminNavigation : analystNavigation;
+
+  useEffect(() => {
+    if (isAdmin) return;
+    const activeGroup = analystNavigation.find((group) => group.children.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)));
+    if (activeGroup) {
+      setOpenNavigationGroup(activeGroup.id);
+      return;
+    }
+    const savedGroup = window.localStorage.getItem("p170-sidebar-group");
+    if (savedGroup && analystNavigation.some((group) => group.id === savedGroup)) setOpenNavigationGroup(savedGroup);
+  }, [isAdmin, pathname]);
+
+  useEffect(() => {
+    if (openNavigationGroup) window.localStorage.setItem("p170-sidebar-group", openNavigationGroup);
+  }, [openNavigationGroup]);
 
   // Load custom profile & listen for avatar updates
   useEffect(() => {
@@ -143,6 +195,15 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <b>{displayName || "Analyst workspace"}</b>
         <em><span className="account-status-dot" aria-hidden="true" />Đang dùng thử</em>
       </span>
+      <button
+        type="button"
+        className="sidebar-account-signout"
+        title="Kết thúc"
+        aria-label="Kết thúc"
+        onClick={() => void signOut()}
+      >
+        <SidebarIcon name="logout" />
+      </button>
     </section>
   ) : null;
   const guestWorkspacePanel = isGuest ? (
@@ -154,22 +215,26 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isPublicPage || isAuthPage || !me) return;
-    if (isAdmin && (pathname === "/dashboard" || pathname === "/workspaces" || pathname === "/charts" || pathname === "/datasets" || pathname === "/compare" || pathname === "/reports" || pathname === "/activity")) {
+    if (isAdmin && (pathname === "/datasets" || pathname === "/workspaces" || pathname === "/charts" || pathname === "/compare" || pathname === "/reports" || pathname === "/activity")) {
       router.replace("/admin");
+      return;
+    }
+    if (!isAdmin && pathname === "/admin") {
+      router.replace("/datasets");
       return;
     }
     const permission = requiredPermissionForPath(pathname);
     if (permission && !can(me.effective_permissions, permission)) {
-      router.replace(isAdmin ? "/admin" : "/dashboard");
+      router.replace(isAdmin ? "/admin" : "/datasets");
     }
   }, [isAdmin, isAuthPage, isPublicPage, me, pathname, router]);
 
   useEffect(() => {
-    if (loading || isPublicPage || isAuthPage || me || isGuest || error) return;
+    if (!ready || loading || isPublicPage || isAuthPage || me || isGuest || error) return;
     const query = searchParams.toString();
     const next = `${pathname}${query ? `?${query}` : ""}`;
     router.replace(`/login?next=${encodeURIComponent(next)}`);
-  }, [error, isAuthPage, isGuest, isPublicPage, loading, me, pathname, router, searchParams]);
+  }, [error, isAuthPage, isGuest, isPublicPage, loading, me, pathname, ready, router, searchParams]);
 
   useEffect(() => {
     if (isPublicPage || isAuthPage || isAdmin) return;
@@ -193,7 +258,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
     await switchWorkspace(nextWorkspaceId);
     // A chat is bound to the selected workspace. Return to the dashboard so
     // the next page cannot briefly display a conversation from the old scope.
-    if (pathname.startsWith("/chat")) router.push("/dashboard");
+    if (pathname.startsWith("/chat")) router.push("/datasets");
   }
 
   function removeConversation(conversation: ChatConversation) {
@@ -207,7 +272,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       router.push(`/chat?conversation=${next.id}`);
       window.setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: next.id } })), 0);
     } else {
-      router.push("/dashboard");
+      router.push("/datasets");
     }
   }
 
@@ -215,14 +280,17 @@ function AppShellContent({ children }: { children: ReactNode }) {
     if (!window.confirm("Xóa toàn bộ lịch sử chat trong workspace này? Hành động này không thể hoàn tác.")) return;
     clearChatHistory();
     setShowAllHistory(false);
-    if (pathname === "/chat") router.push("/dashboard");
+    if (pathname === "/chat") router.push("/datasets");
   }
+
 
   if (isPublicPage || isAuthPage) return <main className="main-content home-only-content">{children}</main>;
 
   const workspaceShell = (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Điều hướng chính">
+      <aside className="sidebar"
+        aria-label="Điều hướng chính"
+      >
         {isAdmin ? (
           <div className="sidebar-top">
             <Link
@@ -247,7 +315,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
               </span>
               <span className="sidebar-link-label">Trang chủ Analyst</span>
             </Link>
-            <Link className={pathname === "/dashboard" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/dashboard">
+            <Link className={pathname === "/datasets" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/datasets">
               <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
               <span className="sidebar-link-label">Trang chủ workspace</span>
             </Link>
@@ -262,13 +330,50 @@ function AppShellContent({ children }: { children: ReactNode }) {
           </div>
         )}
         <div className="sidebar-scroll">
-          <nav className="nav-list sidebar-navigation" aria-label={isAdmin ? "Điều hướng quản trị hệ thống" : "Điều hướng phân tích dữ liệu"}>
-            <span className="sidebar-section-label sidebar-text">{isAdmin ? "Hệ thống" : "Phân tích dữ liệu"}</span>
-            {roleNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
-              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-              return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
-            })}
-          </nav>
+          {isAdmin ? (
+            <nav className="nav-list sidebar-navigation" aria-label="Điều hướng quản trị hệ thống">
+              <span className="sidebar-section-label sidebar-text">Hệ thống</span>
+              {adminNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
+              })}
+            </nav>
+          ) : (
+            <nav className="nav-list sidebar-navigation" aria-label="Điều hướng phân tích dữ liệu">
+              {analystNavigation.map((group) => {
+                const items = group.children.filter((item) => can(me?.effective_permissions, item.permission));
+                if (items.length === 0) return null;
+                const groupActive = items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+                const expanded = openNavigationGroup === group.id;
+                return <div className="sidebar-nav-group" key={group.id}>
+                  <button
+                    type="button"
+                    className={`nav-link sidebar-group-btn${groupActive ? " active-parent" : ""}`}
+                    aria-label={group.label}
+                    aria-expanded={expanded}
+                    aria-controls={`sidebar-submenu-${group.id}`}
+                    onClick={() => setOpenNavigationGroup(expanded ? null : group.id)}
+                  >
+                    <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={group.icon} /></span>
+                    <span className="sidebar-link-label">{group.label}</span>
+                    <span className={`chevron${expanded ? " open" : ""}`} aria-hidden="true"><SidebarIcon name="chevron-down" /></span>
+                  </button>
+                  {expanded && <div className="sidebar-sub-menu" id={`sidebar-submenu-${group.id}`}>
+                    {items.map((item) => {
+                      const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                      return <div className="sidebar-nav-item sidebar-sub-item" key={item.href}>
+                        <Link className={active ? "nav-link active" : "nav-link"} href={item.href} aria-current={active ? "page" : undefined}>
+                          <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.icon} /></span>
+                          <span className="sidebar-link-label">{item.label}</span>
+                        </Link>
+                        <InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip>
+                      </div>;
+                    })}
+                  </div>}
+                </div>;
+              })}
+            </nav>
+          )}
           {/* Account panel ở cuối cùng */}
           {accountPanel}
         </div>
@@ -285,11 +390,11 @@ function AppShellContent({ children }: { children: ReactNode }) {
     </div>
   );
 
-  if (loading) return <main className="main-content workspace-auth-loading" aria-live="polite" aria-busy="true"><section className="workspace-auth-loading-card"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>Đang mở workspace…</b><p>Đang xác định phiên và quyền truy cập.</p></div></section></main>;
+  if (!ready || loading) return <main className="main-content workspace-auth-loading" aria-live="polite" aria-busy="true"><section className="workspace-auth-loading-card"><span className="dashboard-loading-mark" aria-hidden="true" /><div><b>Đang mở workspace…</b><p>Đang xác định phiên và quyền truy cập.</p></div></section></main>;
   if (!me && !isGuest && !error) return <main className="main-content workspace-auth-loading" aria-live="polite"><section className="workspace-auth-loading-card"><div><b>Đang chuyển đến đăng nhập…</b><p>Vui lòng đăng nhập hoặc chọn một guest role để mở workspace.</p></div></section></main>;
   if (error && !me && !isPublicPage && !isAuthPage) return <main className="main-content workspace-auth-loading"><section className="workspace-auth-loading-card"><div><b>Không thể mở workspace</b><p>{error}</p><button className="button secondary" onClick={() => window.location.reload()}>Thử lại</button></div></section></main>;
 
-  return isGuest ? <div className="guest-workspace"><PublicNavbar />{workspaceShell}</div> : workspaceShell;
+  return workspaceShell;
 }
 
 export function AppShell({ children }: { children: ReactNode }) {

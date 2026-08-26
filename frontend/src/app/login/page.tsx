@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
 import { PublicNavbar } from "@/components/public-navbar";
-import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
+import { getSupabaseBrowserClient } from "@/lib/auth/client";
+import { LoadingButton } from "@/components/ui";
 
 function safeNext(value: string | null) {
   return value && value.startsWith("/") && !value.startsWith("//")
@@ -14,14 +15,9 @@ function safeNext(value: string | null) {
 
 function LoginForm() {
   const params = useSearchParams();
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    // A rejected/expired local session must not survive on the login screen
-    // and get picked up by the global auth provider during Fast Refresh.
-    clearSupabaseLocalSession();
-  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,10 +36,10 @@ function LoginForm() {
         setError("Đăng nhập chưa tạo được phiên làm việc. Hãy thử lại.");
         return;
       }
-      // A full navigation lets the app bootstrap using the session Supabase
-      // has just written to browser storage. Calling router.refresh() right
-      // after router.replace() could refresh the current /login route instead.
-      window.location.assign(safeNext(params.get("next")));
+      // signInWithPassword has persisted the session before resolving. Keep
+      // the provider mounted while navigating so the workspace bootstrap can
+      // consume that session without a second click or a blank full reload.
+      router.replace(safeNext(params.get("next")));
     } catch (signInException) {
       setError(signInException instanceof Error ? signInException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
     } finally {
@@ -69,9 +65,9 @@ function LoginForm() {
           <div className="auth-form-meta" style={{ justifyContent: 'flex-end' }}><Link href="/forgot-password">Quên mật khẩu?</Link></div>
           {error && <div className="notice error" role="alert"><b>Sai email hoặc mật khẩu</b><p>{error}</p></div>}
           <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "1rem" }}>
-            <button className="button primary auth-submit" type="submit" disabled={busy} style={{ flex: 1, margin: 0 }}>
-              {busy ? "Đang xác thực…" : "Đăng nhập"}
-            </button>
+              <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ flex: 1, margin: 0 }}>
+                {busy ? "Đang xác thực…" : "Đăng nhập"}
+              </LoadingButton>
             <Link 
               href="/admin" 
               className="button secondary" 

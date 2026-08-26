@@ -19,6 +19,7 @@ from src.services.google_drive import is_google_drive_ref
 from src.services.repository import Repository
 from src.services.stats_tests import TESTS
 from src.services.storage import is_supabase_ref
+from src.services.datasource import connection_id_from_ref
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +93,11 @@ class ProfileService:
             if not dataset:
                 raise ProfileError("Không tìm thấy dataset trong workspace.", 404)
 
+        is_datasource = dataset_ref.lower().startswith("datasource://")
+        if is_datasource:
+            connection_id_from_ref(dataset_ref)
         if self.settings.app_env == "production" and not (
-            is_supabase_ref(dataset_ref) or is_google_drive_ref(dataset_ref)
+            is_supabase_ref(dataset_ref) or is_google_drive_ref(dataset_ref) or is_datasource
         ):
             raise ProfileError(
                 "Production chỉ nhận dataset_ref từ storage đã cấu hình.", 400

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { downloadPublishedReportPdf, getReportExportSource, getProfileReportDraft, updateReportDraftItem, unpinReportDraftItem, reorderReportDraft, snapshotReportDraft } from "@/lib/api";
-import { ErrorNotice, LoadingBlock, EmptyState } from "@/components/ui";
+import { ErrorNotice, LoadingBlock, LoadingButton, EmptyState, useToast } from "@/components/ui";
 import { MarkdownContent } from "@/components/markdown";
 import { ChartEvidenceView } from "@/components/command-center/chart-evidence-view";
 import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
@@ -243,6 +243,7 @@ function ReportSkeletonLoader() {
 
 export default function ReportPage() {
   const params = useParams<{ reportId: string }>();
+  const toast = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<unknown>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -268,6 +269,7 @@ export default function ReportPage() {
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+      toast.success("PDF đã được tạo và tải xuống.");
     } catch (error) {
       console.error(error);
       setExportError(error instanceof Error ? error : new Error("Lỗi khi xuất PDF"));
@@ -412,9 +414,9 @@ export default function ReportPage() {
               {isEditing ? "Hủy chỉnh sửa" : "✏️ Chỉnh sửa biểu đồ đã ghim"}
             </button>
             {run.id && (
-              <button type="button" className="button primary" onClick={() => void exportFullPdf(run.id)} disabled={exporting || isEditing} style={{ background: isEditing ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", boxShadow: isEditing ? "none" : "0 4px 12px rgba(37,99,235,0.25)", fontWeight: 700 }}>
+              <LoadingButton type="button" className="button primary" busy={exporting} onClick={() => void exportFullPdf(run.id)} disabled={isEditing} style={{ background: isEditing ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", boxShadow: isEditing ? "none" : "0 4px 12px rgba(37,99,235,0.25)", fontWeight: 700 }}>
                 {exporting ? "Đang tạo PDF…" : "Xuất báo cáo PDF"}
-              </button>
+              </LoadingButton>
             )}
           </div>
         </div>

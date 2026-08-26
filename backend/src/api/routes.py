@@ -49,6 +49,10 @@ from src.config import get_settings
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
+    DatasourceConnectResponse,
+    DatasourceReuseRequest,
+    DatasourceRequest,
+    DatasourceTestResponse,
     DatasetCollectionUpdate,
     DatasetOut,
     DriftRequest,
@@ -72,6 +76,15 @@ from src.services.google_drive import (
     GoogleDriveStorage,
     is_google_drive_ref,
     parse_google_drive_ref,
+)
+from src.services.guardrails import audit_question_fields, enforce_output_guardrails
+from src.services.datasource import (
+    DatasourceError,
+    decrypt_config,
+    encrypt_config,
+    normalize_config,
+    probe,
+    source_ref_for_connection,
 )
 from src.services.llm import (
     LLMNotConfiguredError,
@@ -1177,6 +1190,133 @@ async def ask_question_stream(
 # --------------------------------------------------------------------------- #
 # Dataset / hệ thống
 # --------------------------------------------------------------------------- #
+@router.post("/datasets/datasource/test", response_model=DatasourceTestResponse)
+async def test_datasource(
+    request: DatasourceRequest,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> DatasourceTestResponse:
+    """Validate an external source without persisting its credentials."""
+    get_rate_limiter().check(context.user_id)
+    try:
+        normalized = normalize_config(request.kind, request.config)
+        objects = await asyncio.to_thread(probe, request.kind, normalized)
+    except DatasourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Datasource probe failed", extra={"kind": request.kind})
+        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
+    return DatasourceTestResponse(
+        kind=request.kind,
+        objects=objects,
+        detail=f"Kết nối {request.kind} thành công.",
+    )
+
+
+@router.post("/datasets/datasource", response_model=DatasourceConnectResponse, status_code=201)
+async def connect_datasource(
+    request: DatasourceRequest,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> DatasourceConnectResponse:
+    """Create a tenant-owned dataset backed by an encrypted external source."""
+    get_rate_limiter().check(context.user_id)
+    try:
+        normalized = normalize_config(request.kind, request.config)
+        await asyncio.to_thread(probe, request.kind, normalized)
+        encrypted = encrypt_config(normalized)
+    except DatasourceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Datasource connection failed", extra={"kind": request.kind})
+        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
+
+    connection_id = uuid4().hex
+    try:
+        get_repository().create_datasource_connection(
+            connection_id,
+            workspace_id=context.workspace_id,
+            created_by_user_id=context.user_id,
+            name=request.name,
+            kind=request.kind,
+            config_encrypted=encrypted,
+        )
+        dataset_id = uuid4().hex
+        get_repository().create_dataset(
+            dataset_id,
+            request.name,
+            request.kind,
+            source_ref_for_connection(connection_id),
+            workspace_id=context.workspace_id,
+            content_sha256=hashlib.sha256(encrypted.encode()).hexdigest(),
+            source_version="connection-v1",
+            datasource_connection_id=connection_id,
+        )
+    except Exception as exc:
+        logger.exception("Không lưu được datasource metadata")
+        try:
+            get_repository().delete_datasource_connection(connection_id)
+        except Exception:
+            logger.warning("Không rollback được datasource metadata", exc_info=True)
+        raise HTTPException(status_code=500, detail="Không thể lưu datasource.") from exc
+
+    object_name = normalized.get("table") or normalized.get("collection") or "query"
+    _audit(context, "api_datasource_connected", resource_type="dataset", resource_id=dataset_id, kind=request.kind)
+    return DatasourceConnectResponse(
+        dataset_id=dataset_id,
+        name=request.name,
+        source_type=request.kind,
+        object_name=str(object_name),
+    )
+
+
+@router.post("/datasets/datasource/{connection_id}/use", response_model=DatasourceConnectResponse, status_code=201)
+async def use_saved_datasource(
+    connection_id: str,
+    request: DatasourceReuseRequest,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> DatasourceConnectResponse:
+    """Create a dataset that reuses an existing encrypted datasource connection."""
+    get_rate_limiter().check(context.user_id)
+    repo = get_repository()
+    connection = repo.get_datasource_connection(connection_id, workspace_id=context.workspace_id)
+    if not connection or connection.get("deleted_at"):
+        raise HTTPException(status_code=404, detail="Datasource không tồn tại trong workspace.")
+    try:
+        config = decrypt_config(str(connection["config_encrypted"]))
+        await asyncio.to_thread(probe, str(connection["kind"]), config)
+    except DatasourceError as exc:
+        repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=False, error_code="PROVIDER_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Saved datasource probe failed", extra={"connection_id": connection_id})
+        repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=False, error_code="PROVIDER_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
+
+    dataset_id = uuid4().hex
+    try:
+        repo.create_dataset(
+            dataset_id,
+            request.name,
+            str(connection["kind"]),
+            source_ref_for_connection(connection_id),
+            workspace_id=context.workspace_id,
+            content_sha256=hashlib.sha256(str(connection["config_encrypted"]).encode()).hexdigest(),
+            source_version=f"connection-v{int(connection.get('version') or 1)}",
+            datasource_connection_id=connection_id,
+        )
+    except Exception as exc:
+        logger.exception("Could not create dataset from saved datasource")
+        raise HTTPException(status_code=500, detail="Không thể tạo dataset từ datasource.") from exc
+    repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=True)
+    _audit(context, "api_datasource_reused", resource_type="dataset", resource_id=dataset_id, kind=str(connection["kind"]))
+    object_name = config.get("table") or config.get("collection") or "query"
+    return DatasourceConnectResponse(
+        dataset_id=dataset_id,
+        name=request.name,
+        source_type=str(connection["kind"]),
+        object_name=str(object_name),
+    )
+
+
 @router.post("/datasets/upload", response_model=UploadResponse, status_code=201)
 async def upload_dataset(
     file: UploadFile = File(..., description="CSV / TSV / Parquet / JSON"),  # noqa: B008
@@ -1463,6 +1603,20 @@ async def delete_dataset(
 
     deleted_file = False
     source_ref = str(deleted["source_ref"])
+    if source_ref.lower().startswith("datasource://"):
+        # Saved datasource connections are reusable. Dataset deletion removes
+        # only this dataset; the connection remains available to other
+        # datasets and can be disconnected explicitly from /connectors.
+        _audit(
+            context,
+            "api_delete_dataset",
+            dataset_id=dataset_id,
+            resource_type="dataset",
+            resource_id=dataset_id,
+            deleted_runs=len(run_ids),
+            deleted_file=False,
+        )
+        return {"dataset_id": dataset_id, "deleted_runs": len(run_ids), "deleted_file": False}
     if is_supabase_ref(source_ref):
         try:
             bucket, object_path = parse_supabase_ref(source_ref)

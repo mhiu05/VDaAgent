@@ -12,6 +12,7 @@ ngôn ngữ tự nhiên.
 from __future__ import annotations
 
 from src.api.calendar_routes import router as calendar_router
+from src.api.connector_routes import router as connector_router
 import logging
 import re
 import time
@@ -89,6 +90,12 @@ _ROUTE_TEMPLATE_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"^/api/v1/compare(/.*)?$", "/compare"),
         (r"^/api/v1/qa/stream$", "/qa/stream"),
         (r"^/api/v1/qa$", "/qa"),
+        (r"^/api/v1/connectors/[^/]+/test$", "/connectors/{id}/test"),
+        (r"^/api/v1/connectors/[^/]+$", "/connectors/{id}"),
+        (r"^/api/v1/connectors(/.*)?$", "/connectors"),
+        (r"^/api/v1/calendar/events/[^/]+$", "/calendar/events/{id}"),
+        (r"^/api/v1/calendar/events$", "/calendar/events"),
+        (r"^/api/v1/calendar(/.*)?$", "/calendar"),
     )
 )
 
@@ -151,6 +158,7 @@ async def lifespan(app: FastAPI) -> Any:
             "DATABASE_URL",
             "SUPABASE_URL",
             "SUPABASE_PUBLISHABLE_KEY",
+            "DATASOURCE_ENCRYPTION_KEY",
             "AUTH_MODE=supabase",
         }
         if settings.storage_provider == "supabase":
@@ -382,6 +390,7 @@ app.include_router(command_center_router, prefix="/api/v1")
 app.include_router(authz_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(google_drive_router, prefix="/api/v1")
+app.include_router(connector_router, prefix="/api/v1")
 
 
 @app.get("/")

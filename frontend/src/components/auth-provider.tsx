@@ -30,6 +30,7 @@ type AuthValue = {
   authenticated: boolean;
   isGuest: boolean;
   guestRole: GuestRole | null;
+  ready: boolean;
   loading: boolean;
   error: string | null;
   workspaceId: string | null;
@@ -49,6 +50,7 @@ function requiresWorkspaceBootstrap(pathname: string): boolean {
     "/reports",
     "/chat",
     "/datasets",
+    "/connectors",
     "/profiles",
     "/charts",
     "/compare",
@@ -71,16 +73,28 @@ async function readWorkspaceError(response: Response): Promise<Error> {
 
 async function fetchSessionResource(path: string, headers: Headers): Promise<Response> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 12_000);
+  const timeout = window.setTimeout(() => controller.abort(), 20_000);
   try {
     return await fetchApiWithLocalFallback(path, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
   } catch (reason) {
     if (reason instanceof DOMException && reason.name === "AbortError") {
-      throw new Error("Không thể kết nối workspace trong 12 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
+      throw new Error("Không thể kết nối workspace trong 20 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
     }
     throw reason;
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+function tokenExpiresSoon(token: string, withinSeconds = 60): boolean {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return true;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))) as { exp?: unknown };
+    return typeof decoded.exp !== "number" || decoded.exp <= Math.floor(Date.now() / 1000) + withinSeconds;
+  } catch {
+    return true;
   }
 }
 
@@ -105,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
   const [guestRole, setGuestRole] = useState<GuestRole | null>(null);
+  const [readyPath, setReadyPath] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,11 +136,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabaseAccessToken = useCallback(async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return null;
-    const { data } = await withTimeout(
+    let { data } = await withTimeout(
       client.auth.getSession(),
       12_000,
       "Supabase không trả phiên đăng nhập trong 12 giây. Hãy tải lại trang và thử lại.",
     );
+    if (!data.session) {
+      // The password exchange can resolve just before Supabase finishes
+      // persisting the session. A short second read closes that hand-off
+      // race during client-side login navigation.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+      data = (await withTimeout(
+        client.auth.getSession(),
+        12_000,
+        "Supabase session read timeout",
+      )).data;
+    }
+    if (data.session?.access_token && tokenExpiresSoon(data.session.access_token)) {
+      try {
+        const refreshed = await withTimeout(client.auth.refreshSession(), 8_000, "Supabase refresh timeout");
+        if (!refreshed.data.session?.access_token) return null;
+        data = refreshed.data;
+      } catch {
+        return null;
+      }
+    }
     return data.session?.access_token ?? null;
   }, []);
 
@@ -313,7 +348,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(reason instanceof Error ? reason.message : "Không thể khởi tạo phiên đăng nhập.");
         return false;
       } finally {
-        if (!background && sequence === loadSequence.current) setLoading(false);
+        if (!background && sequence === loadSequence.current) {
+          setLoading(false);
+          setReadyPath(pathnameRef.current);
+        }
       }
     })();
     loadInFlight.current = task;
@@ -360,6 +398,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!requiresWorkspaceBootstrap(pathname)) {
       setLoading(false);
       setError(null);
+      setReadyPath(pathname);
       return;
     }
     // A workspace is retained in this provider while users move between
@@ -367,6 +406,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // crucially, prevents the global shell from entering its blocking loading
     // state on every tab click.
     if (!workspaceIdRef.current) void load();
+    else setReadyPath(pathname);
     const heartbeat = window.setInterval(() => {
       if (workspaceIdRef.current) void load(workspaceIdRef.current, false, false, true);
     }, 60_000);
@@ -416,6 +456,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setWorkspaceId(null);
         setError(null);
         setLoading(false);
+        setReadyPath(pathnameRef.current);
         setChatHistoryScope(null, null);
         return;
       }
@@ -496,7 +537,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (switchSequence === guestSwitchSequence.current) router.push("/workspaces");
   }, [authenticated, load, queryClient, router]);
 
-  const value = useMemo(() => ({ me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh }), [me, authenticated, isGuest, guestRole, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh]);
+  const value = useMemo(() => ({ me, authenticated, isGuest, guestRole, ready: readyPath === pathname, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh }), [me, authenticated, isGuest, guestRole, readyPath, pathname, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

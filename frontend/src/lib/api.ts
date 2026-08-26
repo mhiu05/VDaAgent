@@ -11,6 +11,7 @@ import type {
   TestResult,
   UploadResult,
 } from "@/lib/types";
+import type { DatasourceConfig, DatasourceConnectResult, DatasourceKind, DatasourceTestResult } from "@/lib/types";
 import type { AnalysisExecution, AnalysisSession, AutoChartPlan, AutoProfilePack, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
@@ -141,6 +142,77 @@ export function listDatasets(signal?: AbortSignal): Promise<Dataset[]> {
   return request<Dataset[]>("/datasets", { signal });
 }
 
+export function testDatasource(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<DatasourceTestResult> {
+  return request<DatasourceTestResult>("/datasets/datasource/test", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, name, config }),
+  });
+}
+
+export function connectDatasource(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<DatasourceConnectResult> {
+  return request<DatasourceConnectResult>("/datasets/datasource", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, name, config }),
+  });
+}
+
+export type ConnectorStatus = "connected" | "attention_required" | "expired" | "disconnected";
+export type Connector = {
+  id: string;
+  provider: string;
+  category: "data" | "storage" | "productivity";
+  name: string;
+  owner_scope: "workspace" | "workspace_user";
+  owner_user_id?: string | null;
+  connected_by_user_id?: string | null;
+  status: ConnectorStatus;
+  safe_target: Record<string, unknown>;
+  last_tested_at?: string | null;
+  last_success_at?: string | null;
+  last_error_at?: string | null;
+  last_error_code?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  version: number;
+  dataset_count: number;
+  can_test: boolean;
+  can_edit: boolean;
+  can_disconnect: boolean;
+};
+export type ConnectorListResponse = { connectors: Connector[]; available: Array<{ provider: string; category: string; name: string; description: string }> };
+
+export function listConnectors(): Promise<ConnectorListResponse> {
+  return request<ConnectorListResponse>("/connectors");
+}
+
+export function saveDatasourceConnection(kind: DatasourceKind, name: string, config: DatasourceConfig, idempotencyKey?: string): Promise<Connector> {
+  return request<Connector>("/connectors/datasource", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
+    body: JSON.stringify({ kind, name, config }),
+  });
+}
+
+export function useSavedDatasource(connectionId: string, name: string): Promise<DatasourceConnectResult> {
+  return request<DatasourceConnectResult>(`/datasets/datasource/${encodeURIComponent(connectionId)}/use`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+  });
+}
+
+export function testNewDatasourceConnection(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<{ ok: boolean; provider: string; objects: string[]; status: ConnectorStatus; error_code?: string | null; detail: string }> {
+  return request("/connectors/datasource/test", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, name, config }),
+  });
+}
+
+export function testSavedConnector(id: string): Promise<{ id: string; provider: string; ok: boolean; objects: string[]; status: ConnectorStatus; error_code?: string | null; detail: string }> {
+  return request(`/connectors/${encodeURIComponent(id)}/test`, { method: "POST" });
+}
+
+export function disconnectConnector(id: string): Promise<{ id: string; deleted: boolean }> {
+  return request(`/connectors/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export type GoogleDriveStatus = {
   provider: "supabase" | "google_drive" | "local";
   configured: boolean;
@@ -185,6 +257,7 @@ export type CalendarStatus = {
   connected: boolean;
   calendar_id: string | null;
   can_connect: boolean;
+  account_label?: string | null;
 };
 
 export type CalendarEvent = {
@@ -214,6 +287,10 @@ export async function connectGoogleCalendar(targetWindow?: Window | null): Promi
   if (!opened) throw new ApiError('Trình duyệt đã chặn tab Google mới.', 0);
 }
 
+export function disconnectGoogleCalendar(): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>('/calendar/connection', { method: 'DELETE' });
+}
+
 export function listCalendarEvents(params: { timeMin?: string; timeMax?: string; limit?: number } = {}): Promise<{ events: CalendarEvent[] }> {
   const query = new URLSearchParams();
   if (params.timeMin) query.set('time_min', params.timeMin);
@@ -236,6 +313,22 @@ export function createCalendarEvent(payload: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+}
+
+export function updateCalendarEvent(eventId: string, payload: {
+  summary: string;
+  start: string;
+  end: string;
+  time_zone: string;
+  description?: string;
+  location?: string;
+  attendees?: string[];
+}, version?: number): Promise<{ event: CalendarEvent }> {
+  return request<{ event: CalendarEvent }>(`/calendar/events/${encodeURIComponent(eventId)}${version ? `?version=${version}` : ""}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, ...(version ? { version } : {}) }),
   });
 }
 
@@ -527,6 +620,7 @@ export async function waitForProfilingJob(
   jobId: string,
   signal?: AbortSignal,
   timeoutMs = 30 * 60_000,
+  onUpdate?: (job: ProfilingJob) => void,
 ): Promise<ProfilingJob> {
   const deadline = Date.now() + timeoutMs;
   let transientFailures = 0;
@@ -534,6 +628,7 @@ export async function waitForProfilingJob(
     try {
       const job = await getProfilingJob(jobId, signal);
       transientFailures = 0;
+      onUpdate?.(job);
       if (job.status === "succeeded") return job;
       if (job.status === "failed") {
         throw new ApiError(job.error?.message || "Profiling không hoàn thành.", 409);
