@@ -80,7 +80,8 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
 - Workspace: tạo, archive/restore, thành viên, invitation, cấu hình AI/nghiệp
   vụ, theme, compute/statistics, PII policy và audit activity.
 - Google Calendar tại `/calendar`: Analyst kết nối OAuth theo workspace, sau
-  đó xem, tạo và hủy lịch hẹn; UI và MCP stdio dùng cùng API/permission.
+  đó xem, tạo, chỉnh sửa và hủy lịch hẹn qua FastAPI; Calendar không còn được
+  expose như MCP tool.
 - Admin system: đăng nhập bằng cùng giao diện `/login`, sau đó truy cập
   `/admin` nếu có system role `admin`; có thể xem, tìm kiếm, khóa/mở khóa,
   đổi role `analyst`/`admin` và xóa tài khoản người dùng.
@@ -331,13 +332,14 @@ hợp, trừ health/system route được đánh dấu public.
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, `GET/POST /workspaces`, member/invitation/configuration endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{job_id}`, `GET /profile/{run_id}`, `PATCH /profile/{run_id}/confirm` |
 | Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` cho MySQL, MongoDB và DuckDB |
+| Connector center | `GET /connectors`, `POST/PATCH/DELETE /connectors/*`, test health và `POST /datasets/datasource/{connection_id}/use` |
 | Quality/drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
 | Charts/Explorer | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms`, Preview và promote endpoints |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, `/trace`, `/evidence`, `/plan` |
 | Reports | Draft, `POST /reports/{report_id}/items`, snapshot, submit, review, publish, archive và `GET /reports/{report_id}/export-source` |
 | Admin | `GET /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback và `DELETE /google-drive/connection` |
-| Google Calendar | status, OAuth connect/callback/disconnect và list/create/delete event endpoints |
+| Google Calendar | status, OAuth connect/callback/disconnect và list/create/update/delete event endpoints |
 
 PDF report đi qua route cùng origin của Next.js:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
@@ -441,7 +443,7 @@ trong [docs/production-supabase.md](docs/production-supabase.md).
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
-- [Google Calendar MCP guide](docs/google-calendar-mcp.md)
+- [Google Calendar integration guide](docs/google-calendar-mcp.md) (HTTP API; tài liệu MCP cũ)
 - [Architecture](ARCHITECTURE.md)
 - [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
 - [Evaluation v1](docs/eval_v1.md)

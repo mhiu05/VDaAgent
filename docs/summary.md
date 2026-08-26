@@ -173,11 +173,11 @@ thực thi. Kết quả luôn kèm interval/cảnh báo.
 ## 5. Agent, evidence và MCP
 
 Calendar cho Analyst được triển khai tại `/calendar` qua Google Calendar OAuth.
-UI/API và MCP stdio dùng chung các thao tác list/create/delete; refresh token
+UI/API dùng chung các thao tác list/create/update/delete; refresh token
 mã hóa được lưu theo workspace + user, và permission
 `calendar.read`/`calendar.write` được kiểm tra trước mọi thao tác. Xem
-[hướng dẫn Google Calendar MCP](google-calendar-mcp.md) để cấu hình Google
-Cloud, local, Azure và MCP client.
+[hướng dẫn Google Calendar](google-calendar-mcp.md) để cấu hình Google Cloud,
+local và Azure. Calendar không được expose qua MCP.
 
 Q&A hoạt động trong phạm vi Profile Run. `POST /qa` và `POST /qa/stream` chỉ
 được đọc evidence mà caller có quyền; câu trả lời thiếu evidence phải được
@@ -253,13 +253,14 @@ Mọi endpoint FastAPI dùng prefix `/api/v1`.
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, workspace/member/invitation/configuration endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{job_id}`, `PATCH /profile/{run_id}/confirm`, `POST /profile/{run_id}/test` |
 | Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` |
+| Connector center | `GET /connectors`, lifecycle test/disconnect and reuse saved datasource for new datasets |
 | Drift | `POST /profile/{run_id}/drift` |
 | Charts/Explorer | auto-plan, auto-profile-pack, algorithms, session, previews và promote endpoints |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, trace, plan và evidence endpoints |
 | Reports | report-draft, items, snapshots, export-source, submit, review, publish, archive |
 | Admin | `GET /admin/users`, status, role và delete user endpoints |
 | Google Drive | status, connect, callback và delete connection endpoints |
-| Google Calendar | status, OAuth connect/callback/disconnect, list/create/delete event endpoints |
+| Google Calendar | status, OAuth connect/callback/disconnect, list/create/update/delete event endpoints |
 
 ## 9. Kiểm thử và release
 

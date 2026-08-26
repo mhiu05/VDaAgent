@@ -224,7 +224,7 @@ a thread could make results or checkpoints inconsistent.
 | PostgreSQL repositories | User profiles, workspace state, profile metadata, analysis sessions/executions, reports, audit and trace |
 | Storage adapters | Dataset binary persistence and temporary materialization for tabular compute |
 | Datasource connectors | Validate MySQL/MongoDB/DuckDB source contracts, encrypt credentials at rest, then materialize a bounded temporary file for the profiling pipeline |
-| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API and MCP tools for list/create/delete events |
+| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API for month/week/agenda and list/create/update/delete events |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |
 
 The supported compute sources are uploaded files and external MySQL, MongoDB
@@ -402,6 +402,7 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, `GET/POST /workspaces`, membership, invitation, configuration and guest endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{jobId}`, `GET /profile/{runId}`, `PATCH /profile/{runId}/confirm` |
 | Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` for MySQL, MongoDB and DuckDB |
+| Connector center | Workspace-scoped lifecycle metadata, safe target summaries, health test, optimistic versioning and reusable datasource references |
 | Quality/drift | `POST /profile/{runId}/test`, `POST /profile/{runId}/drift` |
 | Charts/Explorer | `POST /profile/{runId}/charts/auto-plan`, `POST /profile/{runId}/charts/auto-profile-pack`, `GET /profile/{runId}/charts/algorithms`, session, previews and promote |
 | Analysis sessions | `/analysis-sessions` list/create/get, context version, quality gate and execution endpoints |
@@ -409,7 +410,7 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | Reports | `GET/POST /profile/{runId}/report-draft`, report items/snapshots, export source, submit, review, publish and archive |
 | Admin | `GET /admin/users`, `POST /admin/users/{userId}/status`, `POST /admin/users/{userId}/role`, `DELETE /admin/users/{userId}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback and `DELETE /google-drive/connection` |
-| Google Calendar | status, OAuth connect/callback/disconnect and list/create/delete-event endpoints |
+| Google Calendar | status, OAuth connect/callback/disconnect and list/create/update/delete-event endpoints; no Calendar MCP surface |
 | Agent skills | `GET /agent-skills`, `GET /agent-skills/{skillName}`, inspect endpoint |
 
 ## Security and operational invariants
