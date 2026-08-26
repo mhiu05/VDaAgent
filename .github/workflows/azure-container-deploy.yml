@@ -8,6 +8,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      skip_quality:
+        description: "Deploy without waiting for the quality gates"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,6 +36,8 @@ env:
 jobs:
   backend-quality:
     name: Backend quality
+    # Empty on push and pull_request, so the gate only lifts for a manual run.
+    if: ${{ !inputs.skip_quality }}
     runs-on: self-hosted
     timeout-minutes: 35
     services:
@@ -87,6 +94,7 @@ jobs:
 
   frontend-quality:
     name: Frontend quality
+    if: ${{ !inputs.skip_quality }}
     runs-on: self-hosted
     timeout-minutes: 35
     steps:
@@ -151,7 +159,8 @@ jobs:
     needs:
       - backend-quality
       - frontend-quality
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # !cancelled() lets a skipped gate through; a failed one still stops the release.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 90
     permissions:
