@@ -18,7 +18,7 @@ const publicPaths = new Set([
   "/account/update-password",
 ]);
 const guestAllowed = process.env.NEXT_PUBLIC_AUTH_ALLOW_GUEST === "true";
-const appPaths = ["/workspaces", "/reports", "/chat", "/datasets", "/profiles", "/compare"];
+const appPaths = ["/dashboard", "/workspaces", "/reports", "/chat", "/datasets", "/profiles", "/compare"];
 
 function isStaticAsset(pathname: string): boolean {
   return pathname.startsWith("/img/") || pathname === "/favicon.ico" || pathname === "/robots.txt";
