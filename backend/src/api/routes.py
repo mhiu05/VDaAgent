@@ -50,6 +50,7 @@ from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
     DatasourceConnectResponse,
+    DatasourceReuseRequest,
     DatasourceRequest,
     DatasourceTestResponse,
     DatasetCollectionUpdate,
@@ -79,7 +80,7 @@ from src.services.google_drive import (
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
 from src.services.datasource import (
     DatasourceError,
-    connection_id_from_ref,
+    decrypt_config,
     encrypt_config,
     normalize_config,
     probe,
@@ -1242,6 +1243,7 @@ async def connect_datasource(
             workspace_id=context.workspace_id,
             content_sha256=hashlib.sha256(encrypted.encode()).hexdigest(),
             source_version="connection-v1",
+            datasource_connection_id=connection_id,
         )
     except Exception as exc:
         logger.exception("Không lưu được datasource metadata")
@@ -1257,6 +1259,55 @@ async def connect_datasource(
         dataset_id=dataset_id,
         name=request.name,
         source_type=request.kind,
+        object_name=str(object_name),
+    )
+
+
+@router.post("/datasets/datasource/{connection_id}/use", response_model=DatasourceConnectResponse, status_code=201)
+async def use_saved_datasource(
+    connection_id: str,
+    request: DatasourceReuseRequest,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> DatasourceConnectResponse:
+    """Create a dataset that reuses an existing encrypted datasource connection."""
+    get_rate_limiter().check(context.user_id)
+    repo = get_repository()
+    connection = repo.get_datasource_connection(connection_id, workspace_id=context.workspace_id)
+    if not connection or connection.get("deleted_at"):
+        raise HTTPException(status_code=404, detail="Datasource không tồn tại trong workspace.")
+    try:
+        config = decrypt_config(str(connection["config_encrypted"]))
+        await asyncio.to_thread(probe, str(connection["kind"]), config)
+    except DatasourceError as exc:
+        repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=False, error_code="PROVIDER_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Saved datasource probe failed", extra={"connection_id": connection_id})
+        repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=False, error_code="PROVIDER_UNAVAILABLE")
+        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
+
+    dataset_id = uuid4().hex
+    try:
+        repo.create_dataset(
+            dataset_id,
+            request.name,
+            str(connection["kind"]),
+            source_ref_for_connection(connection_id),
+            workspace_id=context.workspace_id,
+            content_sha256=hashlib.sha256(str(connection["config_encrypted"]).encode()).hexdigest(),
+            source_version=f"connection-v{int(connection.get('version') or 1)}",
+            datasource_connection_id=connection_id,
+        )
+    except Exception as exc:
+        logger.exception("Could not create dataset from saved datasource")
+        raise HTTPException(status_code=500, detail="Không thể tạo dataset từ datasource.") from exc
+    repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=True)
+    _audit(context, "api_datasource_reused", resource_type="dataset", resource_id=dataset_id, kind=str(connection["kind"]))
+    object_name = config.get("table") or config.get("collection") or "query"
+    return DatasourceConnectResponse(
+        dataset_id=dataset_id,
+        name=request.name,
+        source_type=str(connection["kind"]),
         object_name=str(object_name),
     )
 
@@ -1548,10 +1599,9 @@ async def delete_dataset(
     deleted_file = False
     source_ref = str(deleted["source_ref"])
     if source_ref.lower().startswith("datasource://"):
-        try:
-            get_repository().delete_datasource_connection(connection_id_from_ref(source_ref))
-        except Exception:
-            logger.warning("Không xóa được metadata datasource %s", source_ref, exc_info=True)
+        # Saved datasource connections are reusable. Dataset deletion removes
+        # only this dataset; the connection remains available to other
+        # datasets and can be disconnected explicitly from /connectors.
         _audit(
             context,
             "api_delete_dataset",

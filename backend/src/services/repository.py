@@ -33,6 +33,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     create_engine,
     func,
     or_,
@@ -208,6 +209,12 @@ google_drive_connections = Table(
     Column("connected_by_user_id", String(36), nullable=False),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("status", String(32), nullable=False, default="connected"),
+    Column("last_tested_at", DateTime(timezone=True), nullable=True),
+    Column("last_success_at", DateTime(timezone=True), nullable=True),
+    Column("last_error_at", DateTime(timezone=True), nullable=True),
+    Column("last_error_code", String(64), nullable=True),
+    Column("version", Integer, nullable=False, default=1),
 )
 
 google_drive_oauth_states = Table(
@@ -236,6 +243,13 @@ google_calendar_connections = Table(
     Column('encrypted_refresh_token', Text, nullable=False),
     Column('created_at', DateTime(timezone=True), default=_now, nullable=False),
     Column('updated_at', DateTime(timezone=True), default=_now, nullable=False),
+    Column('status', String(32), nullable=False, default='connected'),
+    Column('account_label', String(320), nullable=True),
+    Column('last_tested_at', DateTime(timezone=True), nullable=True),
+    Column('last_success_at', DateTime(timezone=True), nullable=True),
+    Column('last_error_at', DateTime(timezone=True), nullable=True),
+    Column('last_error_code', String(64), nullable=True),
+    Column('version', Integer, nullable=False, default=1),
 )
 
 google_calendar_oauth_states = Table(
@@ -261,6 +275,7 @@ datasets = Table(
     Column("content_sha256", String(64), nullable=True),
     Column("source_version", String(255), nullable=True),
     Column("collection_name", String(255), nullable=True, index=True),
+    Column("datasource_connection_id", String(32), ForeignKey("datasource_connections.id"), nullable=True, index=True),
     Column(
         "workspace_id",
         String(36),
@@ -282,6 +297,14 @@ datasource_connections = Table(
     Column("kind", String(32), nullable=False),
     Column("config_encrypted", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("status", String(32), nullable=False, default="connected"),
+    Column("last_tested_at", DateTime(timezone=True), nullable=True),
+    Column("last_success_at", DateTime(timezone=True), nullable=True),
+    Column("last_error_at", DateTime(timezone=True), nullable=True),
+    Column("last_error_code", String(64), nullable=True),
+    Column("deleted_at", DateTime(timezone=True), nullable=True),
+    Column("version", Integer, nullable=False, default=1),
 )
 
 profile_runs = Table(
@@ -3149,6 +3172,10 @@ class Repository:
                 "encrypted_refresh_token": encrypted_refresh_token,
                 "connected_by_user_id": connected_by_user_id,
                 "updated_at": now,
+                "status": "connected",
+                "last_error_code": None,
+                "last_error_at": None,
+                "last_success_at": now,
             }
             if existing:
                 conn.execute(
@@ -3233,6 +3260,7 @@ class Repository:
         user_id: str,
         calendar_id: str,
         encrypted_refresh_token: str,
+        account_label: str | None = None,
     ) -> None:
         now = _now()
         with self.engine.begin() as conn:
@@ -3246,6 +3274,11 @@ class Repository:
                 'calendar_id': calendar_id,
                 'encrypted_refresh_token': encrypted_refresh_token,
                 'updated_at': now,
+                'status': 'connected',
+                'account_label': account_label,
+                'last_error_code': None,
+                'last_error_at': None,
+                'last_success_at': now,
             }
             if existing:
                 conn.execute(
@@ -3292,6 +3325,40 @@ class Repository:
             )
             return bool(result.rowcount)
 
+    def mark_google_calendar_health(
+        self,
+        workspace_id: str,
+        user_id: str,
+        *,
+        ok: bool,
+        error_code: str | None = None,
+    ) -> dict[str, Any] | None:
+        now = _now()
+        values: dict[str, Any] = {
+            "last_tested_at": now,
+            "version": google_calendar_connections.c.version + 1,
+        }
+        if ok:
+            values.update({"status": "connected", "last_success_at": now, "last_error_at": None, "last_error_code": None})
+        else:
+            values.update({"status": "attention_required", "last_error_at": now, "last_error_code": error_code or "PROVIDER_UNAVAILABLE"})
+        with self.engine.begin() as conn:
+            conn.execute(
+                google_calendar_connections.update()
+                .where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
+                )
+                .values(**values)
+            )
+            row = conn.execute(
+                select(google_calendar_connections).where(
+                    google_calendar_connections.c.workspace_id == workspace_id,
+                    google_calendar_connections.c.user_id == user_id,
+                )
+            ).mappings().first()
+            return dict(row) if row else None
+
     # --- External datasource connections ------------------------------- #
     def create_datasource_connection(
         self,
@@ -3313,9 +3380,133 @@ class Repository:
                     kind=kind,
                     config_encrypted=config_encrypted,
                     created_at=_now(),
+                    updated_at=_now(),
+                    status="connected",
+                    last_success_at=_now(),
                 )
             )
         return connection_id
+
+    def list_datasource_connections(self, *, workspace_id: str) -> list[dict[str, Any]]:
+        """List active datasource connections without decrypting configuration."""
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(
+                    datasource_connections,
+                    func.count(datasets.c.id).label("dataset_count"),
+                )
+                .select_from(
+                    datasource_connections.outerjoin(
+                        datasets,
+                        and_(
+                            datasets.c.datasource_connection_id == datasource_connections.c.id,
+                            datasets.c.workspace_id == workspace_id,
+                        ),
+                    )
+                )
+                .where(
+                    datasource_connections.c.workspace_id == workspace_id,
+                    datasource_connections.c.deleted_at.is_(None),
+                )
+                .group_by(datasource_connections.c.id)
+                .order_by(datasource_connections.c.created_at.desc())
+            ).mappings().all()
+            return [dict(row) for row in rows]
+
+    def count_datasets_for_datasource(self, connection_id: str, *, workspace_id: str) -> int:
+        with self.engine.begin() as conn:
+            return int(
+                conn.execute(
+                    select(func.count())
+                    .select_from(datasets)
+                    .where(
+                        datasets.c.datasource_connection_id == connection_id,
+                        datasets.c.workspace_id == workspace_id,
+                    )
+                ).scalar_one()
+            )
+
+    def update_datasource_connection(
+        self,
+        connection_id: str,
+        *,
+        workspace_id: str,
+        name: str | None = None,
+        kind: str | None = None,
+        config_encrypted: str | None = None,
+        expected_version: int | None = None,
+    ) -> dict[str, Any] | None:
+        values: dict[str, Any] = {"updated_at": _now()}
+        if name is not None:
+            values["name"] = name
+        if kind is not None:
+            values["kind"] = kind
+        if config_encrypted is not None:
+            values.update({"config_encrypted": config_encrypted, "status": "connected", "last_error_code": None})
+        with self.engine.begin() as conn:
+            query = datasource_connections.update().where(
+                datasource_connections.c.id == connection_id,
+                datasource_connections.c.workspace_id == workspace_id,
+                datasource_connections.c.deleted_at.is_(None),
+            )
+            if expected_version is not None:
+                query = query.where(datasource_connections.c.version == expected_version)
+                values["version"] = expected_version + 1
+            else:
+                values["version"] = datasource_connections.c.version + 1
+            result = conn.execute(query.values(**values))
+            if not result.rowcount:
+                return None
+            row = conn.execute(
+                select(datasource_connections).where(datasource_connections.c.id == connection_id)
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def mark_datasource_health(
+        self,
+        connection_id: str,
+        *,
+        workspace_id: str,
+        ok: bool,
+        error_code: str | None = None,
+    ) -> dict[str, Any] | None:
+        now = _now()
+        values: dict[str, Any] = {
+            "last_tested_at": now,
+            "updated_at": now,
+            "version": datasource_connections.c.version + 1,
+        }
+        if ok:
+            values.update({"status": "connected", "last_success_at": now, "last_error_at": None, "last_error_code": None})
+        else:
+            values.update({"status": "attention_required", "last_error_at": now, "last_error_code": error_code or "PROVIDER_UNAVAILABLE"})
+        with self.engine.begin() as conn:
+            conn.execute(
+                datasource_connections.update()
+                .where(
+                    datasource_connections.c.id == connection_id,
+                    datasource_connections.c.workspace_id == workspace_id,
+                    datasource_connections.c.deleted_at.is_(None),
+                )
+                .values(**values)
+            )
+            row = conn.execute(
+                select(datasource_connections).where(datasource_connections.c.id == connection_id)
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def soft_delete_datasource_connection(self, connection_id: str, *, workspace_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                datasource_connections.update()
+                .where(
+                    datasource_connections.c.id == connection_id,
+                    datasource_connections.c.workspace_id == workspace_id,
+                    datasource_connections.c.deleted_at.is_(None),
+                )
+                .values(deleted_at=_now(), status="disconnected", updated_at=_now(), version=datasource_connections.c.version + 1)
+            )
+            return bool(result.rowcount)
 
     def get_datasource_connection(
         self, connection_id: str, *, workspace_id: str
@@ -3387,6 +3578,7 @@ class Repository:
         workspace_id: str,
         content_sha256: str | None = None,
         source_version: str | None = None,
+        datasource_connection_id: str | None = None,
     ) -> str:
         """Persist an uploaded source before profiling so it is tenant-owned."""
         with self.engine.begin() as conn:
@@ -3398,6 +3590,7 @@ class Repository:
                     source_ref=source_ref,
                     content_sha256=content_sha256,
                     source_version=source_version,
+                    datasource_connection_id=datasource_connection_id,
                     workspace_id=workspace_id,
                     created_at=_now(),
                 )

@@ -2,7 +2,8 @@
 
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { connectGoogleDrive, createProfile, getGoogleDriveStatus, setDatasetCollection, uploadDataset, ApiError, type GoogleDriveStatus } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { connectGoogleDrive, createProfile, getGoogleDriveStatus, listConnectors, setDatasetCollection, uploadDataset, useSavedDatasource, ApiError, type GoogleDriveStatus } from "@/lib/api";
 import { humanFileSize } from "@/lib/format";
 import type { UploadResult } from "@/lib/types";
 import { ErrorNotice, LoadingButton, Notice, PageHeader, ProgressSteps } from "@/components/ui";
@@ -28,6 +29,7 @@ export default function NewDatasetPage() {
   const [collectionSaved, setCollectionSaved] = useState(false);
   const [busy, setBusy] = useState<"upload" | "profile" | null>(null);
   const [sourceMode, setSourceMode] = useState<"file" | "datasource">("file");
+  const [savedDatasourceId, setSavedDatasourceId] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [driveStatus, setDriveStatus] = useState<GoogleDriveStatus | null>(null);
@@ -36,6 +38,12 @@ export default function NewDatasetPage() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const driveStatusSequence = useRef(0);
   const profileSubmissionKeys = useRef(new Map<string, string>());
+  const connectorsQuery = useQuery({
+    queryKey: ["connectors", workspaceId],
+    queryFn: () => listConnectors(),
+    enabled: authenticated && Boolean(workspaceId),
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
     // React's DOM typings do not expose the non-standard directory picker
@@ -265,6 +273,24 @@ export default function NewDatasetPage() {
     }
   }
 
+  async function handleUseSavedDatasource() {
+    if (!savedDatasourceId || !datasetName.trim()) {
+      setError(new ApiError("Chọn datasource và nhập tên dataset trước khi tiếp tục.", 422));
+      return;
+    }
+    setBusy("profile");
+    setError(null);
+    try {
+      const result = await useSavedDatasource(savedDatasourceId, datasetName.trim());
+      const job = await createProfile({ dataset_id: result.dataset_id, dataset_name: result.name, scan_mode: scanMode });
+      router.push(`/profiles/${job.profiling_run_id}`);
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function handleUploadClick() {
     if (driveBlocked) {
       if (driveStatus?.can_connect) void handleConnectDrive();
@@ -297,7 +323,17 @@ export default function NewDatasetPage() {
       {!driveStatus.connected && driveStatus.can_connect && <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</LoadingButton>}
     </Notice>}
     <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MySQL / MongoDB / DuckDB</button></div>
-    {sourceMode === "datasource" ? <DatasourceConnector /> : <div className="grid two">
+    {sourceMode === "datasource" ? <div className="stacked-section">
+      <section className="panel saved-datasource-panel">
+        <div className="panel-title"><h2>Dùng datasource đã lưu</h2><small>Credential vẫn nằm ở backend; dataset mới chỉ tham chiếu connection dùng chung.</small></div>
+        <div className="form-grid">
+          <div className="field"><label htmlFor="saved-datasource">Datasource</label><select id="saved-datasource" value={savedDatasourceId} onChange={(event) => setSavedDatasourceId(event.target.value)} disabled={busy !== null}><option value="">Chọn connection</option>{(connectorsQuery.data?.connectors ?? []).filter((item) => item.category === "data" && item.id.startsWith("datasource:")).map((item) => <option key={item.id} value={item.id.slice("datasource:".length)}>{item.name} ({item.provider})</option>)}</select></div>
+          <div className="field"><label htmlFor="saved-dataset-name">Tên dataset</label><input id="saved-dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="Ví dụ: Bán hàng tháng 8" maxLength={255} disabled={busy !== null} /></div>
+        </div>
+        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!savedDatasourceId || !datasetName.trim() || busy !== null} onClick={handleUseSavedDatasource}>Dùng datasource và profiling</LoadingButton></div>
+      </section>
+      <DatasourceConnector />
+    </div> : <div className="grid two">
       <section className="panel"><div className="panel-title"><h2>1. Chọn dữ liệu</h2><small>Chọn một, nhiều file hoặc cả thư mục</small></div>
         <div className={`drop-zone ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={fileDrop}>
           <div><strong>Kéo thả một hoặc nhiều file vào đây</strong><p className="muted">CSV, TSV, Parquet hoặc JSON</p><div className="inline-actions file-picker-actions"><label className="button secondary">Chọn file<input type="file" multiple accept=".csv,.tsv,.parquet,.json,application/json,text/csv" onChange={fileInput} /></label><label className="button secondary">Chọn thư mục<input ref={folderInputRef} type="file" multiple accept=".csv,.tsv,.parquet,.json,application/json,text/csv" onChange={fileInput} /></label></div>

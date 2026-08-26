@@ -40,7 +40,7 @@ function accountInitials(email: string | null) {
 }
 
 const adminNavigation = [
-  { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Kết nối MySQL, MongoDB hoặc DuckDB để đưa nguồn dữ liệu vào profiling.", permission: PERMISSIONS.datasetUpload },
+  { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
   { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
   { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản Admin và đổi mật khẩu.", permission: PERMISSIONS.userAccountsRead },
 ] as const;
@@ -51,7 +51,7 @@ const analystNavigation = [
     label: "Dữ liệu",
     icon: "database",
     children: [
-      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Kết nối MySQL, MongoDB hoặc DuckDB để đưa nguồn dữ liệu vào profiling.", permission: PERMISSIONS.datasetUpload },
+      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
       { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
     ]
   },
@@ -70,7 +70,7 @@ const analystNavigation = [
     label: "Công việc",
     icon: "briefcase",
     children: [
-      { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
+      { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo, chỉnh sửa và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
       { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
     ]
   },
