@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import type { GuestRole } from "@/lib/auth/guest-session";
+import { guestEnabled } from "@/lib/auth/guest-session";
 
 const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Analyst" };
 
@@ -19,7 +20,7 @@ export function PublicNavbar() {
   const isOverviewPage = pathname === "/" || pathname.startsWith("/guide") || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
   
-  const showTrialRoles = !loading && !authenticated;
+  const showTrialRoles = guestEnabled() && !loading && !authenticated;
   const showRoleGroup = showTrialRoles;
   const useGuestNavbar = isGuest && !isOverviewPage && !isAuthPage;
 
