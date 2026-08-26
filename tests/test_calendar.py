@@ -7,8 +7,10 @@ from src.agents.skills.registry import select_skill_for_question
 from src.api.calendar_routes import CalendarEventCreate
 
 
-def test_calendar_skill_is_selected_for_vietnamese_schedule_question() -> None:
-    assert select_skill_for_question('Hẹn lịch review profile ngày mai') == 'calendar-assistant'
+def test_calendar_question_stays_out_of_mcp_skill_registry() -> None:
+    # Calendar is a first-class HTTP capability; it must not be exposed as an
+    # Agent/MCP skill. Generic Q&A can still answer with a safe redirect.
+    assert select_skill_for_question('Hẹn lịch review profile ngày mai') != 'calendar-assistant'
 
 
 def test_calendar_event_requires_timezone_and_ordered_window() -> None:

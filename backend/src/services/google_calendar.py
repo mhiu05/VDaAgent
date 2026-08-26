@@ -219,9 +219,55 @@ class GoogleCalendarClient:
         ).execute()
         return self._event(event)
 
+    def get_event(self, workspace_id: str, user_id: str, event_id: str) -> dict[str, Any]:
+        service, calendar_id = self._service(workspace_id, user_id)
+        try:
+            event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        except Exception as exc:  # noqa: BLE001
+            raise GoogleCalendarError("Không thể tải sự kiện Google Calendar.") from exc
+        return self._event(event)
+
+    def update_event(
+        self,
+        workspace_id: str,
+        user_id: str,
+        event_id: str,
+        *,
+        summary: str,
+        start: str,
+        end: str,
+        time_zone: str,
+        description: str = '',
+        location: str = '',
+        attendees: list[str] | None = None,
+    ) -> dict[str, Any]:
+        service, calendar_id = self._service(workspace_id, user_id)
+        body: dict[str, Any] = {
+            'summary': summary,
+            'description': description,
+            'location': location,
+            'start': {'dateTime': start, 'timeZone': time_zone},
+            'end': {'dateTime': end, 'timeZone': time_zone},
+        }
+        if attendees is not None:
+            body['attendees'] = [{'email': email} for email in attendees]
+        try:
+            event = service.events().update(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body=body,
+                sendUpdates='all' if attendees else 'none',
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            raise GoogleCalendarError("Không thể cập nhật Google Calendar.") from exc
+        return self._event(event)
+
     def delete_event(self, workspace_id: str, user_id: str, event_id: str) -> None:
         service, calendar_id = self._service(workspace_id, user_id)
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        except Exception as exc:  # noqa: BLE001
+            raise GoogleCalendarError("Không thể xóa sự kiện Google Calendar.") from exc
 
 
 def default_calendar_window(settings: Settings | None = None) -> tuple[str, str]:
