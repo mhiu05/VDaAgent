@@ -40,6 +40,8 @@ test("one successful login navigates to the workspace without looping or blankin
 
   await page.goto("/login");
   await expect(page.locator("#login-title")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Bạn là admin/ })).toHaveCount(0);
+  await expect(page.getByText("Vai trò được xác định tự động", { exact: false })).toBeVisible();
   await page.locator("#login-email").fill("analyst@example.com");
   await page.locator("#login-password").fill("password");
   await page.locator("button.auth-submit").click();

@@ -52,10 +52,6 @@ function LoginForm() {
     setError(null);
     try {
       const formData = new FormData(event.currentTarget);
-      const submitter = (event.nativeEvent as SubmitEvent).submitter;
-      const requestedNext = submitter instanceof HTMLElement
-        ? submitter.dataset.next
-        : null;
       const { data, error: signInError } = await client.auth.signInWithPassword({
         email: String(formData.get("email")).trim(),
         password: String(formData.get("password")),
@@ -75,7 +71,7 @@ function LoginForm() {
       // consume that session without a second click or a blank full reload.
       setPhase("authenticated");
       setPhase("redirecting");
-      router.replace(safeNext(requestedNext || params.get("next")));
+      router.replace(safeNext(params.get("next")));
     } catch (signInException) {
       setError(signInException instanceof Error ? signInException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
       setPhase("idle");
@@ -102,20 +98,10 @@ function LoginForm() {
           <label htmlFor="login-password">Mật khẩu<input id="login-password" name="password" type="password" autoComplete="current-password" placeholder="Nhập mật khẩu" required /></label>
           <div className="auth-form-meta" style={{ justifyContent: 'flex-end' }}><Link href="/forgot-password">Quên mật khẩu?</Link></div>
           {error && <div className="notice error" role="alert"><b>Đăng nhập không thành công</b><p>{error}</p></div>}
-          <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "1rem" }}>
-            <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ flex: 1, margin: 0 }}>
-              {busy ? (phase === "redirecting" ? "Đang chuyển hướng…" : "Đang đăng nhập…") : "Đăng nhập"}
-            </LoadingButton>
-            <LoadingButton
-              type="submit"
-              className="button secondary"
-              busy={busy}
-              data-next="/admin"
-              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", margin: 0 }}
-            >
-              {busy ? (phase === "redirecting" ? "Đang chuyển hướng…" : "Đang đăng nhập…") : "Bạn là admin?"}
-            </LoadingButton>
-          </div>
+          <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ width: "100%", marginTop: "1rem" }}>
+            {busy ? (phase === "redirecting" ? "Đang chuyển hướng…" : "Đang đăng nhập…") : "Đăng nhập"}
+          </LoadingButton>
+          <p className="auth-role-note">Vai trò được xác định tự động sau khi đăng nhập. Tài khoản System Admin sẽ được chuyển đến khu vực quản trị; Analyst sẽ vào workspace của mình.</p>
           {busy && <p role="status" aria-live="polite" className="auth-progress">{phase === "redirecting" ? "Đang chuyển hướng…" : "Đang xác thực tài khoản…"}</p>}
         </form>
         <p className="auth-switch">Chưa có tài khoản? <Link href="/signup">Đăng ký</Link></p>
