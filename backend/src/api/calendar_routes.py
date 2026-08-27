@@ -57,6 +57,12 @@ class CalendarEventCreate(BaseModel):
         return list(dict.fromkeys(normalized))
 
 
+class CalendarEventUpdate(CalendarEventCreate):
+    """Full replacement update; partial updates are normalized client-side."""
+
+    version: int | None = Field(default=None, ge=1)
+
+
 def _oauth_result_page(*, connected: bool, reason: str | None = None) -> HTMLResponse:
     settings = get_settings()
     frontend_url = settings.google_calendar_frontend_url.rstrip('/')
@@ -120,6 +126,7 @@ async def calendar_status(
         'configured': settings.google_calendar_configured,
         'connected': connection is not None,
         'calendar_id': connection.get('calendar_id') if connection else None,
+        'account_label': connection.get('account_label') if connection else None,
         'can_connect': CALENDAR_WRITE in context.workspace.effective_permissions,
     }
 
@@ -204,8 +211,33 @@ async def calendar_events(
             limit=limit,
         )
     except GoogleCalendarError as exc:
+        get_repository().mark_google_calendar_health(
+            context.workspace_id, context.user_id, ok=False, error_code='PROVIDER_UNAVAILABLE'
+        )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    get_repository().mark_google_calendar_health(
+        context.workspace_id, context.user_id, ok=True
+    )
     return {'events': events, 'time_min': _rfc3339(start), 'time_max': _rfc3339(end)}
+
+
+@router.get('/events/{event_id}')
+async def calendar_get_event(
+    event_id: str,
+    context: RequestContext = Depends(require_permission(CALENDAR_READ)),
+) -> dict[str, Any]:
+    if not event_id or len(event_id) > 512:
+        raise HTTPException(status_code=422, detail='Invalid event id.')
+    try:
+        event = await asyncio.to_thread(
+            _client().get_event,
+            context.workspace_id,
+            context.user_id,
+            event_id,
+        )
+    except GoogleCalendarError as exc:
+        raise HTTPException(status_code=409, detail='Không thể tải sự kiện Calendar.') from exc
+    return {'event': event}
 
 
 @router.post('/events', status_code=201)
@@ -230,6 +262,35 @@ async def calendar_create_event(
         )
     except GoogleCalendarError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {'event': event}
+
+
+@router.patch('/events/{event_id}')
+async def calendar_update_event(
+    event_id: str,
+    request: CalendarEventUpdate,
+    context: RequestContext = Depends(require_permission(CALENDAR_WRITE)),
+) -> dict[str, Any]:
+    if not event_id or len(event_id) > 512:
+        raise HTTPException(status_code=422, detail='Invalid event id.')
+    if request.end <= request.start:
+        raise HTTPException(status_code=422, detail='Event end must be after start.')
+    try:
+        event = await asyncio.to_thread(
+            _client().update_event,
+            context.workspace_id,
+            context.user_id,
+            event_id,
+            summary=request.summary,
+            start=request.start.isoformat(),
+            end=request.end.isoformat(),
+            time_zone=request.time_zone,
+            description=request.description,
+            location=request.location,
+            attendees=request.attendees,
+        )
+    except GoogleCalendarError as exc:
+        raise HTTPException(status_code=409, detail='Không thể cập nhật sự kiện Calendar.') from exc
     return {'event': event}
 
 

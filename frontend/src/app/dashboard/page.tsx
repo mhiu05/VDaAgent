@@ -35,7 +35,7 @@ const reportStatusLabel: Record<string, string> = {
 export default function DashboardPage() {
   const { me, loading, error } = useAuth();
   const dashboard = useQuery({
-    queryKey: ["dashboard", me?.workspace.id],
+    queryKey: ["dashboard", me?.workspace?.id],
     queryFn: () => getDashboard<Dashboard>(),
     enabled: Boolean(me),
     staleTime: 30_000,

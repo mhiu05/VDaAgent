@@ -70,15 +70,6 @@ _SKILLS = (
         "report.draft.write",
         api_operation="POST /api/v1/profile/{profile_run_id}/report",
     ),
-    NativeSkill(
-        'calendar-assistant',
-        '1.0.0',
-        'View, create, and cancel events in the connected Analyst calendar.',
-        'api_workflow',
-        'calendar.read',
-        ('list_calendar_events', 'create_calendar_event', 'delete_calendar_event'),
-        api_operation='GET/POST/DELETE /api/v1/calendar/*',
-    ),
 )
 _BY_NAME = {skill.name: skill for skill in _SKILLS}
 
@@ -105,11 +96,6 @@ def skill_guidance(name: str | None) -> str:
 
 def select_skill_for_question(question: str) -> str:
     text = question.casefold()
-    if any(
-        word in text
-        for word in ('calendar', 'lịch', 'lich', 'hẹn', 'hen', 'appointment', 'meeting')
-    ):
-        return 'calendar-assistant'
     if any(word in text for word in ("drift", "thay đổi", "biến động", "so sánh")):
         return "compare-profile-drift"
     if any(

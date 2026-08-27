@@ -37,10 +37,11 @@ Authorization has two layers:
 - `workspace_memberships.role` is the workspace role and is currently
   normalized to `analyst`.
 
-The backend overlays system `admin` into the effective request role and returns
-the resulting `effective_permissions` from `/workspace-bootstrap`. Admin has
-all Analyst capabilities plus `user.accounts.read`, `user.account.manage` and
-`system.admin`.
+System `admin` and workspace membership are separate authorization contexts.
+System requests use `user.accounts.read`, `user.account.manage` and
+`system.admin`; workspace requests require an active Analyst membership and
+never inherit system-admin capabilities. Admin sessions use the lightweight
+session contract and do not receive an Analyst workspace bootstrap.
 
 ## Design boundaries
 
@@ -215,7 +216,7 @@ a thread could make results or checkpoints inconsistent.
 | Auth provider | Supabase email/password session, signup confirmation, refresh and workspace bootstrap transport |
 | FastAPI | REST/SSE API, CORS, auth, workspace/capability enforcement, audit and business workflows |
 | Permissions service | Canonical `analyst`/`admin` roles and capability sets; legacy owner/viewer values normalize to Analyst |
-| Admin API | System user listing, status lock/unlock, role update and permanent account deletion with audit |
+| Admin API | System user listing, Analyst creation or Supabase email invite, status lock/unlock, role update and account deletion with audit |
 | Profiling worker | Atomically claims durable Profile Runs/HITL continuations, renews lease and invokes LangGraph |
 | LangGraph + native skills | Profiling/Q&A orchestration, bounded tool registry and optional redacted trace |
 | `AnalysisEngine` | Validates `QuerySpec`, runs bounded aggregate/profile analysis and forecast |
@@ -224,7 +225,7 @@ a thread could make results or checkpoints inconsistent.
 | PostgreSQL repositories | User profiles, workspace state, profile metadata, analysis sessions/executions, reports, audit and trace |
 | Storage adapters | Dataset binary persistence and temporary materialization for tabular compute |
 | Datasource connectors | Validate MySQL/MongoDB/DuckDB source contracts, encrypt credentials at rest, then materialize a bounded temporary file for the profiling pipeline |
-| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API and MCP tools for list/create/delete events |
+| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API for month/week/agenda and list/create/update/delete events |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |
 
 The supported compute sources are uploaded files and external MySQL, MongoDB
@@ -275,14 +276,19 @@ sequenceDiagram
     UI->>API: GET /workspace-bootstrap with Bearer token
     API->>Auth: Verify JWT/JWKS or Auth API fallback
     API->>DB: Sync user profile and resolve system role
-    API->>DB: Resolve workspace membership and permissions
+    API->>DB: Resolve system role or workspace membership and permissions
     API-->>UI: User, workspace, effective_permissions, dashboard summary
     UI-->>U: Analyst navigation or /admin navigation
 ```
 
-`GLOBAL_ADMIN_EMAILS` can seed the system admin role during profile sync. The
-admin API still enforces `user.accounts.read`/`user.account.manage` on every
-request and records account-management audit events.
+`GLOBAL_ADMIN_EMAILS` can seed the system admin role only when a profile is
+first created. PostgreSQL role/status state is authoritative thereafter, so a
+demotion cannot be undone by a later login. The admin API enforces
+`user.accounts.read`/`user.account.manage` on every request and records
+account-management audit events. Every permanent bearer-authenticated backend path
+checks current `user_profiles.status`; an active JWT never bypasses a lock or
+delete tombstone. Supabase email invitations are sent from FastAPI with the
+backend-only key, never from the browser.
 
 ### Profile Run
 
@@ -402,14 +408,15 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | Auth/workspace | `GET /session`, `GET /me`, `GET /workspace-bootstrap`, `GET/POST /workspaces`, membership, invitation, configuration and guest endpoints |
 | Dataset/profile | `POST /datasets/upload`, `GET /datasets`, `POST /profile` (`202`), `GET /profiling-jobs/{jobId}`, `GET /profile/{runId}`, `PATCH /profile/{runId}/confirm` |
 | Datasource | `POST /datasets/datasource/test`, `POST /datasets/datasource` for MySQL, MongoDB and DuckDB |
+| Connector center | Workspace-scoped lifecycle metadata, safe target summaries, health test, optimistic versioning and reusable datasource references |
 | Quality/drift | `POST /profile/{runId}/test`, `POST /profile/{runId}/drift` |
 | Charts/Explorer | `POST /profile/{runId}/charts/auto-plan`, `POST /profile/{runId}/charts/auto-profile-pack`, `GET /profile/{runId}/charts/algorithms`, session, previews and promote |
 | Analysis sessions | `/analysis-sessions` list/create/get, context version, quality gate and execution endpoints |
 | Agent/evidence | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{runId}`, `/trace`, `/trace-summary`, `/plan`, `/evidence` |
 | Reports | `GET/POST /profile/{runId}/report-draft`, report items/snapshots, export source, submit, review, publish and archive |
-| Admin | `GET /admin/users`, `POST /admin/users/{userId}/status`, `POST /admin/users/{userId}/role`, `DELETE /admin/users/{userId}` |
+| Admin | `GET/POST /admin/users`, `POST /admin/users/{userId}/status`, `POST /admin/users/{userId}/role`, `DELETE /admin/users/{userId}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback and `DELETE /google-drive/connection` |
-| Google Calendar | status, OAuth connect/callback/disconnect and list/create/delete-event endpoints |
+| Google Calendar | status, OAuth connect/callback/disconnect and list/create/update/delete-event endpoints; no Calendar MCP surface |
 | Agent skills | `GET /agent-skills`, `GET /agent-skills/{skillName}`, inspect endpoint |
 
 ## Security and operational invariants

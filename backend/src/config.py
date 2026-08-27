@@ -228,6 +228,10 @@ class Settings(BaseSettings):
     )
     auth_jwks_cache_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     auth_jwks_timeout_seconds: float = Field(default=3.0, ge=0.5, le=30.0)
+    # Supabase Auth and a local development machine can differ by a small
+    # amount when a freshly-issued token is checked. Allow bounded clock skew
+    # for exp/iat/nbf validation without weakening token verification.
+    auth_jwt_leeway_seconds: int = Field(default=30, ge=0, le=300)
     auth_jwt_algorithms: tuple[str, ...] = ("ES256", "RS256")
     # Used only by AUTH_MODE=dual.  It is a stable, valid UUID so legacy data
     # can be backfilled into a real membership instead of becoming unscoped.
@@ -382,6 +386,11 @@ class Settings(BaseSettings):
                 raise ValueError("AUTH_MODE=supabase yêu cầu SUPABASE_URL.")
             if not self.auth_issuer:
                 raise ValueError("AUTH_MODE=supabase yêu cầu SUPABASE_AUTH_ISSUER.")
+        if self.app_env == "production":
+            if self.auth_mode != "supabase":
+                raise ValueError("Production bắt buộc AUTH_MODE=supabase.")
+            if not self.auth_require_email_confirmed:
+                raise ValueError("Production bắt buộc AUTH_REQUIRE_EMAIL_CONFIRMED=true.")
         # The planner/verifier/queue switches are intentionally fail-closed
         # until their capability registry, deterministic evaluation and durable
         # execution phases have shipped. A truthy flag must never expose an

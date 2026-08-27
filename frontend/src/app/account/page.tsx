@@ -414,7 +414,7 @@ export default function AccountPage() {
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.88rem" }}>
                 <span className="muted">Vai trò hệ thống:</span>
                 <b>
-                  {me?.workspace.role === "admin"
+                  {me?.user && me.effective_permissions.includes("user.accounts.read")
                     ? "🛡️ Quản trị viên (Admin)"
                     : "📊 Chuyên viên (Analyst)"}
                 </b>
