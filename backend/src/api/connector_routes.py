@@ -8,11 +8,14 @@ ever serializing encrypted configuration or OAuth tokens.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
@@ -23,7 +26,7 @@ from src.models.schemas import (
     ConnectorTestResponse,
     DatasourceRequest,
 )
-from src.services.datasource import DatasourceError, encrypt_config, normalize_config, probe
+from src.services.datasource import DatasourceError, connector_fingerprint, encrypt_config, normalize_config, probe
 from src.services.permissions import DATASET_READ, DATASET_UPLOAD
 from src.services.repository import get_repository
 from src.services.security import get_audit, get_rate_limiter
@@ -200,13 +203,19 @@ async def update_saved_datasource(
         raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
     try:
         normalized = normalize_config(request.kind, request.config)
+        fingerprint = connector_fingerprint(request.kind, normalized)
         await asyncio.to_thread(probe, request.kind, normalized)
         encrypted = encrypt_config(normalized)
+    except HTTPException:
+        raise
     except DatasourceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
-    row = repo.update_datasource_connection(raw_id, workspace_id=context.workspace_id, name=request.name, kind=request.kind, config_encrypted=encrypted, expected_version=expected_version)
+    try:
+        row = repo.update_datasource_connection(raw_id, workspace_id=context.workspace_id, name=request.name, kind=request.kind, config_encrypted=encrypted, fingerprint=fingerprint, expected_version=expected_version)
+    except IntegrityError as exc:
+        raise HTTPException(status_code=409, detail={"code": "DUPLICATE_CONNECTOR", "message": "Đã có connector khác dùng cùng cấu hình trong workspace."}) from exc
     if not row:
         raise HTTPException(status_code=409, detail={"code": "version_conflict", "message": "Connector đã được cập nhật ở tab khác."})
     row["dataset_count"] = repo.count_datasets_for_datasource(raw_id, workspace_id=context.workspace_id)
@@ -220,26 +229,53 @@ async def save_datasource_connection(
     context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> ConnectorOut:
-    del idempotency_key  # reserved for the durable idempotency table phase
     get_rate_limiter().check(context.user_id)
     try:
         normalized = normalize_config(request.kind, request.config)
+        fingerprint = connector_fingerprint(request.kind, normalized)
+        request_hash = hashlib.sha256(json.dumps(
+            {"kind": request.kind, "name": request.name, "config": normalized},
+            sort_keys=True, separators=(",", ":"), default=str,
+        ).encode()).hexdigest()
+        repo = get_repository()
+        if idempotency_key:
+            if len(idempotency_key) > 255:
+                raise HTTPException(status_code=422, detail="Idempotency-Key quá dài.")
+            try:
+                previous_id = repo.get_connector_idempotency(workspace_id=context.workspace_id, key=idempotency_key, request_hash=request_hash)
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail={"code": "idempotency_key_reused", "message": "Idempotency-Key đã được dùng cho request khác."}) from exc
+            if previous_id:
+                previous = repo.get_datasource_connection(previous_id, workspace_id=context.workspace_id)
+                if previous and not previous.get("deleted_at"):
+                    previous["dataset_count"] = repo.count_datasets_for_datasource(previous_id, workspace_id=context.workspace_id)
+                    return _connector_from_datasource(previous, context)
+        duplicate = repo.find_datasource_by_fingerprint(workspace_id=context.workspace_id, kind=request.kind, fingerprint=fingerprint)
+        if duplicate:
+            duplicate["dataset_count"] = repo.count_datasets_for_datasource(str(duplicate["id"]), workspace_id=context.workspace_id)
+            if idempotency_key:
+                repo.save_connector_idempotency(workspace_id=context.workspace_id, key=idempotency_key, request_hash=request_hash, connection_id=str(duplicate["id"]))
+            return _connector_from_datasource(duplicate, context)
         await asyncio.to_thread(probe, request.kind, normalized)
         encrypted = encrypt_config(normalized)
+    except HTTPException:
+        raise
     except DatasourceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
     connection_id = uuid4().hex
-    repo = get_repository()
-    repo.create_datasource_connection(
+    connection_id = repo.create_datasource_connection(
         connection_id,
         workspace_id=context.workspace_id,
         created_by_user_id=context.user_id,
         name=request.name,
         kind=request.kind,
         config_encrypted=encrypted,
+        fingerprint=fingerprint,
     )
+    if idempotency_key:
+        repo.save_connector_idempotency(workspace_id=context.workspace_id, key=idempotency_key, request_hash=request_hash, connection_id=connection_id)
     row = repo.get_datasource_connection(connection_id, workspace_id=context.workspace_id)
     if not row:
         raise HTTPException(status_code=500, detail="Không thể lưu datasource.")
