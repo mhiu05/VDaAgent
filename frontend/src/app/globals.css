@@ -952,6 +952,44 @@ small { color: var(--muted); }
 .activity-entry-heading time { flex: 0 0 auto; color: var(--muted); font-size: .68rem; }
 .activity-entry-meta, .activity-entry-detail { margin: 4px 0 0; color: var(--muted); font-size: .7rem; line-height: 1.4; }
 .activity-entry-detail { color: var(--ink); }
+.activity-notification-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.activity-notification-summary > div { display: grid; grid-template-columns: 9px auto; grid-template-rows: auto auto; column-gap: 8px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.activity-notification-summary b { font-size: 1.1rem; line-height: 1; }
+.activity-notification-summary small { grid-column: 2; margin-top: 4px; color: var(--muted); font-size: .66rem; }
+.activity-summary-dot { grid-row: 1 / span 2; width: 9px; height: 9px; margin-top: 2px; border-radius: 50%; background: var(--brand); }
+.activity-summary-success { background: #28a879; }
+.activity-summary-calendar { background: #5279dc; }
+.activity-summary-attention { background: #d79225; }
+.activity-notification-panel { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: 0 8px 24px rgba(20, 35, 57, .04); }
+.activity-notification-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.activity-notification-panel-heading h2 { margin: 0; font-size: 1rem; }
+.activity-notification-panel-heading .eyebrow { margin-bottom: 4px; }
+.activity-notification-filters { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.activity-notification-list { display: grid; gap: 8px; padding-top: 14px; }
+.activity-notification { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 11px; color: inherit; background: var(--panel); text-decoration: none; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+.activity-notification:hover { border-color: var(--brand); background: var(--surface-muted); transform: translateY(-1px); }
+.activity-notification-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; font-size: .94rem; font-weight: 850; }
+.activity-notification-success { color: #16815f; background: #e6f8f0; }
+.activity-notification-info { color: #3156c9; background: #eaf0ff; }
+.activity-notification-warning { color: #9a6506; background: #fff3df; }
+.activity-notification-error { color: #a2344a; background: #ffedf0; }
+.activity-notification-content { min-width: 0; }
+.activity-notification-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.activity-notification-heading strong { overflow: hidden; color: var(--ink); font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
+.activity-notification-heading time { flex: 0 0 auto; color: var(--muted); font-size: .66rem; }
+.activity-notification-content p { margin: 4px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.45; }
+.activity-notification-arrow { color: var(--muted); font-size: 1rem; }
+[data-theme="dark"] .activity-notification-panel { box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
+[data-theme="dark"] .activity-notification-success { color: #78dfbe; background: #173c36; }
+[data-theme="dark"] .activity-notification-info { color: #a8b8ff; background: #202f5c; }
+[data-theme="dark"] .activity-notification-warning { color: #f0c87d; background: #382d1a; }
+[data-theme="dark"] .activity-notification-error { color: #ff9aac; background: #3d202b; }
+@media (max-width: 720px) {
+  .activity-notification-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .activity-notification-panel-heading { align-items: stretch; flex-direction: column; }
+  .activity-notification-panel-heading .button { align-self: flex-start; }
+  .activity-notification-heading { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
 .metric-card { min-height: 130px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
 .metric-card p { margin-bottom: 9px; color: var(--muted); font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .055em; }
 .metric-card strong { display: block; font-size: 1.6rem; letter-spacing: -.04em; }

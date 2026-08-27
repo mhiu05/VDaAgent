@@ -570,6 +570,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (switchSequence !== guestSwitchSequence.current) return;
     window.localStorage.removeItem("p170-workspace-id");
     startGuestSession(role);
+    try {
+      window.sessionStorage.setItem("p170-login-notification-v1", JSON.stringify({ ts: new Date().toISOString() }));
+    } catch {
+      // A blocked sessionStorage must not prevent guest access.
+    }
     // Enter the workspace immediately. Its shell shows the loading state while
     // the fresh role/session resolves, so a slow backend cannot make a navbar
     // click appear to do nothing.

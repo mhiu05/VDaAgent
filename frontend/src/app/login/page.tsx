@@ -65,6 +65,11 @@ function LoginForm() {
         setError("Đăng nhập chưa tạo được phiên làm việc. Hãy thử lại.");
         return;
       }
+      try {
+        window.sessionStorage.setItem("p170-login-notification-v1", JSON.stringify({ ts: new Date().toISOString() }));
+      } catch {
+        // A blocked sessionStorage must not prevent a successful login.
+      }
       // signInWithPassword has persisted the session before resolving. Keep
       // the provider mounted while navigating so the workspace bootstrap can
       // consume that session without a second click or a blank full reload.

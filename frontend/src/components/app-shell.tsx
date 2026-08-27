@@ -70,7 +70,7 @@ const analystNavigation = [
     icon: "briefcase",
     children: [
       { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo, chỉnh sửa và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
-      { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
+      { href: "/activity", label: "Thông báo", icon: "◷", description: "Xem cập nhật về kết nối, lịch hẹn, profiling và cảnh báo workspace.", permission: PERMISSIONS.workspaceAuditRead },
     ]
   },
   {
