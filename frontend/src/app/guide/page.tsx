@@ -8,38 +8,38 @@ export const metadata = { title: "Hướng dẫn - VDaAgent" };
 const steps = [
   {
     id: "step-1",
-    title: "1. Tải dữ liệu (Upload)",
-    desc: "Khởi tạo Profile Run bằng cách tải tệp tin của bạn.",
-    content: "Bắt đầu bằng cách kéo thả tệp dữ liệu (CSV, Parquet, JSON) vào Workspace. Ngay khi tải lên, hệ thống sẽ tự động khởi chạy tiến trình Profiling deterministic để quét toàn bộ cấu trúc và chất lượng dữ liệu của bạn trong vài giây.",
-    callout: { type: "tip", text: "Nếu file quá lớn, hệ thống sẽ tự động tối ưu hóa tài nguyên để đảm bảo không bị gián đoạn quá trình. Đợi khoảng 2-3 phút để hoàn thành quá trình." },
+    title: "1. Tải dữ liệu",
+    desc: "Khởi tạo phiên lập hồ sơ bằng cách tải tệp tin của bạn.",
+    content: "Bắt đầu bằng cách kéo thả tệp dữ liệu (CSV, Parquet, JSON) vào không gian làm việc. Ngay khi tải lên, hệ thống sẽ tự động khởi chạy tiến trình lập hồ sơ xác định để quét toàn bộ cấu trúc và chất lượng dữ liệu của bạn trong vài giây.",
+    callout: { type: "tip", text: "Nếu tệp quá lớn, hệ thống sẽ tự động tối ưu hóa tài nguyên để đảm bảo không bị gián đoạn. Đợi khoảng 2–3 phút để hoàn thành quá trình." },
     mockup: { type: "upload" }
   },
   {
     id: "step-2",
-    title: "2. Review Đề xuất & Metadata",
+    title: "2. Xem xét đề xuất & siêu dữ liệu",
     desc: "Kiểm tra chất lượng và duyệt các thông tin nhạy cảm.",
-    content: "Dữ liệu hiếm khi hoàn hảo. Hệ thống sẽ tự động đề xuất (suggestions) các vấn đề phát hiện được như: giá trị bị khuyết (missing values), dữ liệu trùng lặp (duplicates), hoặc lỗi định dạng. Đặc biệt, bạn cần review và che mờ (redact) các cột chứa dữ liệu PII (nhạy cảm) trước khi đi sâu vào phân tích.",
+    content: "Dữ liệu hiếm khi hoàn hảo. Hệ thống sẽ tự động đề xuất các vấn đề phát hiện được như: giá trị bị khuyết, dữ liệu trùng lặp hoặc lỗi định dạng. Đặc biệt, bạn cần xem xét và che mờ các cột chứa dữ liệu PII (nhạy cảm) trước khi đi sâu vào phân tích.",
     mockup: { type: "review" }
   },
   {
     id: "step-3",
     title: "3. Phân tích & Trực quan hóa",
     desc: "Vẽ biểu đồ và đặt câu hỏi chuyên sâu.",
-    content: "Sử dụng tính năng Preview để lên bản nháp cho các biểu đồ Histogram, Bar chart, hay Scatter plot. Khi đã chắc chắn, bạn 'Promote' chúng thành Official Evidence (Bằng chứng chính thức). Những biểu đồ này có mã Hash riêng biệt để đảm bảo tính xác thực.",
+    content: "Sử dụng tính năng bản xem trước để tạo bản nháp cho các biểu đồ Histogram, biểu đồ cột hoặc biểu đồ Scatter. Khi đã chắc chắn, bạn có thể xác nhận chúng thành bằng chứng chính thức. Những biểu đồ này có mã băm riêng biệt để đảm bảo tính xác thực.",
     mockup: { type: "visualize" }
   },
   {
     id: "step-4",
     title: "4. So sánh dữ liệu (Compare)",
     desc: "Đối chiếu các tập dữ liệu hoặc các biến số.",
-    content: "Sử dụng chức năng so sánh để đối chiếu sự khác biệt giữa các Profile Run (ví dụ: dữ liệu tháng này vs tháng trước) hoặc so sánh tương quan chéo giữa hai cột bất kỳ trong cùng một dataset để tìm ra quy luật ngầm.",
-    callout: { type: "info", text: "Mọi so sánh đều được tính toán bằng thuật toán Deterministic." }
+    content: "Sử dụng chức năng so sánh để đối chiếu sự khác biệt giữa các phiên lập hồ sơ (ví dụ: dữ liệu tháng này và tháng trước) hoặc so sánh tương quan chéo giữa hai cột bất kỳ trong cùng một tập dữ liệu để tìm ra quy luật ngầm.",
+    callout: { type: "info", text: "Mọi so sánh đều được tính toán bằng thuật toán xác định." }
   },
   {
     id: "step-5",
-    title: "5. Báo cáo & Export PDF",
+    title: "5. Báo cáo & xuất PDF",
     desc: "Đóng băng kết quả và xuất bản báo cáo.",
-    content: "Tất cả các biểu đồ và phân tích từ Agent sẽ được lưu vào một Report Draft. Khi bạn hoàn tất, chỉ cần Snapshot (đóng băng) bản nháp này để đảm bảo không ai có thể thay đổi số liệu trong tương lai. Sau đó, bạn có thể Export báo cáo ra định dạng PDF hoặc JSON để chia sẻ.",
+    content: "Tất cả các biểu đồ và phân tích từ trợ lý AI sẽ được lưu vào một bản nháp báo cáo. Khi bạn hoàn tất, chỉ cần tạo ảnh chụp cố định bản nháp này để đảm bảo không ai có thể thay đổi số liệu trong tương lai. Sau đó, bạn có thể xuất báo cáo ở định dạng PDF hoặc JSON để chia sẻ.",
     mockup: { type: "export" }
   }
 ];
@@ -55,7 +55,7 @@ export default function GuidePage() {
         <div style={{ background: "var(--pub-brand)", color: "#fff", padding: "16px", textAlign: "center", position: "sticky", top: 0, zIndex: 10 }}>
           <p style={{ margin: 0, fontSize: "15px", fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-            Lưu ý: Chat Agent (Trợ lý AI) luôn túc trực và bạn có thể hỏi đáp xuyên suốt mọi bước trong quá trình phân tích!
+            Lưu ý: Trợ lý AI luôn túc trực và bạn có thể hỏi đáp xuyên suốt mọi bước trong quá trình phân tích!
           </p>
         </div>
 
@@ -67,7 +67,7 @@ export default function GuidePage() {
                 Quy trình phân tích từ A đến Z
               </h1>
               <p className="lead">
-                Làm chủ VDaAgent thông qua 5 bước tiêu chuẩn trong Workspace. Từ lúc tải file cho đến khi xuất báo cáo hoàn chỉnh.
+                Làm chủ VDaAgent thông qua 5 bước tiêu chuẩn trong không gian làm việc. Từ lúc tải tệp cho đến khi xuất báo cáo hoàn chỉnh.
               </p>
             </div>
 
@@ -126,7 +126,7 @@ export default function GuidePage() {
                               <div style={{ width: "20%", height: "60%", background: "var(--pub-brand)", borderRadius: "4px 4px 0 0" }}></div>
                               <div style={{ width: "20%", height: "100%", background: "var(--pub-brand)", borderRadius: "4px 4px 0 0" }}></div>
                             </div>
-                            <p style={{ fontSize: "12px", color: "var(--pub-muted)", marginTop: "12px", textAlign: "center" }}>Biểu đồ phân phối thu nhập — Đã xác thực thành Official Evidence</p>
+                            <p style={{ fontSize: "12px", color: "var(--pub-muted)", marginTop: "12px", textAlign: "center" }}>Biểu đồ phân phối thu nhập — Đã xác thực thành bằng chứng chính thức</p>
                           </div>
                         )}
                         {step.mockup.type === "export" && (
@@ -163,10 +163,10 @@ export default function GuidePage() {
           <div className="pub-container">
             <h2 style={{ fontSize: "32px", fontWeight: 700, margin: "0 0 24px", color: "var(--pub-ink)" }}>Sẵn sàng thực hành?</h2>
             <p style={{ fontSize: "18px", color: "var(--pub-muted)", maxWidth: "600px", margin: "0 auto 32px" }}>
-              Tải lên tập dữ liệu đầu tiên của bạn và trải nghiệm sự khác biệt của Workspace Evidence-first.
+              Tải lên tập dữ liệu đầu tiên của bạn và trải nghiệm sự khác biệt của không gian làm việc dựa trên bằng chứng.
             </p>
             <div style={{ display: "flex", justifyContent: "center", gap: "20px" }}>
-              <Link href="/workspaces" className="pub-btn pub-btn-primary" style={{ padding: "16px 32px", fontSize: "16px" }}>Vào Workspace</Link>
+              <Link href="/workspaces" className="pub-btn pub-btn-primary" style={{ padding: "16px 32px", fontSize: "16px" }}>Vào không gian làm việc</Link>
               <Link href="/about" className="pub-btn pub-btn-secondary" style={{ padding: "16px 32px", fontSize: "16px" }}>Tìm hiểu thêm</Link>
             </div>
           </div>

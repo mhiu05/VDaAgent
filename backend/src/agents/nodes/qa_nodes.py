@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any
 
 from src.agents.prompts import (
     BASE_RULES,
     CLARIFY_PROMPT,
-    QA_ROUTER_PROMPT,
     QA_STRUCTURED_PROMPT,
     QA_VECTOR_PROMPT,
 )
@@ -94,6 +95,57 @@ _CONCEPT_HINTS = (
     "how",
     "what is",
     "what are",
+)
+
+# These are profile-fact requests even when they do not contain a number.
+# They must use the deterministic tool path instead of asking retrieval/LLM to
+# infer a conclusion from a narrative report.  The chat widget exposes the
+# same intents as quick starters, so keeping this routing explicit is also a
+# regression guard for the primary user journey.
+_PROFILE_FACT_HINTS = (
+    "tóm tắt",
+    "tổng quan",
+    "chất lượng dữ liệu",
+    "data quality",
+    "quality summary",
+    "candidate key",
+    "khóa ứng viên",
+    "khoá ứng viên",
+    "rủi ro pii",
+    "dữ liệu nhạy cảm",
+    "thông tin cá nhân",
+)
+
+_SUMMARY_INTENT = re.compile(
+    r"(?:tóm tắt|tổng quan|chất lượng dữ liệu|data quality|quality summary)",
+    re.IGNORECASE,
+)
+
+
+def _run_tools_parallel(
+    run_id: str, calls: list[tuple[str, dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """Run independent deterministic tools concurrently while preserving trace scope."""
+    with ThreadPoolExecutor(max_workers=len(calls)) as executor:
+        futures = [
+            executor.submit(
+                copy_context().run,
+                run_tool,
+                name,
+                args,
+                profile_run_id=run_id,
+            )
+            for name, args in calls
+        ]
+        return [future.result() for future in futures]
+
+
+_CANDIDATE_KEY_INTENT = re.compile(
+    r"(?:candidate[ _-]*key|khóa ứng viên|khoá ứng viên)", re.IGNORECASE
+)
+_PII_OR_MISSINGNESS_INTENT = re.compile(
+    r"(?:\bpii\b|dữ liệu nhạy cảm|thông tin cá nhân|\bnull\b|thiếu dữ liệu|missing)",
+    re.IGNORECASE,
 )
 
 _NAME_INTRODUCTION = re.compile(
@@ -280,6 +332,194 @@ def _guard_answer(answer: str) -> str:
     return guarded.text
 
 
+def _tool_source(
+    name: str, args: dict[str, Any], run_id: str, result: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Build a UI/API-valid provenance entry for a deterministic tool call."""
+    return {
+        "type": "tool",
+        "tool": name,
+        "args": args,
+        "status": "error" if result and (result.get("error") or result.get("error_code")) else "ok",
+        "profile_run_id": run_id,
+    }
+
+
+def _tool_data(result: dict[str, Any]) -> dict[str, Any]:
+    """Return the safe tool payload, treating every tool error as no evidence."""
+    if result.get("error") or result.get("error_code"):
+        return {}
+    data = result.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _format_number(value: Any) -> str:
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _deterministic_profile_answer(
+    question: str, run_id: str
+) -> tuple[str, list[dict[str, Any]], int] | None:
+    """Answer common profile questions from persisted aggregates only.
+
+    This intentionally covers the widget's starters and closely related
+    requests.  It avoids an LLM deciding which report fragment is relevant or
+    inventing a conclusion when a fragment is incomplete.
+    """
+    lowered = question.casefold()
+    if any(hint in lowered for hint in _CONCEPT_HINTS):
+        return None
+
+    if _CANDIDATE_KEY_INTENT.search(question):
+        args = {"limit": 20}
+        result = run_tool("get_candidate_keys", args, profile_run_id=run_id)
+        data = _tool_data(result)
+        candidates = data.get("candidate_key") or []
+        lines = ["## Candidate key đã phát hiện"]
+        if not candidates:
+            lines.append("Chưa có candidate key nào được ghi nhận cho profile run này.")
+        else:
+            lines.append("Các mục dưới đây là đề xuất từ profile, chưa thay thế quyết định nghiệp vụ:")
+            for candidate in candidates[:10]:
+                columns = ", ".join(candidate.get("columns") or []) or "(không rõ cột)"
+                confidence = candidate.get("confidence")
+                if confidence is None:
+                    confidence = candidate.get("confidence_score")
+                confidence_text = (
+                    f"; confidence {float(confidence):.2%}"
+                    if isinstance(confidence, (int, float)) and 0 <= confidence <= 1
+                    else ""
+                )
+                status = str(candidate.get("status") or "đề xuất")
+                lines.append(f"- `{columns}` — trạng thái: **{status}**{confidence_text}.")
+        return (
+            "\n".join(lines),
+            [_tool_source("get_candidate_keys", args, run_id, result)],
+            1,
+        )
+
+    # The PII/null starter is intentionally more specific than a general
+    # summary.  It reports persisted proposal metadata and aggregate null
+    # counts, never raw values.
+    if _PII_OR_MISSINGNESS_INTENT.search(question) and (
+        "pii" in lowered
+        or "nhạy cảm" in lowered
+        or "cá nhân" in lowered
+        or "null" in lowered
+        or "thiếu" in lowered
+        or "missing" in lowered
+    ):
+        pii_args = {"limit": 20}
+        missing_args = {"limit": 20}
+        pii_result, missing_result = _run_tools_parallel(
+            run_id,
+            [
+                ("get_pii_assessment", pii_args),
+                ("get_missingness_patterns", missing_args),
+            ],
+        )
+        pii_rows = _tool_data(pii_result).get("pii") or []
+        missing_rows = _tool_data(missing_result).get("per_column") or []
+        lines = ["## Rủi ro PII và dữ liệu thiếu"]
+        if pii_rows:
+            lines.append("### PII / dữ liệu nhạy cảm")
+            for item in pii_rows[:10]:
+                columns = item.get("columns") or [item.get("column_name")]
+                names = ", ".join(str(name) for name in columns if name) or "(không rõ cột)"
+                status = str(item.get("status") or "đề xuất")
+                lines.append(f"- `{names}` — trạng thái: **{status}**.")
+        else:
+            lines.append("- Không có đề xuất PII được ghi nhận trong profile run này.")
+        if missing_rows:
+            lines.append("### Cột có dữ liệu thiếu")
+            for item in missing_rows[:10]:
+                pct = float(item.get("null_pct") or 0)
+                lines.append(
+                    f"- `{item.get('column_name')}`: **{pct:.2f}%** null "
+                    f"({_format_number(item.get('null_count'))} giá trị)."
+                )
+        else:
+            lines.append("- Không có cột nào có null theo số liệu đã lưu.")
+        return (
+            "\n".join(lines),
+            [
+                _tool_source("get_pii_assessment", pii_args, run_id, pii_result),
+                _tool_source(
+                    "get_missingness_patterns", missing_args, run_id, missing_result
+                ),
+            ],
+            2,
+        )
+
+    if not _SUMMARY_INTENT.search(question):
+        return None
+
+    overview_args: dict[str, Any] = {}
+    issue_args = {"limit": 20}
+    warning_args: dict[str, Any] = {}
+    governance_args: dict[str, Any] = {}
+    overview_result, issues_result, warnings_result, governance_result = _run_tools_parallel(
+        run_id,
+        [
+            ("get_profile_overview", overview_args),
+            ("list_quality_issues", issue_args),
+            ("get_risk_warnings", warning_args),
+            ("get_governance_summary", governance_args),
+        ],
+    )
+    overview = _tool_data(overview_result)
+    issues = _tool_data(issues_result).get("issues") or []
+    warnings = _tool_data(warnings_result).get("risk_warnings") or []
+    governance = _tool_data(governance_result)
+
+    lines = ["## Tóm tắt chất lượng dữ liệu"]
+    if overview:
+        dataset = overview.get("dataset_name") or "Dataset"
+        lines.append(
+            f"**{dataset}**: {_format_number(overview.get('row_count'))} dòng, "
+            f"{_format_number(overview.get('column_count'))} cột; "
+            f"{overview.get('scan_mode') or 'không rõ'} scan."
+        )
+    if issues:
+        lines.append("### Vấn đề phát hiện theo rule")
+        for issue in issues[:10]:
+            column = issue.get("column_name") or "(không rõ cột)"
+            issue_type = issue.get("issue_type") or "quality issue"
+            value = issue.get("observed_value")
+            if issue.get("metric_name") in {"null_pct", "outlier_rate"} and isinstance(value, (int, float)):
+                observed = f" ({float(value) * (100 if issue.get('metric_name') == 'outlier_rate' else 1):.2f}%)"
+            else:
+                observed = f" ({value})" if value is not None else ""
+            lines.append(f"- `{column}`: **{issue_type}**{observed}.")
+    else:
+        lines.append("- Chưa có vấn đề nào khớp các rule chất lượng đã lưu.")
+    if warnings:
+        lines.append("### Cảnh báo đã lưu")
+        lines.extend(f"- {warning}" for warning in warnings[:8])
+    if governance:
+        lines.append(
+            "### Governance\n"
+            f"- {governance.get('pii_count', 0)} đề xuất PII; "
+            f"{governance.get('candidate_key_count', 0)} đề xuất candidate key; "
+            f"{governance.get('quasi_identifier_count', 0)} quasi-identifier."
+        )
+    return (
+        "\n".join(lines),
+        [
+            _tool_source("get_profile_overview", overview_args, run_id, overview_result),
+            _tool_source("list_quality_issues", issue_args, run_id, issues_result),
+            _tool_source("get_risk_warnings", warning_args, run_id, warnings_result),
+            _tool_source(
+                "get_governance_summary", governance_args, run_id, governance_result
+            ),
+        ],
+        4,
+    )
+
+
 def qa_router_node(state: ProfilingState) -> dict[str, Any]:
     """Phân loại câu hỏi. Không đủ thông tin để trả lời thì đánh dấu clarify."""
     assessment = assess_question(state.get("question") or "")
@@ -351,49 +591,34 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
             }
 
     lowered = question.lower()
-    if not state.get("profile_run_id"):
+    existing_qa_context = dict(state.get("qa_context") or {})
+    has_official_execution = bool(existing_qa_context.get("analysis_execution"))
+    if has_official_execution:
+        # Chart insights are bound to an Official execution. They need the
+        # exact execution result and the caller's requested output format,
+        # rather than the generic PII/null quick-answer shortcut.
+        heuristic = "quantitative"
+    elif not state.get("profile_run_id"):
         heuristic = "qualitative"
     elif any(h in lowered for h in _CONCEPT_HINTS):
         heuristic = "qualitative"
+    elif any(h in lowered for h in _PROFILE_FACT_HINTS):
+        heuristic = "quantitative"
     else:
         heuristic = (
-            "quantitative" if any(h in lowered for h in _QUANTITATIVE_HINTS) else None
+            "quantitative"
+            if any(h in lowered for h in _QUANTITATIVE_HINTS)
+            else "qualitative"
         )
 
     question_type = heuristic
-    if question_type is None:
-        try:
-            llm = get_llm()
-            history = _conversation_context(state)
-            response = invoke_model(
-                llm,
-                [
-                    {"role": "system", "content": QA_ROUTER_PROMPT},
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {"question": question, "conversation_history": history},
-                            ensure_ascii=False,
-                        ),
-                    },
-                ],
-                prompt_id="qa_router",
-            )
-            label = response_text(response).strip().lower()
-            question_type = (
-                label
-                if label in {"quantitative", "qualitative", "clarify"}
-                else "qualitative"
-            )
-        except (LLMNotConfiguredError, Exception):  # noqa: BLE001
-            # Không có LLM: mặc định định tính (hybrid search vẫn chạy offline).
-            question_type = "qualitative"
 
     return {
         "question": question,
         "question_type": question_type,
         "selected_skill": select_skill_for_question(question),
         "qa_context": {
+            **existing_qa_context,
             "mentioned_columns": mentioned,
             "columns_available": columns[:50],
         },
@@ -471,11 +696,39 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     settings = get_settings()
     run_id = state.get("profile_run_id")
     question = state.get("question") or ""
+    qa_context = state.get("qa_context") or {}
+    official_execution = qa_context.get("analysis_execution")
 
     if not run_id:
         return {
             "answer": "Chưa có lần profiling nào để tra số. Bạn chạy profiling trước nhé.",
             "answer_sources": [],
+        }
+
+    deterministic = (
+        None
+        if official_execution
+        else _deterministic_profile_answer(question, run_id)
+    )
+    if deterministic is not None:
+        answer, sources, calls_used = deterministic
+        get_audit().log(
+            "qa_structured",
+            workspace_id=state.get("workspace_id"),
+            actor_user_id=state.get("requested_by"),
+            profile_run_id=run_id,
+            tools_used=[source["tool"] for source in sources],
+            tool_calls=calls_used,
+            deterministic_intent=True,
+            **audit_question_fields(
+                question,
+                include_content=settings.guardrails_audit_question_content,
+            ),
+        )
+        return {
+            "answer": _guard_answer(answer),
+            "answer_sources": sources,
+            "tool_calls": state.get("tool_calls", 0) + calls_used,
         }
 
     try:
@@ -522,6 +775,19 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             + skill_guidance(state.get("selected_skill")),
         },
     ]
+    if official_execution:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Official chart execution evidence is bound to this request. "
+                    "Use only its aggregate result and limitations for any chart insight. "
+                    "Follow the user's requested Markdown sections exactly; do not replace "
+                    "the chart insight with a generic profile summary.\n"
+                    + json.dumps(official_execution, ensure_ascii=False, default=str)
+                ),
+            }
+        )
     history = _conversation_context(state)
     if history:
         messages.append(
@@ -535,9 +801,21 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             }
         )
     messages.append({"role": "user", "content": question})
-    sources: list[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = (
+        [
+            {
+                "type": "tool",
+                "tool": "official_execution",
+                "args": {"analysis_execution_id": official_execution.get("id")},
+                "status": "ok",
+                "profile_run_id": run_id,
+            }
+        ]
+        if isinstance(official_execution, dict)
+        else []
+    )
     calls_used = 0
-    evidence_available = False
+    evidence_available = isinstance(official_execution, dict)
     response: Any = None
     max_calls = settings.guardrails_max_tool_calls_per_request
 
@@ -580,6 +858,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                     "status": "error"
                     if isinstance(result, dict) and result.get("error")
                     else "ok",
+                    "profile_run_id": run_id,
                 }
             )
             messages.append(
@@ -625,8 +904,15 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             include_content=settings.guardrails_audit_question_content,
         ),
     )
+    answer = response_text(response)
+    if not evidence_available:
+        answer = (
+            "Mình chưa thể xác minh câu trả lời này từ profile run đang chọn, "
+            "nên sẽ không suy đoán. Hãy hỏi rõ metric/cột cần xem hoặc thử lại "
+            "sau khi profile có đủ evidence."
+        )
     return {
-        "answer": _guard_answer(response_text(response)),
+        "answer": _guard_answer(answer),
         "answer_sources": sources,
         "tool_calls": state.get("tool_calls", 0) + calls_used,
     }
@@ -697,19 +983,37 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         }
 
     index = get_index()
-    profile_hits = (
-        index.search(
+    profile_where = {"knowledge_type": "profile_report", "profile_run_id": run_id}
+    if run_id:
+        # A selected run normally maps to one bounded profile document. Avoid
+        # a remote Voyage embedding round-trip on the hot path; semantic search
+        # remains the fallback when lexical matching finds nothing.
+        profile_hits = index.search(
             question,
             top_k=settings.retrieval_profile_top_k,
             candidate_k=settings.retrieval_candidate_k,
-            where={"knowledge_type": "profile_report", "profile_run_id": run_id},
+            where=profile_where,
             workspace_id=workspace_id,
+            dense=False,
         )
-        if run_id
-        else []
-    )
+        if not profile_hits:
+            profile_hits = index.search(
+                question,
+                top_k=settings.retrieval_profile_top_k,
+                candidate_k=settings.retrieval_candidate_k,
+                where=profile_where,
+                workspace_id=workspace_id,
+            )
+    else:
+        profile_hits = []
     knowledge_hits = []
-    if settings.retrieval_external_knowledge_enabled:
+    # A profile-scoped question must be answered by that profile only.  An
+    # opt-in knowledge base remains available for conceptual questions without
+    # a selected run, but must never influence this dataset's metrics/risk.
+    external_knowledge_enabled = (
+        settings.retrieval_external_knowledge_enabled and not run_id
+    )
+    if external_knowledge_enabled:
         knowledge_hits = _external_diverse(
             index.search(
                 question,
@@ -740,10 +1044,11 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         profile_run_id=run_id,
         profile_hits=profile_hits,
         knowledge_hits=knowledge_hits,
+        external_knowledge_enabled=external_knowledge_enabled,
     )
     hits = profile_hits + knowledge_hits
     if not hits:
-        if not run_id and not settings.retrieval_external_knowledge_enabled:
+        if not run_id and not external_knowledge_enabled:
             message = "Knowledge base hiện chưa được bật. Bạn có thể hỏi về dataset sau khi chạy profiling."
         elif not run_id:
             message = "Knowledge base chưa có evidence phù hợp cho câu hỏi này."
@@ -788,7 +1093,8 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
     sources = [_source_for_hit(hit, f"S{i + 1}") for i, hit in enumerate(bounded_hits)]
 
     try:
-        llm = get_llm()
+        stream_callback = state.get("stream_callback")
+        llm = get_llm(streaming=callable(stream_callback))
         response = invoke_model(
             llm,
             [
@@ -814,6 +1120,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
                 },
             ],
             prompt_id="qa_vector",
+            on_token=stream_callback,
         )
         answer = _guard_answer(response_text(response))
     except LLMNotConfiguredError:

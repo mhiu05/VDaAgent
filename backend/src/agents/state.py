@@ -15,6 +15,7 @@ kế theo `docs/architecture/agent_architecture.md` mục 3:
 from __future__ import annotations
 
 import operator
+from collections.abc import Callable
 from typing import Annotated, Any, Literal, TypedDict
 
 ScanMode = Literal["full", "sample"]
@@ -82,6 +83,8 @@ class ProfilingState(TypedDict, total=False):
     selected_skill: str | None
     answer: str
     answer_sources: list[dict[str, Any]]
+    # Runtime-only callback used by the SSE endpoint. It is never persisted.
+    stream_callback: Callable[[str], None]
 
     # --- Control -------------------------------------------------------- #
     tool_calls: int

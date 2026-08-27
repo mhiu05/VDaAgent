@@ -20,7 +20,7 @@ export function profileRunLabel(run: Pick<ProfileRunSummary, "run_name" | "versi
 }
 
 export function profileRunMeta(run: Pick<ProfileRunSummary, "version" | "scan_mode" | "row_count" | "created_at">): string {
-  const scan = run.scan_mode === "full" ? "Full scan" : run.scan_mode === "sample" ? "Sample scan" : "Chưa rõ scan";
+  const scan = run.scan_mode === "full" ? "Quét toàn bộ" : run.scan_mode === "sample" ? "Quét mẫu" : "Chưa rõ chế độ quét";
   const rows = run.row_count === null || run.row_count === undefined ? "— dòng" : `${run.row_count.toLocaleString("vi-VN")} dòng`;
   const created = run.created_at ? new Date(run.created_at).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" }) : null;
   return [`v${run.version ?? "—"}`, scan, rows, created].filter(Boolean).join(" · ");
@@ -37,8 +37,8 @@ export function ProfileRunPicker({ id, label, value, onChange, helpText, exclude
   const datasets = useQuery({
     queryKey: ["datasets"],
     queryFn: ({ signal }) => listDatasets(signal),
-    staleTime: 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
   const selectedProfile = useQuery({
     // Share the exact cache entry used by Profile Run and Charts pages. This
@@ -47,20 +47,44 @@ export function ProfileRunPicker({ id, label, value, onChange, helpText, exclude
     queryFn: ({ signal }) => getProfile(value, signal),
     enabled: Boolean(value) && !datasetId,
     retry: false,
-    staleTime: 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
   const runs = useQuery({
     queryKey: ["runs", datasetId],
     queryFn: ({ signal }) => listRuns(datasetId, signal),
     enabled: Boolean(datasetId),
-    staleTime: 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 
   useEffect(() => {
     if (selectedProfile.data?.dataset_id) setDatasetId(selectedProfile.data.dataset_id);
   }, [selectedProfile.data?.dataset_id]);
+
+  useEffect(() => {
+    if (selectedProfile.isError && value) {
+      onChange("");
+    }
+  }, [selectedProfile.isError, value, onChange]);
+
+  // Auto-select first dataset with completed runs if nothing is selected
+  useEffect(() => {
+    if (!value && !datasetId && datasets.data && datasets.data.length > 0) {
+      const firstWithRun = datasets.data.find((d) => d.latest_run_status === "completed") || datasets.data[0];
+      if (firstWithRun) setDatasetId(firstWithRun.id);
+    }
+  }, [value, datasetId, datasets.data]);
+
+  // Auto-select latest completed run when dataset changes or when run is empty
+  useEffect(() => {
+    if (datasetId && !value && runs.data && runs.data.length > 0) {
+      const completed = runs.data.find((r) => r.status === "completed" && r.id !== excludeRunId);
+      if (completed) {
+        onChange(completed.id);
+      }
+    }
+  }, [datasetId, value, runs.data, excludeRunId, onChange]);
 
   return <div className="profile-run-picker">
     <label className="profile-run-picker-label" htmlFor={`${id}-dataset`}>{label}</label>

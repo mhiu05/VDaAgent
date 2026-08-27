@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
-import { cleanupGuestSession, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
+import { cleanupGuestSession, fetchApiWithLocalFallback, listAllRuns, listDatasets, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
 import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
 import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
 import { requestedSignupRole } from "@/lib/auth/onboarding";
@@ -63,23 +63,6 @@ function requiresWorkspaceBootstrap(pathname: string): boolean {
   ].some((route) => pathname === route || pathname.startsWith(`${route}/`));
 }
 
-function apiBase() {
-  const configured = process.env.NEXT_PUBLIC_API_URL;
-  if (configured) return configured.replace(/\/$/, "");
-  return `${window.location.protocol}//${window.location.hostname}:8000/api/v1`;
-}
-
-function apiBaseCandidates() {
-  const candidates = [apiBase()];
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    candidates.push(`${window.location.protocol}//${host}:8000/api/v1`);
-    if (host === "localhost") candidates.push(`${window.location.protocol}//127.0.0.1:8000/api/v1`);
-    if (host === "127.0.0.1") candidates.push(`${window.location.protocol}//localhost:8000/api/v1`);
-  }
-  return [...new Set(candidates)];
-}
-
 async function readWorkspaceError(response: Response): Promise<Error> {
   try {
     const body = await response.clone().json() as { detail?: unknown };
@@ -93,17 +76,8 @@ async function readWorkspaceError(response: Response): Promise<Error> {
 async function fetchSessionResource(path: string, headers: Headers): Promise<Response> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), WORKSPACE_BOOTSTRAP_TIMEOUT_MS);
-  let lastError: unknown;
   try {
-    for (const base of apiBaseCandidates()) {
-      try {
-        return await fetch(`${base}${path}`, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
-      } catch (reason) {
-        if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
-        lastError = reason;
-      }
-    }
-    throw lastError ?? new Error("Không thể kết nối API workspace.");
+    return await fetchApiWithLocalFallback(path, { headers, credentials: "include", cache: "no-store", signal: controller.signal });
   } catch (reason) {
     if (reason instanceof DOMException && reason.name === "AbortError") {
       throw new Error("Không thể kết nối workspace trong 45 giây. Hãy kiểm tra backend đang chạy tại cổng 8000.");
@@ -164,6 +138,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabaseAccessToken = useCallback(async () => {
     const client = getSupabaseBrowserClient();
     if (!client) return null;
+
+    try {
+      if (typeof window !== "undefined") {
+        const storageKey = Object.keys(window.localStorage).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
+        if (storageKey) {
+          const stored = window.localStorage.getItem(storageKey);
+          if (stored) {
+            const session = JSON.parse(stored);
+            if (session?.access_token && !tokenExpiresSoon(session.access_token, 300)) {
+              return session.access_token;
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore storage errors and fall back
+    }
+
     let { data } = await withTimeout(
       client.auth.getSession(),
       12_000,
@@ -370,6 +362,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsGuest(Boolean(guestSession));
         setGuestRole(guestSession?.role ?? null);
         setChatHistoryScope(payload.user.id, selected, Boolean(guestSession));
+        if (selected) {
+          // Warm the two shared catalogs after the shell is usable. Navigation
+          // to Datasets, Chat, Compare and the chat drawer can then reuse the
+          // cache instead of starting a fresh request on every feature switch.
+          window.setTimeout(() => {
+            void queryClient.fetchQuery({
+              queryKey: ["datasets"],
+              queryFn: ({ signal }) => listDatasets(signal),
+              staleTime: 60_000,
+            }).then((datasets) => {
+              queryClient.setQueryData(["chat-datasets"], datasets);
+            });
+            void queryClient.fetchQuery({
+              queryKey: ["runs", "all"],
+              queryFn: ({ signal }) => listAllRuns(signal),
+              staleTime: 60_000,
+            }).then((runs) => {
+              queryClient.setQueryData(["compare", selected, "runs", "all"], runs);
+            });
+          }, 150);
+        }
         return true;
       } catch (reason) {
         if (sequence !== loadSequence.current) return false;

@@ -37,7 +37,7 @@ export default function UpdatePasswordPage() {
         return;
       }
       setMessage("Mật khẩu mới đã được lưu. Bạn sẽ được chuyển về workspace.");
-      window.setTimeout(() => router.replace("/workspaces"), 600);
+      window.setTimeout(() => router.replace("/workspaces"), 400);
     } catch (updateException) {
       setError(updateException instanceof Error ? updateException.message : "Không thể kết nối dịch vụ xác thực. Hãy thử lại.");
     } finally {
@@ -50,7 +50,7 @@ export default function UpdatePasswordPage() {
     <main className="auth-layout">
       <section className="auth-intro"><p className="eyebrow">Bảo mật tài khoản</p><h1>Đặt mật khẩu mới.</h1><p>Chọn mật khẩu mới có ít nhất 8 ký tự. Liên kết trong email chỉ dùng được trong thời gian giới hạn.</p></section>
       <section className="auth-card panel" aria-labelledby="update-password-title">
-        <div className="auth-card-heading"><p className="eyebrow">VDaAgent Account</p><h2 id="update-password-title">Đặt lại mật khẩu</h2><p>Nhập và xác nhận mật khẩu mới cho tài khoản của bạn.</p></div>
+        <div className="auth-card-heading"><p className="eyebrow">TÀI KHOẢN VDaAgent</p><h2 id="update-password-title">Đặt lại mật khẩu</h2><p>Nhập và xác nhận mật khẩu mới cho tài khoản của bạn.</p></div>
         <form className="auth-form" onSubmit={submit}>
           <label htmlFor="new-password">Mật khẩu mới<input id="new-password" name="password" type="password" autoComplete="new-password" minLength={8} placeholder="Tối thiểu 8 ký tự" required /></label>
           <label htmlFor="confirm-new-password">Xác nhận mật khẩu<input id="confirm-new-password" name="confirmation" type="password" autoComplete="new-password" minLength={8} placeholder="Nhập lại mật khẩu" required /></label>

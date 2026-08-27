@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -39,15 +40,15 @@ from sqlalchemy import (
     or_,
     select,
 )
-# pyrefly: ignore [missing-import]
-from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
-from sqlalchemy.pool import NullPool
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 from src.services.permissions import canonical_role
 metadata = MetaData()
+
+_FULL_PROFILE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
 ProposalStatus = Literal["pending", "confirmed", "rejected", "auto_confirmed"]
@@ -1216,6 +1217,11 @@ class Repository:
                 # lookup; do not prevent local/test startup on legacy data.
                 pass
 
+    def _invalidate_profile_cache(self, run_id: str) -> None:
+        keys = [k for k in _FULL_PROFILE_CACHE if k.startswith(f"{run_id}:")]
+        for k in keys:
+            _FULL_PROFILE_CACHE.pop(k, None)
+
     def _migrate_profile_job_columns(self) -> None:
         """Keep existing development/test databases aligned with Alembic head."""
         # pyrefly: ignore [missing-import]
@@ -1982,16 +1988,28 @@ class Repository:
             .first()
         )
         if not profile:
-            conn.execute(
-                user_profiles.insert().values(
-                    user_id=user_id,
-                    email=normalised_email,
-                    role=effective_role,
-                    status="active",
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
+            # Auth bootstrap can be called concurrently by several frontend
+            # requests. Use a savepoint so a concurrent insert race does not
+            # abort the surrounding transaction; the winner's row is then
+            # read back normally.
+            try:
+                with conn.begin_nested():
+                    conn.execute(
+                        user_profiles.insert().values(
+                            user_id=user_id,
+                            email=normalised_email,
+                            role=effective_role,
+                            status="active",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+            except IntegrityError:
+                pass
+            if conn.execute(
+                select(user_profiles.c.user_id).where(user_profiles.c.user_id == user_id)
+            ).first() is None:
+                raise RuntimeError("Không thể tạo user profile xác thực.")
             return
         updates: dict[str, Any] = {"updated_at": now}
         if normalised_email and profile["email"] != normalised_email:
@@ -2081,7 +2099,7 @@ class Repository:
                 guest_user_id,
                 None,
                 now,
-                role=canonical,
+                role=role,
             )
             exists = conn.execute(
                 select(workspaces.c.id).where(workspaces.c.id == workspace_id)
@@ -2119,11 +2137,9 @@ class Repository:
                         updated_at=now,
                     )
                 )
-            elif membership["role"] != canonical:
-                # Keep the bootstrap idempotent without reviving a membership
-                # that an administrator or workspace owner explicitly
-                # suspended. Access checks must observe that suspension on the
-                # next request.
+            elif membership["status"] == "active" and membership["role"] != canonical:
+                # A normal guest bootstrap may normalize a stale role, but it
+                # must never reactivate a membership suspended by an admin.
                 conn.execute(
                     workspace_memberships.update()
                     .where(
@@ -2239,6 +2255,14 @@ class Repository:
             # Do this before the idempotent early return so a returning user
             # still has an email available to workspace collaborators.
             self._sync_user_profile(conn, user_id, email, now)
+            # Serialize first-workspace provisioning per user. Without this
+            # lock, two simultaneous bootstrap requests can both observe no
+            # workspace and create competing personal workspaces.
+            conn.execute(
+                select(user_profiles.c.user_id)
+                .where(user_profiles.c.user_id == user_id)
+                .with_for_update()
+            ).first()
             candidates = (
                 conn.execute(
                     select(
@@ -3629,8 +3653,47 @@ class Repository:
 
     def list_datasets(self, *, workspace_id: str) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
+            # Return the newest profile run with each dataset so clients can
+            # show queued/running/failed state without making one request per
+            # dataset. The window keeps this query correct when a dataset has
+            # several historical runs.
+            ranked_runs = (
+                select(
+                    profile_runs.c.dataset_id,
+                    profile_runs.c.id.label("latest_run_id"),
+                    profile_runs.c.status.label("latest_run_status"),
+                    profile_runs.c.job_stage.label("latest_run_stage"),
+                    profile_runs.c.created_at.label("latest_run_created_at"),
+                    profile_runs.c.error.label("latest_run_error"),
+                    func.row_number()
+                    .over(
+                        partition_by=profile_runs.c.dataset_id,
+                        order_by=(profile_runs.c.created_at.desc(), profile_runs.c.id.desc()),
+                    )
+                    .label("run_rank"),
+                )
+                .where(profile_runs.c.workspace_id == workspace_id)
+                .subquery("ranked_dataset_runs")
+            )
+            latest_runs = (
+                select(ranked_runs)
+                .where(ranked_runs.c.run_rank == 1)
+                .subquery("latest_dataset_runs")
+            )
             rows = conn.execute(
-                select(datasets)
+                select(
+                    datasets,
+                    latest_runs.c.latest_run_id,
+                    latest_runs.c.latest_run_status,
+                    latest_runs.c.latest_run_stage,
+                    latest_runs.c.latest_run_created_at,
+                    latest_runs.c.latest_run_error,
+                )
+                .select_from(
+                    datasets.outerjoin(
+                        latest_runs, latest_runs.c.dataset_id == datasets.c.id
+                    )
+                )
                 .where(datasets.c.workspace_id == workspace_id)
                 .order_by(datasets.c.created_at.desc())
             ).mappings()
@@ -4405,6 +4468,7 @@ class Repository:
                 .mappings()
                 .first()
             )
+            self._invalidate_profile_cache(run_id)
             return {
                 "ok": True,
                 "duplicate": False,
@@ -4428,6 +4492,7 @@ class Repository:
                 )
                 .values(**fields)
             )
+        self._invalidate_profile_cache(run_id)
 
     def get_profile_run(
         self, run_id: str, *, workspace_id: str | None = None
@@ -4439,6 +4504,39 @@ class Repository:
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
 
+    def get_profile_context(
+        self, run_id: str, *, workspace_id: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Load a run and its dataset in one tenant-scoped query.
+
+        ``full_profile`` needs both records for every profile page. Keeping the
+        join here removes one round trip and lets all remaining aggregate reads
+        start together.
+        """
+        dataset_columns = [
+            column.label(f"_dataset_{column.name}") for column in datasets.c
+        ]
+        query = (
+            select(profile_runs, *dataset_columns)
+            .select_from(
+                profile_runs.join(
+                    datasets, profile_runs.c.dataset_id == datasets.c.id
+                )
+            )
+            .where(profile_runs.c.id == run_id)
+        )
+        if workspace_id is not None:
+            query = query.where(profile_runs.c.workspace_id == workspace_id)
+        with self.engine.begin() as conn:
+            row = conn.execute(query).mappings().first()
+        if not row:
+            return None
+        run = {key: row[key] for key in profile_runs.c.keys()}
+        dataset = {
+            column.name: row[f"_dataset_{column.name}"] for column in datasets.c
+        }
+        return run, dataset
+
     def list_profile_runs(
         self,
         dataset_id: str | None = None,
@@ -4447,7 +4545,14 @@ class Repository:
         workspace_id: str | None = None,
     ) -> list[dict[str, Any]]:
         query = (
-            select(profile_runs).order_by(profile_runs.c.created_at.desc()).limit(limit)
+            select(profile_runs, datasets.c.name.label("dataset_name"))
+            .select_from(
+                profile_runs.join(
+                    datasets, profile_runs.c.dataset_id == datasets.c.id
+                )
+            )
+            .order_by(profile_runs.c.created_at.desc())
+            .limit(limit)
         )
         if workspace_id is not None:
             query = query.where(profile_runs.c.workspace_id == workspace_id)
@@ -4481,6 +4586,7 @@ class Repository:
                 column_stats.delete().where(column_stats.c.profile_run_id == run_id)
             )
             conn.execute(column_stats.insert(), rows)
+        self._invalidate_profile_cache(run_id)
 
     def column_stats_rows(
         self, run_id: str, column_name: str | None = None
@@ -4539,6 +4645,7 @@ class Repository:
             )
             if rows:
                 conn.execute(table.insert(), rows)
+        self._invalidate_profile_cache(run_id)
         return ids
 
     def get_proposals(
@@ -4585,6 +4692,14 @@ class Repository:
             if run_id:
                 query = query.where(table.c.profile_run_id == run_id)
             result = conn.execute(query.values(**values))
+            if result.rowcount > 0:
+                # Need to lookup run_id if not provided
+                if not run_id:
+                    run_id = conn.execute(
+                        select(table.c.profile_run_id).where(table.c.id == proposal_id)
+                    ).scalar()
+                if run_id:
+                    self._invalidate_profile_cache(run_id)
             return result.rowcount > 0
 
     def save_terminal_result(
@@ -4691,6 +4806,8 @@ class Repository:
                     created_at=_now(),
                 )
             )
+        self._invalidate_profile_cache(run_a)
+        self._invalidate_profile_cache(run_b)
         return report_id
 
     def get_drift_reports(self, run_id: str) -> list[dict[str, Any]]:
@@ -4708,39 +4825,56 @@ class Repository:
         self, run_id: str, mask_pii: bool = True, *, workspace_id: str | None = None
     ) -> dict[str, Any] | None:
         """Toàn bộ hồ sơ của một run. `mask_pii=True` xoá top_k_values của cột PII."""
-        run = self.get_profile_run(run_id, workspace_id=workspace_id)
-        if not run:
-            return None
+        cache_key = f"{run_id}:{mask_pii}:{workspace_id}"
+        if cache_key in _FULL_PROFILE_CACHE:
+            expire_at, data = _FULL_PROFILE_CACHE[cache_key]
+            if time.time() < expire_at:
+                return data
+            _FULL_PROFILE_CACHE.pop(cache_key, None)
 
-        # Load proposals once, then derive both the PII mask set and the
-        # pending-proposal count from the rows already in memory instead of
-        # issuing a separate `confirmed_pii_columns` query plus three
-        # `pending_count` COUNT() queries (PERF-103).
-        proposals = self.get_proposals(run_id)
-        pii_cols = _pii_mask_columns(proposals.get("pii", []))
-        pending_proposals = sum(
-            1
-            for rows in proposals.values()
-            for row in rows
-            if row.get("status") == "pending"
-        )
+        import concurrent.futures
 
-        stats = self.column_stats_rows(run_id)
-        if mask_pii:
-            for st in stats:
-                if st["column_name"] in pii_cols:
-                    st["top_k_values"] = None
-                    st["pii_masked"] = True
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_context = executor.submit(
+                self.get_profile_context, run_id, workspace_id=workspace_id
+            )
+            future_proposals = executor.submit(self.get_proposals, run_id)
+            future_stats = executor.submit(self.column_stats_rows, run_id)
+            future_test = executor.submit(self.get_test_results, run_id)
+            future_drift = executor.submit(self.get_drift_reports, run_id)
 
-        return {
-            "run": run,
-            "dataset": self.get_dataset(run["dataset_id"], workspace_id=workspace_id),
-            "column_stats": stats,
-            "proposals": proposals,
-            "pending_proposals": pending_proposals,
-            "test_results": self.get_test_results(run_id),
-            "drift_reports": self.get_drift_reports(run_id),
-        }
+            context = future_context.result()
+            if not context:
+                return None
+            run, dataset = context
+            proposals = future_proposals.result()
+            stats = future_stats.result()
+            
+            pii_cols = _pii_mask_columns(proposals.get("pii", []))
+            pending_proposals = sum(
+                1
+                for rows in proposals.values()
+                for row in rows
+                if row.get("status") == "pending"
+            )
+
+            if mask_pii:
+                for st in stats:
+                    if st["column_name"] in pii_cols:
+                        st["top_k_values"] = None
+                        st["pii_masked"] = True
+
+            result = {
+                "run": run,
+                "dataset": dataset,
+                "column_stats": stats,
+                "proposals": proposals,
+                "pending_proposals": pending_proposals,
+                "test_results": future_test.result(),
+                "drift_reports": future_drift.result(),
+            }
+        _FULL_PROFILE_CACHE[cache_key] = (time.time() + 300, result)
+        return result
 
     def profile_summary_text(
         self, run_id: str, *, workspace_id: str | None = None
@@ -5566,41 +5700,36 @@ def build_engine(settings: Settings | None = None) -> Engine:
     url = make_url(cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
         raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
-    # Supabase's session-mode pooler has a small hard client limit. Keeping an
-    # SQLAlchemy pool alive on top of that pooler makes every API/worker process
-    # reserve idle sessions and eventually produces EMAXCONNSESSION. Let the
-    # pooler own pooling for remote Supabase URLs; each request gets one short-
-    # lived connection which is returned immediately at transaction end.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
     if is_supabase_pooler:
         engine = create_engine(
             url,
             future=True,
-            poolclass=NullPool,
+            connect_args={"prepare_threshold": None},
             pool_pre_ping=True,
+            pool_size=20,
+            max_overflow=20,
+            pool_timeout=30,
+            pool_recycle=300,
         )
     else:
-        # Local PostgreSQL benefits from a small bounded pool. Never use
-        # SQLAlchemy defaults (5 + 10 overflow), which can consume all sessions
-        # in a small DB.
         engine = create_engine(
             url,
             future=True,
+            connect_args={"prepare_threshold": None},
             pool_pre_ping=True,
-            pool_size=3,
-            max_overflow=0,
+            pool_size=20,
+            max_overflow=20,
             pool_timeout=30,
             pool_recycle=300,
         )
 
-    # PERF-001: attach timing-only SQL hooks once per engine so request
-    # telemetry can attribute query count/time without adding any queries.
     if getattr(cfg, "perf_telemetry_enabled", True):
         try:
             from src.services.perf_telemetry import install_sql_instrumentation
 
             install_sql_instrumentation(engine)
-        except Exception:  # pragma: no cover - instrumentation must never break DB
+        except Exception:
             pass
     return engine
 

@@ -1,7 +1,7 @@
 import { PublicFooter } from "@/components/public-footer";
 import { PublicNavbar } from "@/components/public-navbar";
 
-export const metadata = { title: "Terms of Service - VDaAgent" };
+export const metadata = { title: "Điều khoản sử dụng - VDaAgent" };
 
 export default function TermsPage() {
   return (
@@ -9,17 +9,17 @@ export default function TermsPage() {
       <PublicNavbar />
       <main className="pub-section" style={{ flex: 1 }}>
         <div className="pub-container" style={{ maxWidth: "900px" }}>
-          <span className="pub-eyebrow">TERMS OF SERVICE</span>
-          <h1>Terms of Service</h1>
-          <p className="lead">Effective date: August 25, 2026</p>
+          <span className="pub-eyebrow">ĐIỀU KHOẢN SỬ DỤNG</span>
+          <h1>Điều khoản sử dụng</h1>
+          <p className="lead">Ngày hiệu lực: 25 tháng 8 năm 2026</p>
           <div style={{ display: "grid", gap: "28px", marginTop: "36px", lineHeight: 1.7 }}>
-            <section><h2>1. Acceptance</h2><p>By accessing or using VDaAgent, you confirm that you have read and accept these terms. If you use the service for an organization, you confirm that you are authorized to represent it.</p></section>
-            <section><h2>2. Acceptable use</h2><p>You may use VDaAgent only for lawful purposes and only with data you are authorized to process. You must protect your credentials and must not bypass authentication, authorization, query limits, or security controls.</p></section>
-            <section><h2>3. Data analysis and Agent output</h2><p>Profiling results and Agent responses are provided to support analysis and do not replace professional review or business decisions. You are responsible for checking the evidence, data scope, and suitability of any result before relying on it.</p></section>
-            <section><h2>5. Ownership</h2><p>You retain rights to the data you provide. VDaAgent and its components belong to their respective owners or licensors. You grant VDaAgent the limited permission needed to store and process your data to provide requested features.</p></section>
-            <section><h2>6. Availability and liability</h2><p>The service may be changed, maintained, or temporarily unavailable for technical, security, or legal reasons. To the extent permitted by law, VDaAgent is not responsible for losses caused by relying on unverified output or by third-party accounts and services under your control.</p></section>
-            <section><h2>7. Changes</h2><p>We may update these terms to reflect product or legal changes. The latest version will be published on this page with its effective date. Continued use after that date means you accept the updated terms.</p></section>
-            <section><h2>8. Contact</h2><p>For support, use our <a href="/contact">Contact</a> page or the contact information published by the organization deploying VDaAgent.</p></section>
+            <section><h2>1. Chấp thuận</h2><p>Bằng việc truy cập hoặc sử dụng VDaAgent, bạn xác nhận đã đọc và chấp nhận các điều khoản này. Nếu sử dụng dịch vụ cho một tổ chức, bạn xác nhận mình có thẩm quyền đại diện cho tổ chức đó.</p></section>
+            <section><h2>2. Sử dụng được phép</h2><p>Bạn chỉ được sử dụng VDaAgent cho các mục đích hợp pháp và với dữ liệu mà bạn được phép xử lý. Bạn phải bảo vệ thông tin đăng nhập và không được vượt qua các cơ chế xác thực, phân quyền, giới hạn truy vấn hoặc kiểm soát bảo mật.</p></section>
+            <section><h2>3. Phân tích dữ liệu và đầu ra của trợ lý AI</h2><p>Kết quả lập hồ sơ và phản hồi của trợ lý AI được cung cấp để hỗ trợ phân tích, không thay thế việc xem xét chuyên môn hoặc quyết định kinh doanh. Bạn chịu trách nhiệm kiểm tra bằng chứng, phạm vi dữ liệu và mức độ phù hợp của mọi kết quả trước khi sử dụng.</p></section>
+            <section><h2>5. Quyền sở hữu</h2><p>Bạn giữ quyền đối với dữ liệu mình cung cấp. VDaAgent và các thành phần của nền tảng thuộc về chủ sở hữu hoặc bên cấp phép tương ứng. Bạn cấp cho VDaAgent quyền giới hạn cần thiết để lưu trữ và xử lý dữ liệu nhằm cung cấp các tính năng được yêu cầu.</p></section>
+            <section><h2>6. Tính khả dụng và trách nhiệm</h2><p>Dịch vụ có thể được thay đổi, bảo trì hoặc tạm thời không khả dụng vì lý do kỹ thuật, bảo mật hoặc pháp lý. Trong phạm vi pháp luật cho phép, VDaAgent không chịu trách nhiệm cho tổn thất phát sinh do dựa vào đầu ra chưa được xác minh hoặc tài khoản và dịch vụ bên thứ ba do bạn kiểm soát.</p></section>
+            <section><h2>7. Thay đổi</h2><p>Chúng tôi có thể cập nhật các điều khoản này để phản ánh thay đổi về sản phẩm hoặc pháp lý. Phiên bản mới nhất sẽ được công bố trên trang này cùng ngày hiệu lực. Việc tiếp tục sử dụng sau ngày đó đồng nghĩa với việc bạn chấp nhận các điều khoản cập nhật.</p></section>
+            <section><h2>8. Liên hệ</h2><p>Để được hỗ trợ, hãy dùng trang <a href="/contact">Liên hệ</a> hoặc thông tin liên hệ do tổ chức triển khai VDaAgent công bố.</p></section>
           </div>
         </div>
       </main>

@@ -80,6 +80,6 @@ playwright-report/
 tmp/
 output/
 report_data.json
-docs/plan_pdf.txt
 /.agents/scratch/
 /temp_api.ts
+.markdown-collab/

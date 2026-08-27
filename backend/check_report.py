@@ -1,7 +1,8 @@
-import os
+"""Manual smoke check for reading a published report from metadata storage."""
+# ruff: noqa: E402
+
 import sys
-import json
-from pathlib import Path
+
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 
@@ -26,6 +27,6 @@ try:
                 print("Report not found for workspace", workspace)
         else:
             print("Report not in DB at all.")
-except Exception as e:
+except Exception:
     import traceback
     traceback.print_exc()

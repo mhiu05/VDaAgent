@@ -13,7 +13,9 @@ import { useAuth } from "@/components/auth-provider";
 const supportedExtensions = ["csv", "tsv", "parquet", "json"];
 // Uploading one file at a time makes folder uploads unnecessarily slow, while
 // starting every request at once can exhaust browser, API, and Drive capacity.
-const maxConcurrentUploads = 3;
+// Four transfers improve folder throughput without opening an unbounded
+// number of connections that could saturate the browser, API, or storage.
+const maxConcurrentUploads = 4;
 
 export default function NewDatasetPage() {
   const router = useRouter();
@@ -284,7 +286,7 @@ export default function NewDatasetPage() {
 
   async function handleUseSavedDatasource() {
     if (!savedDatasourceId || !datasetName.trim()) {
-      setError(new ApiError("Chọn datasource và nhập tên dataset trước khi tiếp tục.", 422));
+      setError(new ApiError("Chọn nguồn dữ liệu và nhập tên bộ dữ liệu trước khi tiếp tục.", 422));
       return;
     }
     setBusy("profile");
@@ -328,19 +330,19 @@ export default function NewDatasetPage() {
     {selectionWarning && <Notice tone="info"><p>{selectionWarning}</p></Notice>}
     {driveStatus?.provider === "google_drive" && <Notice tone={driveStatus.connected ? "success" : "info"}>
       <b>{driveStatus.connected ? "Google Drive đã kết nối." : "Cần kết nối Google Drive trước khi upload."}</b>
-      {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn chỉ cần kết nối Google Drive 1 lần trong 1 workspace." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
+      {!driveStatus.connected && <p>{driveStatus.can_connect ? "Hãy chọn tài khoản Google muốn liên kết; Google Drive đó sẽ được dùng cho workspace này." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
       {!driveStatus.connected && driveStatus.can_connect && <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</LoadingButton>}
     </Notice>}
     <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MongoDB Atlas</button></div>
     {sourceMode === "datasource" ? <div className="stacked-section">
       <section className="panel saved-datasource-panel">
-        <div className="panel-title"><h2>Dùng MongoDB Atlas đã kết nối</h2><small>Credential vẫn nằm ở backend; dataset mới chỉ tham chiếu connection dùng chung.</small></div>
+        <div className="panel-title"><h2>Dùng MongoDB Atlas đã kết nối</h2><small>Thông tin xác thực vẫn nằm ở hệ thống; bộ dữ liệu mới chỉ tham chiếu kết nối dùng chung.</small></div>
         {!!savedDatasourceOptions.length && <div className="form-grid">
-          <div className="field"><label htmlFor="saved-datasource">Datasource</label><select id="saved-datasource" value={savedDatasourceId} onChange={(event) => setSavedDatasourceId(event.target.value)} disabled={busy !== null}><option value="">Chọn connection</option>{savedDatasourceOptions.map((item) => <option key={item.id} value={item.id.slice("datasource:".length)}>{item.name}</option>)}</select></div>
-          <div className="field"><label htmlFor="saved-dataset-name">Tên dataset</label><input id="saved-dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="Ví dụ: Bán hàng tháng 8" maxLength={255} disabled={busy !== null} /></div>
+          <div className="field"><label htmlFor="saved-datasource">Nguồn dữ liệu</label><select id="saved-datasource" value={savedDatasourceId} onChange={(event) => setSavedDatasourceId(event.target.value)} disabled={busy !== null}><option value="">Chọn kết nối</option>{savedDatasourceOptions.map((item) => <option key={item.id} value={item.id.slice("datasource:".length)}>{item.name}</option>)}</select></div>
+          <div className="field"><label htmlFor="saved-dataset-name">Tên bộ dữ liệu</label><input id="saved-dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="Ví dụ: Bán hàng tháng 8" maxLength={255} disabled={busy !== null} /></div>
         </div>}
         {!savedDatasourceOptions.length && <Notice tone="info">Chưa có MongoDB Atlas nào được lưu. Hãy tạo connection mới bên dưới.</Notice>}
-        {!!savedDatasourceOptions.length && <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!savedDatasourceId || !datasetName.trim() || busy !== null} onClick={handleUseSavedDatasource}>Dùng datasource và profiling</LoadingButton><button type="button" className="button secondary" onClick={() => setShowNewDatasource((value) => !value)}>{showNewDatasource ? "Ẩn connection mới" : "Thêm MongoDB Atlas khác"}</button></div>}
+        {!!savedDatasourceOptions.length && <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!savedDatasourceId || !datasetName.trim() || busy !== null} onClick={handleUseSavedDatasource}>Dùng nguồn dữ liệu và lập hồ sơ</LoadingButton><button type="button" className="button secondary" onClick={() => setShowNewDatasource((value) => !value)}>{showNewDatasource ? "Ẩn kết nối mới" : "Thêm MongoDB Atlas khác"}</button></div>}
       </section>
       {(!savedDatasourceOptions.length || showNewDatasource) && <DatasourceConnector onBack={savedDatasourceOptions.length ? () => setShowNewDatasource(false) : undefined} />}
     </div> : <div className="grid two">
@@ -354,11 +356,11 @@ export default function NewDatasetPage() {
         </div>
         <div className="form-actions">{!allUploaded ? <><LoadingButton className="button primary" busy={busy === "upload"} disabled={!files.length || busy !== null || (driveBlocked && !driveStatus?.can_connect)} onClick={handleUploadClick}>{busy === "upload" ? "Đang tải lên…" : driveBlocked ? driveStatus?.can_connect ? "Kết nối Drive để tải" : "Drive chưa sẵn sàng" : uploadedCount ? `Tải tiếp ${files.length - uploadedCount} file` : "Tải dữ liệu lên"}</LoadingButton>{busy === "upload" && <button className="button secondary" onClick={() => abortRef.current?.abort()}>Hủy tải lên</button>}</> : <Notice tone="success"><b>Đã tải lên an toàn.</b><p>{files.length} file đã được lưu vào workspace.</p></Notice>}</div>
       </section>
-      <section className="panel"><div className="panel-title"><h2>2. Cấu hình profiling</h2><small>Sampling có thể tái lập</small></div>
-        <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên bộ dữ liệu</label><input id="dataset-name" value={datasetName} onChange={(event) => { setDatasetName(event.target.value); setCollectionSaved(false); }} placeholder="Ví dụ: Dữ liệu bán hàng tháng 8" maxLength={255} disabled={!files.length || busy !== null || savingCollection} /><small className="muted">{files.length > 1 ? `Tên này gộp ${files.length} file thành một bộ; tên từng file vẫn được giữ nguyên.` : "Tên này dùng để phân loại dataset trong workspace."}{collectionSaved ? " Đã lưu." : ""}</small></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!allUploaded}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div></div>
+      <section className="panel"><div className="panel-title"><h2>2. Cấu hình lập hồ sơ</h2><small>Lấy mẫu có thể tái lập</small></div>
+        <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên bộ dữ liệu</label><input id="dataset-name" value={datasetName} onChange={(event) => { setDatasetName(event.target.value); setCollectionSaved(false); }} placeholder="Ví dụ: Dữ liệu bán hàng tháng 8" maxLength={255} disabled={!files.length || busy !== null || savingCollection} /><small className="muted">{files.length > 1 ? `Tên này gộp ${files.length} tệp thành một bộ; tên từng tệp vẫn được giữ nguyên.` : "Tên này dùng để phân loại bộ dữ liệu trong không gian làm việc."}{collectionSaved ? " Đã lưu." : ""}</small></div><div className="field"><label htmlFor="scan-mode">Chế độ quét</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!allUploaded}><option value="sample">Lấy mẫu — nhanh, có độ không chắc chắn</option><option value="full">Quét toàn bộ — chính xác hơn</option></select></div></div>
         <Notice tone="info"><b>Bảo mật quyền riêng tư</b><p>Hệ thống sẽ không hiển thị các dữ liệu mẫu nhạy cảm. Mọi phát hiện về thông tin cá nhân hoặc định danh đều cần bạn xác nhận trước khi lưu.</p></Notice>
         {busy === "profile" && <ProgressSteps steps={["Chuẩn bị", "Đang profiling", "Hoàn tất"]} activeStep={profiledCount === files.length ? 2 : 1} detail={`Đã xử lý ${profiledCount}/${files.length} file. Hệ thống đang tính metric từ dữ liệu thật.`} />}
-        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</LoadingButton></div>
+        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Trợ lý AI đang lập hồ sơ… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu lập hồ sơ cho ${files.length} tệp` : "Bắt đầu lập hồ sơ"}</LoadingButton></div>
       </section>
     </div>}
   </>;

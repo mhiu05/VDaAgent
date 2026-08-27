@@ -1538,6 +1538,16 @@ export interface components {
             collection_name?: string | null;
             /** Last Profiled At */
             last_profiled_at?: string | null;
+            /** Latest Run Id */
+            latest_run_id?: string | null;
+            /** Latest Run Status */
+            latest_run_status?: string | null;
+            /** Latest Run Stage */
+            latest_run_stage?: string | null;
+            /** Latest Run Created At */
+            latest_run_created_at?: string | null;
+            /** Latest Run Error */
+            latest_run_error?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -1860,6 +1870,8 @@ export interface components {
             id: string;
             /** Dataset Id */
             dataset_id: string;
+            /** Dataset Name */
+            dataset_name?: string | null;
             /** Run Name */
             run_name?: string | null;
             /** Version */
@@ -1877,6 +1889,8 @@ export interface components {
             is_approximate: boolean;
             /** Created At */
             created_at?: string | null;
+            /** Safe failure reason */
+            error?: string | null;
         } & {
             [key: string]: unknown;
         };

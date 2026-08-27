@@ -11,6 +11,7 @@ type Props = {
 };
 
 const CATEGORY_COLORS = ["#6366f1", "#f43f5e", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#d946ef", "#0ea5e9", "#84cc16", "#a855f7", "#14b8a6", "#f97316"];
+const CATEGORY_RANKING_LIMIT = 15;
 
 function categoryColor(index: number) {
   return CATEGORY_COLORS[index % CATEGORY_COLORS.length];
@@ -37,7 +38,8 @@ function numeric(value: unknown): number | null {
 export function ChartEvidenceView({ chartSpec, result, querySpec, title }: Props) {
   const forecastMode = querySpec.analysis_kind === "forecast";
   const matrixMode = ["missing_heatmap", "correlation_heatmap"].includes(chartSpec.chart_type);
-  const limit = chartSpec.chart_type === "table" ? 50 : forecastMode ? 72 : chartSpec.chart_type === "violin" ? 160 : matrixMode ? 144 : chartSpec.chart_type === "donut" ? 12 : 15;
+  const requestedRankingLimit = chartSpec.chart_type === "bar" && querySpec.limit < 50 ? querySpec.limit : CATEGORY_RANKING_LIMIT;
+  const limit = chartSpec.chart_type === "table" ? 50 : forecastMode ? 72 : chartSpec.chart_type === "violin" ? 160 : matrixMode ? 144 : chartSpec.chart_type === "donut" ? 12 : requestedRankingLimit;
   const rows = forecastMode ? result.data.slice(-limit) : result.data.slice(0, limit);
   const values = rows.map((row) => Number(row.value));
   const finiteValues = values.filter(Number.isFinite);
@@ -137,5 +139,5 @@ export function ChartEvidenceView({ chartSpec, result, querySpec, title }: Props
   const maxAbsolute = Math.max(...finiteValues.map(Math.abs), 1);
   const hasNegativeValues = finiteValues.some((value) => value < 0);
   const percentMetric = ["missing_bar", "outlier"].includes(chartSpec.chart_type);
-  return <div className={`chart-bars chart-result-bars ${hasNegativeValues ? "has-negative-values" : ""}`}>{rows.map((row, index) => { const value = Number(row.value); const color = categoryColor(index); const fillStyle = { ...barStyle(value, hasNegativeValues ? maxAbsolute : Math.max(...finiteValues, 1), hasNegativeValues), ...(hasNegativeValues ? {} : { background: `linear-gradient(90deg, ${color}a8, ${color})`, boxShadow: `0 2px 5px ${color}55` }) }; return <div className="bar-row" key={index}><span className="truncate" title={rowLabel(row, querySpec)}>{rowLabel(row, querySpec)}</span><span className="bar-track chart-diverging-track">{hasNegativeValues && <i className="chart-zero-line" />}<span className={`bar-fill ${value < 0 ? "negative" : ""}`} style={fillStyle} /></span><b>{Number.isFinite(value) ? `${formatNumber(value)}${percentMetric ? "%" : ""}` : "-"}</b></div>; })}{result.row_count > rows.length && <small className="chart-truncation">Hiển thị {rows.length}/{result.row_count} nhóm.</small>}</div>;
+  return <div className={`chart-bars chart-result-bars ${hasNegativeValues ? "has-negative-values" : ""}`}>{rows.map((row, index) => { const value = Number(row.value); const color = categoryColor(index); const fillStyle = { ...barStyle(value, hasNegativeValues ? maxAbsolute : Math.max(...finiteValues, 1), hasNegativeValues), ...(hasNegativeValues ? {} : { background: `linear-gradient(90deg, ${color}a8, ${color})`, boxShadow: `0 2px 5px ${color}55` }) }; return <div className="bar-row" key={index}><span className="truncate" title={rowLabel(row, querySpec)}>{rowLabel(row, querySpec)}</span><span className="bar-track chart-diverging-track">{hasNegativeValues && <i className="chart-zero-line" />}<span className={`bar-fill ${value < 0 ? "negative" : ""}`} style={fillStyle} /></span><b>{Number.isFinite(value) ? `${formatNumber(value)}${percentMetric ? "%" : ""}` : "-"}</b></div>; })}<small className="chart-truncation">{querySpec.limit < 50 ? `Top ${querySpec.limit}: hiển thị ${rows.length} nhóm${result.row_count > rows.length ? ` trong ${result.row_count} nhóm trả về` : " hiện có"}.` : rows.length < CATEGORY_RANKING_LIMIT ? `Hiển thị Top ${rows.length}/${CATEGORY_RANKING_LIMIT} nhóm; dữ liệu hiện có ${rows.length} nhóm.` : `Hiển thị toàn bộ ${rows.length} nhóm.`}</small></div>;
 }

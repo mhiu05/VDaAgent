@@ -22,6 +22,7 @@ from src.agents.runtime.context import (
 from src.agents.runtime.langsmith_observability import get_langsmith_observability
 from src.agents.runtime.versioning import build_version_snapshot, stable_hash
 from src.config import get_settings
+from src.services.llm import response_text
 from src.services.repository import get_repository
 
 _SENSITIVE_KEYS = {
@@ -300,7 +301,20 @@ def _usage(response: Any) -> tuple[int | None, int | None, str]:
     return input_tokens, output_tokens, "exact" if usage else "unknown"
 
 
-def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
+class _StreamedModelResponse:
+    """Small response envelope for streamed text without provider metadata."""
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+def invoke_model(
+    llm: Any,
+    messages: Any,
+    *,
+    prompt_id: str,
+    on_token: Callable[[str], None] | None = None,
+) -> Any:
     """Call a model while recording hashes, version IDs, usage and latency."""
 
     context = get_execution_context()
@@ -319,7 +333,16 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
                 "model_id": get_settings().llm_model,
             },
         ) as langsmith_span:
-            response = llm.invoke(messages)
+            if on_token is None:
+                response = llm.invoke(messages)
+            else:
+                chunks: list[str] = []
+                for chunk in llm.stream(messages):
+                    text = response_text(chunk)
+                    if text:
+                        chunks.append(text)
+                        on_token(text)
+                response = _StreamedModelResponse("".join(chunks))
             if langsmith_span is not None:
                 input_tokens, output_tokens, usage_status = _usage(response)
                 langsmith_span.metadata.update(
@@ -533,6 +556,7 @@ def record_retrieval_call(
     profile_run_id: str | None,
     profile_hits: list[Any],
     knowledge_hits: list[Any],
+    external_knowledge_enabled: bool | None = None,
 ) -> None:
     """Trace retrieval provenance without persisting a query or document text."""
 
@@ -559,7 +583,11 @@ def record_retrieval_call(
                 "sanitized_args": {
                     "query_hash": stable_hash(query),
                     "profile_run_id": profile_run_id,
-                    "external_knowledge_enabled": cfg.retrieval_external_knowledge_enabled,
+                    "external_knowledge_enabled": (
+                        cfg.retrieval_external_knowledge_enabled
+                        if external_knowledge_enabled is None
+                        else external_knowledge_enabled
+                    ),
                     "embedding_model": cfg.retrieval_embedding_model,
                     "rerank_model": cfg.retrieval_rerank_model
                     if cfg.retrieval_enable_rerank

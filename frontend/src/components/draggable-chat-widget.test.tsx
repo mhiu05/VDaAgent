@@ -6,8 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DraggableChatWidget } from "./draggable-chat-widget";
 
 const api = vi.hoisted(() => ({
-  listDatasets: vi.fn(),
-  listRuns: vi.fn(),
+  listAllRuns: vi.fn(),
   streamQuestion: vi.fn(),
 }));
 const navigation = vi.hoisted(() => ({ pathname: "/dashboard" }));
@@ -17,7 +16,8 @@ vi.mock("next/image", () => ({ default: ({ alt }: { alt?: string }) => <span ari
 vi.mock("react-markdown", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/api", () => api);
 vi.mock("@/lib/chat-history", () => ({
-  createConversation: vi.fn(),
+  createConversation: vi.fn((title = "Cuộc trò chuyện mới") => ({ id: "conv-test", title, createdAt: "2026-08-25T00:00:00Z", updatedAt: "2026-08-25T00:00:00Z", hasUploadedData: false })),
+  getConversation: vi.fn(),
   getConversationSnapshot: vi.fn(),
   updateConversationSnapshot: vi.fn(),
   listConversations: vi.fn(() => []),
@@ -25,7 +25,7 @@ vi.mock("@/lib/chat-history", () => ({
 vi.mock("@/components/answer-sources", () => ({ AnswerSources: () => null }));
 
 const dataset = { id: "dataset-a", name: "Doanh thu", source_type: "file", source_ref: null, collection_name: null, last_profiled_at: null };
-const run = { id: "run-a", dataset_id: dataset.id, run_name: "Tháng 1", version: 1, status: "completed", scan_mode: "full", row_count: 100, is_approximate: false, created_at: "2026-01-12T10:00:00Z" };
+const run = { id: "run-a", dataset_id: dataset.id, dataset_name: dataset.name, run_name: "Tháng 1", version: 1, status: "completed", scan_mode: "full", row_count: 100, is_approximate: false, created_at: "2026-01-12T10:00:00Z" };
 
 function renderWidget() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -43,27 +43,27 @@ describe("DraggableChatWidget", () => {
     navigation.pathname = "/dashboard";
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
-    api.listDatasets.mockReset();
-    api.listRuns.mockReset();
+    api.listAllRuns.mockReset();
     api.streamQuestion.mockReset();
-    api.listDatasets.mockResolvedValue([dataset]);
-    api.listRuns.mockResolvedValue([run]);
+    api.listAllRuns.mockResolvedValue([run]);
   });
 
-  it("opens from the floating logo and needs only a completed Profile Run", async () => {
+  it("opens from the floating logo and selects a dataset before its completed run", async () => {
     renderWidget();
 
     const bubble = await screen.findByRole("button", { name: /trợ lý ai copilot/i });
     fireEvent.pointerDown(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
     fireEvent.pointerUp(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
 
-    const select = await screen.findByLabelText(/profile run dùng làm evidence/i) as HTMLSelectElement;
-    await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(1));
+    const datasetSelect = await screen.findByLabelText("Bộ dữ liệu") as HTMLSelectElement;
+    const runSelect = screen.getByLabelText("Phiên bản chạy") as HTMLSelectElement;
+    await waitFor(() => expect(datasetSelect.querySelectorAll("option")).toHaveLength(2));
     expect(screen.queryByText(/^Dataset:/i)).toBeNull();
-    await waitFor(() => expect(select.value).toBe(run.id));
+    expect(screen.getByPlaceholderText(/chọn profile run để bắt đầu hỏi/i)).toBeTruthy();
 
-    fireEvent.change(select, { target: { value: run.id } });
-    expect((screen.getByPlaceholderText(/hỏi ai về profile run đã chọn/i) as HTMLInputElement).disabled).toBe(false);
+    fireEvent.change(datasetSelect, { target: { value: dataset.id } });
+    fireEvent.change(runSelect, { target: { value: run.id } });
+    await waitFor(() => expect((screen.getByPlaceholderText(/hỏi ai về profile run đã chọn/i) as HTMLInputElement).disabled).toBe(false));
   });
 
   it("keeps the floating icon available on the legacy Chat route", async () => {

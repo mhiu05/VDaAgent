@@ -10,8 +10,11 @@ import jwt
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+# pyrefly: ignore [missing-import]
 from src.api import authz_routes, dependencies
+# pyrefly: ignore [missing-import]
 from src.config import Settings
+# pyrefly: ignore [missing-import]
 from src.services.auth import AuthContext, JWTVerificationError, SupabaseJWTVerifier
 
 
@@ -221,12 +224,11 @@ def test_session_provisions_personal_workspace_for_new_confirmed_user(
         def sync_user_profile(self, user_id: str, email: str | None) -> None:
             return None
 
-        def get_user_profile(self, user_id: str) -> dict[str, str]:
-            return {"user_id": user_id, "role": "analyst", "status": "active"}
-
         def is_user_locked(self, user_id: str) -> bool:
             return False
 
+        def get_user_profile(self, user_id: str) -> dict[str, str] | None:
+            return {"user_id": user_id, "role": "analyst", "status": "active"}
         def provision_self_signup_workspace(
             self, user_id: str, email: str | None, role: str
         ) -> None:

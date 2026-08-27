@@ -20,7 +20,13 @@ export default function DatasetRunsPage() {
   const [profiling, setProfiling] = useState(false);
   const [profileError, setProfileError] = useState<unknown>(null);
   const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
-  const runs = useQuery({ queryKey: ["runs", datasetId], queryFn: ({ signal }) => listRuns(datasetId, signal), enabled: Boolean(datasetId) });
+  const runs = useQuery({
+    queryKey: ["runs", datasetId],
+    queryFn: ({ signal }) => listRuns(datasetId, signal),
+    enabled: Boolean(datasetId),
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => ["queued", "running", "resuming"].includes(run.status)) ? 1_000 : false,
+  });
 
   function openCreateModal() {
     const nextVersion = (runs.data?.[0]?.version ?? 0) + 1;
@@ -74,6 +80,9 @@ export default function DatasetRunsPage() {
   }
 
   return <>
+    <div className="dataset-runs-back">
+      <Link href="/datasets" className="button secondary profile-back-link"><span aria-hidden="true">←</span><span>Quay lại bộ dữ liệu</span></Link>
+    </div>
     <PageHeader
       eyebrow="Lịch sử profiling"
       title="Các profile run"

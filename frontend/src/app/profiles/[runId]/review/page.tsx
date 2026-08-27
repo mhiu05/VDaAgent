@@ -52,7 +52,14 @@ export default function ReviewPage() {
   const { me, isGuest } = useAuth();
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const reviewRequestKey = useRef<string | null>(null);
-  const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
+  const profile = useQuery({
+    queryKey: ["profile", runId],
+    queryFn: ({ signal }) => getProfile(runId, signal),
+    enabled: Boolean(runId),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+  });
   const pending = useMemo(
     () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
       .filter((proposal) => proposal.status === "pending")
@@ -151,29 +158,29 @@ export default function ReviewPage() {
         && (selection?.decision !== "edit" || Boolean(finalType && reviewNote.length >= 3));
     });
 
-  if (profile.isLoading) return <LoadingBlock label="Đang tải đề xuất cần review…" />;
+  if (profile.isLoading) return <LoadingBlock label="Đang tải các đề xuất cần xem xét…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
-  if (!profile.data) return <EmptyState title="Không có profile" detail="Không thể bắt đầu review vì run không còn tồn tại." />;
+  if (!profile.data) return <EmptyState title="Không có hồ sơ" detail="Không thể bắt đầu xem xét vì phiên chạy không còn tồn tại." />;
 
   return <>
     <PageHeader
       eyebrow={`KIỂM DUYỆT METADATA · ${profile.data.run_name || `Phiên bản v${profile.data.version ?? "—"}`}`}
       title="Xác nhận metadata"
       description="Bạn quyết định metadata nào được dùng cho báo cáo và các bước phân tích sau đó."
-      action={<><Link className="button secondary" href={`/chat?profile=${runId}`}>Quay lại không gian Agent</Link><Link className="button secondary" href={`/profiles/${runId}`}>Quay lại báo cáo</Link></>}
+      action={<><Link className="button secondary" href={`/chat?profile=${runId}`}>Quay lại trợ lý AI</Link><Link className="button secondary" href={`/profiles/${runId}`}>Quay lại báo cáo</Link></>}
     />
     {mutation.isError && <ErrorNotice error={mutation.error} />}
-    <Notice tone="info"><b>Trạng thái workflow</b><p><StatusBadge status={profile.data.status} /> {profile.data.status === "pending_review" ? "Đang chờ quyết định của Analyst." : profile.data.status === "resuming" ? "Đang tiếp tục checkpoint." : "Kết quả cuối đã được lưu."}</p>{profile.data.answer && <p><b>Câu trả lời:</b> {profile.data.answer}</p>}</Notice>
-    <Notice tone="warning"><b>{pending.length} đề xuất đang chờ quyết định.</b><p><b>Xác nhận</b> dùng đề xuất của Agent. <b>Từ chối</b> bỏ đề xuất. <b>Chỉnh sửa</b> chỉ áp dụng cho Semantic type và PII, cần chọn giá trị chính thức cùng lý do.</p></Notice>
+    <Notice tone="info"><b>Trạng thái quy trình</b><p><StatusBadge status={profile.data.status} /> {profile.data.status === "pending_review" ? "Đang chờ quyết định của chuyên viên phân tích." : profile.data.status === "resuming" ? "Đang tiếp tục điểm kiểm tra." : "Kết quả cuối đã được lưu."}</p>{profile.data.answer && <p><b>Câu trả lời:</b> {profile.data.answer}</p>}</Notice>
+    <Notice tone="warning"><b>{pending.length} đề xuất đang chờ quyết định.</b><p><b>Xác nhận</b> dùng đề xuất của trợ lý AI. <b>Từ chối</b> bỏ đề xuất. <b>Chỉnh sửa</b> chỉ áp dụng cho kiểu ngữ nghĩa và PII, cần chọn giá trị chính thức cùng lý do.</p></Notice>
     <section className="panel review-context-panel">
       <div className="reviewer-card">
         <span className="reviewer-card-icon" aria-hidden="true">✓</span>
-        <div><small>REVIEWER ĐANG THỰC HIỆN</small><b>{reviewerName}</b><span>{toTitle(reviewerRole)} · Tự động ghi vào audit log</span></div>
+        <div><small>NGƯỜI XEM XÉT ĐANG THỰC HIỆN</small><b>{reviewerName}</b><span>Chuyên viên phân tích · Tự động ghi vào nhật ký kiểm tra</span></div>
       </div>
       <div className="review-bulk-actions"><small>THAO TÁC HÀNG LOẠT</small><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")} disabled={mutation.isPending}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")} disabled={mutation.isPending}>Từ chối tất cả</button></div></div>
     </section>
     {pending.length === 0 ? (
-      <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
+      <EmptyState title="Không còn đề xuất chờ xem xét" detail="Bạn có thể quay lại báo cáo hồ sơ để xem siêu dữ liệu đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
     ) : (
       <div className="grid" style={{ gap: 18 }}>
         {(["candidate_key", "semantic_type", "pii"] as ProposalKind[]).map((kind) => {
@@ -181,13 +188,13 @@ export default function ReviewPage() {
           if (!items.length) return null;
           const canEdit = kind !== "candidate_key";
           return <section className="panel proposal-group" key={kind}>
-            <div className="panel-title"><div><h2>{toTitle(kind)}</h2><small>{canEdit ? "Có thể xác nhận, từ chối hoặc chỉnh phân loại." : "Xác nhận hoặc từ chối đây có phải khóa ứng viên."}</small></div><span className="chip">{items.length} chờ review</span></div>
+            <div className="panel-title"><div><h2>{toTitle(kind)}</h2><small>{canEdit ? "Có thể xác nhận, từ chối hoặc chỉnh phân loại." : "Xác nhận hoặc từ chối đây có phải khóa ứng viên."}</small></div><span className="chip">{items.length} chờ xem xét</span></div>
             {items.map(({ proposal }) => {
               const selection = selections[proposal.id];
               const editing = selection?.decision === "edit";
               const rejecting = selection?.decision === "reject";
               return <article className="proposal-row pending" key={proposal.id}>
-                <div><b>{proposalLabel(proposal)}</b><p>Agent đề xuất: <strong>{proposalValue(kind, proposal)}</strong></p>{proposal.semantic_description && <p>{proposal.semantic_description}</p>}<StatusBadge status={proposal.status} /></div>
+                <div><b>{proposalLabel(proposal)}</b><p>Trợ lý AI đề xuất: <strong>{proposalValue(kind, proposal)}</strong></p>{proposal.semantic_description && <p>{proposal.semantic_description}</p>}<StatusBadge status={proposal.status} /></div>
                 <div><p><span className="confidence">{formatPercent(proposal.confidence_score)}</span> confidence · {proposal.detection_method || "rule-based"}</p><p>{proposal.evidence}</p></div>
                 <div className="decision-control">
                   <label className="sr-only" htmlFor={`decision-${proposal.id}`}>Quyết định cho {proposalLabel(proposal)}</label>
@@ -201,7 +208,7 @@ export default function ReviewPage() {
                     </select>
                     <label htmlFor={`note-${proposal.id}`}>Lý do chỉnh sửa <span aria-hidden="true">*</span></label>
                     <textarea id={`note-${proposal.id}`} value={selection?.note || ""} onChange={(event) => updateSelection(proposal.id, { note: event.target.value })} placeholder="Ví dụ: cột có định dạng ngày giờ nên không phải categorical." maxLength={1000} rows={3} />
-                    <small>Bản ghi sẽ lưu đề xuất của Agent, giá trị chính thức, reviewer và thời điểm xử lý.</small>
+                    <small>Bản ghi sẽ lưu đề xuất của trợ lý AI, giá trị chính thức, người xem xét và thời điểm xử lý.</small>
                   </div>}
                   {rejecting && <div className="review-edit-fields review-note-optional"><label htmlFor={`note-${proposal.id}`}>Lý do từ chối <em>(không bắt buộc)</em></label><textarea id={`note-${proposal.id}`} value={selection?.note || ""} onChange={(event) => updateSelection(proposal.id, { note: event.target.value })} placeholder="Ghi chú để người khác hiểu quyết định của bạn." maxLength={1000} rows={2} /></div>}
                 </div>
