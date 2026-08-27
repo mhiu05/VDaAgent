@@ -6,17 +6,17 @@ import { useQuery } from "@tanstack/react-query";
 import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, PageHeader } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
-import { getCalendarStatus, listCalendarEvents, listWorkspaceActivity, type ActivityEntry, type CalendarEvent } from "@/lib/api";
+import { listWorkspaceActivity, type ActivityEntry } from "@/lib/api";
 import { formatDate, toTitle } from "@/lib/format";
 
 type NotificationTone = "success" | "info" | "warning" | "error";
-type NotificationFilter = "all" | "success" | "calendar" | "attention";
+type NotificationFilter = "all" | "success" | "attention";
 type NotificationItem = {
   id: string;
   ts: string;
   tone: NotificationTone;
   icon: string;
-  category: "success" | "info" | "calendar" | "attention";
+  category: "success" | "info" | "attention";
   title: string;
   message: string;
   href?: string;
@@ -27,15 +27,7 @@ const providerLabels: Record<string, string> = {
   mysql: "MySQL",
   duckdb: "DuckDB",
   google_drive: "Google Drive",
-  google_calendar: "Google Calendar",
 };
-
-const calendarWindow = (() => {
-  const start = new Date();
-  const end = new Date(start);
-  end.setDate(end.getDate() + 30);
-  return { timeMin: start.toISOString(), timeMax: end.toISOString() };
-})();
 
 function textValue(value: unknown): string | null {
   return typeof value === "string" || typeof value === "number" ? String(value) : null;
@@ -120,25 +112,6 @@ function auditNotification(entry: ActivityEntry, index: number): NotificationIte
   }
 }
 
-function calendarNotification(event: CalendarEvent, index: number): NotificationItem | null {
-  if (!event.start) return null;
-  const start = new Date(event.start);
-  if (Number.isNaN(start.getTime())) return null;
-  const hoursUntil = (start.getTime() - Date.now()) / (60 * 60 * 1000);
-  const soon = hoursUntil >= 0 && hoursUntil <= 24;
-  const location = event.location ? ` · ${event.location}` : "";
-  return {
-    id: `calendar-${event.id}-${index}`,
-    ts: event.start,
-    tone: soon ? "warning" : "info",
-    category: "calendar",
-    icon: "◷",
-    title: soon ? `Sắp diễn ra: ${event.summary}` : `Lịch sắp tới: ${event.summary}`,
-    message: `${formatDate(event.start)}${location}`,
-    href: "/calendar",
-  };
-}
-
 function NotificationItemView({ item }: { item: NotificationItem }) {
   const content = <>
     <span className={`activity-notification-icon activity-notification-${item.tone}`} aria-hidden="true">{item.icon}</span>
@@ -157,7 +130,6 @@ export default function ActivityPage() {
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [sessionNotifications, setSessionNotifications] = useState<NotificationItem[]>([]);
   const canReadActivity = Boolean(me && can(me.effective_permissions, PERMISSIONS.workspaceAuditRead));
-  const canReadCalendar = Boolean(me && can(me.effective_permissions, PERMISSIONS.calendarRead));
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem("p170-login-notification-v1");
@@ -175,35 +147,13 @@ export default function ActivityPage() {
     queryFn: () => listWorkspaceActivity(150),
     enabled: canReadActivity,
   });
-  const calendarStatus = useQuery({
-    queryKey: ["calendar-status", workspaceId],
-    queryFn: getCalendarStatus,
-    enabled: canReadCalendar,
-    retry: false,
-    staleTime: 30_000,
-  });
-  const calendarEvents = useQuery({
-    queryKey: ["activity-calendar-events", workspaceId],
-    queryFn: () => listCalendarEvents(calendarWindow),
-    enabled: canReadCalendar && Boolean(calendarStatus.data?.connected),
-    retry: false,
-    staleTime: 60_000,
-  });
   const auditEntries = activity.data?.entries ?? [];
   const auditNotifications = useMemo(() => auditEntries.map(auditNotification).filter((item): item is NotificationItem => Boolean(item)), [auditEntries]);
-  const scheduleNotifications = useMemo(() => (calendarEvents.data?.events ?? []).map(calendarNotification).filter((item): item is NotificationItem => Boolean(item)), [calendarEvents.data?.events]);
-  const serviceNotifications = useMemo(() => {
-    if (calendarStatus.isError) return [{ id: "calendar-status-error", ts: new Date().toISOString(), tone: "warning" as const, category: "attention" as const, icon: "!", title: "Không thể kiểm tra Google Calendar", message: "Hãy mở Calendar để kiểm tra lại kết nối.", href: "/calendar" }];
-    if (calendarEvents.isError) return [{ id: "calendar-events-error", ts: new Date().toISOString(), tone: "warning" as const, category: "attention" as const, icon: "!", title: "Không thể tải lịch", message: "Google Calendar đang không phản hồi. Hãy thử làm mới hoặc kết nối lại.", href: "/calendar" }];
-    if (canReadCalendar && calendarStatus.data && !calendarStatus.data.connected) return [{ id: "calendar-not-connected", ts: new Date().toISOString(), tone: "info" as const, category: "calendar" as const, icon: "◷", title: "Google Calendar chưa kết nối", message: "Kết nối Google Calendar để nhận thông báo lịch hẹn sắp tới.", href: "/calendar" }];
-    return [];
-  }, [calendarEvents.isError, calendarStatus.data, calendarStatus.isError, canReadCalendar]);
-  const notifications = useMemo(() => [...sessionNotifications, ...auditNotifications, ...scheduleNotifications, ...serviceNotifications].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()).slice(0, 80), [auditNotifications, scheduleNotifications, serviceNotifications, sessionNotifications]);
-  const visible = useMemo(() => notifications.filter((item) => filter === "all" || filter === "success" && item.category === "success" || filter === "calendar" && item.category === "calendar" || filter === "attention" && item.category === "attention"), [filter, notifications]);
+  const notifications = useMemo(() => [...sessionNotifications, ...auditNotifications].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()).slice(0, 80), [auditNotifications, sessionNotifications]);
+  const visible = useMemo(() => notifications.filter((item) => filter === "all" || filter === "success" && item.category === "success" || filter === "attention" && item.category === "attention"), [filter, notifications]);
   const counts = {
     all: notifications.length,
     success: notifications.filter((item) => item.category === "success").length,
-    calendar: notifications.filter((item) => item.category === "calendar").length,
     attention: notifications.filter((item) => item.category === "attention").length,
   };
 
@@ -215,8 +165,8 @@ export default function ActivityPage() {
     <PageHeader
       eyebrow="WORKSPACE NOTIFICATIONS"
       title="Thông báo"
-      description="Các cập nhật quan trọng về kết nối, lịch hẹn, profiling và an toàn workspace. Chi tiết kỹ thuật không hiển thị ở đây."
-      action={<LoadingButton className="button secondary" type="button" busy={activity.isFetching || calendarStatus.isFetching || calendarEvents.isFetching} onClick={() => { void activity.refetch(); if (canReadCalendar) { void calendarStatus.refetch(); if (calendarStatus.data?.connected) void calendarEvents.refetch(); } }}>Làm mới</LoadingButton>}
+      description="Các cập nhật quan trọng về kết nối, profiling và an toàn workspace. Chi tiết kỹ thuật không hiển thị ở đây."
+      action={<LoadingButton className="button secondary" type="button" busy={activity.isFetching} onClick={() => { void activity.refetch(); }}>Làm mới</LoadingButton>}
     />
     {activity.isPending && <LoadingBlock label="Đang tải thông báo…" />}
     {activity.isError && <ErrorNotice error={activity.error} retry={() => activity.refetch()} />}
@@ -224,15 +174,14 @@ export default function ActivityPage() {
       <section className="activity-notification-summary" aria-label="Tóm tắt thông báo">
         <div><span className="activity-summary-dot activity-summary-all" /><b>{counts.all}</b><small>Tất cả</small></div>
         <div><span className="activity-summary-dot activity-summary-success" /><b>{counts.success}</b><small>Thành công</small></div>
-        <div><span className="activity-summary-dot activity-summary-calendar" /><b>{counts.calendar}</b><small>Lịch sắp tới</small></div>
         <div><span className="activity-summary-dot activity-summary-attention" /><b>{counts.attention}</b><small>Cần chú ý</small></div>
       </section>
       <section className="activity-notification-panel">
-        <div className="activity-notification-panel-heading"><div><p className="eyebrow">RECENT UPDATES</p><h2>Cập nhật gần đây</h2></div><Link className="button secondary" href="/calendar">Mở lịch</Link></div>
+        <div className="activity-notification-panel-heading"><div><p className="eyebrow">RECENT UPDATES</p><h2>Cập nhật gần đây</h2></div></div>
         <div className="inline-actions activity-notification-filters" role="tablist" aria-label="Lọc thông báo">
-          {(["all", "success", "calendar", "attention"] as NotificationFilter[]).map((item) => <button key={item} type="button" role="tab" aria-selected={filter === item} className={`button ${filter === item ? "primary" : "secondary"}`} onClick={() => setFilter(item)}>{item === "all" ? `Tất cả (${counts.all})` : item === "success" ? `Thành công (${counts.success})` : item === "calendar" ? `Lịch (${counts.calendar})` : `Cần chú ý (${counts.attention})`}</button>)}
+          {(["all", "success", "attention"] as NotificationFilter[]).map((item) => <button key={item} type="button" role="tab" aria-selected={filter === item} className={`button ${filter === item ? "primary" : "secondary"}`} onClick={() => setFilter(item)}>{item === "all" ? `Tất cả (${counts.all})` : item === "success" ? `Thành công (${counts.success})` : `Cần chú ý (${counts.attention})`}</button>)}
         </div>
-        {visible.length ? <div className="activity-notification-list" aria-label="Danh sách thông báo">{visible.map((item) => <NotificationItemView item={item} key={item.id} />)}</div> : <EmptyState title={filter === "all" ? "Chưa có thông báo" : "Không có thông báo phù hợp"} detail="Khi có kết nối, lịch hẹn hoặc cảnh báo mới, chúng sẽ xuất hiện ở đây." action={filter === "calendar" ? <Link className="button secondary" href="/calendar">Mở Google Calendar</Link> : undefined} />}
+        {visible.length ? <div className="activity-notification-list" aria-label="Danh sách thông báo">{visible.map((item) => <NotificationItemView item={item} key={item.id} />)}</div> : <EmptyState title={filter === "all" ? "Chưa có thông báo" : "Không có thông báo phù hợp"} detail="Khi có kết nối hoặc cảnh báo mới, chúng sẽ xuất hiện ở đây." />}
       </section>
     </>}
   </main>;

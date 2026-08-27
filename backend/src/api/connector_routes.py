@@ -121,30 +121,6 @@ def _connector_from_drive(row: dict[str, Any] | None, context: RequestContext) -
     )
 
 
-def _connector_from_calendar(row: dict[str, Any] | None, context: RequestContext) -> ConnectorOut:
-    settings = get_settings()
-    return ConnectorOut(
-        id=f"google-calendar:{context.workspace_id}:{context.user_id}",
-        provider="google_calendar",
-        category="productivity",
-        name="Google Calendar",
-        owner_scope="workspace_user",
-        owner_user_id=context.user_id,
-        status=_status(row.get("status") if row else "disconnected"),
-        safe_target={"calendar_id": str(row.get("calendar_id") or settings.google_calendar_default_id) if row else settings.google_calendar_default_id, "configured": settings.google_calendar_configured, "account_label": row.get("account_label") if row else None},
-        last_tested_at=row.get("last_tested_at") if row else None,
-        last_success_at=row.get("last_success_at") if row else None,
-        last_error_at=row.get("last_error_at") if row else None,
-        last_error_code=row.get("last_error_code") if row else None,
-        created_at=row.get("created_at") if row else None,
-        updated_at=row.get("updated_at") if row else None,
-        version=int(row.get("version") or 1) if row else 1,
-        can_test=DATASET_READ in context.workspace.effective_permissions,
-        can_edit=False,
-        can_disconnect="calendar.write" in context.workspace.effective_permissions,
-    )
-
-
 @router.get("", response_model=ConnectorListResponse)
 async def list_connectors(
     include_available: bool = Query(default=True),
@@ -154,7 +130,6 @@ async def list_connectors(
     repo = get_repository()
     connectors = [_connector_from_datasource(row, context) for row in repo.list_datasource_connections(workspace_id=context.workspace_id)]
     connectors.append(_connector_from_drive(repo.get_google_drive_connection(context.workspace_id), context))
-    connectors.append(_connector_from_calendar(repo.get_google_calendar_connection(context.workspace_id, context.user_id), context))
     available = []
     if include_available:
         available = [
@@ -162,7 +137,6 @@ async def list_connectors(
             {"provider": "mongodb", "category": "data", "name": "MongoDB", "description": "Read-only collection source."},
             {"provider": "duckdb", "category": "data", "name": "DuckDB", "description": "Read-only DuckDB file on the backend."},
             {"provider": "google_drive", "category": "storage", "name": "Google Drive", "description": "Workspace dataset storage."},
-            {"provider": "google_calendar", "category": "productivity", "name": "Google Calendar", "description": "Personal calendar capability in this workspace."},
         ]
     return ConnectorListResponse(connectors=connectors, available=available)
 
@@ -175,8 +149,6 @@ async def get_connector(
     repo = get_repository()
     if connection_id == f"google-drive:{context.workspace_id}":
         return _connector_from_drive(repo.get_google_drive_connection(context.workspace_id), context)
-    if connection_id == f"google-calendar:{context.workspace_id}:{context.user_id}":
-        return _connector_from_calendar(repo.get_google_calendar_connection(context.workspace_id, context.user_id), context)
     if not connection_id.startswith("datasource:"):
         raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
     raw_id = connection_id.removeprefix("datasource:")
