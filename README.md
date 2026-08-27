@@ -453,6 +453,7 @@ trong [docs/production-supabase.md](docs/production-supabase.md).
 - [Architecture](ARCHITECTURE.md)
 - [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
 - [Evaluation v1](docs/eval_v1.md)
+- [MongoDB Atlas setup & connector](docs/mongodb-atlas-setup.md)
 - [AI benchmark](evaluations/benchmark.md)
 - [Evaluation README](evaluations/README.md)
 - [Cấu hình mẫu](.env.example)

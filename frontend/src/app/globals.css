@@ -132,6 +132,10 @@ tbody tr:hover { background: var(--surface-interactive); }
 }
 .dashboard-reports li, .history-modal-row, .top-values-wrap { background: var(--surface-muted); }
 .report-card-meta, .chart-result-meta { border-color: var(--border); }
+.datasource-help { border-color: var(--border); background: linear-gradient(135deg, var(--surface-muted), var(--surface-interactive)); }
+.datasource-help-grid > div { border-color: var(--border); }
+.datasource-help-heading a { color: var(--primary); }
+.field-hint code { color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
 
 /* Workspace chrome is a dark analytical rail in both themes. */
 .sidebar { color: #d9e3f2; background: linear-gradient(180deg, #111d34 0%, #0c172b 100%); }
@@ -1047,6 +1051,29 @@ tbody tr:hover { background: #fafcff; }
 [data-theme="dark"] .export-check-item:hover, [data-theme="dark"] .export-check-item.selected { border-color: #7187e4; background: #24365f; }
 
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.datasource-connector-panel { display: grid; gap: 18px; }
+.datasource-connector-panel .panel-title { margin-bottom: -2px; }
+.datasource-help.full { grid-column: 1 / -1; }
+.datasource-help { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid #d8e2f3; border-radius: 12px; background: linear-gradient(135deg, #f7f9ff, #f0f5ff); }
+.datasource-help-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.datasource-help-heading h3 { margin: 0; font-size: .98rem; letter-spacing: -.01em; }
+.datasource-help-heading .eyebrow { margin-bottom: 4px; color: var(--brand); font-size: .62rem; }
+.datasource-help-heading a { flex: 0 0 auto; color: var(--brand); font-size: .72rem; font-weight: 800; }
+.datasource-help > p { max-width: 760px; margin: 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
+.datasource-help-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.datasource-help-grid > div { display: grid; grid-template-columns: 25px 1fr; gap: 8px; align-items: start; min-width: 0; padding-top: 10px; border-top: 1px solid #d8e2f3; }
+.datasource-help-grid > div > span { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; color: #fff; background: var(--brand); font-size: .68rem; font-weight: 850; }
+.datasource-help-grid p { display: grid; gap: 3px; margin: 0; font-size: .72rem; }
+.datasource-help-grid small { color: var(--muted); font-size: .66rem; line-height: 1.35; }
+.datasource-uri-control { display: flex; align-items: stretch; min-width: 0; }
+.datasource-uri-control input { min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.datasource-uri-toggle { flex: 0 0 auto; min-width: 60px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.field-required { color: var(--danger, #c33e58); }
+.field-optional { color: var(--muted); font-size: .68rem; font-weight: 500; }
+.field-hint { display: block; color: var(--muted); font-size: .7rem; line-height: 1.4; }
+.field-hint code { padding: 1px 4px; border-radius: 4px; color: var(--brand); background: rgba(49, 86, 217, .08); font-size: .68rem; }
+.datasource-connector-panel > .notice { margin: 0; }
+.datasource-connector-panel > .notice select { margin-top: 4px; }
 .field { display: grid; gap: 6px; }
 .field.full { grid-column: 1 / -1; }
 .field label { font-size: .81rem; font-weight: 750; }
@@ -1813,6 +1840,9 @@ input[type="checkbox"] { width: auto; min-height: auto; }
   .scan-choice-list { grid-template-columns: 1fr; }
   .agent-review-callout { align-items: flex-start; flex-wrap: wrap; }
   .composer-hint { display: none; }
+  .datasource-help-grid { grid-template-columns: 1fr; }
+  .datasource-help-heading { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .datasource-uri-toggle { min-width: 54px; }
   .new-analysis-form-header, .new-analysis-form-content { padding-right: 18px; padding-left: 18px; }
   .new-analysis-mode-options { grid-template-columns: 1fr; }
   .new-analysis-form-footer { align-items: stretch; flex-direction: column; }
