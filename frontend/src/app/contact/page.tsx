@@ -17,7 +17,7 @@ export default function ContactPage() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "var(--pub-bg)", color: "var(--pub-ink)", fontFamily: "var(--font-sans, system-ui, sans-serif)", overflowX: "hidden" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "var(--pub-bg)", color: "var(--pub-ink)", fontFamily: "var(--font-sans, system-ui, sans-serif)", overflowX: "clip" }}>
       <PublicNavbar />
       
       <main style={{ position: "relative", padding: "80px 20px", display: "flex", justifyContent: "center", alignItems: "center" }}>

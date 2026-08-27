@@ -30,6 +30,7 @@ export default function NewDatasetPage() {
   const [busy, setBusy] = useState<"upload" | "profile" | null>(null);
   const [sourceMode, setSourceMode] = useState<"file" | "datasource">("file");
   const [savedDatasourceId, setSavedDatasourceId] = useState("");
+  const [showNewDatasource, setShowNewDatasource] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [driveStatus, setDriveStatus] = useState<GoogleDriveStatus | null>(null);
@@ -44,6 +45,14 @@ export default function NewDatasetPage() {
     enabled: authenticated && Boolean(workspaceId),
     staleTime: 30_000,
   });
+  const savedDatasourceOptions = (connectorsQuery.data?.connectors ?? []).filter((item) => item.category === "data" && item.provider === "mongodb" && item.id.startsWith("datasource:"));
+
+  useEffect(() => {
+    if (savedDatasourceId || !savedDatasourceOptions.length) return;
+    const preferred = savedDatasourceOptions.find((item) => item.status === "connected") ?? savedDatasourceOptions[0];
+    setSavedDatasourceId(preferred.id.slice("datasource:".length));
+    setSourceMode("datasource");
+  }, [savedDatasourceId, savedDatasourceOptions]);
 
   useEffect(() => {
     // React's DOM typings do not expose the non-standard directory picker
@@ -322,17 +331,18 @@ export default function NewDatasetPage() {
       {!driveStatus.connected && <p>{driveStatus.can_connect ? "Hãy chọn tài khoản Google muốn liên kết; Google Drive đó sẽ được dùng cho workspace này." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
       {!driveStatus.connected && driveStatus.can_connect && <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</LoadingButton>}
     </Notice>}
-    <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MySQL / MongoDB / DuckDB</button></div>
+    <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MongoDB Atlas</button></div>
     {sourceMode === "datasource" ? <div className="stacked-section">
       <section className="panel saved-datasource-panel">
-        <div className="panel-title"><h2>Dùng datasource đã lưu</h2><small>Credential vẫn nằm ở backend; dataset mới chỉ tham chiếu connection dùng chung.</small></div>
-        <div className="form-grid">
-          <div className="field"><label htmlFor="saved-datasource">Datasource</label><select id="saved-datasource" value={savedDatasourceId} onChange={(event) => setSavedDatasourceId(event.target.value)} disabled={busy !== null}><option value="">Chọn connection</option>{(connectorsQuery.data?.connectors ?? []).filter((item) => item.category === "data" && item.id.startsWith("datasource:")).map((item) => <option key={item.id} value={item.id.slice("datasource:".length)}>{item.name} ({item.provider})</option>)}</select></div>
+        <div className="panel-title"><h2>Dùng MongoDB Atlas đã kết nối</h2><small>Credential vẫn nằm ở backend; dataset mới chỉ tham chiếu connection dùng chung.</small></div>
+        {!!savedDatasourceOptions.length && <div className="form-grid">
+          <div className="field"><label htmlFor="saved-datasource">Datasource</label><select id="saved-datasource" value={savedDatasourceId} onChange={(event) => setSavedDatasourceId(event.target.value)} disabled={busy !== null}><option value="">Chọn connection</option>{savedDatasourceOptions.map((item) => <option key={item.id} value={item.id.slice("datasource:".length)}>{item.name}</option>)}</select></div>
           <div className="field"><label htmlFor="saved-dataset-name">Tên dataset</label><input id="saved-dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="Ví dụ: Bán hàng tháng 8" maxLength={255} disabled={busy !== null} /></div>
-        </div>
-        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!savedDatasourceId || !datasetName.trim() || busy !== null} onClick={handleUseSavedDatasource}>Dùng datasource và profiling</LoadingButton></div>
+        </div>}
+        {!savedDatasourceOptions.length && <Notice tone="info">Chưa có MongoDB Atlas nào được lưu. Hãy tạo connection mới bên dưới.</Notice>}
+        {!!savedDatasourceOptions.length && <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!savedDatasourceId || !datasetName.trim() || busy !== null} onClick={handleUseSavedDatasource}>Dùng datasource và profiling</LoadingButton><button type="button" className="button secondary" onClick={() => setShowNewDatasource((value) => !value)}>{showNewDatasource ? "Ẩn connection mới" : "Thêm MongoDB Atlas khác"}</button></div>}
       </section>
-      <DatasourceConnector />
+      {(!savedDatasourceOptions.length || showNewDatasource) && <DatasourceConnector onBack={savedDatasourceOptions.length ? () => setShowNewDatasource(false) : undefined} />}
     </div> : <div className="grid two">
       <section className="panel"><div className="panel-title"><h2>1. Chọn dữ liệu</h2><small>Chọn một, nhiều file hoặc cả thư mục</small></div>
         <div className={`drop-zone ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={fileDrop}>

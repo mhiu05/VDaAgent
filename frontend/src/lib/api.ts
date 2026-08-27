@@ -20,6 +20,7 @@ type AuthTransport = {
   accessToken: () => Promise<string | null>;
   workspaceId: () => string | null;
   refresh: () => Promise<string | null>;
+  onUnauthorized?: () => void;
 };
 
 let authTransport: AuthTransport | null = null;
@@ -129,6 +130,7 @@ async function apiFetch(path: string, init: RequestInit = {}, retried = false): 
     const refreshed = await authTransport.refresh();
     if (refreshed && refreshed !== previousToken) return apiFetch(path, init, true);
   }
+  if (response.status === 401 && !retried) authTransport?.onUnauthorized?.();
   return response;
 }
 
@@ -971,12 +973,14 @@ export type AdminUser = {
   email: string | null;
   display_name: string | null;
   role: "admin" | "analyst";
-  status: "active" | "locked";
+  status: "active" | "locked" | "deleted";
   locked_reason: string | null;
   locked_at: string | null;
   locked_by_user_id: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Present only in the immediate create-user response. */
+  invited?: boolean;
 };
 
 export type AdminUserStats = {
@@ -991,6 +995,14 @@ export type AdminUsersResponse = {
   stats: AdminUserStats;
   users: AdminUser[];
 };
+
+export function createAdminUser(payload: { email: string; password?: string; send_invite?: boolean }): Promise<AdminUser> {
+  return request<AdminUser>("/admin/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
 
 export function listAdminUsers(params?: {
   search?: string;

@@ -43,6 +43,7 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 from src.services.permissions import canonical_role
@@ -298,6 +299,7 @@ datasource_connections = Table(
     Column("name", String(255), nullable=False),
     Column("kind", String(32), nullable=False),
     Column("config_encrypted", Text, nullable=False),
+    Column("fingerprint", String(64), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("status", String(32), nullable=False, default="connected"),
@@ -307,6 +309,16 @@ datasource_connections = Table(
     Column("last_error_code", String(64), nullable=True),
     Column("deleted_at", DateTime(timezone=True), nullable=True),
     Column("version", Integer, nullable=False, default=1),
+)
+
+connector_idempotency = Table(
+    "connector_idempotency",
+    metadata,
+    Column("workspace_id", String(36), primary_key=True),
+    Column("idempotency_key", String(255), primary_key=True),
+    Column("request_hash", String(64), nullable=False),
+    Column("connection_id", String(32), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
 )
 
 profile_runs = Table(
@@ -1199,6 +1211,41 @@ class Repository:
             self._migrate_user_profile_admin_columns()
             self._migrate_upload_provenance_columns()
             self._migrate_profile_job_columns()
+            # Connector identity is required by the read path. Keep this small,
+            # additive guard for local deployments that have not run the newest
+            # Alembic revision yet; production migrations remain the source of
+            # truth and this never drops or rewrites data.
+            self._migrate_connector_columns()
+
+    def _migrate_connector_columns(self) -> None:
+        """Development/test compatibility for connector identity columns."""
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self.engine)
+        columns = {item["name"] for item in inspector.get_columns("datasource_connections")}
+        if "fingerprint" not in columns:
+            with self.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE datasource_connections ADD COLUMN fingerprint VARCHAR(64)"))
+        if not inspector.has_table("connector_idempotency"):
+            with self.engine.begin() as conn:
+                conn.execute(text(
+                    "CREATE TABLE connector_idempotency (workspace_id VARCHAR(36) NOT NULL, "
+                    "idempotency_key VARCHAR(255) NOT NULL, request_hash VARCHAR(64) NOT NULL, "
+                    "connection_id VARCHAR(32) NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL, "
+                    "PRIMARY KEY (workspace_id, idempotency_key))"
+                ))
+        indexes = {item["name"] for item in inspector.get_indexes("datasource_connections")}
+        if "uq_datasource_connections_workspace_fingerprint_active" not in indexes:
+            try:
+                with self.engine.begin() as conn:
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX uq_datasource_connections_workspace_fingerprint_active "
+                        "ON datasource_connections (workspace_id, kind, fingerprint) WHERE deleted_at IS NULL AND fingerprint IS NOT NULL"
+                    ))
+            except Exception:
+                # Existing duplicate rows are resolved by the API's survivor
+                # lookup; do not prevent local/test startup on legacy data.
+                pass
 
     def _invalidate_profile_cache(self, run_id: str) -> None:
         keys = [k for k in _FULL_PROFILE_CACHE if k.startswith(f"{run_id}:")]
@@ -1935,13 +1982,28 @@ class Repository:
         return str(uuid.uuid5(uuid.NAMESPACE_URL, "p170:legacy-workspace"))
 
     def _sync_user_profile(
-        self, conn: Any, user_id: str, email: str | None, now: datetime, role: str = "analyst"
+        self,
+        conn: Any,
+        user_id: str,
+        email: str | None,
+        now: datetime,
+        role: str = "analyst",
+        *,
+        allow_default_admin_bootstrap: bool = True,
     ) -> None:
-        """Create a local identity record or refresh its canonical email and role."""
+        """Create a local identity record and refresh only its email projection.
+
+        GLOBAL_ADMIN_EMAILS is a one-time bootstrap seed. Existing rows remain
+        authoritative so an administrator downgrade cannot be undone by login.
+        """
         normalised_email = _normalise_email(email)
         admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
-        is_default_admin = bool(normalised_email and normalised_email in admin_emails)
-        effective_role = "admin" if is_default_admin else role
+        is_default_admin = bool(
+            allow_default_admin_bootstrap
+            and normalised_email
+            and normalised_email in admin_emails
+        )
+        effective_role = "admin" if is_default_admin else canonical_role(role)
 
         profile = (
             conn.execute(
@@ -1982,13 +2044,6 @@ class Repository:
         updates: dict[str, Any] = {"updated_at": now}
         if normalised_email and profile["email"] != normalised_email:
             updates["email"] = normalised_email
-        if is_default_admin and profile.get("role") != "admin":
-            updates["role"] = "admin"
-            conn.execute(
-                workspace_memberships.update()
-                .where(workspace_memberships.c.user_id == user_id)
-                .values(role="admin", updated_at=now)
-            )
         if len(updates) > 1:
             conn.execute(
                 user_profiles.update()
@@ -1996,10 +2051,29 @@ class Repository:
                 .values(**updates)
             )
 
-    def sync_user_profile(self, user_id: str, email: str | None, role: str = "analyst") -> None:
-        """Synchronise the signed-in user's public identity from Auth."""
+    def sync_user_profile(
+        self,
+        user_id: str,
+        email: str | None,
+        role: str = "analyst",
+        *,
+        allow_default_admin_bootstrap: bool = True,
+    ) -> None:
+        """Synchronise the signed-in user's public identity from Auth.
+
+        Account creation by a System Admin can opt out of the initial
+        ``GLOBAL_ADMIN_EMAILS`` bootstrap so its requested Analyst role is
+        preserved.
+        """
         with self.engine.begin() as conn:
-            self._sync_user_profile(conn, user_id, email, _now(), role)
+            self._sync_user_profile(
+                conn,
+                user_id,
+                email,
+                _now(),
+                role,
+                allow_default_admin_bootstrap=allow_default_admin_bootstrap,
+            )
 
     def ensure_bootstrap_workspace(self, bootstrap_user_id: str) -> str:
         """Create the one deterministic legacy workspace/membership if needed."""
@@ -2842,7 +2916,7 @@ class Repository:
             ).mappings().all()
 
             total = len(all_profiles)
-            active_count = sum(1 for p in all_profiles if p.get("status") != "locked")
+            active_count = sum(1 for p in all_profiles if p.get("status") == "active")
             locked_count = sum(1 for p in all_profiles if p.get("status") == "locked")
             admin_count = sum(1 for p in all_profiles if p.get("role") == "admin")
             analyst_count = sum(1 for p in all_profiles if p.get("role") != "admin")
@@ -2899,6 +2973,18 @@ class Repository:
             values["locked_by_user_id"] = None
 
         with self.engine.begin() as conn:
+            target_role = conn.execute(
+                select(user_profiles.c.role).where(user_profiles.c.user_id == user_id)
+            ).scalar_one_or_none()
+            if status == "locked" and target_role == "admin":
+                active_admins = conn.execute(
+                    select(func.count()).select_from(user_profiles).where(
+                        user_profiles.c.role == "admin",
+                        user_profiles.c.status == "active",
+                    )
+                ).scalar_one()
+                if int(active_admins or 0) <= 1:
+                    raise ValueError("Không thể khóa System Admin cuối cùng.")
             conn.execute(
                 user_profiles.update().where(user_profiles.c.user_id == user_id).values(**values)
             )
@@ -2928,6 +3014,18 @@ class Repository:
             raise ValueError("Role chỉ có thể là analyst hoặc admin.")
         now = _now()
         with self.engine.begin() as conn:
+            current_role = conn.execute(
+                select(user_profiles.c.role).where(user_profiles.c.user_id == user_id)
+            ).scalar_one_or_none()
+            if current_role == "admin" and canonical == "analyst":
+                active_admins = conn.execute(
+                    select(func.count()).select_from(user_profiles).where(
+                        user_profiles.c.role == "admin",
+                        user_profiles.c.status == "active",
+                    )
+                ).scalar_one()
+                if int(active_admins or 0) <= 1:
+                    raise ValueError("Không thể hạ quyền System Admin cuối cùng.")
             conn.execute(
                 user_profiles.update()
                 .where(user_profiles.c.user_id == user_id)
@@ -2936,7 +3034,7 @@ class Repository:
             conn.execute(
                 workspace_memberships.update()
                 .where(workspace_memberships.c.user_id == user_id)
-                .values(role=canonical, updated_at=now)
+                .values(role="analyst", updated_at=now)
             )
             row = conn.execute(
                 select(user_profiles).where(user_profiles.c.user_id == user_id)
@@ -2956,7 +3054,7 @@ class Repository:
             }
 
     def delete_user_account(self, user_id: str, actor_user_id: str) -> dict[str, Any]:
-        """Permanently delete a user account and associated memberships/invitations."""
+        """Delete access and associated data while retaining a deny tombstone."""
         if user_id == actor_user_id:
             raise ValueError("Bạn không thể tự xóa tài khoản của chính mình.")
 
@@ -2971,10 +3069,15 @@ class Repository:
             if not profile:
                 raise LookupError("Không tìm thấy tài khoản người dùng.")
 
-            email = profile.get("email")
-            admin_emails = self.settings.get_global_admin_emails() if hasattr(self.settings, "get_global_admin_emails") else set()
-            if email and email.strip().casefold() in admin_emails:
-                raise ValueError("Không thể xóa tài khoản Quản trị viên mặc định của hệ thống.")
+            if profile.get("role") == "admin":
+                active_admins = conn.execute(
+                    select(func.count()).select_from(user_profiles).where(
+                        user_profiles.c.role == "admin",
+                        user_profiles.c.status == "active",
+                    )
+                ).scalar_one()
+                if int(active_admins or 0) <= 1:
+                    raise ValueError("Không thể xóa System Admin cuối cùng.")
 
             # Delete memberships
             conn.execute(
@@ -2993,9 +3096,13 @@ class Repository:
                 )
             )
 
-            # Delete user profile
+            # Keep a tombstone so an already-issued JWT cannot recreate an
+            # account through the login-time profile sync path.  Protected
+            # dependencies reject every status other than ``active``.
             conn.execute(
-                user_profiles.delete().where(user_profiles.c.user_id == user_id)
+                user_profiles.update()
+                .where(user_profiles.c.user_id == user_id)
+                .values(status="deleted", updated_at=_now())
             )
 
         # Best-effort removal from Supabase Auth if configured
@@ -3394,26 +3501,110 @@ class Repository:
         name: str,
         kind: str,
         config_encrypted: str,
+        fingerprint: str | None = None,
     ) -> str:
-        with self.engine.begin() as conn:
-            conn.execute(
-                datasource_connections.insert().values(
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    datasource_connections.insert().values(
                     id=connection_id,
                     workspace_id=workspace_id,
                     created_by_user_id=created_by_user_id,
                     name=name,
                     kind=kind,
                     config_encrypted=config_encrypted,
+                    fingerprint=fingerprint,
                     created_at=_now(),
                     updated_at=_now(),
                     status="connected",
                     last_success_at=_now(),
+                    )
                 )
-            )
+        except IntegrityError:
+            if fingerprint:
+                existing = self.find_datasource_by_fingerprint(workspace_id=workspace_id, kind=kind, fingerprint=fingerprint)
+                if existing:
+                    return str(existing["id"])
+            raise
         return connection_id
+
+    def find_datasource_by_fingerprint(self, *, workspace_id: str, kind: str, fingerprint: str) -> dict[str, Any] | None:
+        self.dedupe_datasource_connections(workspace_id=workspace_id)
+        with self.engine.begin() as conn:
+            row = conn.execute(select(datasource_connections).where(
+                datasource_connections.c.workspace_id == workspace_id,
+                datasource_connections.c.kind == kind,
+                datasource_connections.c.fingerprint == fingerprint,
+                datasource_connections.c.deleted_at.is_(None),
+            ).order_by(datasource_connections.c.updated_at.desc())).mappings().first()
+            return dict(row) if row else None
+
+    def dedupe_datasource_connections(self, *, workspace_id: str) -> None:
+        """Backfill identities and merge exact active duplicates atomically."""
+        from src.services.datasource import connector_fingerprint, decrypt_config
+
+        with self.engine.begin() as conn:
+            rows = [dict(row) for row in conn.execute(select(datasource_connections).where(
+                datasource_connections.c.workspace_id == workspace_id,
+                datasource_connections.c.deleted_at.is_(None),
+            )).mappings().all()]
+            groups: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                fingerprint = row.get("fingerprint")
+                if not fingerprint:
+                    try:
+                        fingerprint = connector_fingerprint(str(row["kind"]), decrypt_config(str(row["config_encrypted"])))
+                    except Exception:
+                        continue
+                    row["_computed_fingerprint"] = fingerprint
+                groups.setdefault(str(fingerprint), []).append(row)
+            for members in groups.values():
+                if len(members) < 2:
+                    continue
+                # Prefer the connector referenced by the most datasets, then
+                # the one with the latest health/update timestamp.
+                counts = {str(item["id"]): int(conn.execute(select(func.count()).select_from(datasets).where(datasets.c.datasource_connection_id == item["id"])) .scalar_one()) for item in members}
+                survivor = max(members, key=lambda item: (counts[str(item["id"])], item.get("last_success_at") or item.get("updated_at") or item.get("created_at")))
+                survivor_id = str(survivor["id"])
+                # Retire losers before assigning the unique fingerprint, so a
+                # legacy duplicate set cannot violate the partial index.
+                for duplicate in members:
+                    duplicate_id = str(duplicate["id"])
+                    if duplicate_id == survivor_id:
+                        continue
+                    conn.execute(datasets.update().where(datasets.c.datasource_connection_id == duplicate_id).values(datasource_connection_id=survivor_id))
+                    conn.execute(datasource_connections.update().where(datasource_connections.c.id == duplicate_id).values(deleted_at=_now(), status="disconnected", updated_at=_now(), version=datasource_connections.c.version + 1))
+                conn.execute(datasource_connections.update().where(datasource_connections.c.id == survivor_id).values(fingerprint=str(survivor.get("_computed_fingerprint") or survivor.get("fingerprint"))))
+            for row in rows:
+                if row.get("_computed_fingerprint") and len(groups.get(str(row.get("_computed_fingerprint")), [])) == 1:
+                    conn.execute(datasource_connections.update().where(datasource_connections.c.id == row["id"]).values(fingerprint=row["_computed_fingerprint"]))
+
+    def get_connector_idempotency(self, *, workspace_id: str, key: str, request_hash: str) -> str | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(select(connector_idempotency).where(
+                connector_idempotency.c.workspace_id == workspace_id,
+                connector_idempotency.c.idempotency_key == key,
+            )).mappings().first()
+            if not row:
+                return None
+            if str(row["request_hash"]) != request_hash:
+                raise ValueError("idempotency_key_reused")
+            return str(row["connection_id"])
+
+    def save_connector_idempotency(self, *, workspace_id: str, key: str, request_hash: str, connection_id: str) -> bool:
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(connector_idempotency.insert().values(
+                    workspace_id=workspace_id, idempotency_key=key,
+                    request_hash=request_hash, connection_id=connection_id, created_at=_now(),
+                ))
+            return True
+        except IntegrityError:
+            return False
 
     def list_datasource_connections(self, *, workspace_id: str) -> list[dict[str, Any]]:
         """List active datasource connections without decrypting configuration."""
+        self.dedupe_datasource_connections(workspace_id=workspace_id)
         with self.engine.begin() as conn:
             rows = conn.execute(
                 select(
@@ -3459,6 +3650,7 @@ class Repository:
         name: str | None = None,
         kind: str | None = None,
         config_encrypted: str | None = None,
+        fingerprint: str | None = None,
         expected_version: int | None = None,
     ) -> dict[str, Any] | None:
         values: dict[str, Any] = {"updated_at": _now()}
@@ -3468,6 +3660,8 @@ class Repository:
             values["kind"] = kind
         if config_encrypted is not None:
             values.update({"config_encrypted": config_encrypted, "status": "connected", "last_error_code": None})
+        if fingerprint is not None:
+            values["fingerprint"] = fingerprint
         with self.engine.begin() as conn:
             query = datasource_connections.update().where(
                 datasource_connections.c.id == connection_id,

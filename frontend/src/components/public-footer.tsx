@@ -28,6 +28,8 @@ export function PublicFooter() {
           </div>
           <div className="pub-footer-col">
             <h4>Khác</h4>
+            <Link href="/privacy">Privacy Policy</Link>
+            <Link href="/terms">Terms of Service</Link>
             <Link href="/contact">Liên hệ</Link>
           </div>
         </div>

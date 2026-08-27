@@ -20,8 +20,8 @@ export default function WorkspaceManagePage() {
   const client = useQueryClient();
   const allowed = can(me?.effective_permissions, PERMISSIONS.workspaceMembersManage);
   const [email, setEmail] = useState("");
-  const members = useQuery({ queryKey: ["workspace-members", me?.workspace.id], queryFn: listWorkspaceMembers, enabled: allowed });
-  const invitations = useQuery({ queryKey: ["workspace-invitations", me?.workspace.id], queryFn: listWorkspaceInvitations, enabled: allowed });
+  const members = useQuery({ queryKey: ["workspace-members", me?.workspace?.id], queryFn: listWorkspaceMembers, enabled: allowed });
+  const invitations = useQuery({ queryKey: ["workspace-invitations", me?.workspace?.id], queryFn: listWorkspaceInvitations, enabled: allowed });
   const refresh = async () => {
     await Promise.all([
       client.invalidateQueries({ queryKey: ["workspace-members"] }),
@@ -48,7 +48,7 @@ export default function WorkspaceManagePage() {
   }
 
   return <main className="page workspace-manage-page">
-    <PageHeader eyebrow="WORKSPACE SETTINGS" title="Quản lý workspace" description={`Quản lý thành viên và lời mời trong “${me.workspaces.find((item) => item.id === me.workspace.id)?.name ?? "workspace hiện tại"}”. Tất cả thành viên dùng role Analyst.`} action={<Link className="button secondary" href="/workspaces">← Danh sách workspace</Link>} />
+    <PageHeader eyebrow="WORKSPACE SETTINGS" title="Quản lý workspace" description={`Quản lý thành viên và lời mời trong “${me.workspaces.find((item) => item.id === me.workspace?.id)?.name ?? "workspace hiện tại"}”. Tất cả thành viên dùng role Analyst.`} action={<Link className="button secondary" href="/workspaces">← Danh sách workspace</Link>} />
     <section className="panel workspace-members-panel">
       <div className="workspace-section-heading"><div><p className="eyebrow">MEMBERS</p><h2>Thành viên workspace</h2><p className="muted">Mỗi thành viên có cùng quyền Analyst; bạn chỉ cần quản lý trạng thái hoạt động.</p></div><span className="workspace-count">{members.data?.members.length ?? 0} thành viên</span></div>
       {members.isPending && <LoadingBlock label="Đang tải thành viên…" />}

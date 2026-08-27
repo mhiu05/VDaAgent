@@ -83,8 +83,9 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
   đó xem, tạo, chỉnh sửa và hủy lịch hẹn qua FastAPI; Calendar không còn được
   expose như MCP tool.
 - Admin system: đăng nhập bằng cùng giao diện `/login`, sau đó truy cập
-  `/admin` nếu có system role `admin`; có thể xem, tìm kiếm, khóa/mở khóa,
-  đổi role `analyst`/`admin` và xóa tài khoản người dùng.
+  `/admin` nếu có system role `admin`; có thể tạo Analyst bằng mật khẩu hoặc
+  gửi Supabase email invite, xem, tìm kiếm, khóa/mở khóa, đổi role
+  `analyst`/`admin` và xóa tài khoản người dùng.
 - Guest trial: chỉ hiển thị và bắt đầu khi đồng thời bật `AUTH_ALLOW_GUEST` ở
   backend và `NEXT_PUBLIC_AUTH_ALLOW_GUEST` ở frontend; dữ liệu nằm trong
   storage/retention policy riêng và không thay thế workspace production.
@@ -123,12 +124,17 @@ bundle lúc build, nên đổi cờ auth phải build/restart frontend mới có
 Hệ thống có hai khái niệm cần phân biệt:
 
 - **System role:** lưu ở `user_profiles.role`, hiện có `analyst` và `admin`.
-  `admin` nhận toàn bộ quyền Analyst cộng quyền quản trị tài khoản và hệ
-  thống. Các email trong `GLOBAL_ADMIN_EMAILS` được nâng role admin khi profile
-  được đồng bộ; admin hiện hữu cũng có thể đổi role qua API admin.
+  `admin` chỉ nhận quyền quản trị tài khoản/hệ thống. Các email trong
+  `GLOBAL_ADMIN_EMAILS` chỉ seed role khi profile mới được tạo; trạng thái DB là
+  authority sau đó.
 - **Workspace membership role:** membership workspace hiện chuẩn hóa về
-  `analyst`. System admin được overlay thành effective admin khi backend tạo
-  request context. Việc mời thành viên workspace không tự cấp system admin.
+  `analyst`. System admin không được overlay thành workspace admin và không
+  inherit Analyst capabilities. Việc mời thành viên workspace không tự cấp
+  system admin.
+- **Account status:** mọi request của permanent account mang bearer JWT đều kiểm tra
+  `user_profiles.status` ở backend. `locked` và `deleted` bị từ chối ngay cả
+  khi JWT chưa hết hạn; chỉ account Analyst đang active mới có thể nhận invite
+  hoặc provision workspace.
 
 Các route frontend chính:
 
@@ -337,7 +343,7 @@ hợp, trừ health/system route được đánh dấu public.
 | Charts/Explorer | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms`, Preview và promote endpoints |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, `/trace`, `/evidence`, `/plan` |
 | Reports | Draft, `POST /reports/{report_id}/items`, snapshot, submit, review, publish, archive và `GET /reports/{report_id}/export-source` |
-| Admin | `GET /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
+| Admin | `GET/POST /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback và `DELETE /google-drive/connection` |
 | Google Calendar | status, OAuth connect/callback/disconnect và list/create/update/delete event endpoints |
 
@@ -447,6 +453,7 @@ trong [docs/production-supabase.md](docs/production-supabase.md).
 - [Architecture](ARCHITECTURE.md)
 - [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
 - [Evaluation v1](docs/eval_v1.md)
+- [MongoDB Atlas setup & connector](docs/mongodb-atlas-setup.md)
 - [AI benchmark](evaluations/benchmark.md)
 - [Evaluation README](evaluations/README.md)
 - [Cấu hình mẫu](.env.example)

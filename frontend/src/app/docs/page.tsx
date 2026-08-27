@@ -1,5 +1,6 @@
 import { PublicNavbar } from "@/components/public-navbar";
 import { PublicFooter } from "@/components/public-footer";
+import { DocsTableOfContents } from "@/components/docs-table-of-contents";
 
 export const metadata = { title: "Tài liệu - VDaAgent" };
 
@@ -19,15 +20,7 @@ export default function DocsPage() {
         </section>
 
         <section className="pub-container pub-docs-layout" style={{ marginTop: "0" }}>
-          <aside className="pub-docs-sidebar" style={{ top: "120px" }}>
-            <h4>Khái niệm</h4>
-            <a href="#data-quality">Data Quality</a>
-            <a href="#statistical">Thống kê (Statistical)</a>
-            <a href="#semantic">Kiểu dữ liệu (Semantic)</a>
-            
-            <h4>Hệ thống</h4>
-            <a href="#system">VDaAgent Concepts</a>
-          </aside>
+          <DocsTableOfContents />
           
           <div className="pub-docs-article">
             <h2 id="data-quality">1. Data Quality & Profiling (Chất lượng Dữ liệu)</h2>

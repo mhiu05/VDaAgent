@@ -175,7 +175,7 @@ class SupabaseJWTVerifier:
                 algorithms=list(self.settings.auth_jwt_algorithms),
                 audience=self.settings.auth_audience,
                 issuer=self.settings.auth_issuer,
-                leeway=60,
+                leeway=self.settings.auth_jwt_leeway_seconds,
                 options={"require": ["exp", "sub", "role"], "verify_iss": False},
             )
         except InvalidTokenError as exc:

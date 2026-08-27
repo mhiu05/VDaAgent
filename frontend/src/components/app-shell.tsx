@@ -40,7 +40,6 @@ function accountInitials(email: string | null) {
 }
 
 const adminNavigation = [
-  { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
   { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
   { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản Admin và đổi mật khẩu.", permission: PERMISSIONS.userAccountsRead },
 ] as const;
@@ -71,7 +70,7 @@ const analystNavigation = [
     icon: "briefcase",
     children: [
       { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo, chỉnh sửa và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
-      { href: "/activity", label: "Hoạt động", icon: "◷", description: "Xem lịch sử thao tác trong workspace để kiểm tra và audit.", permission: PERMISSIONS.workspaceAuditRead },
+      { href: "/activity", label: "Thông báo", icon: "◷", description: "Xem cập nhật về kết nối, lịch hẹn, profiling và cảnh báo workspace.", permission: PERMISSIONS.workspaceAuditRead },
     ]
   },
   {
@@ -98,7 +97,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
   const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
-  const isAdmin = Boolean(me?.workspace.role === "admin" || can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
+  const isAdmin = Boolean(me?.user && can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
   const roleNavigation = isAdmin ? adminNavigation : analystNavigation;
 
   useEffect(() => {
@@ -215,7 +214,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isPublicPage || isAuthPage || !me) return;
-    if (isAdmin && (pathname === "/datasets" || pathname === "/workspaces" || pathname === "/charts" || pathname === "/compare" || pathname === "/reports" || pathname === "/activity")) {
+    if (isAdmin && ["/dashboard", "/datasets", "/workspaces", "/charts", "/compare", "/reports", "/activity", "/chat", "/profiles", "/connectors", "/calendar", "/settings"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
       router.replace("/admin");
       return;
     }
