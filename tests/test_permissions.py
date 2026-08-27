@@ -2,8 +2,6 @@
 
 from src.services.permissions import (
     AGENT_TRACE_DEBUG_READ,
-    CALENDAR_READ,
-    CALENDAR_WRITE,
     QA_PUBLISHED_ASK,
     REPORT_ARCHIVE,
     REPORT_PUBLISH,
@@ -38,8 +36,6 @@ def test_analyst_has_the_complete_workspace_flow() -> None:
         WORKSPACE_MEMBERS_MANAGE,
         WORKSPACE_SETTINGS_MANAGE,
         WORKSPACE_STORAGE_CONNECT,
-        CALENDAR_READ,
-        CALENDAR_WRITE,
     }
     assert expected <= analyst
 

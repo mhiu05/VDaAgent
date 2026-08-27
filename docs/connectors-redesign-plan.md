@@ -4,7 +4,7 @@ Thiết kế lại `/connectors` thành Integration Center gọn và dễ thao t
 
 ## Scope
 - In: audit dữ liệu/API hiện tại; dedupe datasource MongoDB (và các datasource khác theo cùng nguyên tắc); idempotency và unique constraint; redesign `/connectors` cards, provider picker, detail dialog và connection wizard; giữ hành vi test/save/disconnect và luồng dùng connector ở `/datasets/new`; accessibility, responsive UI và kiểm thử hồi quy.
-- Out: thay đổi cách materialize/profiling datasource; thêm provider mới ngoài catalog hiện có; thay đổi OAuth/storage/calendar backend ngoài phần hiển thị trạng thái và deep-link cần thiết.
+- Out: thay đổi cách materialize/profiling datasource; thêm provider mới ngoài catalog hiện có; thay đổi OAuth/storage backend ngoài phần hiển thị trạng thái và deep-link cần thiết.
 
 ## Action items
 [ ] Kiểm tra và chốt dữ liệu trùng: đối chiếu `frontend/src/app/connectors/page.tsx`, `frontend/src/components/datasource-connector.tsx`, `backend/src/api/connector_routes.py` và `backend/src/services/repository.py`; lập báo cáo các row cùng workspace/kind/cấu hình chuẩn hóa, xác định bản ghi giữ lại theo health mới nhất, thời gian cập nhật và số dataset đang tham chiếu.
@@ -15,7 +15,7 @@ Thiết kế lại `/connectors` thành Integration Center gọn và dễ thao t
 [ ] Refactor `ConnectorCard` thành tile compact có icon, tên, category, trạng thái, target đã che credential và một primary action; toàn bộ card phải là button/link có keyboard support, không render URI/password/token, và không làm mất các action test, edit/reconnect, use as dataset, disconnect.
 [ ] Thêm `ConnectorDetailDialog`/sheet cho thao tác khi click card: hiển thị safe target, owner scope, dataset count, last tested/success/error và action phù hợp; dùng focus trap, đóng bằng Escape/overlay, restore focus, `aria-live` cho kết quả test/save và full-screen sheet trên mobile.
 [ ] Thêm `ConnectionWizard` dùng lại form provider: luồng `Configure → Test → Save → Ready`; chọn provider từ popup “Add connector”, mở form MongoDB với URI/database/collection/filter cần thiết, giữ secret trong state tạm thời và không ghi localStorage/URL; `DatasourceConnector` tiếp tục là compatibility wrapper cho `/datasets/new` nhưng không tự profiling trong Connector Center.
-[ ] Cập nhật React Query/cache và contract types: invalidate sau save/test/disconnect/merge, loại bỏ card cũ ngay sau workspace switch, cập nhật `frontend/src/lib/api.ts` và generated schema nếu response/error contract thay đổi; giữ deep-link `/datasets/new` và `/calendar` hoạt động.
+[ ] Cập nhật React Query/cache và contract types: invalidate sau save/test/disconnect/merge, loại bỏ card cũ ngay sau workspace switch, cập nhật `frontend/src/lib/api.ts` và generated schema nếu response/error contract thay đổi; giữ deep-link `/datasets/new` hoạt động.
 [ ] Kiểm thử và nghiệm thu: backend unit/integration cho canonicalization, migration/backfill, workspace isolation, idempotency/race, merge và `connection_in_use`; Vitest cho grouping/card/dialog/wizard/status/error; Playwright mocked-provider cho click card → popup → test/save, duplicate MongoDB chỉ còn một card, retry không tạo row mới, responsive/keyboard/dark-light; chạy `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:e2e`, `pnpm build` và pytest liên quan.
 
 ## Open questions

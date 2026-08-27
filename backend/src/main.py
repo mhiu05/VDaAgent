@@ -11,7 +11,6 @@ ngôn ngữ tự nhiên.
 
 from __future__ import annotations
 
-from src.api.calendar_routes import router as calendar_router
 from src.api.connector_routes import router as connector_router
 import logging
 import re
@@ -84,9 +83,6 @@ _ROUTE_TEMPLATE_RULES: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"^/api/v1/connectors/[^/]+/test$", "/connectors/{id}/test"),
         (r"^/api/v1/connectors/[^/]+$", "/connectors/{id}"),
         (r"^/api/v1/connectors(/.*)?$", "/connectors"),
-        (r"^/api/v1/calendar/events/[^/]+$", "/calendar/events/{id}"),
-        (r"^/api/v1/calendar/events$", "/calendar/events"),
-        (r"^/api/v1/calendar(/.*)?$", "/calendar"),
     )
 )
 
@@ -106,7 +102,6 @@ def _request_correlation_id(request: Request) -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
-    app.include_router(calendar_router, prefix='/api/v1')
     """Khởi tạo DB và báo phần cấu hình còn thiếu.
 
     Production intentionally has no local persistence bootstrap: datasets,

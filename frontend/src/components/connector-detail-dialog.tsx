@@ -4,11 +4,10 @@ import { useEffect, useRef, type MouseEvent } from "react";
 import type { Connector } from "@/lib/api";
 import { LoadingButton, Notice } from "@/components/ui";
 
-const labels: Record<string, string> = { mysql: "MySQL", mongodb: "MongoDB", duckdb: "DuckDB", google_drive: "Google Drive", google_calendar: "Google Calendar" };
+const labels: Record<string, string> = { mysql: "MySQL", mongodb: "MongoDB", duckdb: "DuckDB", google_drive: "Google Drive" };
 
 function target(connector: Connector): string {
   const value = connector.safe_target;
-  if (connector.provider === "google_calendar") return String(value.account_label || "Google Calendar cá nhân");
   if (connector.provider === "google_drive") return value.configured ? "Storage workspace" : "Chưa cấu hình OAuth";
   if (connector.provider === "mysql" || connector.provider === "mongodb") return [value.host, value.database].filter(Boolean).join(" · ") || "Datasource đã lưu";
   return String(value.file || "DuckDB trên backend");
@@ -53,7 +52,6 @@ export function ConnectorDetailDialog({ connector, onClose, onTest, onDisconnect
       <div className="form-actions">
         {connector.can_test && connector.category === "data" && <LoadingButton className="button primary" type="button" busy={busy === `test:${connector.id}`} disabled={busy !== null} onClick={() => onTest(connector.id)}>Kiểm tra kết nối</LoadingButton>}
         {connector.category === "data" && <a className="button secondary" href="/datasets/new">Dùng cho dataset</a>}
-        {connector.provider === "google_calendar" && <a className="button secondary" href="/calendar">Mở Calendar</a>}
         {connector.provider === "google_drive" && <a className="button secondary" href="/datasets/new">Dùng cho upload</a>}
         {connector.can_disconnect && <LoadingButton className="button danger" type="button" busy={busy === `delete:${connector.id}`} disabled={busy !== null} onClick={() => onDisconnect(connector.id)}>Ngắt kết nối</LoadingButton>}
       </div>

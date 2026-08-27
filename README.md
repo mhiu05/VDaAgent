@@ -79,9 +79,6 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
   biến và xuất PDF/JSON. Snapshot là nguồn chính thức để chia sẻ.
 - Workspace: tạo, archive/restore, thành viên, invitation, cấu hình AI/nghiệp
   vụ, theme, compute/statistics, PII policy và audit activity.
-- Google Calendar tại `/calendar`: Analyst kết nối OAuth theo workspace, sau
-  đó xem, tạo, chỉnh sửa và hủy lịch hẹn qua FastAPI; Calendar không còn được
-  expose như MCP tool.
 - Admin system: đăng nhập bằng cùng giao diện `/login`, sau đó truy cập
   `/admin` nếu có system role `admin`; có thể tạo Analyst bằng mật khẩu hoặc
   gửi Supabase email invite, xem, tìm kiếm, khóa/mở khóa, đổi role
@@ -142,7 +139,7 @@ Các route frontend chính:
 | --- | --- |
 | Public | `/`, `/about`, `/guide`, `/docs`, `/contact` |
 | Auth | `/login`, `/signup`, `/forgot-password`, `/auth/callback`, `/account/update-password` |
-| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/calendar`, `/activity`, `/settings`, `/account` |
+| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/activity`, `/settings`, `/account` |
 | System admin | `/admin`, `/account` |
 | PDF/health | `/api/reports/profile/{runId}`, `/health` |
 
@@ -308,7 +305,6 @@ Các biến cần chú ý:
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` cho trace đã redact |
 | `LANGSMITH_*` | Projection metadata-only tùy chọn, chỉ cấu hình server-side |
 | `GOOGLE_DRIVE_*` | OAuth/storage tùy chọn cho Google Drive |
-| `GOOGLE_CALENDAR_*` | OAuth, encryption key, callback và timezone cho Calendar; chỉ cấu hình server-side |
 
 ## Quan sát AI và evaluation
 
@@ -345,7 +341,6 @@ hợp, trừ health/system route được đánh dấu public.
 | Reports | Draft, `POST /reports/{report_id}/items`, snapshot, submit, review, publish, archive và `GET /reports/{report_id}/export-source` |
 | Admin | `GET/POST /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback và `DELETE /google-drive/connection` |
-| Google Calendar | status, OAuth connect/callback/disconnect và list/create/update/delete event endpoints |
 
 PDF report đi qua route cùng origin của Next.js:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
@@ -449,7 +444,6 @@ trong [docs/production-supabase.md](docs/production-supabase.md).
 ## Tài liệu liên quan
 
 - [Technical summary](docs/summary.md)
-- [Google Calendar integration guide](docs/google-calendar-mcp.md) (HTTP API; tài liệu MCP cũ)
 - [Architecture](ARCHITECTURE.md)
 - [Azure CI/CD và triển khai](docs/azure-deploy-cicd.md)
 - [Evaluation v1](docs/eval_v1.md)
