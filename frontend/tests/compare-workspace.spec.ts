@@ -11,17 +11,12 @@ test("analyst compares two completed Profile Runs through the drift API", async 
       { id: "dataset-current", name: "Sales February", source_type: "file", source_ref: null, collection_name: null, last_profiled_at: null },
     ]),
   }));
-  await page.route("**/api/v1/datasets/dataset-base/runs", (route) => route.fulfill({
+  await page.route("**/api/v1/runs**", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify([
-      { id: "baseline-run", dataset_id: "dataset-base", run_name: "January full scan", version: 1, status: "completed", scan_mode: "full", row_count: 100, is_approximate: false, created_at: "2026-01-12T10:00:00Z" },
-      { id: "pending-run", dataset_id: "dataset-base", run_name: "Pending scan", version: 2, status: "running", scan_mode: "sample", row_count: null, is_approximate: false, created_at: "2026-02-01T10:00:00Z" },
-    ]),
-  }));
-  await page.route("**/api/v1/datasets/dataset-current/runs", (route) => route.fulfill({
-    contentType: "application/json",
-    body: JSON.stringify([
-      { id: "current-run", dataset_id: "dataset-current", run_name: "February full scan", version: 1, status: "completed", scan_mode: "full", row_count: 120, is_approximate: false, created_at: "2026-02-12T10:00:00Z" },
+      { id: "baseline-run", dataset_id: "dataset-base", dataset_name: "Sales January", run_name: "January full scan", version: 1, status: "completed", scan_mode: "full", row_count: 100, is_approximate: false, created_at: "2026-01-12T10:00:00Z" },
+      { id: "pending-run", dataset_id: "dataset-base", dataset_name: "Sales January", run_name: "Pending scan", version: 2, status: "running", scan_mode: "sample", row_count: null, is_approximate: false, created_at: "2026-02-01T10:00:00Z" },
+      { id: "current-run", dataset_id: "dataset-current", dataset_name: "Sales February", run_name: "February full scan", version: 1, status: "completed", scan_mode: "full", row_count: 120, is_approximate: false, created_at: "2026-02-12T10:00:00Z" },
     ]),
   }));
   await page.route("**/api/v1/profile/current-run/drift", async (route) => {

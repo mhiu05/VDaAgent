@@ -28,7 +28,10 @@ function ProfileOverview() {
   const { runId } = useParams<{ runId: string }>();
   const profile = useQuery({
     queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
-    refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 300 : false,
+    refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 1_000 : false,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
   });
   if (profile.isLoading) return <LoadingBlock label="Đang tải báo cáo profile…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;

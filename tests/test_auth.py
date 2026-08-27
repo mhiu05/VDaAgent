@@ -10,8 +10,11 @@ import jwt
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+# pyrefly: ignore [missing-import]
 from src.api import authz_routes, dependencies
+# pyrefly: ignore [missing-import]
 from src.config import Settings
+# pyrefly: ignore [missing-import]
 from src.services.auth import AuthContext, JWTVerificationError, SupabaseJWTVerifier
 
 

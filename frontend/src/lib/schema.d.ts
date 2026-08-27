@@ -1870,6 +1870,8 @@ export interface components {
             id: string;
             /** Dataset Id */
             dataset_id: string;
+            /** Dataset Name */
+            dataset_name?: string | null;
             /** Run Name */
             run_name?: string | null;
             /** Version */

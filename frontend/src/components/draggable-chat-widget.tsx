@@ -5,9 +5,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { listDatasets, listAllRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
-import type { AnswerSource } from "@/lib/types";
+import { useQuery } from "@tanstack/react-query";
+import { listAllRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
+import type { AnswerSource, ProfileRunSummary } from "@/lib/types";
 import { createConversation, getConversation, getConversationSnapshot, updateConversationSnapshot, listConversations, type ChatConversation, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
 import { profileRunOptionLabel } from "@/components/profile-run-picker";
@@ -20,6 +20,7 @@ const starters = [
 ];
 const WIDGET_SIZE = 56;
 const WIDGET_MARGIN = 16;
+type ProfileRunGroup = { dataset: { id: string; name: string }; runs: ProfileRunSummary[] };
 
 function clampWidgetPosition(position: { x: number; y: number }, viewportWidth: number, viewportHeight: number) {
   return {
@@ -103,13 +104,8 @@ export function DraggableChatWidget({
   }, [messages, isThinking, isOpen, viewMode]);
 
   // A single Profile Run selector is easier to use than making the analyst
-  // choose a dataset first. Fetch runs in parallel only after the drawer opens.
-  const datasetsQuery = useQuery({
-    queryKey: ["datasets"],
-    queryFn: ({ signal }) => listDatasets(signal),
-    staleTime: 60_000,
-    gcTime: 10 * 60_000,
-  });
+  // choose a dataset first. The runs endpoint includes dataset metadata, so
+  // opening the drawer needs only one request.
   const allRunsQuery = useQuery({
     queryKey: ["runs", "all"],
     queryFn: ({ signal }) => listAllRuns(signal),
@@ -117,22 +113,20 @@ export function DraggableChatWidget({
     staleTime: 60_000,
     gcTime: 10 * 60_000,
   });
-  const profileRunGroups = useMemo(() => {
-    if (!datasetsQuery.data || !allRunsQuery.data) return [];
-    const runsByDataset = new Map<string, any[]>();
-    allRunsQuery.data.forEach((run) => {
-      if (run.status === "completed") {
-        const list = runsByDataset.get(run.dataset_id) || [];
-        list.push(run);
-        runsByDataset.set(run.dataset_id, list);
-      }
-    });
-    return datasetsQuery.data.map((dataset) => ({
-      dataset,
-      runs: runsByDataset.get(dataset.id) || [],
-    })).filter((group) => group.runs.length > 0);
-  }, [datasetsQuery.data, allRunsQuery.data]);
-  const profileRunsLoading = isOpen && (datasetsQuery.isPending || allRunsQuery.isPending);
+  const profileRunGroups = useMemo<ProfileRunGroup[]>(() => {
+    const groups = new Map<string, ProfileRunGroup>();
+    for (const run of allRunsQuery.data ?? []) {
+      if (run.status !== "completed" || !run.dataset_name) continue;
+      const group = groups.get(run.dataset_id) ?? {
+        dataset: { id: run.dataset_id, name: run.dataset_name },
+        runs: [],
+      };
+      group.runs.push(run);
+      groups.set(run.dataset_id, group);
+    }
+    return [...groups.values()];
+  }, [allRunsQuery.data]);
+  const profileRunsLoading = isOpen && allRunsQuery.isPending;
 
   // If path is a profile run, try to pre-select it
   useEffect(() => {
@@ -768,82 +762,45 @@ export function DraggableChatWidget({
                   fontSize: "0.75rem",
                 }}
               >
-                <label style={{ display: "block", color: "#475569", marginBottom: "4px", fontWeight: 600 }}>
+                <label htmlFor="widget-profile-run" style={{ display: "block", color: "#475569", marginBottom: "4px", fontWeight: 600 }}>
                   Profile Run dùng làm evidence
                 </label>
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <select
-                    id="widget-dataset"
-                    value={selectedDatasetId}
-                    onChange={(e) => {
-                      const newDatasetId = e.target.value;
-                      setSelectedDatasetId(newDatasetId);
-                      setSelectedRunId(""); // Reset run when dataset changes
-                      if (activeConversationId) {
-                        const snap = getConversationSnapshot(activeConversationId);
-                        if (snap) {
-                          updateConversationSnapshot(activeConversationId, {
-                            ...snap,
-                            datasetId: newDatasetId,
-                            profileRunId: null,
-                          });
-                        }
+                <select
+                  id="widget-profile-run"
+                  value={selectedRunId}
+                  onChange={(e) => {
+                    const newRunId = e.target.value;
+                    const newRun = profileRunGroups.flatMap((group) => group.runs.map((run) => ({ ...run, datasetId: group.dataset.id }))).find((run) => run.id === newRunId);
+                    setSelectedRunId(newRunId);
+                    setSelectedDatasetId(newRun?.datasetId || "");
+                    if (activeConversationId) {
+                      const snap = getConversationSnapshot(activeConversationId);
+                      if (snap) {
+                        updateConversationSnapshot(activeConversationId, {
+                          ...snap,
+                          datasetId: newRun?.datasetId || null,
+                          profileRunId: newRunId || null,
+                        });
                       }
-                    }}
-                    disabled={profileRunsLoading}
-                    style={{
-                      flex: 1,
-                      width: "50%",
-                      padding: "7px 9px",
-                      borderRadius: "6px",
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "0.78rem",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    <option value="">Chọn Dataset…</option>
-                    {profileRunsLoading && <option value="" disabled>Đang tải…</option>}
-                    {profileRunGroups.map((group) => (
-                      <option key={group.dataset.id} value={group.dataset.id}>{group.dataset.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    id="widget-profile-run"
-                    value={selectedRunId}
-                    onChange={(e) => {
-                      const newRunId = e.target.value;
-                      setSelectedRunId(newRunId);
-                      if (activeConversationId) {
-                        const snap = getConversationSnapshot(activeConversationId);
-                        if (snap) {
-                          updateConversationSnapshot(activeConversationId, {
-                            ...snap,
-                            profileRunId: newRunId,
-                          });
-                        }
-                      }
-                    }}
-                    disabled={profileRunsLoading || !selectedDatasetId}
-                    style={{
-                      flex: 1,
-                      width: "50%",
-                      padding: "7px 9px",
-                      borderRadius: "6px",
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      border: "1px solid #cbd5e1",
-                      fontSize: "0.78rem",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    <option value="">Chọn phiên bản…</option>
-                    {profileRunGroups.find(g => g.dataset.id === selectedDatasetId)?.runs.map((run) => (
-                      <option key={run.id} value={run.id}>{profileRunOptionLabel(run)}</option>
-                    ))}
-                  </select>
-                </div>
+                    }
+                  }}
+                  disabled={profileRunsLoading}
+                  style={{
+                    width: "100%",
+                    padding: "7px 9px",
+                    borderRadius: "6px",
+                    background: "#ffffff",
+                    color: "#0f172a",
+                    border: "1px solid #cbd5e1",
+                    fontSize: "0.78rem",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  <option value="">{profileRunsLoading ? "Đang tải…" : "Chọn Profile Run đã hoàn tất…"}</option>
+                  {profileRunGroups.flatMap((group) => group.runs.map((run) => (
+                    <option key={run.id} value={run.id}>{group.dataset.name} — {profileRunOptionLabel(run)}</option>
+                  )))}
+                </select>
                 {!profileRunsLoading && !profileRunGroups.length && <small style={{ display: "block", marginTop: "5px", color: "#64748b" }}>Workspace chưa có Profile Run hoàn tất để Agent sử dụng.</small>}
               </div>
 

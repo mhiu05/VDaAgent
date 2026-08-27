@@ -1701,6 +1701,7 @@ async def list_runs(
         ProfileRunSummary(
             **{
                 **run,
+                "dataset_name": run.get("dataset_name"),
                 "version": run.get("version") or None,
                 "error": run.get("error") or run.get("job_error_message"),
             }
@@ -1723,6 +1724,7 @@ async def list_all_runs(
         ProfileRunSummary(
             **{
                 **run,
+                "dataset_name": run.get("dataset_name"),
                 "version": run.get("version") or None,
                 "error": run.get("error") or run.get("job_error_message"),
             }

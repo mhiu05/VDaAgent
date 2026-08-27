@@ -6,8 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DraggableChatWidget } from "./draggable-chat-widget";
 
 const api = vi.hoisted(() => ({
-  listDatasets: vi.fn(),
-  listRuns: vi.fn(),
+  listAllRuns: vi.fn(),
   streamQuestion: vi.fn(),
 }));
 const navigation = vi.hoisted(() => ({ pathname: "/dashboard" }));
@@ -26,7 +25,7 @@ vi.mock("@/lib/chat-history", () => ({
 vi.mock("@/components/answer-sources", () => ({ AnswerSources: () => null }));
 
 const dataset = { id: "dataset-a", name: "Doanh thu", source_type: "file", source_ref: null, collection_name: null, last_profiled_at: null };
-const run = { id: "run-a", dataset_id: dataset.id, run_name: "Tháng 1", version: 1, status: "completed", scan_mode: "full", row_count: 100, is_approximate: false, created_at: "2026-01-12T10:00:00Z" };
+const run = { id: "run-a", dataset_id: dataset.id, dataset_name: dataset.name, run_name: "Tháng 1", version: 1, status: "completed", scan_mode: "full", row_count: 100, is_approximate: false, created_at: "2026-01-12T10:00:00Z" };
 
 function renderWidget() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -44,11 +43,9 @@ describe("DraggableChatWidget", () => {
     navigation.pathname = "/dashboard";
     localStorage.clear();
     Element.prototype.scrollIntoView = vi.fn();
-    api.listDatasets.mockReset();
-    api.listRuns.mockReset();
+    api.listAllRuns.mockReset();
     api.streamQuestion.mockReset();
-    api.listDatasets.mockResolvedValue([dataset]);
-    api.listRuns.mockResolvedValue([run]);
+    api.listAllRuns.mockResolvedValue([run]);
   });
 
   it("opens from the floating logo and needs only a completed Profile Run", async () => {

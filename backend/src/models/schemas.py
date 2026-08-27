@@ -549,6 +549,7 @@ class ProfileRunSummary(BaseModel):
 
     id: str
     dataset_id: str
+    dataset_name: str | None = None
     run_name: str | None = None
     version: int | None = None
     status: str

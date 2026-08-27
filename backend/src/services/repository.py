@@ -43,7 +43,6 @@ from sqlalchemy import (
 from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
 from sqlalchemy.engine import Engine, make_url
-from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 from src.services.permissions import canonical_role
@@ -4679,6 +4678,39 @@ class Repository:
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
 
+    def get_profile_context(
+        self, run_id: str, *, workspace_id: str | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Load a run and its dataset in one tenant-scoped query.
+
+        ``full_profile`` needs both records for every profile page. Keeping the
+        join here removes one round trip and lets all remaining aggregate reads
+        start together.
+        """
+        dataset_columns = [
+            column.label(f"_dataset_{column.name}") for column in datasets.c
+        ]
+        query = (
+            select(profile_runs, *dataset_columns)
+            .select_from(
+                profile_runs.join(
+                    datasets, profile_runs.c.dataset_id == datasets.c.id
+                )
+            )
+            .where(profile_runs.c.id == run_id)
+        )
+        if workspace_id is not None:
+            query = query.where(profile_runs.c.workspace_id == workspace_id)
+        with self.engine.begin() as conn:
+            row = conn.execute(query).mappings().first()
+        if not row:
+            return None
+        run = {key: row[key] for key in profile_runs.c.keys()}
+        dataset = {
+            column.name: row[f"_dataset_{column.name}"] for column in datasets.c
+        }
+        return run, dataset
+
     def list_profile_runs(
         self,
         dataset_id: str | None = None,
@@ -4687,7 +4719,14 @@ class Repository:
         workspace_id: str | None = None,
     ) -> list[dict[str, Any]]:
         query = (
-            select(profile_runs).order_by(profile_runs.c.created_at.desc()).limit(limit)
+            select(profile_runs, datasets.c.name.label("dataset_name"))
+            .select_from(
+                profile_runs.join(
+                    datasets, profile_runs.c.dataset_id == datasets.c.id
+                )
+            )
+            .order_by(profile_runs.c.created_at.desc())
+            .limit(limit)
         )
         if workspace_id is not None:
             query = query.where(profile_runs.c.workspace_id == workspace_id)
@@ -4969,18 +5008,19 @@ class Repository:
 
         import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            future_run = executor.submit(self.get_profile_run, run_id, workspace_id=workspace_id)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_context = executor.submit(
+                self.get_profile_context, run_id, workspace_id=workspace_id
+            )
             future_proposals = executor.submit(self.get_proposals, run_id)
             future_stats = executor.submit(self.column_stats_rows, run_id)
             future_test = executor.submit(self.get_test_results, run_id)
             future_drift = executor.submit(self.get_drift_reports, run_id)
 
-            run = future_run.result()
-            if not run:
+            context = future_context.result()
+            if not context:
                 return None
-
-            future_dataset = executor.submit(self.get_dataset, run["dataset_id"], workspace_id=workspace_id)
+            run, dataset = context
             proposals = future_proposals.result()
             stats = future_stats.result()
             
@@ -5000,7 +5040,7 @@ class Repository:
 
             result = {
                 "run": run,
-                "dataset": future_dataset.result(),
+                "dataset": dataset,
                 "column_stats": stats,
                 "proposals": proposals,
                 "pending_proposals": pending_proposals,

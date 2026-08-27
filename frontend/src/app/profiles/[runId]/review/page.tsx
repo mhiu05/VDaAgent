@@ -52,7 +52,14 @@ export default function ReviewPage() {
   const { me, isGuest } = useAuth();
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const reviewRequestKey = useRef<string | null>(null);
-  const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
+  const profile = useQuery({
+    queryKey: ["profile", runId],
+    queryFn: ({ signal }) => getProfile(runId, signal),
+    enabled: Boolean(runId),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+  });
   const pending = useMemo(
     () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
       .filter((proposal) => proposal.status === "pending")

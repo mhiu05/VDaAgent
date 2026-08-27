@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from typing import Any
 
 from src.agents.prompts import (
@@ -119,6 +121,26 @@ _SUMMARY_INTENT = re.compile(
     r"(?:tóm tắt|tổng quan|chất lượng dữ liệu|data quality|quality summary)",
     re.IGNORECASE,
 )
+
+
+def _run_tools_parallel(
+    run_id: str, calls: list[tuple[str, dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    """Run independent deterministic tools concurrently while preserving trace scope."""
+    with ThreadPoolExecutor(max_workers=len(calls)) as executor:
+        futures = [
+            executor.submit(
+                copy_context().run,
+                run_tool,
+                name,
+                args,
+                profile_run_id=run_id,
+            )
+            for name, args in calls
+        ]
+        return [future.result() for future in futures]
+
+
 _CANDIDATE_KEY_INTENT = re.compile(
     r"(?:candidate[ _-]*key|khóa ứng viên|khoá ứng viên)", re.IGNORECASE
 )
@@ -393,9 +415,12 @@ def _deterministic_profile_answer(
     ):
         pii_args = {"limit": 20}
         missing_args = {"limit": 20}
-        pii_result = run_tool("get_pii_assessment", pii_args, profile_run_id=run_id)
-        missing_result = run_tool(
-            "get_missingness_patterns", missing_args, profile_run_id=run_id
+        pii_result, missing_result = _run_tools_parallel(
+            run_id,
+            [
+                ("get_pii_assessment", pii_args),
+                ("get_missingness_patterns", missing_args),
+            ],
         )
         pii_rows = _tool_data(pii_result).get("pii") or []
         missing_rows = _tool_data(missing_result).get("per_column") or []
@@ -437,11 +462,14 @@ def _deterministic_profile_answer(
     issue_args = {"limit": 20}
     warning_args: dict[str, Any] = {}
     governance_args: dict[str, Any] = {}
-    overview_result = run_tool("get_profile_overview", overview_args, profile_run_id=run_id)
-    issues_result = run_tool("list_quality_issues", issue_args, profile_run_id=run_id)
-    warnings_result = run_tool("get_risk_warnings", warning_args, profile_run_id=run_id)
-    governance_result = run_tool(
-        "get_governance_summary", governance_args, profile_run_id=run_id
+    overview_result, issues_result, warnings_result, governance_result = _run_tools_parallel(
+        run_id,
+        [
+            ("get_profile_overview", overview_args),
+            ("list_quality_issues", issue_args),
+            ("get_risk_warnings", warning_args),
+            ("get_governance_summary", governance_args),
+        ],
     )
     overview = _tool_data(overview_result)
     issues = _tool_data(issues_result).get("issues") or []
