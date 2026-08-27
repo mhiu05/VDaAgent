@@ -4873,7 +4873,7 @@ class Repository:
                 "test_results": future_test.result(),
                 "drift_reports": future_drift.result(),
             }
-        _FULL_PROFILE_CACHE[cache_key] = (time.time() + 60, result)
+        _FULL_PROFILE_CACHE[cache_key] = (time.time() + 300, result)
         return result
 
     def profile_summary_text(

@@ -34,10 +34,20 @@ export default function ChartsPage() {
     queryKey: ["profile", runId],
     queryFn: ({ signal }) => getProfile(runId, signal),
     enabled: Boolean(runId),
+    retry: 1,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     placeholderData: (previousData) => previousData,
   });
+
+  useEffect(() => {
+    if (profile.isError && runId) {
+      setRunId("");
+      try {
+        localStorage.removeItem("p170_selected_chart_run_id");
+      } catch {}
+    }
+  }, [profile.isError, runId]);
 
   // Start the two chart-specific requests as soon as a run is known. ChartsTab
   // observes these exact keys, so it reuses the in-flight request (or cache)

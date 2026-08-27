@@ -379,8 +379,9 @@ export default function ReportPage() {
   const reportQuery = useQuery({
     queryKey: ["report-export-source", params.reportId],
     queryFn: () => getReportExportSource(params.reportId),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    placeholderData: (previousData) => previousData,
   });
 
   const addFindingMutation = useMutation({
