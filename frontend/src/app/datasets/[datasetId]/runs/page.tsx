@@ -80,6 +80,9 @@ export default function DatasetRunsPage() {
   }
 
   return <>
+    <div className="dataset-runs-back">
+      <Link href="/datasets" className="button secondary profile-back-link"><span aria-hidden="true">←</span><span>Quay lại bộ dữ liệu</span></Link>
+    </div>
     <PageHeader
       eyebrow="Lịch sử profiling"
       title="Các profile run"

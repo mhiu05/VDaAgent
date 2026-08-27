@@ -869,7 +869,7 @@ export function reorderReportDraft(reportId: string, itemIds: string[], expected
   });
 }
 
-export function updateReportDraftItem(reportId: string, itemId: string, payload: { title?: string; note?: string }): Promise<ReportDraft> {
+export function updateReportDraftItem(reportId: string, itemId: string, payload: { title?: string; note?: string; content_json?: any }): Promise<ReportDraft> {
   return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
   });

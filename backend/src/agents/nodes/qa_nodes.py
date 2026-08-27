@@ -22,7 +22,6 @@ from typing import Any
 from src.agents.prompts import (
     BASE_RULES,
     CLARIFY_PROMPT,
-    QA_ROUTER_PROMPT,
     QA_STRUCTURED_PROMPT,
     QA_VECTOR_PROMPT,
 )
@@ -607,37 +606,12 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
         heuristic = "quantitative"
     else:
         heuristic = (
-            "quantitative" if any(h in lowered for h in _QUANTITATIVE_HINTS) else None
+            "quantitative"
+            if any(h in lowered for h in _QUANTITATIVE_HINTS)
+            else "qualitative"
         )
 
     question_type = heuristic
-    if question_type is None:
-        try:
-            llm = get_llm()
-            history = _conversation_context(state)
-            response = invoke_model(
-                llm,
-                [
-                    {"role": "system", "content": QA_ROUTER_PROMPT},
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {"question": question, "conversation_history": history},
-                            ensure_ascii=False,
-                        ),
-                    },
-                ],
-                prompt_id="qa_router",
-            )
-            label = response_text(response).strip().lower()
-            question_type = (
-                label
-                if label in {"quantitative", "qualitative", "clarify"}
-                else "qualitative"
-            )
-        except (LLMNotConfiguredError, Exception):  # noqa: BLE001
-            # Không có LLM: mặc định định tính (hybrid search vẫn chạy offline).
-            question_type = "qualitative"
 
     return {
         "question": question,
@@ -1009,17 +983,29 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         }
 
     index = get_index()
-    profile_hits = (
-        index.search(
+    profile_where = {"knowledge_type": "profile_report", "profile_run_id": run_id}
+    if run_id:
+        # A selected run normally maps to one bounded profile document. Avoid
+        # a remote Voyage embedding round-trip on the hot path; semantic search
+        # remains the fallback when lexical matching finds nothing.
+        profile_hits = index.search(
             question,
             top_k=settings.retrieval_profile_top_k,
             candidate_k=settings.retrieval_candidate_k,
-            where={"knowledge_type": "profile_report", "profile_run_id": run_id},
+            where=profile_where,
             workspace_id=workspace_id,
+            dense=False,
         )
-        if run_id
-        else []
-    )
+        if not profile_hits:
+            profile_hits = index.search(
+                question,
+                top_k=settings.retrieval_profile_top_k,
+                candidate_k=settings.retrieval_candidate_k,
+                where=profile_where,
+                workspace_id=workspace_id,
+            )
+    else:
+        profile_hits = []
     knowledge_hits = []
     # A profile-scoped question must be answered by that profile only.  An
     # opt-in knowledge base remains available for conceptual questions without
@@ -1107,7 +1093,8 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
     sources = [_source_for_hit(hit, f"S{i + 1}") for i, hit in enumerate(bounded_hits)]
 
     try:
-        llm = get_llm()
+        stream_callback = state.get("stream_callback")
+        llm = get_llm(streaming=callable(stream_callback))
         response = invoke_model(
             llm,
             [
@@ -1133,6 +1120,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
                 },
             ],
             prompt_id="qa_vector",
+            on_token=stream_callback,
         )
         answer = _guard_answer(response_text(response))
     except LLMNotConfiguredError:

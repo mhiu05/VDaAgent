@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { clearSupabaseLocalSession, getSupabaseBrowserClient } from "@/lib/auth/client";
-import { cleanupGuestSession, fetchApiWithLocalFallback, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
+import { cleanupGuestSession, fetchApiWithLocalFallback, listAllRuns, listDatasets, provisionSelfSignup, setApiAuthTransport } from "@/lib/api";
 import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
 import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
 import { requestedSignupRole } from "@/lib/auth/onboarding";
@@ -362,6 +362,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsGuest(Boolean(guestSession));
         setGuestRole(guestSession?.role ?? null);
         setChatHistoryScope(payload.user.id, selected, Boolean(guestSession));
+        if (selected) {
+          // Warm the two shared catalogs after the shell is usable. Navigation
+          // to Datasets, Chat, Compare and the chat drawer can then reuse the
+          // cache instead of starting a fresh request on every feature switch.
+          window.setTimeout(() => {
+            void queryClient.fetchQuery({
+              queryKey: ["datasets"],
+              queryFn: ({ signal }) => listDatasets(signal),
+              staleTime: 60_000,
+            }).then((datasets) => {
+              queryClient.setQueryData(["chat-datasets"], datasets);
+            });
+            void queryClient.fetchQuery({
+              queryKey: ["runs", "all"],
+              queryFn: ({ signal }) => listAllRuns(signal),
+              staleTime: 60_000,
+            }).then((runs) => {
+              queryClient.setQueryData(["compare", selected, "runs", "all"], runs);
+            });
+          }, 150);
+        }
         return true;
       } catch (reason) {
         if (sequence !== loadSequence.current) return false;

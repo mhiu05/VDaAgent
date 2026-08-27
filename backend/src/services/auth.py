@@ -58,6 +58,9 @@ class AuthContext:
     aal: str | None
     raw_claims: dict[str, Any]
     authentication_method: str = "supabase"
+    # Request-local authoritative application profile, populated after the
+    # backend validates the bearer identity. Never read from JWT metadata.
+    profile: dict[str, Any] | None = None
 
     @property
     def is_legacy(self) -> bool:

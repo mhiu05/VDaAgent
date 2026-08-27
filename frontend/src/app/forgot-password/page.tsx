@@ -53,7 +53,7 @@ export default function ForgotPasswordPage() {
         </section>
         <section className="auth-card panel" aria-labelledby="forgot-title">
           <div className="auth-card-heading">
-            <p className="eyebrow">VDaAgent Account</p>
+            <p className="eyebrow">TÀI KHOẢN VDaAgent</p>
             <h2 id="forgot-title">Đặt lại mật khẩu</h2>
             <p>Nhập email liên kết với tài khoản của bạn.</p>
           </div>

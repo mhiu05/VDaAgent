@@ -27,7 +27,7 @@ export function AnswerSources({ sources }: { sources?: AnswerSource[] }) {
             return (
               <div className="answer-source-card profile" id={`citation-${citationKey}`} key={citationKey}>
                 <div className="answer-source-header">
-                  <span className="answer-source-badge profile">[{citationKey}] Profile Evidence</span>
+                  <span className="answer-source-badge profile">[{citationKey}] Bằng chứng hồ sơ</span>
                   <span className="answer-source-name">📊 {source.dataset_name || "Bộ dữ liệu"}</span>
                 </div>
               </div>
@@ -69,7 +69,7 @@ export function AnswerSources({ sources }: { sources?: AnswerSource[] }) {
           return (
             <div className="answer-source-card tool" key={`${source.tool}-${source.status}-${idx}`}>
               <div className="answer-source-header">
-                <span className="answer-source-badge tool">⚡ Tool Evidence</span>
+                <span className="answer-source-badge tool">⚡ Bằng chứng công cụ</span>
                 <span className="answer-source-name">{source.tool} · {source.status}</span>
               </div>
             </div>

@@ -9,7 +9,6 @@ from __future__ import annotations
 import ast
 import re
 from functools import lru_cache
-import re
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -169,6 +168,7 @@ def get_llm(streaming: bool = False) -> BaseChatModel:
             model=settings.llm_model,
             google_api_key=settings.llm_api_key,
             temperature=settings.llm_temperature,
+            streaming=streaming,
             max_retries=2,
         )
 

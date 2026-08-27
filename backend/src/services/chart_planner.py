@@ -120,6 +120,34 @@ def _mentions(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _requested_top_limit(question: str, default: int = 15) -> int:
+    """Return the explicit Top-N requested by the analyst, bounded for execution."""
+
+    text = _plain(question)
+    match = re.search(r"\btop\s*(\d{1,2})\b", text)
+    if not match:
+        return default
+    return min(max(int(match.group(1)), 1), 50)
+
+
+def _localized_rationale(
+    rationale: str, problem: ProblemType, x_column: str | None, y_column: str | None
+) -> str:
+    """Keep planning feedback legible even if the provider returns ASCII-only text."""
+
+    if re.search(r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]", rationale.casefold()):
+        return rationale.strip()
+    if problem == "relationship":
+        return f"Chọn biểu đồ phân tán để kiểm tra mối quan hệ giữa “{x_column or 'biến số thứ nhất'}” và “{y_column or 'biến số thứ hai'}”."
+    if problem in {"trend", "forecast"}:
+        return f"Chọn biểu đồ đường để theo dõi sự thay đổi của “{y_column or 'giá trị'}” theo thời gian."
+    if problem == "ranking":
+        return f"Chọn biểu đồ cột để xếp hạng các nhóm theo “{x_column or 'nhóm dữ liệu'}”."
+    if problem == "distribution":
+        return f"Chọn biểu đồ phân phối để xem đặc điểm của “{y_column or 'cột số'}”."
+    return f"Chọn biểu đồ phù hợp để phân tích “{y_column or x_column or 'dữ liệu đã chọn'}” theo câu hỏi của bạn."
+
+
 def _tokenize_name(name: str) -> set[str]:
     """Extract lowercase alphanumeric word tokens from a column name or string."""
     plain = _plain(name)
@@ -385,13 +413,17 @@ def _fallback_candidate(
         problem: ProblemType = "forecast"
     elif times and _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time", "lich su", "timeline")):
         problem: ProblemType = "trend"
+    elif _mentions(text, ("tang theo", "ty le thuan", "ty le voi", "in proportion", "proportionally")):
+        # Explicit proportionality is a relationship question, not a
+        # composition/share question, even though both may contain "proportion".
+        problem = "relationship"
     elif _mentions(text, ("missing", "null", "thieu du lieu", "du lieu thieu", "cardinality", "unique", "trung lap", "outlier chart", "ty le outlier", "outlier theo cot", "missing_bar", "missing_heatmap", "chat luong")):
         problem = "quality"
     elif _mentions(text, ("ty trong", "co cau", "thanh phan", "chiem bao nhieu", "pie", "donut", "phan tram", "ty le phan tram", "share", "proportion", "breakdown")):
         problem = "composition"
     elif _mentions(text, ("phan phoi", "phan bo", "histogram", "tan suat", "box plot", "violin", "outlier", "ngoai le", "boxplot", "do lech", "khoang gia tri")):
         problem = "distribution"
-    elif _mentions(text, ("tuong quan", "moi quan he", "quan he", "lien he", "anh huong", "relationship", "correlation", "scatter", "heatmap", "ma tran")):
+    elif _mentions(text, ("tuong quan", "moi quan he", "quan he", "lien he", "anh huong", "tang theo", "ty le thuan", "ty le voi", "in proportion", "proportionally", "relationship", "correlation", "scatter", "heatmap", "ma tran")):
         problem = "relationship"
     elif _mentions(text, ("top ", "cao nhat", "thap nhat", "nhieu nhat", "it nhat", "dan dau", "xep hang", "ranking", "leaderboard", "hang dau", "bar chart", "bieu do cot", "cot")):
         problem = "ranking"
@@ -524,6 +556,40 @@ def _fallback_candidate(
     )
 
 
+def chart_planning_rejection_reason(
+    question: str, context: dict[str, Any], column_stats: dict[str, Any]
+) -> str | None:
+    """Return a user-facing reason when the available data cannot support a chart."""
+
+    dimensions = list(context.get("dimensions") or [])
+    measures = list(context.get("measures") or [])
+    times = _time_columns(context, column_stats)
+    text = _plain(question)
+    if not dimensions and not measures:
+        return "Profile chưa có cột phân loại hoặc cột số đã được duyệt. Hãy xác nhận ngữ nghĩa dữ liệu trước."
+
+    asks_for_time = _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time", "lich su", "timeline", "forecast", "du bao"))
+    asks_for_relationship = _mentions(text, ("tuong quan", "moi quan he", "quan he", "lien he", "anh huong", "tang theo", "ty le thuan", "ty le voi", "in proportion", "proportionally", "relationship", "correlation", "scatter"))
+    asks_for_distribution = _mentions(text, ("phan phoi", "phan bo", "histogram", "tan suat", "box plot", "violin", "boxplot", "do lech", "khoang gia tri"))
+    if asks_for_time and not times:
+        return "Câu hỏi cần phân tích theo thời gian, nhưng profile chưa có cột ngày/thời gian đã được duyệt."
+    if asks_for_relationship and len(measures) < 2:
+        return "Câu hỏi cần so sánh mối quan hệ, nhưng profile cần tối thiểu hai cột số (measure) khác nhau."
+    if asks_for_distribution and not measures:
+        return "Biểu đồ phân phối cần ít nhất một cột số (measure), nhưng profile hiện chưa có."
+
+    inferred = _fallback_candidate(question, context, column_stats)
+    if inferred.problem in {"trend", "forecast"} and not times:
+        return "Câu hỏi cần phân tích theo thời gian, nhưng profile chưa có cột ngày/thời gian đã được duyệt."
+    if inferred.problem == "relationship" and len(measures) < 2:
+        return "Câu hỏi cần so sánh mối quan hệ, nhưng profile cần tối thiểu hai cột số (measure) khác nhau."
+    if inferred.problem == "distribution" and not measures:
+        return "Biểu đồ phân phối cần ít nhất một cột số (measure), nhưng profile hiện chưa có."
+    if inferred.problem in {"ranking", "compare", "composition", "geographic"} and not dimensions:
+        return "Câu hỏi cần chia dữ liệu theo nhóm, nhưng profile chưa có cột phân loại (dimension) đã được duyệt."
+    return None
+
+
 def build_chart_plan(
     question: str,
     context: dict[str, Any],
@@ -632,7 +698,9 @@ def build_chart_plan(
         chart_type = algorithm  # type: ignore[assignment]
 
     # Visualization Recommendation Engine Override
-    rationale = proposed.rationale
+    rationale = _localized_rationale(
+        proposed.rationale, problem, x_column, y_column
+    )
     cardinality = 0
     if x_column and x_column in column_stats:
         cardinality = column_stats[x_column].get("cardinality", 0)
@@ -659,6 +727,8 @@ def build_chart_plan(
     elif problem == "ranking" and chart_type != "bar":
         chart_type = "bar"
         rationale += " (Hệ thống xác nhận Ranking intent ưu tiên dùng Bar chart)."
+
+    ranking_limit = _requested_top_limit(question)
 
     if problem == "forecast":
         query = {
@@ -755,7 +825,7 @@ def build_chart_plan(
             "filters": filters,
             "time_grain": time_grain,
             "bins": 12,
-            "limit": 50,
+            "limit": ranking_limit if problem == "ranking" else 50,
             "sort": "asc" if problem == "trend" else "desc",
         }
 
@@ -895,4 +965,9 @@ def build_auto_profile_pack(
     return plans
 
 
-__all__ = ["ChartPlanCandidate", "build_auto_profile_pack", "build_chart_plan"]
+__all__ = [
+    "ChartPlanCandidate",
+    "build_auto_profile_pack",
+    "build_chart_plan",
+    "chart_planning_rejection_reason",
+]

@@ -35,20 +35,36 @@ export default function DatasetsPage() {
   const canDeleteDataset = can(me?.effective_permissions, PERMISSIONS.datasetDelete);
   const deletion = useMutation({
     mutationFn: deleteDataset,
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["datasets"] });
-      toast.success("Dataset đã được xóa.");
+    onMutate: async (id: string) => {
+      await client.cancelQueries({ queryKey: ["datasets"] });
+      const previousDatasets = client.getQueryData<any[]>(["datasets"]);
+      if (previousDatasets) {
+        client.setQueryData<any[]>(["datasets"], previousDatasets.filter((d) => d.id !== id));
+      }
+      return { previousDatasets };
+    },
+    onError: (err, id, context) => {
+      if (context?.previousDatasets) {
+        client.setQueryData(["datasets"], context.previousDatasets);
+      }
+      toast.error("Không thể xóa bộ dữ liệu.");
+    },
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: ["datasets"] });
+    },
+    onSuccess: () => {
+      toast.success("Bộ dữ liệu đã được xóa thành công.");
     },
   });
   function removeDataset(id: string, name: string) {
-    if (window.confirm(`Xóa dataset "${name}" và toàn bộ lịch sử profiling? Hành động này không thể hoàn tác.`)) deletion.mutate(id);
+    if (window.confirm(`Xóa bộ dữ liệu "${name}" và toàn bộ lịch sử lập hồ sơ? Hành động này không thể hoàn tác.`)) deletion.mutate(id);
   }
   return <>
-    <PageHeader eyebrow="Không gian dữ liệu" title="Bộ dữ liệu" description="Quản lý các nguồn dữ liệu đã được profiling. Chỉ metadata và thống kê đã được phê duyệt được hiển thị." action={<Link href="/datasets/new" className="button primary">+ Bộ dữ liệu mới</Link>} />
+    <PageHeader eyebrow="KHÔNG GIAN DỮ LIỆU" title="Bộ dữ liệu" description="Quản lý các nguồn dữ liệu đã được lập hồ sơ. Chỉ siêu dữ liệu và thống kê đã được phê duyệt được hiển thị." action={<Link href="/datasets/new" className="button primary">+ Bộ dữ liệu mới</Link>} />
     {datasets.isLoading && <LoadingBlock />}
     {datasets.isError && <ErrorNotice error={datasets.error} retry={() => datasets.refetch()} />}
     {deletion.isError && <ErrorNotice error={deletion.error} retry={() => deletion.reset()} />}
-    {datasets.data?.length === 0 && <EmptyState title="Chưa có bộ dữ liệu" detail="Tải lên CSV, TSV, Parquet hoặc JSON để Agent tạo hồ sơ dữ liệu đầu tiên." action={<Link href="/datasets/new" className="button primary">Tải dataset lên</Link>} />}
-    {!!datasets.data?.length && <section className="panel"><div className="panel-title"><h2>Bộ dữ liệu đã profiling</h2><small>{datasets.data.length} nguồn dữ liệu</small></div><div className="table-wrap"><table><thead><tr><th>Tên bộ dữ liệu</th><th>Nguồn</th><th>Lần profiling gần nhất</th><th aria-label="Thao tác" /></tr></thead><tbody>{datasets.data.map((dataset) => <tr key={dataset.id}><td><b>{dataset.name}</b>{dataset.collection_name && <><br /><span className="dataset-collection-tag">Bộ: {dataset.collection_name}</span></>}<br /><small className="muted">{dataset.id}</small></td><td>{dataset.source_type || "file"}</td><td>{dataset.latest_run_status ? <><StatusBadge status={dataset.latest_run_status} /><br /><small>{profileStatusHint(dataset.latest_run_status, dataset.latest_run_error)}</small>{dataset.latest_run_status === "completed" && <><br /><small>{formatDate(dataset.last_profiled_at)}</small></>}</> : dataset.last_profiled_at ? formatDate(dataset.last_profiled_at) : <span className="muted">Chưa chạy</span>}</td><td><div className="inline-actions"><Link className="button secondary" href={`/datasets/${dataset.id}/runs`}>Xem các lần Profiling</Link>{canDeleteDataset && <LoadingButton className="button danger" busy={deletion.isPending && deletion.variables === dataset.id} disabled={deletion.isPending} onClick={() => removeDataset(dataset.id, dataset.name)}>{deletion.isPending && deletion.variables === dataset.id ? "Đang xóa…" : "Xóa"}</LoadingButton>}</div></td></tr>)}</tbody></table></div></section>}
+    {datasets.data?.length === 0 && <EmptyState title="Chưa có bộ dữ liệu" detail="Tải lên CSV, TSV, Parquet hoặc JSON để trợ lý AI tạo hồ sơ dữ liệu đầu tiên." action={<Link href="/datasets/new" className="button primary">Tải bộ dữ liệu lên</Link>} />}
+    {!!datasets.data?.length && <section className="panel"><div className="panel-title"><h2>Bộ dữ liệu đã lập hồ sơ</h2><small>{datasets.data.length} nguồn dữ liệu</small></div><div className="table-wrap"><table><thead><tr><th>Tên bộ dữ liệu</th><th>Nguồn</th><th>Lần lập hồ sơ gần nhất</th><th aria-label="Thao tác" /></tr></thead><tbody>{datasets.data.map((dataset) => <tr key={dataset.id}><td><b>{dataset.name}</b>{dataset.collection_name && <><br /><span className="dataset-collection-tag">Bộ: {dataset.collection_name}</span></>}<br /><small className="muted">{dataset.id}</small></td><td>{dataset.source_type || "tệp"}</td><td>{dataset.latest_run_status ? <><StatusBadge status={dataset.latest_run_status} /><br /><small>{profileStatusHint(dataset.latest_run_status, dataset.latest_run_error)}</small>{dataset.latest_run_status === "completed" && <><br /><small>{formatDate(dataset.last_profiled_at)}</small></>}</> : dataset.last_profiled_at ? formatDate(dataset.last_profiled_at) : <span className="muted">Chưa chạy</span>}</td><td><div className="inline-actions"><Link className="button secondary" href={`/datasets/${dataset.id}/runs`}>Xem các lần lập hồ sơ</Link>{canDeleteDataset && <LoadingButton className="button danger" busy={deletion.isPending && deletion.variables === dataset.id} disabled={deletion.isPending} onClick={() => removeDataset(dataset.id, dataset.name)}>{deletion.isPending && deletion.variables === dataset.id ? "Đang xóa…" : "Xóa"}</LoadingButton>}</div></td></tr>)}</tbody></table></div></section>}
   </>;
 }

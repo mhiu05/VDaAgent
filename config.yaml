@@ -46,6 +46,7 @@ stats:
 
 retrieval:
   index_dir: ./data/index
+  index_refresh_seconds: 5
   top_k: 5
   candidate_k: 20
   embedding_provider: voyage

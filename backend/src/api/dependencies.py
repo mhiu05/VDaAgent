@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated, Any, Callable
 
 from fastapi import Depends, Header, HTTPException, status
@@ -11,7 +11,6 @@ from src.services.auth import AuthContext, authenticate_bearer
 from src.services.permissions import (
     canonical_role,
     canonical_workspace_role,
-    permissions_for_role,
     system_permissions_for_role,
     workspace_permissions_for_role,
 )
@@ -85,6 +84,8 @@ def require_active_profile(
     """
     if user.is_guest or user.is_legacy:
         return None
+    if user.profile is not None:
+        return user.profile
 
     repository = repo or get_repository()
     profile = repository.get_user_profile(user.user_id)
@@ -100,12 +101,30 @@ async def get_active_user(
     user: Annotated[AuthContext, Depends(get_current_user)],
 ) -> AuthContext:
     """Authenticate and fail closed against the current account record."""
-    if not user.is_guest and not user.is_legacy:
-        # This refreshes only the identity projection. Stored role/status stay
-        # authoritative inside ``sync_user_profile``.
-        get_repository().sync_user_profile(user.user_id, user.email)
-    require_active_profile(user)
-    return user
+    if user.is_guest or user.is_legacy:
+        return user
+
+    # Read once first. The previous flow always performed a write transaction
+    # in ``sync_user_profile`` and then immediately read the same profile
+    # again, adding a needless round trip to every workspace request. Email is
+    # only an identity projection; role/status remain authoritative in this
+    # database record.
+    repo = get_repository()
+    profile = repo.get_user_profile(user.user_id)
+    if profile and (profile.get("email") or "").casefold() != (user.email or "").casefold():
+        repo.sync_user_profile(user.user_id, user.email)
+        profile = repo.get_user_profile(user.user_id)
+    elif not profile:
+        # First sign-in still creates the local identity record, then reads it
+        # back so the active/locked check remains fail-closed.
+        repo.sync_user_profile(user.user_id, user.email)
+        profile = repo.get_user_profile(user.user_id)
+    if not profile or str(profile.get("status", "active")) != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản đã bị khóa hoặc vô hiệu hóa.",
+        )
+    return replace(user, profile=profile)
 
 
 async def get_active_analyst_user(

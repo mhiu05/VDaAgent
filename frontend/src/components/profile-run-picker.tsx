@@ -20,7 +20,7 @@ export function profileRunLabel(run: Pick<ProfileRunSummary, "run_name" | "versi
 }
 
 export function profileRunMeta(run: Pick<ProfileRunSummary, "version" | "scan_mode" | "row_count" | "created_at">): string {
-  const scan = run.scan_mode === "full" ? "Full scan" : run.scan_mode === "sample" ? "Sample scan" : "Chưa rõ scan";
+  const scan = run.scan_mode === "full" ? "Quét toàn bộ" : run.scan_mode === "sample" ? "Quét mẫu" : "Chưa rõ chế độ quét";
   const rows = run.row_count === null || run.row_count === undefined ? "— dòng" : `${run.row_count.toLocaleString("vi-VN")} dòng`;
   const created = run.created_at ? new Date(run.created_at).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" }) : null;
   return [`v${run.version ?? "—"}`, scan, rows, created].filter(Boolean).join(" · ");

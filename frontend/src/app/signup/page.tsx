@@ -120,7 +120,7 @@ export default function SignupPage() {
         <div className="auth-trust-list"><span><b>Xác thực an toàn</b><small>Liên kết xác nhận an toàn qua email</small></span><span><b>Không gian cá nhân</b><small>Không gian làm việc riêng biệt và bảo mật</small></span><span><b>Sẵn sàng phân tích</b><small>Đầy đủ công cụ upload, profile và xuất báo cáo</small></span></div>
       </section>
       <section className="auth-card panel" aria-labelledby="signup-title">
-        <div className="auth-card-heading"><p className="eyebrow">Tài khoản VDaAgent</p><h2 id="signup-title">Đăng ký</h2><p>Tạo tài khoản để bắt đầu phân tích trong workspace.</p></div>
+        <div className="auth-card-heading"><p className="eyebrow">TÀI KHOẢN VDaAgent</p><h2 id="signup-title">Đăng ký</h2><p>Tạo tài khoản để bắt đầu phân tích trong không gian làm việc.</p></div>
         {!signupAllowed && <div className="notice info" role="status"><b>Đăng ký công khai đang tắt</b><p>Workspace hiện nhận thành viên qua invitation. Có thể bật <code>AUTH_ALLOW_SIGNUP=true</code> để mở signup.</p></div>}
         <form ref={formRef} className="auth-form" onSubmit={submit}>
           <label htmlFor="signup-email">Email<input id="signup-email" name="email" type="email" autoComplete="email" placeholder="you@company.com" required /></label>

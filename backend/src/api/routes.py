@@ -25,6 +25,8 @@ import json
 import logging
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
@@ -101,7 +103,6 @@ from src.services.datasource import (
 # pyrefly: ignore [missing-import]
 from src.services.llm import (
     LLMNotConfiguredError,
-    llm_available,
     report_text,
     safe_llm_warning,
     sanitize_model_text,
@@ -860,7 +861,18 @@ def _qa_state(
                     f"(trạng thái hiện tại: {run.get('status') or 'unknown'})."
                 ),
             )
-        pending = repo.pending_count(request.profile_run_id)
+        # These reads are independent. Keeping them in one request phase but
+        # running them concurrently removes two database round-trip waits
+        # from every Profile-scoped question.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            pending_future = executor.submit(
+                copy_context().run, repo.pending_count, request.profile_run_id
+            )
+            stats_future = executor.submit(
+                copy_context().run, repo.get_column_stats, request.profile_run_id
+            )
+            pending = pending_future.result()
+            stats = stats_future.result()
         if pending:
             raise HTTPException(
                 status_code=409,
@@ -869,7 +881,7 @@ def _qa_state(
                     "Hãy hoàn tất Review proposals trước khi hỏi Agent về dataset."
                 ),
             )
-        columns = list(repo.get_column_stats(request.profile_run_id).keys())
+        columns = list(stats.keys())
     if request.analysis_execution_id:
         if not request.profile_run_id:
             raise HTTPException(
@@ -1096,7 +1108,7 @@ async def ask_question_stream(
     `done` (kết thúc) | `error`.
 
     Nhánh định lượng cần gọi tool nhiều vòng nên không stream token được — nó
-    chạy xong rồi phát một lần, còn nhánh định tính stream token thật.
+    chạy xong rồi phát một lần; nhánh định tính stream từng đoạn model sinh ra.
     """
     get_rate_limiter().check(context.user_id)
     state = _qa_state(request, context)
@@ -1119,7 +1131,42 @@ async def ask_question_stream(
 
     async def generator() -> Any:
         try:
-            routed = await asyncio.to_thread(get_qa_graph().invoke, state)
+            token_queue: asyncio.Queue[str] = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+            emitted_chars = 0
+
+            def enqueue_token(text: str) -> None:
+                if text:
+                    try:
+                        loop.call_soon_threadsafe(token_queue.put_nowait, text)
+                    except RuntimeError:
+                        # The browser may cancel a stream while the provider
+                        # is still producing chunks. Do not turn disconnects
+                        # into model/trace failures in the worker thread.
+                        pass
+
+            state["stream_callback"] = enqueue_token
+            graph_task = asyncio.create_task(
+                asyncio.to_thread(get_qa_graph().invoke, state)
+            )
+            while not graph_task.done() or not token_queue.empty():
+                try:
+                    token = await asyncio.wait_for(token_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+                emitted_chars += len(token)
+                yield _sse("token", {"text": token})
+
+            routed = await graph_task
+            # A worker can enqueue the final chunk just as it completes. Give
+            # the event loop one turn, then flush that chunk before deciding
+            # whether the complete-answer fallback is needed.
+            await asyncio.sleep(0)
+            while not token_queue.empty():
+                token = token_queue.get_nowait()
+                emitted_chars += len(token)
+                yield _sse("token", {"text": token})
+            state.pop("stream_callback", None)
             answer = _guard_qa_answer(
                 routed.get("answer") or "",
                 profile_run_id=request.profile_run_id,
@@ -1130,9 +1177,9 @@ async def ask_question_stream(
 
             yield _sse("meta", {"question_type": qtype})
 
-            if qtype == "qualitative" and llm_available() and answer:
-                yield _sse("token", {"text": answer})
-            else:
+            # The qualitative branch already emitted model chunks above. The
+            # other branches still return one complete, evidence-safe answer.
+            if emitted_chars == 0:
                 yield _sse("token", {"text": answer})
 
             if sources:

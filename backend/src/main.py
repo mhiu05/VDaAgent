@@ -33,6 +33,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 # pyrefly: ignore [missing-import]
 from sqlalchemy.exc import OperationalError
+# pyrefly: ignore [missing-import]
+from sqlalchemy import text
 from src.api.agent_routes import router as agent_router
 # pyrefly: ignore [missing-import]
 from src.api.analysis_routes import (
@@ -131,7 +133,12 @@ async def lifespan(app: FastAPI) -> Any:
         # pyrefly: ignore [missing-import]
         from src.services.repository import get_repository
 
-        get_repository()
+        repository = get_repository()
+        # Warm one pooled DB connection during process startup. Otherwise the
+        # first authenticated request pays the network/TLS/connection setup
+        # cost and appears to users as a slow first login.
+        with repository.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
         logger.info("Metadata DB: %s", settings.database_url.split("://")[0])
     except Exception as exc:
         logger.error("Không kết nối được metadata DB: %s", exc)
@@ -139,6 +146,18 @@ async def lifespan(app: FastAPI) -> Any:
             raise RuntimeError(
                 "Production yêu cầu kết nối được Supabase PostgreSQL."
             ) from exc
+
+    # JWKS is fetched lazily by the first Supabase-authenticated request. Warm
+    # the verifier while the server starts so the first login is not slower
+    # than subsequent requests. Keep startup resilient in local/offline mode.
+    if settings.auth_mode == "supabase":
+        try:
+            from src.services.auth import get_jwt_verifier
+
+            keys = get_jwt_verifier(settings)._jwks_client().get_signing_keys()
+            logger.info("Supabase JWKS warmed (%d signing keys)", len(keys))
+        except Exception as exc:
+            logger.warning("Không warm được Supabase JWKS lúc khởi động: %s", exc)
 
     missing = settings.missing_required()
     if missing:

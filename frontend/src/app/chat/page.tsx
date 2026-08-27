@@ -148,12 +148,12 @@ export default function ChatPage() {
   const hydrated = useRef(false);
   const activeConversationRef = useRef<string | null>(null);
   const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
-  const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
+  const datasets = useQuery({ queryKey: ["datasets"], queryFn: ({ signal }) => listDatasets(signal) });
   const datasetIsAvailable = Boolean(selectedDatasetId) && Boolean(
     datasets.data?.some((dataset) => dataset.id === selectedDatasetId),
   );
   const runs = useQuery({
-    queryKey: ["chat-runs", selectedDatasetId],
+    queryKey: ["runs", selectedDatasetId],
     queryFn: () => listRuns(selectedDatasetId),
     // Conversation snapshots can outlive a deleted dataset or a workspace
     // switch. Do not turn that stale browser state into a backend 404.
@@ -430,17 +430,17 @@ export default function ChatPage() {
   }
 
   const busy = profileLoading || state === "uploading" || state === "profiling" || state === "thinking";
-  const statusText = profileLoading ? "Đang kiểm tra profile…" : state === "uploading" ? "Đang upload dataset…" : state === "profiling" ? "Agent đang tính profile…" : state === "thinking" ? "Agent đang tìm evidence…" : selectedFile ? "Chờ chọn chế độ" : "Sẵn sàng";
+  const statusText = profileLoading ? "Đang kiểm tra hồ sơ…" : state === "uploading" ? "Đang tải bộ dữ liệu…" : state === "profiling" ? "Trợ lý AI đang lập hồ sơ…" : state === "thinking" ? "Trợ lý AI đang tìm bằng chứng…" : selectedFile ? "Chờ chọn chế độ" : "Sẵn sàng";
   const hasChatStarted = messages.some((message) => message.role === "user");
 
   return <div className="agent-workspace">
     {!hasChatStarted && <header className="agent-hero">
-      <div><p className="eyebrow">Trí tuệ dữ liệu tự động</p><h1>Chat với Data Profiling Agent</h1><p>Quy trình analyst: chọn dataset và profile run trong workspace → review proposals → đặt câu hỏi dựa trên evidence đã tính.</p></div>
+      <div><p className="eyebrow">TRÍ TUỆ DỮ LIỆU TỰ ĐỘNG</p><h1>Trò chuyện với trợ lý lập hồ sơ dữ liệu</h1><p>Quy trình chuyên viên phân tích: chọn bộ dữ liệu và phiên lập hồ sơ trong không gian làm việc → xem xét đề xuất → đặt câu hỏi dựa trên bằng chứng đã tính.</p></div>
       <div className="agent-status"><span className="pulse" /> {statusText}</div>
     </header>}
     <div className="agent-layout">
       <section className="agent-chat-panel">
-        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Nguồn đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.run_name?.trim() || `Phiên bản v${profile.version ?? "—"}`}</span>}</div>
+        <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Nguồn đang dùng · ${profile.dataset_name || "Bộ dữ liệu"}` : "Trợ lý lập hồ sơ dữ liệu"}</small></div></div>{profile && <span className="agent-profile-name">{profile.run_name?.trim() || `Phiên bản v${profile.version ?? "—"}`}</span>}</div>
         <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Phiên profiling đã hoàn tất</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || !completedRuns.length || runs.isPending || busy}><option value="">Chọn theo tên phiên…</option>{completedRuns.map((run) => <option value={run.id} key={run.id}>{profileRunOptionLabel(run)}</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.isPending && !completedRuns.length ? "Dataset này chưa có profile run hoàn tất để hỏi Agent." : "Agent chỉ trả lời theo phiên profiling bạn đã chọn; ID được hệ thống xử lý ngầm."}</div>{selectedRunId && process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true" && <Link className="button secondary agent-open-charts" href={`/charts?runId=${encodeURIComponent(selectedRunId)}`}>Mở Biểu đồ →</Link>}</section>
         <div ref={messageListRef} className="agent-message-list" aria-live="polite">
           {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p>{message.text}</p>}</div></article>)}
@@ -448,21 +448,21 @@ export default function ChatPage() {
         </div>
         {selectedFile && <section className="agent-intake-card" aria-label="Tùy chọn profiling">
           <div className="intake-file"><span className="file-icon">▤</span><div><b>{selectedFile.name}</b><small>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để profiling</small></div></div>
-          <div className="intake-choice-heading"><div><b>Chọn cách agent xử lý dữ liệu</b><small>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Sampling được khuyến nghị cho file lớn hơn 50 MB." : "Bạn có thể ưu tiên tốc độ hoặc độ đầy đủ của kết quả."}</small></div></div>
-          <div className="scan-choice-list"><button type="button" className={scanMode === "sample" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("sample")}><span className="choice-radio" /><span><b>Sampling</b><small>Chạy nhanh, tiết kiệm RAM, có đánh dấu approximate.</small></span><em>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Khuyến nghị" : "Nhanh"}</em></button><button type="button" className={scanMode === "full" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("full")}><span className="choice-radio" /><span><b>Full scan</b><small>Tính trên toàn bộ file, có thể lâu hơn và cần nhiều RAM.</small></span><em>Đầy đủ</em></button></div>
+          <div className="intake-choice-heading"><div><b>Chọn cách trợ lý AI xử lý dữ liệu</b><small>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Lấy mẫu được khuyến nghị cho tệp lớn hơn 50 MB." : "Bạn có thể ưu tiên tốc độ hoặc độ đầy đủ của kết quả."}</small></div></div>
+          <div className="scan-choice-list"><button type="button" className={scanMode === "sample" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("sample")}><span className="choice-radio" /><span><b>Lấy mẫu</b><small>Chạy nhanh, tiết kiệm RAM, có đánh dấu gần đúng.</small></span><em>{selectedFile.size > LARGE_FILE_THRESHOLD ? "Khuyến nghị" : "Nhanh"}</em></button><button type="button" className={scanMode === "full" ? "scan-choice selected" : "scan-choice"} onClick={() => setScanMode("full")}><span className="choice-radio" /><span><b>Quét toàn bộ</b><small>Tính trên toàn bộ tệp, có thể lâu hơn và cần nhiều RAM.</small></span><em>Đầy đủ</em></button></div>
           {busy && (state === "uploading" || state === "profiling") && <ProgressSteps steps={["Upload", "Xử lý dữ liệu", "Hoàn tất"]} activeStep={profileProgress >= 90 ? 2 : profileProgress >= 20 ? 1 : 0} detail={`${profileStage} · ${profileProgress}%`} />}
-          <LoadingButton className="button primary intake-start" onClick={startProfile} busy={busy && (state === "uploading" || state === "profiling")}>Tải lên và bắt đầu profiling</LoadingButton>
+          <LoadingButton className="button primary intake-start" onClick={startProfile} busy={busy && (state === "uploading" || state === "profiling")}>Tải lên và bắt đầu lập hồ sơ</LoadingButton>
         </section>}
-        {profile?.pending_proposals ? <div className="notice warning agent-review-required"><b>Cần review trước khi tiếp tục</b><p>Profile còn {profile.pending_proposals} đề xuất. Hãy xác nhận, từ chối hoặc chỉnh sửa các đề xuất trước khi hỏi Agent.</p><Link className="button primary" href={`/profiles/${profile.profile_run_id}/review?returnTo=${encodeURIComponent(`/chat?conversation=${conversationId || ""}`)}`}>Xem xét proposals</Link></div> : null}
-        {error && <div className="notice error" role="alert"><b>Agent gặp lỗi</b><p>{error}</p></div>}
+        {profile?.pending_proposals ? <div className="notice warning agent-review-required"><b>Cần xem xét trước khi tiếp tục</b><p>Hồ sơ còn {profile.pending_proposals} đề xuất. Hãy xác nhận, từ chối hoặc chỉnh sửa các đề xuất trước khi hỏi trợ lý AI.</p><Link className="button primary" href={`/profiles/${profile.profile_run_id}/review?returnTo=${encodeURIComponent(`/chat?conversation=${conversationId || ""}`)}`}>Xem xét đề xuất</Link></div> : null}
+        {error && <div className="notice error" role="alert"><b>Trợ lý AI gặp lỗi</b><p>{error}</p></div>}
         <form className="agent-composer" onSubmit={submit}>
           <input ref={fileRef} type="file" accept=".csv,.tsv,.parquet,.json,application/json,text/csv" hidden onChange={handleFile} />
-          <button type="button" className="upload-trigger" onClick={() => fileRef.current?.click()} disabled={busy} title="Upload nhanh dataset">＋</button>
-          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={profile?.pending_proposals ? "Xem xét proposals trước khi hỏi Agent…" : profile ? "Đặt câu hỏi về dataset của bạn…" : "Chọn dataset/profile để hỏi Agent…"} rows={1} disabled={Boolean(profile?.pending_proposals) || (busy && state !== "thinking")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+          <button type="button" className="upload-trigger" onClick={() => fileRef.current?.click()} disabled={busy} title="Tải nhanh bộ dữ liệu">＋</button>
+          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={profile?.pending_proposals ? "Xem xét đề xuất trước khi hỏi trợ lý AI…" : profile ? "Đặt câu hỏi về bộ dữ liệu của bạn…" : "Chọn bộ dữ liệu/hồ sơ để hỏi trợ lý AI…"} rows={1} disabled={Boolean(profile?.pending_proposals) || (busy && state !== "thinking")} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
           <button className="send-trigger" disabled={!question.trim() || !profile || busy} aria-busy={state === "thinking" || undefined} aria-label="Gửi câu hỏi">{state === "thinking" ? <span className="button-spinner small" aria-hidden="true" /> : "➤"}</button>
         </form>
         {profile && <div className="composer-suggestions"><span className="composer-suggestions-label">Gợi ý câu hỏi</span><div className="starter-list">{starters.map((starter) => <button key={starter} onClick={() => void submitPrompt(starter)} disabled={busy || Boolean(profile.pending_proposals)}>{starter}<span>→</span></button>)}</div></div>}
-        <div className="composer-hint"><span>Enter để gửi · Shift + Enter để xuống dòng</span><span>Dựa trên evidence · PII được bảo vệ</span></div>
+        <div className="composer-hint"><span>Enter để gửi · Shift + Enter để xuống dòng</span><span>Dựa trên bằng chứng · PII được bảo vệ</span></div>
       </section>
     </div>
   </div>;

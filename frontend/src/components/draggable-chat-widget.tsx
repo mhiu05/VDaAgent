@@ -37,7 +37,7 @@ function DataAnalyticsIcon({ size = 26 }: { size?: number; color?: string }) {
       width={size}
       height={size}
       unoptimized
-      style={{ width: size, height: size, objectFit: "contain" }}
+      style={{ width: size, height: size, display: "block", objectFit: "contain", imageRendering: "auto" }}
     />
   );
 }
@@ -103,9 +103,9 @@ export function DraggableChatWidget({
     }
   }, [messages, isThinking, isOpen, viewMode]);
 
-  // A single Profile Run selector is easier to use than making the analyst
-  // choose a dataset first. The runs endpoint includes dataset metadata, so
-  // opening the drawer needs only one request.
+  // Load the catalog once, then let the analyst choose the dataset and its
+  // completed run independently. The runs endpoint already includes dataset
+  // metadata, so the drawer still needs only one request.
   const allRunsQuery = useQuery({
     queryKey: ["runs", "all"],
     queryFn: ({ signal }) => listAllRuns(signal),
@@ -136,8 +136,7 @@ export function DraggableChatWidget({
     }
   }, [pathname]);
 
-  // Resolve the dataset internally for history snapshots; the user only needs
-  // to choose a completed profile run.
+  // Resolve the dataset when a profile run is preselected from the current URL.
   useEffect(() => {
     const matchingRun = profileRunGroups.flatMap((group) => group.runs.map((run) => ({
       datasetId: group.dataset.id,
@@ -510,9 +509,10 @@ export function DraggableChatWidget({
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           ) : (
-            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <DataAnalyticsIcon size={26} color="#2563eb" />
+            <div className="chat-widget-launcher-icon" style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <DataAnalyticsIcon size={32} color="#2563eb" />
               <span
+                className="chat-widget-status-dot"
                 style={{
                   position: "absolute",
                   top: "-4px",
@@ -753,7 +753,7 @@ export function DraggableChatWidget({
           ) : (
             /* VIEW: CHAT CONVERSATION */
             <>
-              {/* PROFILE RUN SELECTOR */}
+              {/* DATASET + PROFILE RUN SELECTORS */}
               <div
                 style={{
                   padding: "0.6rem 1rem",
@@ -762,46 +762,54 @@ export function DraggableChatWidget({
                   fontSize: "0.75rem",
                 }}
               >
-                <label htmlFor="widget-profile-run" style={{ display: "block", color: "#475569", marginBottom: "4px", fontWeight: 600 }}>
-                  Profile Run dùng làm evidence
-                </label>
-                <select
-                  id="widget-profile-run"
-                  value={selectedRunId}
-                  onChange={(e) => {
-                    const newRunId = e.target.value;
-                    const newRun = profileRunGroups.flatMap((group) => group.runs.map((run) => ({ ...run, datasetId: group.dataset.id }))).find((run) => run.id === newRunId);
-                    setSelectedRunId(newRunId);
-                    setSelectedDatasetId(newRun?.datasetId || "");
-                    if (activeConversationId) {
-                      const snap = getConversationSnapshot(activeConversationId);
-                      if (snap) {
-                        updateConversationSnapshot(activeConversationId, {
-                          ...snap,
-                          datasetId: newRun?.datasetId || null,
-                          profileRunId: newRunId || null,
-                        });
-                      }
-                    }
-                  }}
-                  disabled={profileRunsLoading}
-                  style={{
-                    width: "100%",
-                    padding: "7px 9px",
-                    borderRadius: "6px",
-                    background: "#ffffff",
-                    color: "#0f172a",
-                    border: "1px solid #cbd5e1",
-                    fontSize: "0.78rem",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  <option value="">{profileRunsLoading ? "Đang tải…" : "Chọn Profile Run đã hoàn tất…"}</option>
-                  {profileRunGroups.flatMap((group) => group.runs.map((run) => (
-                    <option key={run.id} value={run.id}>{group.dataset.name} — {profileRunOptionLabel(run)}</option>
-                  )))}
-                </select>
-                {!profileRunsLoading && !profileRunGroups.length && <small style={{ display: "block", marginTop: "5px", color: "#64748b" }}>Workspace chưa có Profile Run hoàn tất để Agent sử dụng.</small>}
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "0.6rem" }}>
+                  <div>
+                    <label htmlFor="widget-dataset" style={{ display: "block", color: "#475569", marginBottom: "4px", fontWeight: 600 }}>
+                      Bộ dữ liệu
+                    </label>
+                    <select
+                      id="widget-dataset"
+                      value={selectedDatasetId}
+                      onChange={(e) => {
+                        const newDatasetId = e.target.value;
+                        setSelectedDatasetId(newDatasetId);
+                        setSelectedRunId("");
+                        if (activeConversationId) {
+                          const snap = getConversationSnapshot(activeConversationId);
+                          if (snap) updateConversationSnapshot(activeConversationId, { ...snap, datasetId: newDatasetId || null, profileRunId: null });
+                        }
+                      }}
+                      disabled={profileRunsLoading}
+                      style={{ width: "100%", padding: "7px 9px", borderRadius: "6px", background: "#ffffff", color: "#0f172a", border: "1px solid #cbd5e1", fontSize: "0.78rem", textOverflow: "ellipsis" }}
+                    >
+                      <option value="">{profileRunsLoading ? "Đang tải…" : "Chọn bộ dữ liệu…"}</option>
+                      {profileRunGroups.map((group) => <option key={group.dataset.id} value={group.dataset.id}>{group.dataset.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="widget-profile-run" style={{ display: "block", color: "#475569", marginBottom: "4px", fontWeight: 600 }}>
+                      Phiên bản chạy
+                    </label>
+                    <select
+                      id="widget-profile-run"
+                      value={selectedRunId}
+                      onChange={(e) => {
+                        const newRunId = e.target.value;
+                        setSelectedRunId(newRunId);
+                        if (activeConversationId) {
+                          const snap = getConversationSnapshot(activeConversationId);
+                          if (snap) updateConversationSnapshot(activeConversationId, { ...snap, datasetId: selectedDatasetId || null, profileRunId: newRunId || null });
+                        }
+                      }}
+                      disabled={profileRunsLoading || !selectedDatasetId}
+                      style={{ width: "100%", padding: "7px 9px", borderRadius: "6px", background: "#ffffff", color: "#0f172a", border: "1px solid #cbd5e1", fontSize: "0.78rem", textOverflow: "ellipsis" }}
+                    >
+                      <option value="">{profileRunsLoading ? "Đang tải…" : selectedDatasetId ? "Chọn phiên bản chạy…" : "Chọn bộ dữ liệu trước…"}</option>
+                      {profileRunGroups.find((group) => group.dataset.id === selectedDatasetId)?.runs.map((run) => <option key={run.id} value={run.id}>{profileRunOptionLabel(run)}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {!profileRunsLoading && !profileRunGroups.length && <small style={{ display: "block", marginTop: "5px", color: "#64748b" }}>Không gian làm việc chưa có phiên lập hồ sơ hoàn tất để trợ lý AI sử dụng.</small>}
               </div>
 
               {/* MESSAGES SCROLL AREA */}
@@ -828,15 +836,16 @@ export function DraggableChatWidget({
                       }}
                     >
                       <div
+                        className={`widget-message-bubble ${isUser ? "user" : "agent"}`}
                         style={{
-                          maxWidth: "88%",
-                          padding: "0.75rem 1rem",
+                          maxWidth: isUser ? "88%" : "100%",
+                          padding: isUser ? "0.75rem 1rem" : "0.25rem 0.15rem 0.5rem",
                           borderRadius: isUser ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
-                          background: isUser ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "#f1f5f9",
+                          background: isUser ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "transparent",
                           color: isUser ? "#ffffff" : "#1e293b",
-                          border: isUser ? "none" : "1px solid #e2e8f0",
-                          fontSize: "0.85rem",
-                          lineHeight: "1.5",
+                          border: isUser ? "none" : "0",
+                          fontSize: "0.875rem",
+                          lineHeight: "1.65",
                           whiteSpace: "pre-wrap",
                           wordBreak: "break-word",
                           boxShadow: isUser ? "0 2px 8px rgba(37,99,235,0.2)" : "none",
@@ -845,19 +854,20 @@ export function DraggableChatWidget({
                         {isUser ? (
                           m.text
                         ) : (
-                          <div className="markdown-message">
+                          <div className="markdown-message widget-markdown-message">
                             <ReactMarkdown
                               remarkPlugins={[remarkGfm]}
                               components={{
-                                h1: ({node, ...props}) => <h1 style={{fontSize: "1.25rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                h2: ({node, ...props}) => <h2 style={{fontSize: "1.1rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                h3: ({node, ...props}) => <h3 style={{fontSize: "1rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                h4: ({node, ...props}) => <h4 style={{fontSize: "0.95rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                p: ({node, ...props}) => <p style={{margin: "0.25rem 0"}} {...props} />,
-                                ul: ({node, ...props}) => <ul style={{margin: "0.5rem 0", paddingLeft: "1.2rem"}} {...props} />,
-                                ol: ({node, ...props}) => <ol style={{margin: "0.5rem 0", paddingLeft: "1.2rem"}} {...props} />,
-                                li: ({node, ...props}) => <li style={{margin: "0.25rem 0"}} {...props} />,
-                                table: ({node, ...props}) => <div style={{overflowX: "auto", margin: "0.5rem 0"}}><table style={{width: "100%", borderCollapse: "collapse", fontSize: "0.8rem"}} {...props} /></div>,
+                                h1: ({node, ...props}) => <h1 style={{fontSize: "1.25rem", margin: "0.2rem 0", fontWeight: 700}} {...props} />,
+                                h2: ({node, ...props}) => <h2 style={{fontSize: "1.1rem", margin: "0.2rem 0", fontWeight: 700}} {...props} />,
+                                h3: ({node, ...props}) => <h3 style={{fontSize: "1rem", margin: "0.2rem 0", fontWeight: 700}} {...props} />,
+                                h4: ({node, ...props}) => <h4 style={{fontSize: "0.95rem", margin: "0.2rem 0", fontWeight: 700}} {...props} />,
+                                p: ({node, ...props}) => <p style={{margin: "0.12rem 0"}} {...props} />,
+                                ul: ({node, ...props}) => <ul style={{margin: "0.2rem 0", paddingLeft: "1.2rem"}} {...props} />,
+                                ol: ({node, ...props}) => <ol style={{margin: "0.2rem 0", paddingLeft: "1.2rem"}} {...props} />,
+                                li: ({node, ...props}) => <li style={{margin: "0.08rem 0"}} {...props} />,
+                                blockquote: ({node, ...props}) => <blockquote style={{margin: "0.25rem 0", paddingLeft: "0.7rem", borderLeft: "3px solid #cbd5e1", color: "#64748b"}} {...props} />,
+                                table: ({node, ...props}) => <div style={{overflowX: "auto", margin: "0.25rem 0"}}><table style={{width: "100%", borderCollapse: "collapse", fontSize: "0.8rem"}} {...props} /></div>,
                                 th: ({node, ...props}) => <th style={{border: "1px solid #cbd5e1", padding: "4px 8px", background: "#f8fafc", textAlign: "left", fontWeight: 600}} {...props} />,
                                 td: ({node, ...props}) => <td style={{border: "1px solid #cbd5e1", padding: "4px 8px"}} {...props} />,
                                 code: ({node, ...props}) => <code style={{background: "rgba(0,0,0,0.05)", padding: "2px 4px", borderRadius: "4px", fontSize: "0.9em"}} {...props} />,

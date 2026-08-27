@@ -34,7 +34,25 @@ export default function ReportsPage() {
   });
   const deletion = useMutation({
     mutationFn: deleteReport,
-    onSuccess: async () => { await client.invalidateQueries({ queryKey: ["published-reports"] }); },
+    onMutate: async (id: string) => {
+      await client.cancelQueries({ queryKey: ["published-reports"] });
+      const previousData = client.getQueryData<{ reports: Report[] }>(["published-reports"]);
+      if (previousData) {
+        client.setQueryData<{ reports: Report[] }>(["published-reports"], {
+          ...previousData,
+          reports: previousData.reports.filter((r) => r.id !== id),
+        });
+      }
+      return { previousData };
+    },
+    onError: (err, id, context) => {
+      if (context?.previousData) {
+        client.setQueryData(["published-reports"], context.previousData);
+      }
+    },
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: ["published-reports"] });
+    },
   });
   const items = reports.data?.reports ?? [];
   const canDeleteReport = can(me?.effective_permissions, PERMISSIONS.reportDraftWrite);

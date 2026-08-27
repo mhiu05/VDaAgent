@@ -32,7 +32,7 @@ describe("PublicNavbar", () => {
   it("keeps authenticated actions visible while workspace bootstrap is loading", () => {
     render(<PublicNavbar />);
 
-    expect(screen.getByRole("link", { name: "Workspace" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Không gian làm việc" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mở menu tài khoản" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Đăng nhập" })).toBeNull();
   });

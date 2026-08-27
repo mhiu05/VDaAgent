@@ -728,7 +728,7 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 14px", borderRadius: "10px", border: "1px solid var(--border)" }}>
                   <span className="muted">Vai trò của bạn:</span>
-                  <b>Workspace Administrator / Lead Analyst</b>
+                  <b>Quản trị viên không gian làm việc / trưởng nhóm phân tích</b>
                 </div>
               </div>
             </div>

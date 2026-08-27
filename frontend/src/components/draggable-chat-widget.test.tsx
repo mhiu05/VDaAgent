@@ -48,19 +48,21 @@ describe("DraggableChatWidget", () => {
     api.listAllRuns.mockResolvedValue([run]);
   });
 
-  it("opens from the floating logo and needs only a completed Profile Run", async () => {
+  it("opens from the floating logo and selects a dataset before its completed run", async () => {
     renderWidget();
 
     const bubble = await screen.findByRole("button", { name: /trợ lý ai copilot/i });
     fireEvent.pointerDown(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
     fireEvent.pointerUp(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
 
-    const select = await screen.findByLabelText(/profile run dùng làm evidence/i) as HTMLSelectElement;
-    await waitFor(() => expect(select.querySelectorAll("option")).toHaveLength(2));
+    const datasetSelect = await screen.findByLabelText("Bộ dữ liệu") as HTMLSelectElement;
+    const runSelect = screen.getByLabelText("Phiên bản chạy") as HTMLSelectElement;
+    await waitFor(() => expect(datasetSelect.querySelectorAll("option")).toHaveLength(2));
     expect(screen.queryByText(/^Dataset:/i)).toBeNull();
     expect(screen.getByPlaceholderText(/chọn profile run để bắt đầu hỏi/i)).toBeTruthy();
 
-    fireEvent.change(select, { target: { value: run.id } });
+    fireEvent.change(datasetSelect, { target: { value: dataset.id } });
+    fireEvent.change(runSelect, { target: { value: run.id } });
     await waitFor(() => expect((screen.getByPlaceholderText(/hỏi ai về profile run đã chọn/i) as HTMLInputElement).disabled).toBe(false));
   });
 

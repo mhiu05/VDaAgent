@@ -5,6 +5,7 @@ from src.services.chart_planner import (
     ChartPlanCandidate,
     build_auto_profile_pack,
     build_chart_plan,
+    chart_planning_rejection_reason,
 )
 
 CONTEXT = {
@@ -37,6 +38,76 @@ def test_business_trend_becomes_monthly_line_query() -> None:
         {"column": "order_date", "operator": "gte", "value": "2025-09-01"},
         {"column": "order_date", "operator": "lt", "value": "2026-09-01"},
     ]
+
+
+def test_explicit_top_n_is_preserved_in_ranking_query() -> None:
+    plan = build_chart_plan(
+        "Top 12 khu vuc co doanh so cao nhat", CONTEXT, STATS
+    )
+
+    assert plan["problem"] == "ranking"
+    assert plan["chart_type"] == "bar"
+    assert plan["query"]["limit"] == 12
+
+
+def test_proportional_numeric_question_is_planned_as_measure_relationship() -> None:
+    context = {
+        "dimensions": ["payment_type"],
+        "measures": ["initial_down_payment", "total_amount"],
+        "time_column": None,
+    }
+    stats = {
+        "payment_type": {"dtype": "string", "cardinality": 3},
+        "initial_down_payment": {"dtype": "float"},
+        "total_amount": {"dtype": "float"},
+    }
+
+    plan = build_chart_plan(
+        "Does initial down payment increase in proportion to total amount?",
+        context,
+        stats,
+    )
+
+    assert plan["problem"] == "relationship"
+    assert plan["algorithm"] == "scatter"
+    assert plan["chart_type"] == "scatter"
+    assert {plan["query"]["x_column"], plan["query"]["y_column"]} == {
+        "initial_down_payment",
+        "total_amount",
+    }
+
+
+def test_ascii_only_planner_rationale_is_replaced_with_vietnamese_copy() -> None:
+    candidate = ChartPlanCandidate(
+        problem="relationship",
+        algorithm="scatter",
+        x_column="sales",
+        y_column="cost",
+        title="Sales and cost relationship",
+        rationale="Compare sales and cost using a scatter plot.",
+    )
+
+    plan = build_chart_plan("Mối quan hệ giữa sales và cost", CONTEXT, STATS, candidate)
+
+    assert "biểu đồ phân tán" in plan["rationale"]
+    assert "sales" in plan["rationale"]
+
+
+@pytest.mark.parametrize(
+    ("question", "context", "stats", "expected_fragment"),
+    [
+        ("Xu huong doanh so theo thang", {"dimensions": ["region"], "measures": ["sales"]}, {"region": {"dtype": "string"}, "sales": {"dtype": "float"}}, "cột ngày/thời gian"),
+        ("Mối quan hệ giữa sales và cost", {"dimensions": ["region"], "measures": ["sales"]}, {"region": {"dtype": "string"}, "sales": {"dtype": "float"}}, "hai cột số"),
+        ("Phân phối theo region", {"dimensions": ["region"], "measures": []}, {"region": {"dtype": "string"}}, "cột số"),
+    ],
+)
+def test_unchartable_questions_return_an_actionable_reason(
+    question: str, context: dict[str, object], stats: dict[str, object], expected_fragment: str
+) -> None:
+    reason = chart_planning_rejection_reason(question, context, stats)
+
+    assert reason is not None
+    assert expected_fragment in reason
 
 
 def test_distribution_and_relationship_choose_bounded_analysis_kinds() -> None:
@@ -270,5 +341,3 @@ def test_diverse_business_questions_match_columns_and_intents(
         assert plan["y_column"] == expected_y or plan["query"]["column"] == expected_y or plan["query"].get("y_column") == expected_y
     if plan["problem"] == "relationship" and plan["chart_type"] == "scatter":
         assert {plan["query"]["x_column"], plan["query"]["y_column"]} == {"Rating", "Salary Estimate"}
-
-

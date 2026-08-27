@@ -180,6 +180,11 @@ class Settings(BaseSettings):
 
     # --- retrieval (ADR-007) ----------------------------------------------
     retrieval_index_dir: str = "./data/index"
+    # Retrieval documents change when a profile is indexed, not on every QA
+    # request. Refreshing the in-memory index periodically avoids an extra
+    # full-table metadata query before every answer while keeping updates from
+    # other workers visible within a short bounded window.
+    retrieval_index_refresh_seconds: float = Field(default=5.0, ge=0.0, le=300.0)
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
     retrieval_candidate_k: int = Field(default=20, ge=1, le=200)
     retrieval_embedding_provider: Literal["local", "openai", "voyage", "none"] = "local"

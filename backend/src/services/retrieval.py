@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import re
 import threading
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
@@ -208,6 +209,7 @@ class HybridIndex:
         self._vocab: list[Counter[str]] = []
         self._embedder: Embedder | None = None
         self._workspace_id: str | None = None
+        self._loaded_at = 0.0
         self._load()
 
     # --- persistence ---------------------------------------------------- #
@@ -230,6 +232,7 @@ class HybridIndex:
         if self._vectors and len(self._vectors) != len(self._docs):
             self._vectors = []
         self._rebuild_sparse()
+        self._loaded_at = time.monotonic()
 
     def _rebuild_sparse(self) -> None:
         corpus = [tokenize(d.text) for d in self._docs]
@@ -274,6 +277,7 @@ class HybridIndex:
                     self._vectors = []
 
             self._rebuild_sparse()
+            self._loaded_at = 0.0
             from src.services.repository import get_repository
 
             get_repository(self.settings).upsert_retrieval_document(
@@ -307,6 +311,7 @@ class HybridIndex:
             prior_vectors = {doc.doc_id: self._vectors[index] for index, doc in enumerate(old.values()) if index < len(self._vectors)}
             self._vectors = [vector_by_id.get(doc.doc_id, prior_vectors.get(doc.doc_id, [])) for doc in self._docs]
             self._rebuild_sparse()
+            self._loaded_at = 0.0
             return result
 
     def delete(self, doc_id: str, *, workspace_id: str | None = None) -> bool:
@@ -318,6 +323,7 @@ class HybridIndex:
             if len(self._vectors) > idx:
                 self._vectors.pop(idx)
             self._rebuild_sparse()
+            self._loaded_at = 0.0
             from src.services.repository import get_repository
 
             get_repository(self.settings).delete_retrieval_document(doc_id, workspace_id=workspace_id)
@@ -382,12 +388,21 @@ class HybridIndex:
         candidate_k: int | None = None,
         where: dict[str, Any] | None = None,
         workspace_id: str | None = None,
+        *,
+        dense: bool = True,
     ) -> list[Hit]:
         """Hybrid search: dense + sparse -> RRF -> (tuỳ chọn) cross-encoder rerank."""
         # Mỗi worker có cache RAM riêng; đọc lại metadata giúp các instance
         # nhìn thấy document mới được index bởi worker khác.
         with self._lock:
-            self._load(workspace_id)
+            refresh_after = self.settings.retrieval_index_refresh_seconds
+            needs_refresh = (
+                self._workspace_id != workspace_id
+                or refresh_after == 0.0
+                or time.monotonic() - self._loaded_at >= refresh_after
+            )
+            if needs_refresh:
+                self._load(workspace_id)
         if not self._docs or not query.strip():
             return []
 
@@ -397,14 +412,14 @@ class HybridIndex:
         eligible = self._eligible_indices(where)
         if not eligible:
             return []
-        dense = self._dense(query, candidate_k, eligible)
+        dense_hits = self._dense(query, candidate_k, eligible) if dense else []
         sparse = self._sparse(query, candidate_k, eligible)
 
         # Reciprocal Rank Fusion: cộng 1/(60+rank) — không cần chuẩn hoá score
         # giữa hai thang đo khác nhau (cosine vs BM25).
         fused: dict[int, float] = {}
         origin: dict[int, set[str]] = {}
-        for name, ranked in (("dense", dense), ("sparse", sparse)):
+        for name, ranked in (("dense", dense_hits), ("sparse", sparse)):
             for rank, (idx, _score) in enumerate(ranked, start=1):
                 fused[idx] = fused.get(idx, 0.0) + 1.0 / (60 + rank)
                 origin.setdefault(idx, set()).add(name)
