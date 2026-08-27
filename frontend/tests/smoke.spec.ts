@@ -24,9 +24,12 @@ test("analyst can navigate from dataset list to safe upload workflow", async ({ 
   await page.locator(".sidebar").hover();
   await expect(page.getByRole("button", { name: "Dữ liệu", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("link", { name: "Tải dữ liệu", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "+ Bộ dữ liệu mới" }).click();
-  await page.waitForLoadState("networkidle");
-  await expect(page.getByRole("heading", { name: "Tải lên và bắt đầu profiling" })).toBeVisible();
+  await Promise.all([
+    page.waitForURL(/\/datasets\/new$/, { timeout: 30_000 }),
+    page.getByRole("link", { name: "+ Bộ dữ liệu mới" }).click(),
+  ]);
+  // The dev server compiles this route on demand, so first paint can outlast the default expect timeout.
+  await expect(page.getByRole("heading", { name: "Tải lên và bắt đầu profiling" })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("CSV, TSV, Parquet hoặc JSON")).toBeVisible();
   await expect(page.getByLabel("Chế độ scan")).toBeVisible();
   expect(consoleErrors).toEqual([]);
