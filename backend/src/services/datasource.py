@@ -149,6 +149,19 @@ def normalize_config(kind: DatasourceKind, config: dict[str, Any]) -> dict[str, 
     raise DatasourceError("Datasource chưa được hỗ trợ.")
 
 
+def connector_fingerprint(kind: DatasourceKind, config: dict[str, Any]) -> str:
+    """Stable, non-reversible identity for a normalized connector config."""
+    normalized = normalize_config(kind, config)
+    payload = json.dumps(
+        {"kind": kind, "config": normalized},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _mysql_engine(config: dict[str, Any]):
     try:
         from sqlalchemy import URL, create_engine
@@ -290,7 +303,7 @@ def materialize_connection(connection: dict[str, Any], settings: Settings | None
 
 
 __all__ = [
-    "DatasourceError", "DatasourceKind", "connection_id_from_ref", "decrypt_config",
+    "DatasourceError", "DatasourceKind", "connection_id_from_ref", "connector_fingerprint", "decrypt_config",
     "encrypt_config", "materialize_connection", "normalize_config", "probe",
     "source_ref_for_connection",
 ]
