@@ -19,7 +19,6 @@ function SidebarIcon({ name }: { name: string }) {
   if (name === "briefcase") return <svg {...common}><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></svg>;
   if (name === "user-circle") return <svg {...common}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;
   if (name === "chevron-down") return <svg {...common}><polyline points="6 9 12 15 18 9" /></svg>;
-  if (name === '/calendar') return <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'><rect x='3' y='5' width='18' height='16' rx='2' /><path d='M16 3v4M8 3v4M3 10h18' /><path d='M8 14h3M8 17h5' /></svg>;
   if (name === "home") return <svg {...common}><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>;
   if (name === "logout") return <svg {...common}><path d="M10 5H5v14h5" /><path d="m14 8 4 4-4 4" /><path d="M18 12H9" /></svg>;
   if (name === "/reports") return <svg {...common}><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></svg>;
@@ -69,7 +68,6 @@ const analystNavigation = [
     label: "Công việc",
     icon: "briefcase",
     children: [
-      { href: '/calendar', label: 'Lịch hẹn', icon: '/calendar', description: 'Xem, tạo, chỉnh sửa và hủy lịch hẹn trong Google Calendar.', permission: PERMISSIONS.calendarRead },
       { href: "/activity", label: "Thông báo", icon: "◷", description: "Xem cập nhật về kết nối, lịch hẹn, profiling và cảnh báo workspace.", permission: PERMISSIONS.workspaceAuditRead },
     ]
   },
@@ -214,7 +212,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isPublicPage || isAuthPage || !me) return;
-    if (isAdmin && ["/dashboard", "/datasets", "/workspaces", "/charts", "/compare", "/reports", "/activity", "/chat", "/profiles", "/connectors", "/calendar", "/settings"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    if (isAdmin && ["/dashboard", "/datasets", "/workspaces", "/charts", "/compare", "/reports", "/activity", "/chat", "/profiles", "/connectors", "/settings"].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
       router.replace("/admin");
       return;
     }

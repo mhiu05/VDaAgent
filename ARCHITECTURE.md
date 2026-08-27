@@ -22,7 +22,7 @@ The public frontend introduces the product through `/`, `/about`, `/guide`,
 
 The analyst workspace includes `/dashboard`, `/workspaces`, `/datasets`,
 `/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`,
-`/charts`, `/chat`, `/compare`, `/reports`, `/calendar`, `/activity`,
+`/charts`, `/chat`, `/compare`, `/reports`, `/activity`,
 `/settings` and `/account`.
 
 There is one shared login UI at `/login`; `/admin/login` does not exist. A
@@ -225,7 +225,6 @@ a thread could make results or checkpoints inconsistent.
 | PostgreSQL repositories | User profiles, workspace state, profile metadata, analysis sessions/executions, reports, audit and trace |
 | Storage adapters | Dataset binary persistence and temporary materialization for tabular compute |
 | Datasource connectors | Validate MySQL/MongoDB/DuckDB source contracts, encrypt credentials at rest, then materialize a bounded temporary file for the profiling pipeline |
-| Calendar integration | Google Calendar OAuth per workspace/user; Analyst UI/API for month/week/agenda and list/create/update/delete events |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |
 
 The supported compute sources are uploaded files and external MySQL, MongoDB
@@ -416,7 +415,6 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | Reports | `GET/POST /profile/{runId}/report-draft`, report items/snapshots, export source, submit, review, publish and archive |
 | Admin | `GET/POST /admin/users`, `POST /admin/users/{userId}/status`, `POST /admin/users/{userId}/role`, `DELETE /admin/users/{userId}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback and `DELETE /google-drive/connection` |
-| Google Calendar | status, OAuth connect/callback/disconnect and list/create/update/delete-event endpoints; no Calendar MCP surface |
 | Agent skills | `GET /agent-skills`, `GET /agent-skills/{skillName}`, inspect endpoint |
 
 ## Security and operational invariants
