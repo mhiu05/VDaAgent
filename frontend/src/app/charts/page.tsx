@@ -34,20 +34,9 @@ export default function ChartsPage() {
     queryKey: ["profile", runId],
     queryFn: ({ signal }) => getProfile(runId, signal),
     enabled: Boolean(runId),
-    retry: 1,
-    staleTime: 5 * 60_000,
-    gcTime: 30 * 60_000,
-    placeholderData: (previousData) => previousData,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
-
-  useEffect(() => {
-    if (profile.isError && runId) {
-      setRunId("");
-      try {
-        localStorage.removeItem("p170_selected_chart_run_id");
-      } catch {}
-    }
-  }, [profile.isError, runId]);
 
   // Start the two chart-specific requests as soon as a run is known. ChartsTab
   // observes these exact keys, so it reuses the in-flight request (or cache)
@@ -56,26 +45,23 @@ export default function ChartsPage() {
     queryKey: ["command-center", runId, "explorer-session"],
     queryFn: () => ensureExplorerSession(runId),
     enabled: Boolean(runId),
-    staleTime: 10 * 60_000,
-    gcTime: 60 * 60_000,
-    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
   useQuery({
     queryKey: ["command-center", runId, "forecast-algorithms"],
     queryFn: () => listForecastAlgorithms(runId),
     enabled: Boolean(runId),
-    staleTime: 10 * 60_000,
-    gcTime: 60 * 60_000,
-    placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
   });
 
   const reportDraft = useQuery({
     queryKey: ["report-draft", runId],
     queryFn: () => getProfileReportDraft(runId),
     enabled: Boolean(runId),
-    staleTime: 5 * 60_000,
-    gcTime: 30 * 60_000,
-    placeholderData: (previousData) => previousData,
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
   });
 
   return <>
@@ -116,11 +102,11 @@ export default function ChartsPage() {
         <section className="panel charts-entry-guide">
           <h2>Quy trình tạo biểu đồ</h2>
           <ol className="charts-entry-flow">
-            <li><b>Chọn bộ dữ liệu & phiên lập hồ sơ</b><span>Lấy toàn bộ cấp độ, chiều dữ liệu và chỉ số đã được kiểm định.</span></li>
-            <li><b>Nhập câu hỏi hoặc tạo trọn gói</b><span>Trợ lý AI tự động phân tích câu hỏi kinh doanh và chọn biểu đồ tối ưu.</span></li>
-            <li><b>Kiểm tra bản xem trước → chính thức</b><span>Chỉ kết quả chính thức được dùng làm bằng chứng báo cáo.</span></li>
+            <li><b>Chọn Dataset & Phiên profiling</b><span>Lấy toàn bộ grain, dimension, measure đã được kiểm định.</span></li>
+            <li><b>Nhập câu hỏi hoặc tạo trọn gói</b><span>AI Agent tự động phân tích câu hỏi kinh doanh và chọn biểu đồ tối ưu.</span></li>
+            <li><b>Kiểm tra Preview → Official</b><span>Chỉ kết quả Official được dùng làm evidence báo cáo.</span></li>
             <li><b>Xem biểu đồ đa dạng</b><span>Donut, Heatmap 2D, Histogram, Boxplot, Outlier, Line, Bar.</span></li>
-            <li><b>Ghim vào báo cáo</b><span>Lưu trữ biểu đồ và nhận định trực tiếp vào bản nháp báo cáo.</span></li>
+            <li><b>Ghim vào Báo cáo</b><span>Lưu trữ biểu đồ và insight trực tiếp vào Report Draft.</span></li>
           </ol>
         </section>
 

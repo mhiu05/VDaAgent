@@ -1,9 +1,11 @@
 "use client";
 
 import { PublicNavbar } from "@/components/public-navbar";
+import { useDialog } from "@/components/ui";
 import { useState } from "react";
 
 export default function ContactPage() {
+  const dialog = useDialog();
   const [isHovered, setIsHovered] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -12,7 +14,7 @@ export default function ContactPage() {
     setIsSubmitting(true);
     setTimeout(() => {
       setIsSubmitting(false);
-      alert("Cảm ơn bạn đã liên hệ! Chúng tôi sẽ phản hồi sớm nhất.");
+      void dialog.alert("Cảm ơn bạn đã liên hệ! Chúng tôi sẽ phản hồi sớm nhất.", { title: "Đã gửi liên hệ", tone: "info" });
     }, 1500);
   };
 

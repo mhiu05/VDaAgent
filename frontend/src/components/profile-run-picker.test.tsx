@@ -23,6 +23,7 @@ describe("ProfileRunPicker", () => {
     api.getProfile.mockReset();
     api.listDatasets.mockReset();
     api.listRuns.mockReset();
+    api.listDatasets.mockResolvedValue([dataset]);
   });
 
   it("uses the shared dataset, profile, and run caches without another loading request", async () => {
@@ -42,5 +43,33 @@ describe("ProfileRunPicker", () => {
     expect(api.listDatasets).not.toHaveBeenCalled();
     expect(api.getProfile).not.toHaveBeenCalled();
     expect(api.listRuns).not.toHaveBeenCalled();
+  });
+
+  it("clears a selected run that is no longer a completed option", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["runs", dataset.id], [{ ...run, status: "running" }]);
+    const onChange = vi.fn();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileRunPicker id="chart-profile-run" label="Dataset" datasetId={dataset.id} value={run.id} onChange={onChange} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(""));
+  });
+
+  it("clears a selected run when its run list cannot be loaded", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onChange = vi.fn();
+    api.listRuns.mockRejectedValue(new Error("Network error"));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileRunPicker id="chart-profile-run" label="Dataset" datasetId={dataset.id} value={run.id} onChange={onChange} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(""));
   });
 });

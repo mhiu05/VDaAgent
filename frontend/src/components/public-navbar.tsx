@@ -8,7 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import type { GuestRole } from "@/lib/auth/guest-session";
 import { guestEnabled } from "@/lib/auth/guest-session";
 
-const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Chuyên viên phân tích" };
+const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Analyst" };
 
 export function PublicNavbar() {
   const pathname = usePathname();
@@ -68,7 +68,7 @@ export function PublicNavbar() {
           <Link className={pathname.startsWith("/contact") ? "active" : ""} href="/contact">Liên hệ</Link>
 
           {showRoleGroup && (
-            <div className="pub-nav-roles" aria-label={showTrialRoles ? "Chọn vai trò dùng thử" : "Vai trò đã đăng nhập"}>
+            <div className="pub-nav-roles" aria-label={showTrialRoles ? "Choose a trial role" : "Signed-in role"}>
               {showTrialRoles ? (
                 <button
                   className={`pub-trial-button${guestRole === trialRole.value && !isOverviewPage ? " active" : ""}`}
@@ -78,7 +78,7 @@ export function PublicNavbar() {
                   <svg viewBox="0 0 20 20" aria-hidden="true">
                     <path d="M7.25 5.75 13.5 10l-6.25 4.25z" />
                   </svg>
-                  <span>Dùng thử chuyên viên phân tích</span>
+                  <span>Dùng thử Analyst</span>
                 </button>
               ) : currentRole ? (
                 <span className="pub-nav-current-role">{currentRole}</span>
@@ -87,7 +87,7 @@ export function PublicNavbar() {
           )}
         </nav>
 
-        <nav className="pub-nav-actions" aria-label="Thao tác điều hướng công khai">
+        <nav className="pub-nav-actions" aria-label="Public navigation actions">
           <button type="button" className="pub-theme-toggle" onClick={toggleTheme} aria-label={theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} aria-pressed={theme === "dark"}>
             <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
             <small>{theme === "dark" ? "Sáng" : "Tối"}</small>
@@ -95,7 +95,7 @@ export function PublicNavbar() {
 
           {authenticated ? (
             <>
-              <Link className="pub-btn pub-btn-primary" href="/workspaces">Không gian làm việc</Link>
+              <Link className="pub-btn pub-btn-primary" href="/workspaces">Workspace</Link>
               <div className="nav-avatar-container">
                 <button type="button" className="nav-avatar-btn" onClick={() => setAvatarOpen(!avatarOpen)} aria-label="Mở menu tài khoản" aria-expanded={avatarOpen}>
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>

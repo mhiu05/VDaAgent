@@ -12,24 +12,24 @@ export function PublicFooter() {
               <span>VDaAgent</span>
             </Link>
             <p className="pub-footer-desc">
-              Lập hồ sơ dữ liệu để phân tích dựa trên bằng chứng. Hiểu dữ liệu của bạn trước khi bắt đầu phân tích sâu.
+              Data profiling for evidence-driven analysis. Hiểu dữ liệu của bạn trước khi bắt đầu phân tích sâu.
             </p>
           </div>
           <div className="pub-footer-col">
             <h4>Sản phẩm</h4>
-            <Link href="/workspaces">Không gian làm việc</Link>
+            <Link href="/workspaces">Workspace</Link>
             <Link href="/guide">Hướng dẫn</Link>
             <Link href="/docs">Tài liệu</Link>
           </div>
           <div className="pub-footer-col">
             <h4>Tìm hiểu</h4>
             <Link href="/about">Giới thiệu</Link>
-            <Link href="/docs">Lập hồ sơ dữ liệu</Link>
+            <Link href="/docs">Data Profiling</Link>
           </div>
           <div className="pub-footer-col">
             <h4>Khác</h4>
-            <Link href="/privacy">Chính sách bảo mật</Link>
-            <Link href="/terms">Điều khoản sử dụng</Link>
+            <Link href="/privacy">Privacy Policy</Link>
+            <Link href="/terms">Terms of Service</Link>
             <Link href="/contact">Liên hệ</Link>
           </div>
         </div>

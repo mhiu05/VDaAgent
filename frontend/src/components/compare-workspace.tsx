@@ -2,8 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { detectDrift, listAllRuns } from "@/lib/api";
+import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import { detectDrift, listDatasets, listRuns } from "@/lib/api";
 import { formatDate, formatNumber } from "@/lib/format";
 import type { DriftFinding, DriftResponse, ProfileRunSummary } from "@/lib/types";
 import { useAuth } from "@/components/auth-provider";
@@ -64,12 +64,12 @@ function RunSelector({ id, role, description, value, runs, excludeRunId, disable
   return <section className="compare-run-card">
     <div className="compare-run-card-heading"><div><p className="eyebrow">{role}</p><h2>{role === "Baseline" ? "Mốc dữ liệu đối chiếu" : "Phiên cần kiểm tra"}</h2></div><span className="compare-run-state">Hoàn tất</span></div>
     <p>{description}</p>
-    <label htmlFor={id}>Phiên lập hồ sơ</label>
+    <label htmlFor={id}>Profile Run</label>
     <select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-      <option value="">Chọn phiên lập hồ sơ đã hoàn tất…</option>
+      <option value="">Chọn Profile Run đã hoàn tất…</option>
       {runs.filter((run) => run.id !== excludeRunId).map((run) => <option key={run.id} value={run.id}>{run.datasetName} — {runLabel(run)}</option>)}
     </select>
-    {selected ? <div className="compare-run-metadata" aria-live="polite"><b>{selected.datasetName}</b><span>{runLabel(selected)}</span><small>{runMeta(selected) || "Siêu dữ liệu giới hạn theo phiên lập hồ sơ"}</small></div> : <div className="compare-run-metadata is-empty"><span>Chưa chọn phiên lập hồ sơ.</span><small>Chỉ các phiên đã hoàn tất mới xuất hiện.</small></div>}
+    {selected ? <div className="compare-run-metadata" aria-live="polite"><b>{selected.datasetName}</b><span>{runLabel(selected)}</span><small>{runMeta(selected) || "Metadata giới hạn theo Profile Run"}</small></div> : <div className="compare-run-metadata is-empty"><span>Chưa chọn Profile Run.</span><small>Chỉ các phiên đã hoàn tất mới xuất hiện.</small></div>}
   </section>;
 }
 
@@ -98,24 +98,19 @@ export function CompareWorkspace() {
   const [severity, setSeverity] = useState<"all" | Severity>("all");
   const previousWorkspaceId = useRef<string | null>(workspaceId);
 
-  const allRuns = useQuery({
-    queryKey: ["compare", workspaceId, "runs", "all"],
-    queryFn: ({ signal }) => listAllRuns(signal),
-    enabled: Boolean(workspaceId),
-    staleTime: 15_000,
-    gcTime: 5 * 60_000,
+  const datasets = useQuery({ queryKey: ["compare", workspaceId, "datasets"], queryFn: ({ signal }) => listDatasets(signal), enabled: Boolean(workspaceId) });
+  const runQueries = useQueries({
+    queries: (datasets.data ?? []).map((dataset) => ({
+      queryKey: ["compare", workspaceId, "runs", dataset.id],
+      queryFn: ({ signal }: { signal: AbortSignal }) => listRuns(dataset.id, signal),
+      enabled: Boolean(workspaceId),
+    })),
   });
-
-  const completedRuns = useMemo<CompletedRun[]>(() => {
-    if (!allRuns.data) return [];
-    return allRuns.data
-      .filter((run) => run.status === "completed" && Boolean(run.dataset_name))
-      .map((run) => ({ ...run, datasetName: run.dataset_name as string }))
-      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
-  }, [allRuns.data]);
-
-  const catalogLoading = allRuns.isPending;
-  const catalogError = allRuns.error;
+  const completedRuns = useMemo<CompletedRun[]>(() => (datasets.data ?? []).flatMap((dataset, index) =>
+    (runQueries[index]?.data ?? []).filter((run) => run.status === "completed").map((run) => ({ ...run, datasetName: dataset.name })),
+  ).sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "")), [datasets.data, runQueries]);
+  const catalogLoading = datasets.isPending || runQueries.some((query) => query.isPending);
+  const catalogError = datasets.error ?? runQueries.find((query) => query.error)?.error;
 
   useEffect(() => {
     if (previousWorkspaceId.current === workspaceId) return;
@@ -157,28 +152,28 @@ export function CompareWorkspace() {
   }
 
   return <div className="compare-workspace">
-    <PageHeader eyebrow="THAY ĐỔI DỮ LIỆU" title="So sánh dữ liệu" description="Phát hiện thay đổi về phân phối, chất lượng và cấu trúc giữa hai phiên lập hồ sơ đã hoàn tất." action={<span className="compare-methodology"><span>Phương pháp đánh giá</span><MethodologyTip /></span>} />
-    {catalogLoading && <LoadingBlock label="Đang tải các phiên lập hồ sơ trong không gian làm việc…" />}
-    {catalogError && <ErrorNotice error={catalogError} retry={() => { void allRuns.refetch(); }} />}
-    {!catalogLoading && !catalogError && completedRuns.length < 2 && <EmptyState title={completedRuns.length === 0 ? "Chưa có phiên lập hồ sơ phù hợp" : "Cần thêm một phiên lập hồ sơ"} detail={completedRuns.length === 0 ? "Bạn cần ít nhất hai phiên lập hồ sơ đã hoàn tất để thực hiện so sánh thay đổi dữ liệu." : "Không gian làm việc hiện chỉ có một phiên lập hồ sơ đã hoàn tất. Hãy hoàn tất thêm một phiên để bắt đầu so sánh."} action={<Link href="/datasets" className="button primary">Xem các phiên lập hồ sơ</Link>} />}
+    <PageHeader eyebrow="DATA DRIFT" title="So sánh dữ liệu" description="Phát hiện thay đổi về phân phối, chất lượng và cấu trúc giữa hai Profile Run đã hoàn tất." action={<span className="compare-methodology"><span>Phương pháp đánh giá</span><MethodologyTip /></span>} />
+    {catalogLoading && <LoadingBlock label="Đang tải các Profile Run trong workspace…" />}
+    {catalogError && <ErrorNotice error={catalogError} retry={() => { void datasets.refetch(); void Promise.all(runQueries.map((query) => query.refetch())); }} />}
+    {!catalogLoading && !catalogError && completedRuns.length < 2 && <EmptyState title={completedRuns.length === 0 ? "Chưa có Profile Run phù hợp" : "Cần thêm một Profile Run"} detail={completedRuns.length === 0 ? "Bạn cần ít nhất hai Profile Run đã hoàn tất để thực hiện so sánh drift." : "Workspace hiện chỉ có một Profile Run đã hoàn tất. Hãy hoàn tất thêm một phiên để bắt đầu so sánh."} action={<Link href="/datasets" className="button primary">Xem Profile Runs</Link>} />}
     {!catalogLoading && !catalogError && completedRuns.length >= 2 && <>
       <section className="panel compare-selector-panel" aria-labelledby="compare-selector-title">
-        <div className="compare-selector-heading"><div><p className="eyebrow">CHỌN NGỮ CẢNH</p><h2 id="compare-selector-title">Chọn phiên lập hồ sơ để so sánh</h2><p>Mốc cơ sở là dữ liệu đối chiếu; phiên hiện tại là dữ liệu cần kiểm tra thay đổi.</p></div><span className={canCompare ? "compare-ready" : "compare-not-ready"}>{canCompare ? "Sẵn sàng gửi yêu cầu" : "Chọn đủ hai phiên lập hồ sơ"}</span></div>
+        <div className="compare-selector-heading"><div><p className="eyebrow">CHỌN NGỮ CẢNH</p><h2 id="compare-selector-title">Chọn Profile Run để so sánh</h2><p>Baseline là mốc đối chiếu; Current là phiên cần kiểm tra thay đổi.</p></div><span className={canCompare ? "compare-ready" : "compare-not-ready"}>{canCompare ? "Sẵn sàng gửi yêu cầu" : "Chọn đủ hai Profile Run"}</span></div>
         <div className="compare-run-grid"><RunSelector id="compare-baseline" role="Baseline" description="Mốc dữ liệu dùng để đối chiếu." value={baselineId} runs={completedRuns} excludeRunId={currentId} disabled={comparison.isPending} onChange={selectBaseline} /><span className="compare-direction" aria-hidden="true">→</span><RunSelector id="compare-current" role="Current" description="Phiên cần kiểm tra thay đổi." value={currentId} runs={completedRuns} excludeRunId={baselineId} disabled={comparison.isPending} onChange={selectCurrent} /></div>
         <div className="compare-selector-footer"><p>{canCompare ? "Backend sẽ kiểm tra quyền truy cập và tính evidence từ column statistics đã lưu." : "Chọn Baseline và Current khác nhau để tiếp tục."}</p><LoadingButton type="button" className="button primary" busy={comparison.isPending} disabled={!canCompare} onClick={() => comparison.mutate()}>{comparison.isPending ? "Đang phân tích drift…" : "So sánh dữ liệu"}</LoadingButton></div>
         {comparison.isError && <ErrorNotice error={comparison.error} retry={() => comparison.mutate()} />}
       </section>
-      {!result && !comparison.isPending && <section className="compare-awaiting-result" aria-live="polite"><span aria-hidden="true">↔</span><div><b>Kết quả so sánh sẽ xuất hiện tại đây</b><p>Chỉ số và mức độ nghiêm trọng đều do hệ thống xác định tính từ phiên lập hồ sơ đã chọn.</p></div></section>}
-      {comparison.isPending && <section className="compare-progress" aria-live="polite"><span className="spinner" aria-hidden="true" /><div><b>Đang so sánh phiên lập hồ sơ</b><p>Đang lấy bằng chứng tổng hợp từ hệ thống. Không sử dụng các dòng dữ liệu thô.</p></div></section>}
+      {!result && !comparison.isPending && <section className="compare-awaiting-result" aria-live="polite"><span aria-hidden="true">↔</span><div><b>Kết quả so sánh sẽ xuất hiện tại đây</b><p>Chỉ số và severity đều do deterministic backend tính từ Profile Run đã chọn.</p></div></section>}
+      {comparison.isPending && <section className="compare-progress" aria-live="polite"><span className="spinner" aria-hidden="true" /><div><b>Đang so sánh Profile Run</b><p>Đang lấy evidence aggregate từ backend. Không sử dụng raw rows.</p></div></section>}
     </>}
     {result && <section className="compare-results" aria-labelledby="compare-results-title">
       <header className="compare-results-heading"><div><p className="eyebrow">KẾT QUẢ EVIDENCE</p><h2 id="compare-results-title">Tổng quan drift</h2><p>{result.summary}</p></div><div className="compare-result-context"><span>Baseline → Current</span><b>{baselineRun ? runLabel(baselineRun) : "Profile Run đã chọn"}</b><small>→ {currentRun ? runLabel(currentRun) : "Profile Run đã chọn"}</small></div></header>
-      {result.findings.length === 0 ? <Notice tone="success"><b>Không phát hiện thay đổi đáng chú ý.</b><p>Kết quả xác định từ hệ thống không ghi nhận tín hiệu thay đổi cho cặp phiên lập hồ sơ này.</p></Notice> : <>
+      {result.findings.length === 0 ? <Notice tone="success"><b>Không phát hiện drift đáng chú ý.</b><p>Kết quả deterministic từ backend không ghi nhận signal drift cho cặp Profile Run này.</p></Notice> : <>
         <div className="compare-summary-grid"><article><span>Nghiêm trọng</span><b>{formatNumber(majorCount)}</b><small>Cột có ít nhất một signal major</small></article><article><span>Cần theo dõi</span><b>{formatNumber(minorCount)}</b><small>Cột chỉ có signal minor</small></article><article><span>Cột có evidence</span><b>{formatNumber(columns.length)}</b><small>{formatNumber(result.findings.length)} signal backend trả về</small></article></div>
         <section className="panel compare-table-panel" aria-labelledby="compare-column-title"><div className="compare-table-heading"><div><h2 id="compare-column-title">Chi tiết theo cột</h2><p>Ưu tiên các cột có signal nghiêm trọng. Chọn một cột để xem evidence.</p></div><span>{formatNumber(visibleColumns.length)} / {formatNumber(columns.length)} cột</span></div><div className="compare-table-controls"><label><span>Tìm cột</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên cột…" /></label><label><span>Severity</span><select value={severity} onChange={(event) => setSeverity(event.target.value as "all" | Severity)}><option value="all">Tất cả severity</option><option value="major">Nghiêm trọng</option><option value="minor">Cần theo dõi</option></select></label></div>
           {visibleColumns.length ? <div className="table-wrap"><table className="compare-table"><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>{visibleColumns.map((column) => <tr key={column.name} className={selectedColumn === column.name ? "is-selected" : ""}><td><button type="button" className="compare-column-trigger" onClick={() => setSelectedColumn(column.name)} aria-pressed={selectedColumn === column.name}>{column.name}<small>Xem evidence →</small></button></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{severityCopy[column.severity]}</span></td><td>{findingMetric(column.findings[0])}</td><td>{formatNumber(column.findings.length)} signal</td></tr>)}</tbody></table></div> : <div className="compare-no-results"><b>Không có cột phù hợp với bộ lọc.</b><button type="button" className="button secondary" onClick={() => { setSearch(""); setSeverity("all"); }}>Xóa bộ lọc</button></div>}
         </section>
-        {selected && <section className="panel compare-detail-panel" aria-labelledby="compare-detail-title"><div className="compare-detail-heading"><div><p className="eyebrow">BẰNG CHỨNG CỘT</p><h2 id="compare-detail-title">{selected.name}</h2><p>{selected.findings.length} tín hiệu được hệ thống trả về cho cột này.</p></div><span className={`compare-severity compare-severity-${selected.severity}`}>{severityCopy[selected.severity]}</span></div><div className="compare-evidence-list">{selected.findings.map((finding, index) => <FindingDetail key={`${finding.drift_type}-${index}`} finding={finding} />)}</div><p className="compare-evidence-note">Phân phối chi tiết theo khoảng/nhóm chưa có trong hợp đồng thay đổi hiện tại; trang chỉ hiển thị bằng chứng tổng hợp mà hệ thống trả về.</p><Link href={baselineId ? `/profiles/${encodeURIComponent(baselineId)}` : "/datasets"} className="button secondary">Xem phiên lập hồ sơ mốc cơ sở</Link></section>}
+        {selected && <section className="panel compare-detail-panel" aria-labelledby="compare-detail-title"><div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h2 id="compare-detail-title">{selected.name}</h2><p>{selected.findings.length} signal được backend trả về cho cột này.</p></div><span className={`compare-severity compare-severity-${selected.severity}`}>{severityCopy[selected.severity]}</span></div><div className="compare-evidence-list">{selected.findings.map((finding, index) => <FindingDetail key={`${finding.drift_type}-${index}`} finding={finding} />)}</div><p className="compare-evidence-note">Phân phối chi tiết theo bins/categories chưa có trong contract drift hiện tại; trang chỉ hiển thị aggregate evidence mà backend trả về.</p><Link href={baselineId ? `/profiles/${encodeURIComponent(baselineId)}` : "/datasets"} className="button secondary">Xem Profile Run baseline</Link></section>}
       </>}
     </section>}
   </div>;

@@ -13,10 +13,10 @@ export default function AboutPage() {
           <div className="pub-container pub-hero" style={{ paddingTop: 0 }}>
             <div className="pub-hero-copy">
               <span className="pub-eyebrow">GIỚI THIỆU CHUYÊN SÂU</span>
-              <h1>VDaAgent —<br /><span>Lập hồ sơ dữ liệu dựa trên bằng chứng</span></h1>
+              <h1>VDaAgent —<br /><span>Evidence-First Data Profiling</span></h1>
               <p>Hệ sinh thái phân tích dữ liệu giúp giải quyết triệt để vấn đề "hộp đen" của AI, biến mọi kết luận thành các bằng chứng có thể đo lường và truy nguyên.</p>
               <p style={{ marginTop: "16px", color: "var(--pub-ink)", fontWeight: 500 }}>
-                Dự án không chỉ là một công cụ lập hồ sơ dữ liệu, mà là một chuẩn mực mới cho quy trình làm việc giữa chuyên viên phân tích và trợ lý AI.
+                Dự án không chỉ là một công cụ Data Profiling, mà là một chuẩn mực mới cho quy trình làm việc giữa Analyst và Agents.
               </p>
             </div>
 
@@ -25,13 +25,13 @@ export default function AboutPage() {
                 <h3>Vấn đề (Painpoints) hiện tại</h3>
               </div>
               <p style={{ color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontSize: "15px", marginBottom: "16px" }}>
-                Các công cụ phân tích dữ liệu và chatbot AI truyền thống thường gặp những vấn đề nghiêm trọng:
+                Các công cụ Data Analytics và AI chatbot truyền thống thường gặp những vấn đề nghiêm trọng:
               </p>
               <ul style={{ color: "rgba(255,255,255,0.8)", fontSize: "14px", lineHeight: 1.8, paddingLeft: "20px" }}>
-                <li><b>AI hộp đen:</b> Sinh ra kết quả (ảo giác) mà không có nguồn gốc hay công thức tính toán rõ ràng.</li>
+                <li><b>Blackbox AI:</b> Sinh ra kết quả (hallucination) mà không có nguồn gốc hay công thức tính toán rõ ràng.</li>
                 <li><b>Bảo mật kém:</b> Vô tình gửi dữ liệu thô (raw rows) hoặc thông tin định danh (PII) lên LLM.</li>
                 <li><b>Thiếu kiểm soát:</b> Cho phép thực thi SQL tự do trên Browser gây nguy hiểm cho hệ thống database.</li>
-                <li><b>Rời rạc:</b> Chuyên viên phân tích phải nhảy qua lại giữa công cụ làm sạch, công cụ vẽ biểu đồ và công cụ viết báo cáo.</li>
+                <li><b>Rời rạc:</b> Analyst phải nhảy qua lại giữa công cụ làm sạch, công cụ vẽ biểu đồ và công cụ viết báo cáo.</li>
               </ul>
             </div>
           </div>
@@ -42,7 +42,7 @@ export default function AboutPage() {
             <div className="pub-section-header">
               <span className="pub-eyebrow">GIẢI PHÁP & LỢI ÍCH</span>
               <h2>Xây dựng niềm tin từ dữ liệu gốc</h2>
-              <p>VDaAgent định nghĩa lại cách chuyên viên phân tích dữ liệu làm việc bằng một không gian làm việc có kiểm soát và minh bạch 100%.</p>
+              <p>VDaAgent định nghĩa lại cách Data Analyst làm việc bằng một Workspace có kiểm soát và minh bạch 100%.</p>
             </div>
 
             <div className="pub-feature-grid">
@@ -79,22 +79,22 @@ export default function AboutPage() {
                   <li style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "32px" }}>
                     <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>1</div>
                     <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Tự động lập hồ sơ dữ liệu</h4>
+                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Tự động Data Profiling</h4>
                       <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Nhận diện Schema, tính toán Completeness, Missing rate, Unique, Cardinality và phân phối dữ liệu cho từng cột độc lập.</p>
                     </div>
                   </li>
                   <li style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "32px" }}>
                     <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>2</div>
                     <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Bản xem trước & bằng chứng chính thức</h4>
-                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Công cụ trực quan hóa dữ liệu. Biểu đồ sau khi được chuyên viên phân tích duyệt sẽ trở thành "bằng chứng chính thức" lưu trữ qua mã băm.</p>
+                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Preview & Official Evidence</h4>
+                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Công cụ trực quan hóa dữ liệu. Biểu đồ sau khi được Analyst duyệt sẽ trở thành "Bằng chứng chính thức" lưu trữ qua mã Hash.</p>
                     </div>
                   </li>
                   <li style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "32px" }}>
                     <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>3</div>
                     <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Trợ lý AI ràng buộc bằng chứng</h4>
-                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Trợ lý AI trả lời câu hỏi phân tích nhưng bị giới hạn nghiêm ngặt: chỉ được phép đọc các bằng chứng chính thức đã duyệt, không bịa đặt dữ liệu.</p>
+                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Evidence-bound AI Agent</h4>
+                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Trợ lý AI trả lời câu hỏi phân tích nhưng bị giới hạn nghiêm ngặt: chỉ được phép đọc các Official Evidence đã duyệt, không bịa đặt dữ liệu.</p>
                     </div>
                   </li>
                   <li style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
@@ -110,13 +110,13 @@ export default function AboutPage() {
               <div style={{ background: "var(--pub-surface)", padding: "40px", borderRadius: "16px", border: "1px solid var(--pub-border)" }}>
                 <h3 style={{ fontSize: "20px", marginBottom: "24px", color: "var(--pub-ink)" }}>Userflow hệ thống</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                      <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>1. Tải tập dữ liệu (CSV/JSON/Parquet)</div>
+                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>1. Upload Dataset (CSV/JSON/Parquet)</div>
                   <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                      <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>2. Lập hồ sơ xác định & xem xét siêu dữ liệu/PII</div>
+                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>2. Profile deterministic & Review Metadata/PII</div>
                   <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                      <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>3. Tạo biểu đồ (Bản xem trước → Bằng chứng chính thức)</div>
+                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>3. Tạo Biểu đồ (Preview → Official Evidence)</div>
                   <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                      <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>4. Đặt câu hỏi cho trợ lý AI (Dựa trên bằng chứng)</div>
+                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>4. Đặt câu hỏi cho Agent (Dựa trên Evidence)</div>
                   <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
                   <div style={{ background: "var(--pub-brand-tint)", color: "var(--pub-brand)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-brand)", fontWeight: 600 }}>5. Báo cáo hoàn chỉnh (Snapshot PDF/JSON)</div>
                 </div>
@@ -164,7 +164,7 @@ export default function AboutPage() {
               </div>
               <div className="pub-insight-line">
                 <span>Quyền truy cập</span>
-                <b>Xác thực không gian làm việc & vai trò</b>
+                <b>Xác thực Workspace & Role</b>
               </div>
               <div className="pub-insight-line">
                 <span>Chỉ số phân tích</span>
@@ -182,7 +182,7 @@ export default function AboutPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px", maxWidth: "800px", margin: "0 auto 48px", textAlign: "left" }}>
               <div style={{ background: "var(--pub-surface)", padding: "32px", borderRadius: "16px", border: "1px solid var(--pub-border)" }}>
                 <h3 style={{ color: "var(--pub-brand)", marginBottom: "12px", fontSize: "20px" }}>Đối tượng chính</h3>
-                <p style={{ color: "var(--pub-ink)", lineHeight: 1.6 }}>Chuyên viên phân tích dữ liệu và phân tích nghiệp vụ cần khám phá, kiểm tra và trình bày nhận định từ một tập dữ liệu một cách có căn cứ.</p>
+                <p style={{ color: "var(--pub-ink)", lineHeight: 1.6 }}>Data Analyst và Business Analyst cần khám phá, kiểm tra và trình bày insight từ một dataset một cách có căn cứ.</p>
               </div>
               <div style={{ background: "var(--pub-surface)", padding: "32px", borderRadius: "16px", border: "1px solid var(--pub-border)" }}>
                 <h3 style={{ color: "var(--pub-muted)", marginBottom: "12px", fontSize: "20px" }}>Đối tượng phụ</h3>
@@ -191,7 +191,7 @@ export default function AboutPage() {
             </div>
 
             <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-              <Link href="/workspaces" className="pub-btn pub-btn-primary">Mở không gian làm việc <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
+              <Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
               <Link href="/contact" className="pub-btn pub-btn-secondary">Liên hệ hợp tác</Link>
             </div>
           </div>

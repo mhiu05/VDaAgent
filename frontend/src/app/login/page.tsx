@@ -101,7 +101,7 @@ function LoginForm() {
           <LoadingButton className="button primary auth-submit" type="submit" busy={busy} style={{ width: "100%", marginTop: "1rem" }}>
             {busy ? (phase === "redirecting" ? "Đang chuyển hướng…" : "Đang đăng nhập…") : "Đăng nhập"}
           </LoadingButton>
-          <p className="auth-role-note">Vai trò được xác định tự động sau khi đăng nhập. Tài khoản quản trị hệ thống sẽ được chuyển đến khu vực quản trị; chuyên viên phân tích sẽ vào không gian làm việc của mình.</p>
+          <p className="auth-role-note">Vai trò được xác định tự động sau khi đăng nhập. Tài khoản System Admin sẽ được chuyển đến khu vực quản trị; Analyst sẽ vào workspace của mình.</p>
           {busy && <p role="status" aria-live="polite" className="auth-progress">{phase === "redirecting" ? "Đang chuyển hướng…" : "Đang xác thực tài khoản…"}</p>}
         </form>
         <p className="auth-switch">Chưa có tài khoản? <Link href="/signup">Đăng ký</Link></p>

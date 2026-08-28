@@ -80,7 +80,7 @@ export function Distribution({ stat, totalRows }: { stat: ColumnStat; totalRows?
     : Object.entries(stat.top_k_values as Record<string, unknown>)
       .map(([label, count]) => ({ label, count: Number(count) })))
     .filter((entry) => Number.isFinite(entry.count))
-    .slice(0, 15);
+    .slice(0, 5);
   if (!entries.length) return <span className="muted">Chưa có phân phối danh mục (category) an toàn để hiển thị.</span>;
   const max = Math.max(...entries.map((entry) => entry.count), 1);
   const total = Number(totalRows) || Number(stat.row_count) || null;
@@ -104,7 +104,7 @@ export function MetricChart({ title, columns, metric, ratio = false, warning = f
     .map((stat) => ({ name: stat.column_name, value: metricPercent(stat[metric] as number | null | undefined, ratio) }))
     .filter((item): item is { name: string; value: number } => item.value !== null)
     .sort((left, right) => right.value - left.value)
-    .slice(0, 15);
+    .slice(0, 10);
   if (!rows.length) return null;
   return <section className="panel metric-chart"><div className="panel-title"><div><h2>{title}</h2><small>Top {rows.length} cột · thang đo 0–100%</small></div><span className="chip">Biểu đồ</span></div><div className="chart-bars">{rows.map((row) => <div className="bar-row" key={row.name}><span className="truncate" title={row.name}>{row.name}</span><span className="bar-track"><span className={`bar-fill ${warning ? "warning" : ""}`} style={{ width: `${row.value}%` }} /></span><b>{formatNumber(row.value, 1)}%</b></div>)}</div><div className="metric-chart-scale"><span>0%</span><span>100%</span></div></section>;
 }

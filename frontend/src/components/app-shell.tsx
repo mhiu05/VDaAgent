@@ -9,7 +9,7 @@ import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
 import { PublicNavbar } from "@/components/public-navbar";
-import { InfoTip } from "@/components/ui";
+import { InfoTip, useDialog } from "@/components/ui";
 import { DraggableChatWidget } from "@/components/draggable-chat-widget";
 
 function SidebarIcon({ name }: { name: string }) {
@@ -49,8 +49,8 @@ const analystNavigation = [
     label: "Dữ liệu",
     icon: "database",
     children: [
-      { href: "/connectors", label: "Kết nối", icon: "/connectors", description: "Quản lý nguồn dữ liệu, lưu trữ và các tích hợp của không gian làm việc.", permission: PERMISSIONS.datasetUpload },
-      { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo phiên lập hồ sơ và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
+      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
+      { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
     ]
   },
   {
@@ -59,7 +59,7 @@ const analystNavigation = [
     icon: "bar-chart",
     children: [
       { href: "/charts", label: "Biểu đồ", icon: "▥", description: "Không gian phân tích biểu đồ trực quan, hỏi đáp AI và ghim vào báo cáo.", permission: PERMISSIONS.profileRead },
-      { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai phiên lập hồ sơ hoàn tất để phát hiện thay đổi dữ liệu.", permission: PERMISSIONS.driftRun },
+      { href: "/compare", label: "So sánh dữ liệu", icon: "↔", description: "Đối chiếu hai profile run hoàn tất để phát hiện dữ liệu thay đổi.", permission: PERMISSIONS.driftRun },
       { href: "/reports", label: "Xem báo cáo", icon: "▤", description: "Xem các báo cáo đã tạo, đang chờ duyệt hoặc đã xuất bản.", permission: PERMISSIONS.reportPublishedRead },
     ]
   },
@@ -68,7 +68,7 @@ const analystNavigation = [
     label: "Công việc",
     icon: "briefcase",
     children: [
-      { href: "/activity", label: "Thông báo", icon: "◷", description: "Xem cập nhật về kết nối, lịch hẹn, lập hồ sơ và cảnh báo không gian làm việc.", permission: PERMISSIONS.workspaceAuditRead },
+      { href: "/activity", label: "Thông báo", icon: "◷", description: "Xem cập nhật về kết nối, lịch hẹn, profiling và cảnh báo workspace.", permission: PERMISSIONS.workspaceAuditRead },
     ]
   },
   {
@@ -77,7 +77,7 @@ const analystNavigation = [
     icon: "user-circle",
     children: [
       { href: "/account", label: "Hồ sơ cá nhân", icon: "👤", description: "Xem thông tin tài khoản cá nhân, phân quyền và bảo mật.", permission: PERMISSIONS.datasetRead },
-      { href: "/settings", label: "Cài đặt", icon: "⚙", description: "Cấu hình ngữ cảnh, màu giao diện và ngôn ngữ cho không gian làm việc.", permission: PERMISSIONS.datasetRead },
+      { href: "/settings", label: "Cài đặt", icon: "⚙", description: "Cấu hình context, theme màu sắc và ngôn ngữ cho workspace.", permission: PERMISSIONS.datasetRead },
     ]
   }
 ];
@@ -91,6 +91,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const [openNavigationGroup, setOpenNavigationGroup] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
   const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
+  const dialog = useDialog();
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
@@ -139,14 +140,14 @@ function AppShellContent({ children }: { children: ReactNode }) {
   }, [me?.user, isGuest]);
 
   const avatarSrc = userProfile?.avatarUrl;
-  const displayName = userProfile?.fullName || me?.user.email || "Chuyên viên phân tích";
+  const displayName = userProfile?.fullName || me?.user.email || "Analyst";
 
   const accountPanel = authenticated && me ? (
     <section className="sidebar-account" aria-label="Tài khoản đang đăng nhập">
       {avatarSrc ? (
         <Image
           src={avatarSrc}
-          alt="Ảnh đại diện"
+          alt="Avatar"
           width={34}
           height={34}
           unoptimized
@@ -160,7 +161,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <b title={me.user.email ?? undefined}>{displayName}</b>
         <em>
           <span className="account-status-dot" aria-hidden="true" />
-          {isAdmin ? "Quản trị viên · Đang hoạt động" : "Đang hoạt động"}
+          {isAdmin ? "Admin · Đang hoạt động" : "Đang hoạt động"}
         </em>
       </span>
       <button
@@ -178,7 +179,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {avatarSrc ? (
         <Image
           src={avatarSrc}
-          alt="Ảnh đại diện"
+          alt="Avatar"
           width={34}
           height={34}
           unoptimized
@@ -189,7 +190,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         <span className="account-avatar" aria-hidden="true">AN</span>
       )}
       <span className="account-details">
-        <b>{displayName || "Không gian chuyên viên phân tích"}</b>
+        <b>{displayName || "Analyst workspace"}</b>
         <em><span className="account-status-dot" aria-hidden="true" />Đang dùng thử</em>
       </span>
       <button
@@ -204,8 +205,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
     </section>
   ) : null;
   const guestWorkspacePanel = isGuest ? (
-    <section className="sidebar-workspace sidebar-guest-workspace" aria-label="Không gian làm việc khách hiện tại">
-      <span className="sidebar-workspace-label sidebar-text">Không gian làm việc hiện tại</span>
+    <section className="sidebar-workspace sidebar-guest-workspace" aria-label="Workspace khách hiện tại">
+      <span className="sidebar-workspace-label sidebar-text">Workspace hiện tại</span>
       <span className="workspace-demo-hint sidebar-text">Phiên dùng thử · dữ liệu mẫu</span>
     </section>
   ) : null;
@@ -258,11 +259,17 @@ function AppShellContent({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/chat")) router.push("/datasets");
   }
 
-  function removeConversation(conversation: ChatConversation) {
-    if (!window.confirm(`Xóa đoạn chat "${conversation.title}" khỏi lịch sử?`)) return;
-    if (!deleteConversation(conversation.id)) return;
+  async function removeConversation(conversation: ChatConversation): Promise<boolean> {
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa đoạn chat",
+      message: `Xóa đoạn chat "${conversation.title}" khỏi lịch sử?`,
+      confirmLabel: "Xóa đoạn chat",
+      tone: "danger",
+    });
+    if (!confirmed) return false;
+    if (!deleteConversation(conversation.id)) return false;
     const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
-    if (!active) return;
+    if (!active) return true;
     setShowAllHistory(false);
     const next = listConversations()[0];
     if (next) {
@@ -271,10 +278,17 @@ function AppShellContent({ children }: { children: ReactNode }) {
     } else {
       router.push("/datasets");
     }
+    return true;
   }
 
-  function removeAllConversations() {
-    if (!window.confirm("Xóa toàn bộ lịch sử chat trong workspace này? Hành động này không thể hoàn tác.")) return;
+  async function removeAllConversations() {
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa lịch sử chat",
+      message: "Xóa toàn bộ lịch sử chat trong workspace này? Hành động này không thể hoàn tác.",
+      confirmLabel: "Xóa toàn bộ",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     clearChatHistory();
     setShowAllHistory(false);
     if (pathname === "/chat") router.push("/datasets");
@@ -303,25 +317,25 @@ function AppShellContent({ children }: { children: ReactNode }) {
           </div>
         ) : (
           <div className="sidebar-top">
-            {/* Nút Trang chủ chuyên viên phân tích thay thế brand mascot */}
-            <Link href="/" className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ chuyên viên phân tích">
+            {/* Nút Trang chủ Analyst thay thế brand mascot */}
+            <Link href="/" className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ Analyst">
               <span className="sidebar-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" />
                 </svg>
               </span>
-              <span className="sidebar-link-label">Trang chủ chuyên viên phân tích</span>
+              <span className="sidebar-link-label">Trang chủ Analyst</span>
             </Link>
             <Link className={pathname === "/datasets" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/datasets">
               <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
-              <span className="sidebar-link-label">Trang chủ không gian làm việc</span>
+              <span className="sidebar-link-label">Trang chủ workspace</span>
             </Link>
-            {authenticated && me && <section className="sidebar-workspace" aria-label="Không gian làm việc hiện tại">
-              <span className="sidebar-workspace-label sidebar-text">Không gian làm việc của bạn</span>
-              <select aria-label="Không gian làm việc hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>
+            {authenticated && me && <section className="sidebar-workspace" aria-label="Workspace hiện tại">
+              <span className="sidebar-workspace-label sidebar-text">Workspace của bạn</span>
+              <select aria-label="Workspace hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>
                 {me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}
               </select>
-              <Link className="workspace-manage-link sidebar-text" href="/workspaces">Quản lý không gian làm việc →</Link>
+              <Link className="workspace-manage-link sidebar-text" href="/workspaces">Quản lý Workspace →</Link>
             </section>}
             {guestWorkspacePanel}
           </div>

@@ -42,6 +42,7 @@ from src.services.permissions import (
     WORKSPACE_SETTINGS_MANAGE,
     canonical_role,
     canonical_workspace_role,
+    permissions_for_role,
     system_permissions_for_role,
     workspace_permissions_for_role,
     role_can_manage_target,
@@ -106,7 +107,7 @@ async def session(
     if user.is_legacy:
         repo.ensure_bootstrap_workspace(user.user_id)
 
-    profile = user.profile or repo.get_user_profile(user.user_id)
+    profile = repo.get_user_profile(user.user_id)
     if not profile or str(profile.get("status", "active")) != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản đã bị khóa hoặc vô hiệu hóa.")
     workspaces = _workspace_items(repo, user.user_id)

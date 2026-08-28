@@ -14,7 +14,7 @@ export default function DocsPage() {
             <span className="pub-eyebrow">TÀI LIỆU VDAAGENT</span>
             <h1 style={{ fontSize: "40px", fontWeight: 700, margin: "16px 0 24px", color: "var(--pub-ink)" }}>Khái niệm, workflow và cách đọc kết quả.</h1>
             <p style={{ fontSize: "18px", color: "var(--pub-muted)", maxWidth: "800px" }}>
-              Từ điển thuật ngữ dành cho chuyên viên phân tích dữ liệu, bao gồm các khái niệm phân tích chuyên sâu và thuật ngữ đặc thù trong hệ thống VDaAgent.
+              Từ điển thuật ngữ dành cho Data Analyst, bao gồm các khái niệm phân tích dữ liệu chuyên sâu và các thuật ngữ đặc thù trong hệ thống VDaAgent.
             </p>
           </div>
         </section>
@@ -23,7 +23,7 @@ export default function DocsPage() {
           <DocsTableOfContents />
           
           <div className="pub-docs-article">
-            <h2 id="data-quality">1. Chất lượng dữ liệu & lập hồ sơ</h2>
+            <h2 id="data-quality">1. Data Quality & Profiling (Chất lượng Dữ liệu)</h2>
             <p>Các chỉ số đánh giá sức khỏe và độ tin cậy của dữ liệu trước khi phân tích.</p>
             
             <h3>Missing (Dữ liệu khuyết thiếu)</h3>
@@ -40,7 +40,7 @@ export default function DocsPage() {
             <h3>Outlier (Ngoại lệ)</h3>
             <p>Các giá trị bất thường, nằm quá xa so với phân bố chung của dữ liệu (thường dùng quy tắc IQR hoặc Z-score để phát hiện).</p>
 
-            <h2 id="statistical">2. Chỉ số thống kê</h2>
+            <h2 id="statistical">2. Statistical Metrics (Chỉ số Thống kê)</h2>
             <p>Các đại lượng thống kê mô tả đặc điểm của một biến số.</p>
             
             <h3>Mean & Median</h3>
@@ -52,7 +52,7 @@ export default function DocsPage() {
             <h3>Correlation (Tương quan)</h3>
             <p>Mối liên hệ tuyến tính giữa hai cột dữ liệu số (thường dùng hệ số Pearson). Nằm trong khoảng [-1, 1]. VDaAgent tự động tính toán correlation matrix cho các cột số để tìm ra các biến có ảnh hưởng lẫn nhau.</p>
 
-            <h2 id="semantic">3. Kiểu dữ liệu ngữ nghĩa</h2>
+            <h2 id="semantic">3. Semantic Data Types (Kiểu dữ liệu ngữ nghĩa)</h2>
             <p>Cách hệ thống nhận diện ý nghĩa của dữ liệu để áp dụng phương pháp phân tích thích hợp thay vì chỉ nhìn vào kiểu dữ liệu kỹ thuật (string, int).</p>
             
             <h3>Numeric (Số học)</h3>
@@ -69,14 +69,14 @@ export default function DocsPage() {
               <p>Personally Identifiable Information. (Email, SĐT, Số CCCD). VDaAgent sẽ tự động đánh dấu để che mờ (redact) nhằm bảo mật.</p>
             </div>
 
-            <h2 id="system">4. Khái niệm trong hệ thống VDaAgent</h2>
+            <h2 id="system">4. VDaAgent Concepts (Khái niệm trong Hệ thống)</h2>
             <p>Các thuật ngữ đặc thù trong kiến trúc và quy trình của VDaAgent.</p>
             
-            <h3>Phiên lập hồ sơ</h3>
-            <p>Đơn vị làm việc trung tâm. Một phiên chạy phân tích trên một bộ dữ liệu cụ thể. Mọi biểu đồ, báo cáo và ngữ cảnh hỏi đáp đều được đóng gói trong một phiên lập hồ sơ thuộc một không gian làm việc.</p>
+            <h3>Profile Run</h3>
+            <p>Đơn vị làm việc trung tâm. Một phiên chạy phân tích trên một dataset cụ thể. Mọi biểu đồ, báo cáo, và bối cảnh hỏi đáp đều được đóng gói trong một Profile Run thuộc một Workspace.</p>
             
-            <h3>Bằng chứng chính thức</h3>
-            <p>Các biểu đồ và số liệu đã được hệ thống xác thực bằng bộ tính toán xác định, có lưu lại result_hash và nguồn gốc để truy xuất rõ ràng. LLM chỉ được cấp quyền đọc thông tin từ bằng chứng chính thức, không được đọc tệp thô.</p>
+            <h3>Official Evidence</h3>
+            <p>Các biểu đồ và số liệu đã được hệ thống xác thực bằng Compute Deterministic, có lưu lại result_hash và provenance để truy xuất nguồn gốc rõ ràng. LLM chỉ được cấp quyền đọc thông tin từ Official Evidence, không được đọc file thô.</p>
             
             <h3>Report Draft & Snapshot</h3>
             <p><strong>Draft:</strong> Bản nháp đang thiết kế của báo cáo.<br/><strong>Snapshot:</strong> Trạng thái "đóng băng" bất biến của báo cáo để đảm bảo số liệu không bị thay đổi ngầm sau khi chốt, là bản được dùng để xuất PDF/JSON chia sẻ.</p>

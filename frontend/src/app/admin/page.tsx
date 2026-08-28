@@ -11,7 +11,7 @@ import {
   type AdminUser,
   type AdminUserStats,
 } from "@/lib/api";
-import { PageHeader, LoadingBlock, Notice } from "@/components/ui";
+import { PageHeader, LoadingBlock, Notice, useDialog } from "@/components/ui";
 
 function userInitials(nameOrEmail: string | null) {
   const value = (nameOrEmail || "US").split("@")[0].replace(/[^a-zA-Z0-9]/g, "");
@@ -56,6 +56,7 @@ function formatRelativeTime(dateStr?: string | null): string {
 
 export default function AdminUsersPage() {
   const { me, loading: authLoading } = useAuth();
+  const dialog = useDialog();
 
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [stats, setStats] = useState<AdminUserStats>({
@@ -175,7 +176,7 @@ export default function AdminUsersPage() {
       setStatusModalUser(null);
       void loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Thao tác thay đổi trạng thái thất bại.");
+      await dialog.alert(err instanceof Error ? err.message : "Thao tác thay đổi trạng thái thất bại.", { title: "Không thể thay đổi trạng thái", tone: "danger" });
     } finally {
       setIsSubmittingStatus(false);
     }
@@ -193,7 +194,7 @@ export default function AdminUsersPage() {
       setDeleteModalUser(null);
       void loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Thao tác xóa tài khoản thất bại.");
+      await dialog.alert(err instanceof Error ? err.message : "Thao tác xóa tài khoản thất bại.", { title: "Không thể xóa tài khoản", tone: "danger" });
     } finally {
       setIsSubmittingDelete(false);
     }
@@ -236,7 +237,7 @@ export default function AdminUsersPage() {
       />
 
       <form onSubmit={handleCreateUser} className="panel" style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap", marginTop: "1rem", padding: "1rem" }}>
-        <label style={{ flex: "1 1 260px" }}>Email chuyên viên phân tích<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="analyst@company.com" /></label>
+        <label style={{ flex: "1 1 260px" }}>Email Analyst<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="analyst@company.com" /></label>
         <label style={{ flex: "1 1 220px" }}>Mật khẩu (tuỳ chọn)<input type="password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Để trống để gửi lời mời" /></label>
         <button className="button primary" type="submit" disabled={isCreating}>{isCreating ? "Đang tạo…" : "Tạo Analyst"}</button>
       </form>

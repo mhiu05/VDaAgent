@@ -9,7 +9,6 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import func, select
-from src.services.llm import sanitize_model_text
 from src.services.repository import (
     Repository,
     agent_runs,
@@ -177,24 +176,10 @@ class ReportDraftRepository:
         insight = content.get("insight")
         if not isinstance(insight, str) or not insight.strip():
             return {}
-        insight = sanitize_model_text(insight)
-        if not insight:
-            return {}
+        insight = insight.strip()
         if len(insight) > 50_000:
             insight = insight[:50_000]
         return {"insight": insight, "insight_reviewed": True}
-
-    @staticmethod
-    def _validated_agent_answer(content: Any) -> dict[str, Any]:
-        if not isinstance(content, dict) or set(content) != {"answer"}:
-            raise ValueError("Agent answer content must contain only an answer.")
-        answer = content.get("answer")
-        if not isinstance(answer, str):
-            raise TypeError("Agent answer must be text.")
-        answer = sanitize_model_text(answer)
-        if not answer:
-            raise ValueError("Agent answer is empty after removing internal metadata.")
-        return {"answer": answer[:50_000]}
 
     @staticmethod
     def _validated_agent(
@@ -524,9 +509,6 @@ class ReportDraftRepository:
                     workspace_id=workspace_id,
                     profile_run_id=report["profile_run_id"],
                 )
-                content = self._validated_agent_answer(payload.get("content"))
-            else:
-                content = payload.get("content") or {}
             if item_type not in {"chart", "note", "agent_answer"}:
                 raise ValueError(
                     "This Command Center release supports chart, agent answer and note pins only."
@@ -557,7 +539,7 @@ class ReportDraftRepository:
                             **insight_content,
                         }
                         if execution
-                        else content
+                        else (payload.get("content") or {})
                     ),
                 }
                 conn.execute(
@@ -602,7 +584,7 @@ class ReportDraftRepository:
                     **insight_content,
                 }
                 if execution
-                else content,
+                else payload.get("content"),
                 "query_spec": execution.get("query_spec") if execution else None,
                 "result_hash": execution.get("result_hash") if execution else None,
                 "quality_status": "passed" if execution else None,

@@ -23,6 +23,7 @@ from src.agents.runtime.trace import invoke_model
 from src.agents.state import ProfilingState
 from src.config import get_settings
 from src.services import compute
+from src.services.guardrails import enforce_output_guardrails
 from src.services.llm import (
     LLMNotConfiguredError,
     get_llm,

@@ -8,7 +8,7 @@ import type { RunStatus } from "@/lib/types";
 export function StatusBadge({ status }: { status: RunStatus }) {
   const normalized = status.toLowerCase();
   const glyph = normalized === "completed" ? "✓" : ["failed", "cancelled"].includes(normalized) ? "×" : ["pending_review", "queued", "resuming"].includes(normalized) ? "!" : normalized === "running" ? "↻" : "•";
-  return <span className={`status status-${normalized}`}><span className="status-icon" aria-hidden="true">{glyph}</span><span>{formatStatus(normalized)}</span></span>;
+  return <span className={`status status-${normalized}`}><span aria-hidden="true">{glyph}</span> {formatStatus(normalized)}</span>;
 }
 
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
@@ -95,6 +95,133 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
 export function useToast(): ToastApi {
   return useContext(ToastContext) ?? { show: () => undefined, success: () => undefined, error: () => undefined };
+}
+
+type DialogTone = "info" | "warning" | "danger";
+type DialogOptions = { title?: string; message: string; confirmLabel?: string; cancelLabel?: string; tone?: DialogTone; requireText?: string };
+type DialogRequest = Required<Pick<DialogOptions, "message" | "confirmLabel" | "cancelLabel" | "tone">> & Pick<DialogOptions, "title" | "requireText"> & { mode: "confirm" | "alert" };
+type DialogApi = { confirm: (options: DialogOptions) => Promise<boolean>; alert: (message: string, options?: Omit<DialogOptions, "message" | "cancelLabel" | "requireText">) => Promise<void> };
+const DialogContext = createContext<DialogApi | null>(null);
+
+export function DialogProvider({ children }: { children: ReactNode }) {
+  const [request, setRequest] = useState<DialogRequest | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const resolverRef = useRef<((accepted: boolean) => void) | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const titleId = useId();
+  const messageId = useId();
+
+  const finish = useCallback((accepted: boolean) => {
+    const resolver = resolverRef.current;
+    resolverRef.current = null;
+    setRequest(null);
+    setInputValue("");
+    resolver?.(accepted);
+  }, []);
+
+  const open = useCallback((nextRequest: DialogRequest) => new Promise<boolean>((resolve) => {
+    resolverRef.current = resolve;
+    setInputValue("");
+    setRequest(nextRequest);
+  }), []);
+
+  const confirm = useCallback((options: DialogOptions) => open({
+    mode: "confirm",
+    title: options.title || "Xác nhận thao tác",
+    message: options.message,
+    confirmLabel: options.confirmLabel || "Xác nhận",
+    cancelLabel: options.cancelLabel || "Hủy",
+    tone: options.tone || "warning",
+    requireText: options.requireText,
+  }), [open]);
+
+  const alert = useCallback((message: string, options: Omit<DialogOptions, "message" | "cancelLabel" | "requireText"> = {}) => open({
+    mode: "alert",
+    title: options.title || "Thông báo",
+    message,
+    confirmLabel: options.confirmLabel || "Đã hiểu",
+    cancelLabel: "",
+    tone: options.tone || "info",
+  }).then(() => undefined), [open]);
+
+  useEffect(() => {
+    if (!request) return;
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusTimer = window.setTimeout(() => {
+      if (request.requireText) inputRef.current?.focus();
+      else dialog?.querySelector<HTMLButtonElement>("[data-dialog-autofocus]")?.focus();
+    }, 0);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      if (dialog?.open) {
+        if (typeof dialog.close === "function") dialog.close();
+        else dialog.removeAttribute("open");
+      }
+    };
+  }, [finish, request]);
+
+  const api = { confirm, alert };
+  const canSubmit = !request?.requireText || inputValue === request.requireText;
+
+  return <DialogContext.Provider value={api}>
+    {children}
+    {request && typeof document !== "undefined" && createPortal(
+      <dialog
+        ref={dialogRef}
+        className={`confirm-dialog confirm-dialog-${request.tone}`}
+        role={request.mode === "confirm" ? "alertdialog" : "dialog"}
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
+        onCancel={(event) => { event.preventDefault(); finish(false); }}
+        onClick={(event) => { if (event.target === event.currentTarget) finish(false); }}
+      >
+        <form
+          onClick={(event) => event.stopPropagation()}
+          onSubmit={(event) => { event.preventDefault(); if (request.mode === "alert" || canSubmit) finish(true); }}
+        >
+          <div className="confirm-dialog-header">
+            <span className="confirm-dialog-icon" aria-hidden="true">{request.tone === "danger" ? "!" : request.mode === "alert" ? "i" : "?"}</span>
+            <div>
+              <p className="eyebrow">{request.mode === "confirm" ? "XÁC NHẬN" : "THÔNG BÁO"}</p>
+              <h2 id={titleId}>{request.title}</h2>
+            </div>
+          </div>
+          <div className="confirm-dialog-body">
+            <p id={messageId} className="confirm-dialog-message">{request.message}</p>
+            {request.requireText && <label className="confirm-dialog-required">Nhập <strong>{request.requireText}</strong> để tiếp tục
+              <input ref={inputRef} value={inputValue} onChange={(event) => setInputValue(event.target.value)} autoComplete="off" spellCheck={false} />
+            </label>}
+          </div>
+          <div className="confirm-dialog-actions">
+            {request.mode === "confirm" && <button type="button" className="button secondary" onClick={() => finish(false)}>{request.cancelLabel}</button>}
+            <button type="submit" className={`button ${request.tone === "danger" ? "danger" : "primary"}`} disabled={!canSubmit} data-dialog-autofocus={!request.requireText || undefined}>{request.confirmLabel}</button>
+          </div>
+        </form>
+      </dialog>,
+      document.body,
+    )}
+  </DialogContext.Provider>;
+}
+
+export function useDialog(): DialogApi {
+  return useContext(DialogContext) ?? { confirm: () => Promise.resolve(false), alert: () => Promise.resolve() };
 }
 
 export function Notice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warning" | "success" }) {

@@ -40,7 +40,6 @@ from src.services.chart_planner import (
     ChartPlanCandidate,
     build_auto_profile_pack,
     build_chart_plan,
-    chart_planning_rejection_reason,
 )
 from src.services.forecasting import forecast_algorithm_catalog
 from src.services.llm import get_llm
@@ -226,14 +225,6 @@ async def auto_plan_chart(
     semantic = session.get("context") or {}
     approved_context = semantic.get("context") or {}
     stats = get_repository().get_column_stats(run_id)
-    rejection_reason = chart_planning_rejection_reason(
-        payload.question, approved_context, stats
-    )
-    if rejection_reason:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Không thể tạo biểu đồ: {rejection_reason}",
-        )
     allowed_columns = set(approved_context.get("dimensions") or []) | set(
         approved_context.get("measures") or []
     )

@@ -4,14 +4,14 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ErrorNotice, LoadingBlock, LoadingButton, useToast } from "@/components/ui";
+import { ErrorNotice, LoadingBlock, LoadingButton, useDialog, useToast } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { createWorkspace, deleteWorkspace, listArchivedWorkspaces, listWorkspaces, purgeWorkspace, restoreWorkspace, type WorkspaceSummary } from "@/lib/api";
 import { useState, type CSSProperties, type FormEvent } from "react";
 
 const roleLabel = "Analyst";
-const roleDescription = "Tải dữ liệu, lập hồ sơ, trợ lý AI, xem xét và tạo báo cáo";
+const roleDescription = "Upload, profiling, Agent, review và tạo báo cáo";
 
 const workspaceTemplates = [
   { id: "business", name: "Business", description: "Hiệu quả kinh doanh & vận hành", domain: "Business", primaryGoal: "Theo dõi hiệu quả kinh doanh, doanh thu và cơ hội tăng trưởng.", targetAudience: "Ban điều hành và quản lý vận hành", primaryColor: "#315efb", secondaryColor: "#18a77b" },
@@ -30,6 +30,7 @@ export default function WorkspacesPage() {
   const router = useRouter();
   const client = useQueryClient();
   const { me, workspaceId, switchWorkspace } = useAuth();
+  const dialog = useDialog();
   const toast = useToast();
   const [name, setName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WorkspaceTemplate>(workspaceTemplates[0]);
@@ -65,76 +66,27 @@ export default function WorkspacesPage() {
   });
   const deletion = useMutation({
     mutationFn: deleteWorkspace,
-    onMutate: async (id: string) => {
-      await client.cancelQueries({ queryKey: ["workspaces"] });
-      const previousData = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["workspaces"]);
-      if (previousData) {
-        client.setQueryData(["workspaces"], {
-          ...previousData,
-          workspaces: previousData.workspaces.filter((w) => w.id !== id),
-        });
-      }
-      return { previousData };
-    },
-    onError: (err, id, context) => {
-      if (context?.previousData) client.setQueryData(["workspaces"], context.previousData);
-      toast.error("Không thể lưu trữ workspace.");
-    },
-    onSettled: () => {
-      client.invalidateQueries({ queryKey: ["workspaces"] });
-      client.invalidateQueries({ queryKey: ["archived-workspaces"] });
-    },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["workspaces"] });
+      await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
       toast.success("Workspace đã được lưu trữ.");
     },
   });
   const purging = useMutation({
     mutationFn: purgeWorkspace,
-    onMutate: async (id: string) => {
-      await client.cancelQueries({ queryKey: ["archived-workspaces"] });
-      const previousData = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["archived-workspaces"]);
-      if (previousData) {
-        client.setQueryData(["archived-workspaces"], {
-          ...previousData,
-          workspaces: previousData.workspaces.filter((w) => w.id !== id),
-        });
-      }
-      return { previousData };
-    },
-    onError: (err, id, context) => {
-      if (context?.previousData) client.setQueryData(["archived-workspaces"], context.previousData);
-      toast.error("Không thể xóa vĩnh viễn workspace.");
-    },
-    onSettled: () => {
-      client.invalidateQueries({ queryKey: ["workspaces"] });
-      client.invalidateQueries({ queryKey: ["archived-workspaces"] });
-    },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["workspaces"] });
+      await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
       toast.success("Workspace đã được xóa vĩnh viễn.");
     },
   });
   const restoration = useMutation({
     mutationFn: restoreWorkspace,
-    onMutate: async (id: string) => {
-      await client.cancelQueries({ queryKey: ["archived-workspaces"] });
-      const previousData = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["archived-workspaces"]);
-      if (previousData) {
-        client.setQueryData(["archived-workspaces"], {
-          ...previousData,
-          workspaces: previousData.workspaces.filter((w) => w.id !== id),
-        });
-      }
-      return { previousData };
-    },
-    onError: (err, id, context) => {
-      if (context?.previousData) client.setQueryData(["archived-workspaces"], context.previousData);
-      toast.error("Không thể khôi phục workspace.");
-    },
-    onSettled: () => {
-      client.invalidateQueries({ queryKey: ["workspaces"] });
-      client.invalidateQueries({ queryKey: ["archived-workspaces"] });
-    },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["workspaces"] }),
+        client.invalidateQueries({ queryKey: ["archived-workspaces"] }),
+      ]);
       toast.success("Workspace đã được khôi phục.");
     },
   });
@@ -165,12 +117,18 @@ export default function WorkspacesPage() {
     setSecondaryColor(nextDraft.secondaryColor);
   }
 
-  function removeWorkspace(workspace: WorkspaceSummary) {
+  async function removeWorkspace(workspace: WorkspaceSummary) {
     if (workspace.id === workspaceId && items.length < 2) {
-      window.alert("Hãy tạo hoặc mở một workspace khác trước khi lưu trữ workspace hiện tại.");
+      await dialog.alert("Hãy tạo hoặc mở một workspace khác trước khi lưu trữ workspace hiện tại.", { title: "Không thể lưu trữ workspace", tone: "warning" });
       return;
     }
-    if (!window.confirm(`Lưu trữ workspace "${workspace.name}"? Workspace sẽ được ẩn khỏi danh sách hoạt động nhưng dữ liệu vẫn được giữ lại.`)) return;
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận lưu trữ workspace",
+      message: `Lưu trữ workspace "${workspace.name}"? Workspace sẽ được ẩn khỏi danh sách hoạt động nhưng dữ liệu vẫn được giữ lại.`,
+      confirmLabel: "Lưu trữ",
+      tone: "warning",
+    });
+    if (!confirmed) return;
     deletion.mutate(workspace.id, {
       onSuccess: async () => {
         if (workspace.id === workspaceId) {
@@ -181,15 +139,19 @@ export default function WorkspacesPage() {
     });
   }
 
-  function permanentlyDeleteWorkspace(workspace: WorkspaceSummary) {
+  async function permanentlyDeleteWorkspace(workspace: WorkspaceSummary) {
     if (workspace.id === workspaceId && items.length < 2) {
-      window.alert("Hãy tạo hoặc mở một workspace khác trước khi xóa workspace hiện tại.");
+      await dialog.alert("Hãy tạo hoặc mở một workspace khác trước khi xóa workspace hiện tại.", { title: "Không thể xóa workspace", tone: "warning" });
       return;
     }
-    const confirmation = window.prompt(
-      `Xóa vĩnh viễn workspace "${workspace.name}" sẽ xóa toàn bộ dataset, profile, report và file đã upload.\n\nNhập XÓA để xác nhận:`,
-    );
-    if (confirmation !== "XÓA") return;
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa vĩnh viễn workspace",
+      message: `Xóa vĩnh viễn workspace "${workspace.name}" sẽ xóa toàn bộ dataset, profile, report và file đã upload.`,
+      confirmLabel: "Xóa vĩnh viễn",
+      tone: "danger",
+      requireText: "XÓA",
+    });
+    if (!confirmed) return;
     purging.mutate(workspace.id, {
       onSuccess: async () => {
         if (workspace.id === workspaceId) {
@@ -211,7 +173,7 @@ export default function WorkspacesPage() {
 
   return <main className="page workspace-page">
     <header className="workspace-page-header">
-      <div><p className="eyebrow">TRUNG TÂM KHÔNG GIAN LÀM VIỆC</p><h1>Quản lý không gian làm việc</h1><p className="page-description">Mỗi không gian làm việc là nơi chứa bộ dữ liệu, hồ sơ, báo cáo và kết quả làm việc của chuyên viên phân tích.</p></div>
+      <div><p className="eyebrow">WORKSPACE HUB</p><h1>Quản lý Workspace</h1><p className="page-description">Mỗi workspace là một không gian chứa dataset, profile, report và kết quả làm việc của Analyst.</p></div>
       <span className="workspace-count">{items.length} workspace</span>
     </header>
 
@@ -290,7 +252,7 @@ export default function WorkspacesPage() {
       </article>)}</div>
     </section>}
 
-    {!workspaces.isPending && !workspaces.isError && items.length === 0 && <section className="empty-state"><span aria-hidden="true">✦</span><h2>Chưa có không gian làm việc</h2><p>Hãy tạo không gian làm việc để bắt đầu tải bộ dữ liệu và làm việc với trợ lý AI.</p></section>}
-    {can(me?.effective_permissions, PERMISSIONS.datasetRead) && <p className="workspace-page-note"><Link href="/datasets">Mở bộ dữ liệu</Link> để tải dữ liệu vào không gian làm việc đang chọn.</p>}
+    {!workspaces.isPending && !workspaces.isError && items.length === 0 && <section className="empty-state"><span aria-hidden="true">✦</span><h2>Chưa có workspace</h2><p>Hãy tạo workspace để bắt đầu upload dataset và làm việc với Agent.</p></section>}
+    {can(me?.effective_permissions, PERMISSIONS.datasetRead) && <p className="workspace-page-note"><Link href="/datasets">Mở bộ dữ liệu</Link> để upload dataset trong workspace đang chọn.</p>}
   </main>;
 }

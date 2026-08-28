@@ -1,7 +1,7 @@
 import { PublicFooter } from "@/components/public-footer";
 import { PublicNavbar } from "@/components/public-navbar";
 
-export const metadata = { title: "Chính sách bảo mật - VDaAgent" };
+export const metadata = { title: "Privacy Policy - VDaAgent" };
 
 export default function PrivacyPage() {
   return (
@@ -9,15 +9,15 @@ export default function PrivacyPage() {
       <PublicNavbar />
       <main className="pub-section" style={{ flex: 1 }}>
         <div className="pub-container" style={{ maxWidth: "900px" }}>
-          <span className="pub-eyebrow">CHÍNH SÁCH BẢO MẬT</span>
-          <h1>Chính sách bảo mật</h1>
-          <p className="lead">Ngày hiệu lực: 25 tháng 8 năm 2026</p>
+          <span className="pub-eyebrow">PRIVACY POLICY</span>
+          <h1>Privacy Policy</h1>
+          <p className="lead">Effective date: August 25, 2026</p>
           <div style={{ display: "grid", gap: "28px", marginTop: "36px", lineHeight: 1.7 }}>
-            <section><h2>1. Phạm vi</h2><p>Chính sách này mô tả cách VDaAgent thu thập, sử dụng và bảo vệ thông tin khi bạn sử dụng nền tảng lập hồ sơ và phân tích dữ liệu.</p></section>
-            <section><h2>2. Thông tin chúng tôi xử lý</h2><p>Chúng tôi có thể xử lý thông tin tài khoản và không gian làm việc, siêu dữ liệu bộ dữ liệu, kết quả lập hồ sơ, lịch sử hoạt động và các cuộc trò chuyện với trợ lý AI khi cần cung cấp dịch vụ. VDaAgent được thiết kế để hạn chế việc lộ các dòng dữ liệu thô và dữ liệu cá nhân không cần thiết.</p></section>
-            <section><h2>4. Sử dụng và lưu trữ</h2><p>Thông tin được sử dụng để vận hành, bảo mật, hỗ trợ và cải thiện dịch vụ. Dữ liệu được lưu giữ trong thời gian cần thiết cho không gian làm việc hoặc theo cấu hình của tổ chức triển khai, sau đó được xóa hoặc ẩn danh khi phù hợp.</p></section>
-            <section><h2>5. Bảo mật và bên thứ ba</h2><p>Chúng tôi sử dụng xác thực, phân quyền theo không gian làm việc và các biện pháp mã hóa phù hợp. Một số tính năng sử dụng nhà cung cấp hạ tầng hoặc API Google; các nhà cung cấp đó xử lý thông tin theo chính sách riêng của họ.</p></section>
-            <section><h2>6. Liên hệ</h2><p>Đối với câu hỏi về quyền riêng tư hoặc yêu cầu dữ liệu, hãy dùng trang <a href="/contact">Liên hệ</a> hoặc thông tin liên hệ do tổ chức triển khai VDaAgent công bố.</p></section>
+            <section><h2>1. Scope</h2><p>This policy describes how VDaAgent collects, uses, and protects information when you use our data profiling and analysis platform.</p></section>
+            <section><h2>2. Information we process</h2><p>We may process account and workspace information, dataset metadata, profiling results, activity history, and conversations with the Agent as needed to provide the service. VDaAgent is designed to limit exposure of raw rows and unnecessary personal data.</p></section>
+            <section><h2>4. Use and retention</h2><p>Information is used to operate, secure, support, and improve the service. Data is retained for as long as needed for the workspace or as configured by the deploying organization, then deleted or anonymized when appropriate.</p></section>
+            <section><h2>5. Security and third parties</h2><p>We use authentication, workspace-level authorization, and appropriate encryption controls. Some features use infrastructure providers or Google APIs; those providers process information under their own policies.</p></section>
+            <section><h2>6. Contact</h2><p>For privacy questions or data requests, use our <a href="/contact">Contact</a> page or the contact information published by the organization deploying VDaAgent.</p></section>
           </div>
         </div>
       </main>

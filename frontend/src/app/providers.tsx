@@ -3,23 +3,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { AuthProvider } from "@/components/auth-provider";
-import { ToastProvider } from "@/components/ui";
+import { DialogProvider, ToastProvider } from "@/components/ui";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: {
-            staleTime: 2 * 60_000,
-            gcTime: 30 * 60_000,
-            retry: 1,
-            refetchOnWindowFocus: false,
-            refetchOnReconnect: false,
-          },
+          queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false },
           mutations: { retry: 0 },
         },
       }),
   );
-  return <QueryClientProvider client={queryClient}><ToastProvider><AuthProvider>{children}</AuthProvider></ToastProvider></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><ToastProvider><DialogProvider><AuthProvider>{children}</AuthProvider></DialogProvider></ToastProvider></QueryClientProvider>;
 }
