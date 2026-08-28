@@ -945,6 +945,12 @@ small { color: var(--muted); }
 .workspace-card-slug { overflow: hidden; margin: 0; color: var(--muted); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 18px; }
 .workspace-card-actions .button { flex: 1; min-height: 34px; padding: 7px 9px; font-size: .72rem; }
+.workspace-confirmation-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(6, 14, 29, .56); }
+.workspace-confirmation-dialog { width: min(440px, 100%); padding: 26px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 24px 70px rgba(8, 20, 42, .28); }
+.workspace-confirmation-dialog h2 { margin: 0 0 9px; font-size: 1.2rem; }
+.workspace-confirmation-dialog > p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: .82rem; line-height: 1.55; }
+.workspace-confirmation-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 24px; }
+.workspace-confirmation-actions .button { min-width: 100px; }
 .workspace-page-note { margin: 18px 0 0; color: var(--muted); font-size: .75rem; }
 .workspace-page-note a { color: var(--brand); font-weight: 800; }
 .workspace-card.archived { border-style: dashed; background: linear-gradient(135deg, #fcfcfd, #f5f7fb); opacity: .92; }

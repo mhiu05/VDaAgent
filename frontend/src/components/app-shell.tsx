@@ -319,6 +319,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
             {authenticated && me && <section className="sidebar-workspace" aria-label="Không gian làm việc hiện tại">
               <span className="sidebar-workspace-label sidebar-text">Không gian làm việc của bạn</span>
               <select aria-label="Không gian làm việc hiện tại" value={workspaceId ?? ""} onChange={(event) => void changeWorkspace(event.target.value)}>
+                {!workspaceId && <option value="" disabled>Chọn workspace</option>}
                 {me.workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}</option>)}
               </select>
               <Link className="workspace-manage-link sidebar-text" href="/workspaces">Quản lý không gian làm việc →</Link>

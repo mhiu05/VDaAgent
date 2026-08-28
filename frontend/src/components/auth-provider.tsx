@@ -37,6 +37,7 @@ type AuthValue = {
   error: string | null;
   workspaceId: string | null;
   switchWorkspace: (workspaceId: string) => Promise<void>;
+  forgetWorkspace: (workspaceId: string) => void;
   signOut: () => Promise<void>;
   enterGuestRole: (role: GuestRole) => Promise<void>;
   refresh: () => Promise<string | null>;
@@ -543,6 +544,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await load(nextWorkspaceId, true);
   }, [load, queryClient, workspaceId]);
 
+  const forgetWorkspace = useCallback((deletedWorkspaceId: string) => {
+    const wasCurrentWorkspace = workspaceIdRef.current === deletedWorkspaceId;
+    setMe((current) => current ? {
+      ...current,
+      workspace: current.workspace?.id === deletedWorkspaceId ? null : current.workspace,
+      workspaces: current.workspaces.filter((workspace) => workspace.id !== deletedWorkspaceId),
+    } : current);
+    if (!wasCurrentWorkspace) return;
+    workspaceIdRef.current = null;
+    setWorkspaceId(null);
+    window.localStorage.removeItem("p170-workspace-id");
+    setChatHistoryScope(me?.user.id, null, isGuest);
+  }, [isGuest, me?.user.id]);
+
   const signOut = useCallback(async () => {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -601,7 +616,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (switchSequence === guestSwitchSequence.current) router.push("/workspaces");
   }, [authenticated, load, queryClient, router]);
 
-  const value = useMemo(() => ({ me, authenticated, isGuest, guestRole, ready: readyPath === pathname, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh }), [me, authenticated, isGuest, guestRole, readyPath, pathname, loading, error, workspaceId, switchWorkspace, signOut, enterGuestRole, refresh]);
+  const value = useMemo(() => ({ me, authenticated, isGuest, guestRole, ready: readyPath === pathname, loading, error, workspaceId, switchWorkspace, forgetWorkspace, signOut, enterGuestRole, refresh }), [me, authenticated, isGuest, guestRole, readyPath, pathname, loading, error, workspaceId, switchWorkspace, forgetWorkspace, signOut, enterGuestRole, refresh]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
