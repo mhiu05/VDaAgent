@@ -9,7 +9,7 @@ import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
 import { PublicNavbar } from "@/components/public-navbar";
-import { InfoTip } from "@/components/ui";
+import { InfoTip, useDialog } from "@/components/ui";
 import { DraggableChatWidget } from "@/components/draggable-chat-widget";
 
 function SidebarIcon({ name }: { name: string }) {
@@ -91,6 +91,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const [openNavigationGroup, setOpenNavigationGroup] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
   const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
+  const dialog = useDialog();
   const isHome = pathname === "/";
   const isGuide = pathname.startsWith("/guide");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
@@ -258,11 +259,17 @@ function AppShellContent({ children }: { children: ReactNode }) {
     if (pathname.startsWith("/chat")) router.push("/datasets");
   }
 
-  function removeConversation(conversation: ChatConversation) {
-    if (!window.confirm(`Xóa đoạn chat "${conversation.title}" khỏi lịch sử?`)) return;
-    if (!deleteConversation(conversation.id)) return;
+  async function removeConversation(conversation: ChatConversation): Promise<boolean> {
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa đoạn chat",
+      message: `Xóa đoạn chat "${conversation.title}" khỏi lịch sử?`,
+      confirmLabel: "Xóa đoạn chat",
+      tone: "danger",
+    });
+    if (!confirmed) return false;
+    if (!deleteConversation(conversation.id)) return false;
     const active = pathname === "/chat" && searchParams.get("conversation") === conversation.id;
-    if (!active) return;
+    if (!active) return true;
     setShowAllHistory(false);
     const next = listConversations()[0];
     if (next) {
@@ -271,10 +278,17 @@ function AppShellContent({ children }: { children: ReactNode }) {
     } else {
       router.push("/datasets");
     }
+    return true;
   }
 
-  function removeAllConversations() {
-    if (!window.confirm("Xóa toàn bộ lịch sử chat trong workspace này? Hành động này không thể hoàn tác.")) return;
+  async function removeAllConversations() {
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa lịch sử chat",
+      message: "Xóa toàn bộ lịch sử chat trong workspace này? Hành động này không thể hoàn tác.",
+      confirmLabel: "Xóa toàn bộ",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     clearChatHistory();
     setShowAllHistory(false);
     if (pathname === "/chat") router.push("/datasets");

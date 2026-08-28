@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ErrorNotice, LoadingBlock, LoadingButton, useToast } from "@/components/ui";
+import { ErrorNotice, LoadingBlock, LoadingButton, useDialog, useToast } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { createWorkspace, deleteWorkspace, listArchivedWorkspaces, listWorkspaces, purgeWorkspace, restoreWorkspace, type WorkspaceSummary } from "@/lib/api";
@@ -30,6 +30,7 @@ export default function WorkspacesPage() {
   const router = useRouter();
   const client = useQueryClient();
   const { me, workspaceId, switchWorkspace } = useAuth();
+  const dialog = useDialog();
   const toast = useToast();
   const [name, setName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WorkspaceTemplate>(workspaceTemplates[0]);
@@ -116,12 +117,18 @@ export default function WorkspacesPage() {
     setSecondaryColor(nextDraft.secondaryColor);
   }
 
-  function removeWorkspace(workspace: WorkspaceSummary) {
+  async function removeWorkspace(workspace: WorkspaceSummary) {
     if (workspace.id === workspaceId && items.length < 2) {
-      window.alert("Hãy tạo hoặc mở một workspace khác trước khi lưu trữ workspace hiện tại.");
+      await dialog.alert("Hãy tạo hoặc mở một workspace khác trước khi lưu trữ workspace hiện tại.", { title: "Không thể lưu trữ workspace", tone: "warning" });
       return;
     }
-    if (!window.confirm(`Lưu trữ workspace "${workspace.name}"? Workspace sẽ được ẩn khỏi danh sách hoạt động nhưng dữ liệu vẫn được giữ lại.`)) return;
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận lưu trữ workspace",
+      message: `Lưu trữ workspace "${workspace.name}"? Workspace sẽ được ẩn khỏi danh sách hoạt động nhưng dữ liệu vẫn được giữ lại.`,
+      confirmLabel: "Lưu trữ",
+      tone: "warning",
+    });
+    if (!confirmed) return;
     deletion.mutate(workspace.id, {
       onSuccess: async () => {
         if (workspace.id === workspaceId) {
@@ -132,15 +139,19 @@ export default function WorkspacesPage() {
     });
   }
 
-  function permanentlyDeleteWorkspace(workspace: WorkspaceSummary) {
+  async function permanentlyDeleteWorkspace(workspace: WorkspaceSummary) {
     if (workspace.id === workspaceId && items.length < 2) {
-      window.alert("Hãy tạo hoặc mở một workspace khác trước khi xóa workspace hiện tại.");
+      await dialog.alert("Hãy tạo hoặc mở một workspace khác trước khi xóa workspace hiện tại.", { title: "Không thể xóa workspace", tone: "warning" });
       return;
     }
-    const confirmation = window.prompt(
-      `Xóa vĩnh viễn workspace "${workspace.name}" sẽ xóa toàn bộ dataset, profile, report và file đã upload.\n\nNhập XÓA để xác nhận:`,
-    );
-    if (confirmation !== "XÓA") return;
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa vĩnh viễn workspace",
+      message: `Xóa vĩnh viễn workspace "${workspace.name}" sẽ xóa toàn bộ dataset, profile, report và file đã upload.`,
+      confirmLabel: "Xóa vĩnh viễn",
+      tone: "danger",
+      requireText: "XÓA",
+    });
+    if (!confirmed) return;
     purging.mutate(workspace.id, {
       onSuccess: async () => {
         if (workspace.id === workspaceId) {

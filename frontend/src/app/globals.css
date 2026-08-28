@@ -494,6 +494,8 @@ small { color: var(--muted); }
 .profile-run-picker { display: grid; gap: 7px; min-width: 0; }
 .profile-run-picker-label { color: var(--ink); font-size: .86rem; font-weight: 800; }
 .profile-run-picker-controls { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.35fr); gap: 9px; min-width: 0; }
+.profile-run-picker-control { display: grid; gap: 4px; min-width: 0; }
+.profile-run-picker-control > label { color: var(--muted); font-size: .68rem; font-weight: 750; line-height: 1.2; }
 .profile-run-picker-controls select { width: 100%; min-width: 0; min-height: 40px; overflow: hidden; padding: 8px 10px; border: 1px solid #cbd7e8; border-radius: 8px; color: var(--ink); background: #fff; font: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .profile-run-picker-controls select:focus { outline: 3px solid rgba(52, 88, 225, .16); border-color: var(--primary); }
 
@@ -1033,6 +1035,26 @@ small { color: var(--muted); }
 .toast-icon { display: grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; background: color-mix(in srgb, currentColor 14%, transparent); font-weight: 850; }
 .toast button { padding: 2px 4px; color: inherit; background: transparent; font-size: 1rem; line-height: 1; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+
+.confirm-dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100vh - 40px); margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 18px; color: var(--text-primary); background: var(--surface-raised); box-shadow: 0 26px 80px rgb(0 0 0 / .28); animation: confirm-dialog-in .2s ease-out both; }
+.confirm-dialog::backdrop { background: rgb(6 14 29 / .58); backdrop-filter: blur(3px); animation: confirm-dialog-backdrop-in .16s ease-out both; }
+.confirm-dialog-header { display: flex; align-items: flex-start; gap: 13px; padding: 24px 24px 16px; }
+.confirm-dialog-header .eyebrow { margin: 1px 0 5px; color: var(--text-muted); font-size: .61rem; }
+.confirm-dialog-header h2 { margin: 0; color: var(--text-primary); font-size: 1.12rem; line-height: 1.3; }
+.confirm-dialog-icon { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border: 1px solid var(--info-border); border-radius: 50%; color: var(--info-foreground); background: var(--info-background); font-size: 1.05rem; font-weight: 850; }
+.confirm-dialog-danger .confirm-dialog-icon { border-color: var(--danger-border); color: var(--danger-foreground); background: var(--danger-background); }
+.confirm-dialog-warning .confirm-dialog-icon { border-color: var(--warning-border); color: var(--warning-foreground); background: var(--warning-background); }
+.confirm-dialog-body { display: grid; gap: 16px; padding: 0 24px 22px; }
+.confirm-dialog-message { margin: 0; color: var(--text-secondary); font-size: .84rem; line-height: 1.6; white-space: pre-line; }
+.confirm-dialog-required { display: grid; gap: 8px; color: var(--text-secondary); font-size: .76rem; font-weight: 650; line-height: 1.45; }
+.confirm-dialog-required strong { color: var(--danger-foreground); font-weight: 850; }
+.confirm-dialog-required input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 9px; color: var(--text-primary); background: var(--surface); font: inherit; }
+.confirm-dialog-required input:focus { outline: 3px solid color-mix(in srgb, var(--primary) 20%, transparent); border-color: var(--primary); }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; padding: 16px 24px 22px; border-top: 1px solid var(--border); }
+.confirm-dialog-actions .button { min-width: 104px; }
+@keyframes confirm-dialog-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes confirm-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (max-width: 520px) { .confirm-dialog-header { padding: 20px 18px 14px; } .confirm-dialog-body { padding: 0 18px 18px; } .confirm-dialog-actions { padding: 14px 18px 18px; } .confirm-dialog-actions .button { flex: 1; } }
 
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: .84rem; }

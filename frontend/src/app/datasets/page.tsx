@@ -6,11 +6,12 @@ import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { deleteDataset, listDatasets } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, PageHeader, useToast } from "@/components/ui";
+import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, PageHeader, useDialog, useToast } from "@/components/ui";
 
 export default function DatasetsPage() {
   const { me } = useAuth();
   const client = useQueryClient();
+  const dialog = useDialog();
   const toast = useToast();
   const datasets = useQuery({ queryKey: ["datasets"], queryFn: ({ signal }) => listDatasets(signal) });
   const canDeleteDataset = can(me?.effective_permissions, PERMISSIONS.datasetDelete);
@@ -18,8 +19,14 @@ export default function DatasetsPage() {
     mutationFn: deleteDataset,
     onSuccess: async () => { await client.invalidateQueries({ queryKey: ["datasets"] }); toast.success("Dataset đã được xóa."); },
   });
-  function removeDataset(id: string, name: string) {
-    if (window.confirm(`Xóa dataset "${name}" và toàn bộ lịch sử profiling? Hành động này không thể hoàn tác.`)) deletion.mutate(id);
+  async function removeDataset(id: string, name: string) {
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa dataset",
+      message: `Xóa dataset "${name}" và toàn bộ lịch sử profiling? Hành động này không thể hoàn tác.`,
+      confirmLabel: "Xóa dataset",
+      tone: "danger",
+    });
+    if (confirmed) deletion.mutate(id);
   }
   return <>
     <PageHeader eyebrow="Không gian dữ liệu" title="Bộ dữ liệu" description="Quản lý các nguồn dữ liệu đã được profiling. Chỉ metadata và thống kê đã được phê duyệt được hiển thị." action={<Link href="/datasets/new" className="button primary">+ Bộ dữ liệu mới</Link>} />

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, type ChangeEvent, type FormEvent } from "r
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/components/auth-provider";
-import { PageHeader, LoadingBlock, StatusBadge, Notice } from "@/components/ui";
+import { PageHeader, LoadingBlock, StatusBadge, Notice, useDialog } from "@/components/ui";
 
 function accountInitials(nameOrEmail: string | null) {
   const value = (nameOrEmail || "AN").split("@")[0].replace(/[^a-zA-Z0-9]/g, "");
@@ -23,6 +23,7 @@ interface UserProfileData {
 
 export default function AccountPage() {
   const { me, authenticated, isGuest, loading, signOut } = useAuth();
+  const dialog = useDialog();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const user = me?.user;
@@ -69,7 +70,7 @@ export default function AccountPage() {
 
     // Check size (max 2MB)
     if (file.size > 2 * 1024 * 1024) {
-      alert("Kích thước hình ảnh tối đa là 2MB.");
+      void dialog.alert("Kích thước hình ảnh tối đa là 2MB.", { title: "Ảnh quá lớn", tone: "warning" });
       return;
     }
 
@@ -106,7 +107,7 @@ export default function AccountPage() {
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 4000);
     } catch {
-      alert("Không thể lưu thông tin vào bộ nhớ trình duyệt.");
+      void dialog.alert("Không thể lưu thông tin vào bộ nhớ trình duyệt.", { title: "Không thể lưu thông tin", tone: "danger" });
     } finally {
       setIsSaving(false);
     }

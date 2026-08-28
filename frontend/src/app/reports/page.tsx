@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ErrorNotice, LoadingBlock } from "@/components/ui";
+import { ErrorNotice, LoadingBlock, useDialog } from "@/components/ui";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { formatDate } from "@/lib/format";
@@ -27,6 +27,7 @@ function statusClass(status: string): string {
 export default function ReportsPage() {
   const { me } = useAuth();
   const client = useQueryClient();
+  const dialog = useDialog();
   const reports = useQuery({ queryKey: ["published-reports"], queryFn: () => listPublishedReports<{ reports: Report[] }>() });
   const deletion = useMutation({
     mutationFn: deleteReport,
@@ -36,8 +37,14 @@ export default function ReportsPage() {
   const canDeleteReport = can(me?.effective_permissions, PERMISSIONS.reportDraftWrite);
   const canReadDatasets = can(me?.effective_permissions, PERMISSIONS.datasetRead);
 
-  function removeReport(report: Report) {
-    if (!window.confirm(`Xóa báo cáo "${report.title}" khỏi thư viện báo cáo?`)) return;
+  async function removeReport(report: Report) {
+    const confirmed = await dialog.confirm({
+      title: "Xác nhận xóa báo cáo",
+      message: `Xóa báo cáo "${report.title}" khỏi thư viện báo cáo?`,
+      confirmLabel: "Xóa báo cáo",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     deletion.mutate(report.id);
   }
 
