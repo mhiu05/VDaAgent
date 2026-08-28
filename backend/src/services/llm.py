@@ -139,6 +139,36 @@ def report_text(response: Any) -> str:
     return "\n".join(compact).strip()
 
 
+def normalize_profile_action_numbering(text: str) -> str:
+    """Use subsection numbering for the five profile action items.
+
+    Older summaries and some providers emit a plain ``1.``–``5.`` list under
+    section 5. Normalize that presentation at read/write boundaries so saved
+    reports remain consistent without requiring a data migration.
+    """
+    trailing_newline = text.endswith("\n")
+    lines = text.splitlines()
+    in_actions = False
+    item_number = 0
+    normalized: list[str] = []
+    for line in lines:
+        if re.match(r"^\s*##\s*5\.\s*Ưu tiên hành động\s*$", line, re.IGNORECASE):
+            in_actions = True
+            item_number = 0
+            normalized.append(line)
+            continue
+        if in_actions and re.match(r"^\s*##\s+", line):
+            in_actions = False
+        if in_actions:
+            match = re.match(r"^(\s*)(?:\d+\.\d+|\d+)[.)]\s+(.+)$", line)
+            if match:
+                item_number += 1
+                line = f"{match.group(1)}5.{item_number}. {match.group(2)}"
+        normalized.append(line)
+    result = "\n".join(normalized)
+    return result + ("\n" if trailing_newline else "")
+
+
 @lru_cache
 def get_llm(streaming: bool = False) -> BaseChatModel:
     """Client LLM dùng chung. Raise `LLMNotConfiguredError` nếu thiếu key."""
@@ -175,4 +205,4 @@ def llm_available() -> bool:
     return get_settings().llm_configured
 
 
-__all__ = ["LLMNotConfiguredError", "LLM_RUNTIME_NOTICE", "get_llm", "is_llm_runtime_warning", "llm_available", "report_text", "response_text", "safe_llm_warning"]
+__all__ = ["LLMNotConfiguredError", "LLM_RUNTIME_NOTICE", "get_llm", "is_llm_runtime_warning", "llm_available", "normalize_profile_action_numbering", "report_text", "response_text", "safe_llm_warning"]

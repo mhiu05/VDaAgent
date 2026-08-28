@@ -28,6 +28,7 @@ from src.services.llm import (
     LLMNotConfiguredError,
     get_llm,
     is_llm_runtime_warning,
+    normalize_profile_action_numbering,
     report_text,
     response_text,
     safe_llm_warning,
@@ -772,7 +773,8 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
             prompt_id="profile_summary",
         )
         guarded = enforce_output_guardrails(
-            report_text(response), get_settings().guardrails_max_output_chars
+            normalize_profile_action_numbering(report_text(response)),
+            get_settings().guardrails_max_output_chars,
         )
         report = guarded.text
         if guarded.redactions or guarded.truncated:

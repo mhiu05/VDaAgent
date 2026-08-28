@@ -510,6 +510,39 @@ export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<Pr
   return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal, cache: "no-store" });
 }
 
+/** Wait until the profile resume has persisted its final report. */
+export async function waitForProfileReady(
+  runId: string,
+  signal?: AbortSignal,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<Profile> {
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const intervalMs = options.intervalMs ?? 2_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() <= deadline) {
+    let profile: Profile;
+    try {
+      profile = await getProfile(runId, signal);
+    } catch (error) {
+      // A brief API/database hiccup must not send the user away from the
+      // review flow while the worker is still running.
+      if (!(error instanceof ApiError) || error.status < 500) throw error;
+      await pollingDelay(intervalMs, signal);
+      continue;
+    }
+    if (profile.status === "failed") {
+      throw new ApiError(profile.error || "Profile không thể hoàn tất.", 409);
+    }
+    if (profile.status === "completed" && profile.narrative_report?.trim()) {
+      return profile;
+    }
+    await pollingDelay(intervalMs, signal);
+  }
+
+  throw new ApiError("Profile vẫn đang được hoàn thiện. Bạn có thể mở lại báo cáo để tiếp tục theo dõi.", 408);
+}
+
 function pollingDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {

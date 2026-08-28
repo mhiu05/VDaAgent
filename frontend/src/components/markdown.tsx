@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import React, { type ReactNode } from "react";
 
 /**
  * Providers may serialize a response's content blocks as a Python-list
@@ -110,10 +110,17 @@ export function MarkdownContent({ text, className = "markdown-message" }: { text
         const item = lines[index].trim().slice(2);
         const isListSection = /^[^:]{1,80}:\s*$/.test(item);
         const isListDetail = inListDetailSection && /^[^:]{1,80}:\s+\S+/.test(item);
+        const inlineNull = item.match(/^Null:\s+(.+)$/i);
 
         if (isListSection) {
           inListDetailSection = true;
           items.push(<li className="report-markdown-list-section" key={`section-${index}`}>{renderInlineMarkdown(item.slice(0, -1))}</li>);
+        } else if (inlineNull) {
+          // Keep the Null metric visually consistent with the other labeled
+          // quality metrics, even when the LLM emits its detail inline.
+          inListDetailSection = true;
+          items.push(<li className="report-markdown-list-section" key={`section-${index}`}>Null</li>);
+          items.push(<li className="report-markdown-list-detail" key={`detail-${index}`}>{renderInlineMarkdown(inlineNull[1])}</li>);
         } else {
           items.push(<li className={isListDetail ? "report-markdown-list-detail" : undefined} key={`item-${index}`}>{renderInlineMarkdown(item)}</li>);
           if (!isListDetail) inListDetailSection = false;

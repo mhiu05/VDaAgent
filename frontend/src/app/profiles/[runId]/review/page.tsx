@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
-import { ApiError, confirmProposals, getProfile } from "@/lib/api";
+import { ApiError, confirmProposals, getProfile, waitForProfileReady } from "@/lib/api";
 import { formatPercent, toTitle } from "@/lib/format";
 import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, Notice, PageHeader, ProgressSteps, StatusBadge } from "@/components/ui";
 import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
@@ -52,7 +52,13 @@ export default function ReviewPage() {
   const { me, isGuest } = useAuth();
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const reviewRequestKey = useRef<string | null>(null);
-  const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
+  const awaitingNarrative = useRef(false);
+  const profile = useQuery({
+    queryKey: ["profile", runId],
+    queryFn: ({ signal }) => getProfile(runId, signal),
+    enabled: Boolean(runId),
+    refetchInterval: (query) => query.state.data?.status === "resuming" ? 2_000 : false,
+  });
   const pending = useMemo(
     () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
       .filter((proposal) => proposal.status === "pending")
@@ -81,6 +87,9 @@ export default function ReviewPage() {
       }),
     }, reviewRequestKey.current || (reviewRequestKey.current = crypto.randomUUID())),
     onError: async (error) => {
+      // An error thrown while waiting after a successful PATCH must leave the
+      // user here; the profile query above will keep tracking the worker.
+      if (awaitingNarrative.current) return;
       // The DB transaction may have committed even when the PATCH response
       // was lost or a duplicate request raced the first click. Reconcile once
       // with the authoritative profile before showing an error.
@@ -92,8 +101,15 @@ export default function ReviewPage() {
           items.some((proposal) => proposal.status === "pending"),
         );
         if (!stillPending && latest.pending_proposals === 0) {
-          client.setQueryData(["profile", runId], latest);
-          router.replace(profileReturnPath(runId));
+          if (latest.status === "completed" && latest.narrative_report?.trim()) {
+            client.setQueryData(["profile", runId], latest);
+            router.replace(profileReturnPath(runId));
+          } else if (latest.status === "resuming") {
+            awaitingNarrative.current = true;
+            const ready = await waitForProfileReady(runId);
+            client.setQueryData(["profile", runId], ready);
+            router.replace(profileReturnPath(runId));
+          }
         }
       } catch {
         // Keep the original mutation error visible when reconciliation also
@@ -109,12 +125,17 @@ export default function ReviewPage() {
         pending_proposals: confirmed.pending_proposals,
         ...(confirmed.proposals ? { proposals: confirmed.proposals } : {}),
       }));
-      // The PATCH response contains the same post-transaction proposal
-      // snapshot used to calculate pending_proposals. Do not refetch profile
-      // here: a stale in-flight GET can otherwise overwrite the saved decision
-      // while the durable resume job is still moving from queued to completed.
+      // Keep the user on this review page while the durable worker resumes the
+      // checkpoint and generates the narrative. Redirecting immediately made
+      // the profile page look finished while the summary was still pending.
+      if (confirmed.pending_proposals === 0 && confirmed.status === "resuming") {
+        awaitingNarrative.current = true;
+        const ready = await waitForProfileReady(runId);
+        client.setQueryData(["profile", runId], ready);
+      }
       client.invalidateQueries({ queryKey: ["profiling-job", runId] });
       reviewRequestKey.current = null;
+      awaitingNarrative.current = false;
       router.replace(profileReturnPath(runId));
     },
   });
@@ -172,7 +193,12 @@ export default function ReviewPage() {
       </div>
       <div className="review-bulk-actions"><small>THAO TÁC HÀNG LOẠT</small><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")} disabled={mutation.isPending}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")} disabled={mutation.isPending}>Từ chối tất cả</button></div></div>
     </section>
-    {pending.length === 0 ? (
+    {pending.length === 0 && profile.data.status === "resuming" ? (
+      <section className="panel review-submit-panel">
+        <div className="inline-actions"><LoadingButton className="button primary" busy disabled>Đang tạo tóm tắt agent…</LoadingButton><span className="muted">Quyết định đã được lưu. Bạn sẽ được chuyển đến báo cáo khi tóm tắt sẵn sàng.</span></div>
+        <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Tạo tóm tắt agent", "Cập nhật profile"]} activeStep={2} detail="Worker đang hoàn tất checkpoint; trang này sẽ tự cập nhật." />
+      </section>
+    ) : pending.length === 0 ? (
       <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
     ) : (
       <div className="grid" style={{ gap: 18 }}>
@@ -211,6 +237,6 @@ export default function ReviewPage() {
         })}
       </div>
     )}
-    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><LoadingButton className="button primary" busy={mutation.isPending} disabled={!completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tiếp tục pipeline…" : "Lưu quyết định & tiếp tục pipeline"}</LoadingButton><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div>{mutation.isPending && <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Cập nhật profile"]} activeStep={1} detail="Backend đang tiếp tục checkpoint; bạn không cần gửi lại thao tác." />}</section>}
+    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><LoadingButton className="button primary" busy={mutation.isPending} disabled={!completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tạo tóm tắt agent…" : "Lưu quyết định & tiếp tục pipeline"}</LoadingButton><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div>{mutation.isPending && <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Tạo tóm tắt agent", "Cập nhật profile"]} activeStep={2} detail="Đang chờ worker hoàn tất checkpoint và lưu tóm tắt agent; bạn không cần gửi lại thao tác." />}</section>}
   </>;
 }

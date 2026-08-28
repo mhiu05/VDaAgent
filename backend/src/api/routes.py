@@ -86,7 +86,14 @@ from src.services.datasource import (
     probe,
     source_ref_for_connection,
 )
-from src.services.llm import LLMNotConfiguredError, llm_available, report_text, safe_llm_warning
+from src.services.llm import (
+    LLMNotConfiguredError,
+    is_llm_runtime_warning,
+    llm_available,
+    normalize_profile_action_numbering,
+    report_text,
+    safe_llm_warning,
+)
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -171,6 +178,23 @@ def _build_profile_response(
     dataset = profile["dataset"] or {}
     stats = {row["column_name"]: row for row in profile["column_stats"]}
 
+    narrative_report = (
+        normalize_profile_action_numbering(report_text(run.get("narrative_report")))
+        if run.get("narrative_report")
+        else None
+    )
+    # A successful retry replaces the old fallback report, but older rows can
+    # still retain the transient provider warning in risk_warnings. Do not
+    # show that stale warning beside a real narrative report.
+    has_fallback_report = bool(
+        narrative_report and "Báo cáo dạng bảng vì phần diễn giải LLM" in narrative_report
+    )
+    runtime_warnings = [
+        warning
+        for warning in (run.get("risk_warnings") or [])
+        if has_fallback_report or not is_llm_runtime_warning(warning)
+    ]
+
     payload: dict[str, Any] = {
         "profile_run_id": run["id"],
         "dataset_id": run["dataset_id"],
@@ -188,12 +212,10 @@ def _build_profile_response(
         "random_seed": run.get("random_seed"),
         "executed_query": run.get("executed_query"),
         "is_approximate": bool(run.get("is_approximate")),
-        "narrative_report": report_text(run.get("narrative_report"))
-        if run.get("narrative_report")
-        else None,
+        "narrative_report": narrative_report,
         "risk_warnings": [
             safe_llm_warning(warning)
-            for warning in (run.get("risk_warnings") or [])
+            for warning in runtime_warnings
         ],
         "quasi_identifiers": run.get("quasi_identifiers") or [],
         "correlation_matrix": run.get("correlation_matrix") or {},
