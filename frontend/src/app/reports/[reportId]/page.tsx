@@ -9,58 +9,25 @@ import { ErrorNotice, LoadingBlock, LoadingButton, EmptyState, useToast } from "
 import { MarkdownContent } from "@/components/markdown";
 import { ChartEvidenceView } from "@/components/command-center/chart-evidence-view";
 import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
-
-const driftTypeLabels: Record<string, string> = {
-  column_added: "Cột mới",
-  column_removed: "Cột bị thiếu",
-  dtype_changed: "Thay đổi kiểu dữ liệu",
-  null_rate_shift: "Thay đổi tỷ lệ thiếu",
-  numeric_shift: "Thay đổi chỉ số số",
-  distribution_shift: "Thay đổi phân phối",
-};
-const driftSeverityLabels: Record<string, string> = { major: "Nghiêm trọng", minor: "Cần theo dõi" };
-
-function driftDisplayValue(value: unknown): string {
-  if (typeof value === "number") return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 3 }).format(value);
-  return value === null || value === undefined || value === "" ? "—" : String(value);
-}
-
-function driftEvidenceLabel(finding: any): string {
-  if (typeof finding?.psi === "number") return `PSI ${driftDisplayValue(finding.psi)}`;
-  if (finding?.metric === "null_pct") return "Tỷ lệ thiếu";
-  return finding?.metric || driftTypeLabels[finding?.drift_type] || finding?.drift_type || "—";
-}
-
-function groupedDriftFindings(reports: any[]) {
-  const groups = new Map<string, any[]>();
-  reports.flatMap((report) => Array.isArray(report?.drift_columns) ? report.drift_columns : []).forEach((finding) => {
-    const name = finding?.column_name || "Dataset";
-    groups.set(name, [...(groups.get(name) || []), finding]);
-  });
-  return [...groups.entries()].map(([name, findings]) => ({
-    name,
-    findings,
-    severity: findings.some((finding) => finding.severity === "major") ? "major" : "minor",
-  }));
-}
+import { DRIFT_PART_TITLE, driftDetailText, driftDisplayValue, driftEvidenceLabel, driftSeverityLabel, driftSeverityLabels, driftSignalLabel, driftTypeLabel, groupDriftFindings } from "@/lib/drift-evidence";
 
 function DriftEvidenceDetails({ reports }: { reports: any[] }) {
-  const columns = groupedDriftFindings(reports);
+  const columns = groupDriftFindings(reports);
   const findings = columns.flatMap((column) => column.findings);
   const major = findings.filter((finding) => finding.severity === "major").length;
   const minor = findings.filter((finding) => finding.severity === "minor").length;
   return <div className="report-drift-details" style={{ marginTop: "1.5rem" }}>
     <div className="compare-summary-grid" style={{ marginBottom: "1rem" }}>
-      <article><span>Nghiêm trọng</span><b>{major}</b><small>Signal major</small></article>
-      <article><span>Cần theo dõi</span><b>{minor}</b><small>Signal minor</small></article>
-      <article><span>Cột có evidence</span><b>{columns.length}</b><small>{findings.length} signal</small></article>
+      <article><span>{driftSeverityLabels.major}</span><b>{major}</b><small>Signal major</small></article>
+      <article><span>{driftSeverityLabels.minor}</span><b>{minor}</b><small>Signal minor</small></article>
+      <article><span>Cột có evidence</span><b>{columns.length}</b><small>{driftSignalLabel(findings.length)}</small></article>
     </div>
-    <div style={{ overflowX: "auto" }}><table className="compare-table" style={{ width: "100%" }}><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>
-      {columns.map((column) => <tr key={column.name}><td><b>{column.name}</b></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></td><td>{driftEvidenceLabel(column.findings[0])}</td><td>{column.findings.length} signal</td></tr>)}
-    </tbody></table></div>
-    <div style={{ display: "grid", gap: "1rem", marginTop: "1.25rem" }}>{columns.map((column) => <article key={column.name} className="panel compare-detail-panel" style={{ padding: "1.25rem", boxShadow: "none" }}>
-      <div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h3 style={{ margin: 0 }}>{column.name}</h3><p>{column.findings.length} signal từ backend</p></div><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></div>
-      <div className="compare-evidence-list">{column.findings.map((finding: any, index: number) => <article key={`${finding.drift_type}-${index}`} className="compare-evidence-item"><div><b>{driftTypeLabels[finding.drift_type] || finding.drift_type}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{driftSeverityLabels[finding.severity]}</span></div><p>{finding.detail}</p><dl><div><dt>Evidence</dt><dd>{driftEvidenceLabel(finding)}</dd></div>{(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{driftDisplayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{driftDisplayValue(finding.current_value)}</dd></div></>}</dl></article>)}</div>
+    {columns.length > 0 && <div style={{ overflowX: "auto" }}><table className="compare-table" style={{ width: "100%" }}><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>
+      {columns.map((column) => <tr key={column.name}><td><b>{column.name}</b></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></td><td>{driftEvidenceLabel(column.findings[0])}</td><td>{driftSignalLabel(column.findings.length)}</td></tr>)}
+    </tbody></table></div>}
+      <div style={{ display: "grid", gap: "1rem", marginTop: "1.25rem" }}>{columns.map((column) => <article key={column.name} className="panel compare-detail-panel" style={{ padding: "1.25rem", boxShadow: "none" }}>
+      <div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h3 style={{ margin: 0 }}>{column.name}</h3><p>{driftSignalLabel(column.findings.length)} từ backend</p></div><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></div>
+      <div className="compare-evidence-list">{column.findings.map((finding: any, index: number) => <article key={`${finding.drift_type}-${index}`} className="compare-evidence-item"><div><b>{driftTypeLabel(finding.drift_type)}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{driftSeverityLabel(finding.severity)}</span></div><p>{driftDetailText(finding.detail)}</p><dl><div><dt>Evidence</dt><dd>{driftEvidenceLabel(finding)}</dd></div>{(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{driftDisplayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{driftDisplayValue(finding.current_value)}</dd></div></>}</dl></article>)}</div>
     </article>)}</div>
   </div>;
 }
@@ -251,7 +218,7 @@ export default function ReportPage() {
   const items = report_snapshot?.items ?? [];
   const run = profile.run;
   const datasetName = profile.dataset?.name || "Tập dữ liệu chưa đặt tên";
-  const driftReports = profile.drift_reports || [];
+  const driftReports = Array.isArray(profile.drift_reports) ? profile.drift_reports : [];
   const columns = profile.column_stats || [];
 
   let tocNumber = 1;
@@ -358,7 +325,7 @@ export default function ReportPage() {
   }
 
   if (driftReports.length > 0) {
-    addToc("part-3", "PHẦN 3: SO SÁNH DỮ LIỆU", true);
+    addToc("part-3", DRIFT_PART_TITLE, true);
     addToc("sec-drift", "Data Drift", false, true);
   }
 
@@ -371,9 +338,6 @@ export default function ReportPage() {
             <span className="chip success">Bản tổng hợp hoàn chỉnh</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button type="button" className={`button ${isEditing ? 'primary' : 'secondary'}`} onClick={() => setIsEditing(!isEditing)} style={{ fontWeight: 600 }}>
-              {isEditing ? "Hủy chỉnh sửa" : "✏️ Chỉnh sửa biểu đồ đã ghim"}
-            </button>
             {run.id && (
               <LoadingButton type="button" className="button primary" busy={exporting} onClick={() => void exportFullPdf(run.id)} disabled={isEditing} style={{ background: isEditing ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", boxShadow: isEditing ? "none" : "0 4px 12px rgba(37,99,235,0.25)", fontWeight: 700 }}>
                 {exporting ? "Đang tạo PDF…" : "Xuất báo cáo PDF"}
@@ -550,7 +514,7 @@ export default function ReportPage() {
         {driftReports.length > 0 && (
           <>
             <div id="part-3" style={{ marginTop: "4rem", marginBottom: "1.5rem", borderBottom: "3px solid #10b981", paddingBottom: "0.5rem" }}>
-              <h2 style={{ fontSize: "1.5rem", fontWeight: 900, color: "#1e293b", textTransform: "uppercase", margin: 0 }}>Phần 3: So sánh biến động dữ liệu (Data Drift)</h2>
+              <h2 style={{ fontSize: "1.5rem", fontWeight: 900, color: "#1e293b", textTransform: "uppercase", margin: 0 }}>{DRIFT_PART_TITLE}</h2>
             </div>
             <section id="sec-drift" className="panel report-detail-section" style={{ padding: "2rem", marginTop: "1rem", marginBottom: "1.5rem" }}>
             <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>{tocItems.find(t => t.id === 'sec-drift')?.title}</h2>
@@ -566,9 +530,9 @@ export default function ReportPage() {
                 <tbody>
                   {driftReports.map((drift: any, idx: number) => (
                     <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: "0.75rem", color: "#475569" }}>{drift.profile_run_id_a}</td>
-                      <td style={{ padding: "0.75rem", color: "#475569" }}>{drift.profile_run_id_b}</td>
-                      <td style={{ padding: "0.75rem", color: "#1e293b" }}>{drift.summary}</td>
+                      <td style={{ padding: "0.75rem", color: "#475569" }}>{driftDetailText(drift.profile_run_id_a)}</td>
+                      <td style={{ padding: "0.75rem", color: "#475569" }}>{driftDetailText(drift.profile_run_id_b)}</td>
+                      <td style={{ padding: "0.75rem", color: "#1e293b" }}>{driftDetailText(drift.summary)}</td>
                     </tr>
                   ))}
                 </tbody>

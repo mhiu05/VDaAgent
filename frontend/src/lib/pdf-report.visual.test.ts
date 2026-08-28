@@ -27,7 +27,15 @@ describe("profiling PDF visual fixture", () => {
           { column_name: "email", dtype: "object", null_pct: 0.09, cardinality: 110_300, uniqueness_ratio: 0.89, pii_masked: true },
         ],
         correlation_matrix: { doanh_thu: { doanh_thu: 1, chi_phi: 0.73 }, chi_phi: { doanh_thu: 0.73, chi_phi: 1 } },
-        drift_reports: [{ profile_run_id_a: "run-2025", profile_run_id_b: "visual-run-001", summary: "Tăng tỷ trọng giao dịch khu vực miền Nam." }],
+        drift_reports: [{
+          profile_run_id_a: "run-2025",
+          profile_run_id_b: "visual-run-001",
+          summary: "Tăng tỷ trọng giao dịch khu vực miền Nam.",
+          drift_columns: [
+            { column_name: "doanh_thu", drift_type: "numeric_shift", severity: "major", psi: 0.1234, baseline_value: 52000, current_value: 58000, detail: "Giá trị trung bình tăng so với baseline." },
+            { column_name: "khu_vuc", drift_type: "null_rate_shift", severity: "minor", metric: "null_pct", baseline_value: 0.01, current_value: 0.018, detail: "Tỷ lệ thiếu tăng nhẹ." },
+          ],
+        }],
       },
       report_snapshot: {
         title: "Báo cáo chất lượng dữ liệu doanh thu",
