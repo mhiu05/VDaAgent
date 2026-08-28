@@ -202,6 +202,24 @@ def test_report_export_source_uses_current_draft_before_first_snapshot(
     assert snapshot["items"] == draft["items"]
 
 
+def test_command_center_draft_title_update_is_narrow_and_versioned(
+    client: TestClient, reviewed_profile_run: dict
+) -> None:
+    run_id = reviewed_profile_run["profile_run_id"]
+    draft_response = client.get(f"/api/v1/profile/{run_id}/report-draft")
+    assert draft_response.status_code == 200, draft_response.text
+    draft = draft_response.json()
+
+    updated = client.patch(
+        f"/api/v1/reports/{draft['id']}/draft-title",
+        json={"title": "Executive quality review"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "Executive quality review"
+    assert updated.json()["items"] == draft["items"]
+    assert updated.json()["draft_version"] == draft["draft_version"] + 1
+
+
 # --------------------------------------------------------------------------- #
 # HITL
 # --------------------------------------------------------------------------- #

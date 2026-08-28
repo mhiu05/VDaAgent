@@ -853,6 +853,19 @@ export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
 }
 
+/**
+ * A draft title is ordinary, user-authored report metadata.  The server still
+ * owns permissions and the canonical value; callers may safely mirror the
+ * title locally while this request is in flight.
+ */
+export function updateReportDraftTitle(reportId: string, title: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/draft-title`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
 export function pinChartToReport(
   reportId: string,
   executionId: string,

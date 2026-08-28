@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { downloadPublishedReportPdf, getReportExportSource, getProfileReportDraft, updateReportDraftItem, unpinReportDraftItem, reorderReportDraft, snapshotReportDraft } from "@/lib/api";
+import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
+import { ApiError, downloadPublishedReportPdf, getReportExportSource, getProfileReportDraft, reorderReportDraft, snapshotReportDraft, unpinReportDraftItem, updateReportDraftItem, updateReportDraftTitle, type ReportDraft } from "@/lib/api";
 import { ErrorNotice, LoadingBlock, LoadingButton, EmptyState, useToast } from "@/components/ui";
 import { MarkdownContent } from "@/components/markdown";
 import { ChartEvidenceView } from "@/components/command-center/chart-evidence-view";
@@ -32,44 +32,128 @@ function DriftEvidenceDetails({ reports }: { reports: any[] }) {
   </div>;
 }
 
+const reportDraftQueryKey = (runId: string) => ["command-center", runId, "report-draft"] as const;
+const activeReportDraftWrites = new Set<string>();
+
+function startReportDraftWrite(runId: string) {
+  if (activeReportDraftWrites.has(runId)) return false;
+  activeReportDraftWrites.add(runId);
+  return true;
+}
+
+function finishReportDraftWrite(runId: string) {
+  activeReportDraftWrites.delete(runId);
+}
+
 // --- Inline Editor Component ---
 function InlineDraftItem({ item, index, totalItems, runId, draftId, onExit }: { item: any; index: number; totalItems: number; runId: string; draftId: string; onExit: () => void }) {
   const client = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
-  const key = ["command-center", runId, "report-draft"];
+  const key = reportDraftQueryKey(runId);
+  const draftMutationCount = useIsMutating({ mutationKey: ["report-draft-write", runId] });
   
   const updateItem = useMutation({
+    mutationKey: ["report-draft-write", runId],
     mutationFn: ({ title, note }: { title: string; note: string }) => updateReportDraftItem(draftId, item.id, { title, note }),
-    onSuccess: (next) => { client.setQueryData(key, next); setIsEditing(false); }
+    onMutate: async ({ title, note }) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<ReportDraft>(key);
+      client.setQueryData<ReportDraft>(key, (old) => old ? {
+        ...old,
+        items: old.items.map((draftItem) => draftItem.id === item.id ? { ...draftItem, title, note } : draftItem),
+      } : old);
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous !== undefined) client.setQueryData(key, context.previous);
+    },
+    onSuccess: () => setIsEditing(false),
+    onSettled: () => {
+      finishReportDraftWrite(runId);
+      return client.invalidateQueries({ queryKey: key });
+    },
   });
   
   const unpin = useMutation({
+    mutationKey: ["report-draft-write", runId],
     mutationFn: () => unpinReportDraftItem(draftId, item.id),
-    onSuccess: (next) => client.setQueryData(key, next)
+    onMutate: async () => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<ReportDraft>(key);
+      client.setQueryData<ReportDraft>(key, (old) => old ? {
+        ...old,
+        items: old.items.filter((draftItem) => draftItem.id !== item.id),
+      } : old);
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous !== undefined) client.setQueryData(key, context.previous);
+    },
+    onSettled: () => {
+      finishReportDraftWrite(runId);
+      return client.invalidateQueries({ queryKey: key });
+    },
   });
   
   const move = useMutation({
-    mutationFn: (direction: -1 | 1) => {
-      const draft = client.getQueryData(key) as any;
-      if (!draft) return Promise.reject();
-      const next = draft.items.map((i: any) => i.id);
-      const target = index + direction;
-      if (target < 0 || target >= next.length) return Promise.reject();
-      [next[index], next[target]] = [next[target], next[index]];
-      return reorderReportDraft(draftId, next, draft.draft_version);
+    mutationKey: ["report-draft-write", runId],
+    mutationFn: ({ itemIds, expectedDraftVersion }: { itemIds: string[]; expectedDraftVersion: number }) => reorderReportDraft(draftId, itemIds, expectedDraftVersion),
+    onMutate: async ({ itemIds }) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<ReportDraft>(key);
+      client.setQueryData<ReportDraft>(key, (old) => {
+        if (!old) return old;
+        const byId = new Map(old.items.map((draftItem) => [draftItem.id, draftItem]));
+        return {
+          ...old,
+          items: itemIds.map((id, position) => byId.get(id) ? { ...byId.get(id)!, position } : undefined).filter((draftItem): draftItem is ReportDraft["items"][number] => Boolean(draftItem)),
+        };
+      });
+      return { previous };
     },
-    onSuccess: (next) => client.setQueryData(key, next)
+    onSuccess: (next) => client.setQueryData(key, next),
+    onError: (error, _variables, context) => {
+      if (context?.previous !== undefined) client.setQueryData(key, context.previous);
+      if (error instanceof ApiError && error.status === 409) {
+        // The server draft version is authoritative. Reconciliation below
+        // discards this order and refetches the canonical draft.
+        onExit();
+        void client.invalidateQueries({ queryKey: key });
+      }
+    },
+    onSettled: () => {
+      finishReportDraftWrite(runId);
+      return client.invalidateQueries({ queryKey: key });
+    },
   });
+
+  function startMove(direction: -1 | 1) {
+    if (!startReportDraftWrite(runId)) return;
+    const draft = client.getQueryData<ReportDraft>(key);
+    if (!draft) {
+      finishReportDraftWrite(runId);
+      return;
+    }
+    const currentIndex = draft.items.findIndex((draftItem) => draftItem.id === item.id);
+    const target = currentIndex + direction;
+    if (currentIndex < 0 || target < 0 || target >= draft.items.length) {
+      finishReportDraftWrite(runId);
+      return;
+    }
+    const itemIds = draft.items.map((draftItem) => draftItem.id);
+    [itemIds[currentIndex], itemIds[target]] = [itemIds[target], itemIds[currentIndex]];
+    move.mutate({ itemIds, expectedDraftVersion: draft.draft_version });
+  }
 
   return (
     <article className="panel report-detail-section" style={{ padding: "2rem", borderRadius: "12px", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05)", position: "relative" }}>
       <div style={{ position: "absolute", top: "1rem", right: "1rem", display: "flex", gap: "0.5rem", zIndex: 10 }}>
         {!isEditing ? (
           <>
-            <button type="button" className="button secondary" onClick={() => move.mutate(-1)} disabled={index === 0 || move.isPending} title="Lên" style={{ padding: "4px 8px" }}>↑</button>
-            <button type="button" className="button secondary" onClick={() => move.mutate(1)} disabled={index === totalItems - 1 || move.isPending} title="Xuống" style={{ padding: "4px 8px" }}>↓</button>
-            <button type="button" className="button secondary" onClick={() => setIsEditing(true)} style={{ padding: "4px 12px" }}>✏️ Edit</button>
-            <button type="button" className="button danger" onClick={() => unpin.mutate()} disabled={unpin.isPending} style={{ padding: "4px 12px" }}>Bỏ ghim</button>
+            <button type="button" className="button secondary" onClick={() => startMove(-1)} disabled={index === 0 || draftMutationCount > 0} title="Lên" style={{ padding: "4px 8px" }}>↑</button>
+            <button type="button" className="button secondary" onClick={() => startMove(1)} disabled={index === totalItems - 1 || draftMutationCount > 0} title="Xuống" style={{ padding: "4px 8px" }}>↓</button>
+            <button type="button" className="button secondary" onClick={() => setIsEditing(true)} disabled={draftMutationCount > 0} style={{ padding: "4px 12px" }}>✏️ Edit</button>
+            <button type="button" className="button danger" onClick={() => { if (startReportDraftWrite(runId)) unpin.mutate(); }} disabled={draftMutationCount > 0} style={{ padding: "4px 12px" }}>Bỏ ghim</button>
           </>
         ) : (
           <button type="button" className="button secondary" onClick={() => setIsEditing(false)} style={{ padding: "4px 12px" }}>Hủy</button>
@@ -92,7 +176,9 @@ function InlineDraftItem({ item, index, totalItems, runId, draftId, onExit }: { 
           <form onSubmit={(e) => {
             e.preventDefault();
             const form = new FormData(e.currentTarget);
-            updateItem.mutate({ title: String(form.get("title") || ""), note: String(form.get("note") || "") });
+            if (startReportDraftWrite(runId)) {
+              updateItem.mutate({ title: String(form.get("title") || ""), note: String(form.get("note") || "") });
+            }
           }} style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
             <label style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               <b>Tiêu đề:</b>
@@ -103,7 +189,7 @@ function InlineDraftItem({ item, index, totalItems, runId, draftId, onExit }: { 
               <textarea name="note" defaultValue={item.note || ""} rows={3} style={{ padding: "8px", borderRadius: "4px", border: "1px solid #cbd5e1" }} />
             </label>
             <div>
-              <button type="submit" className="button primary" disabled={updateItem.isPending}>{updateItem.isPending ? "Đang lưu..." : "Lưu thay đổi"}</button>
+              <button type="submit" className="button primary" disabled={draftMutationCount > 0}>{updateItem.isPending ? "Đang lưu..." : "Lưu thay đổi"}</button>
             </div>
           </form>
         ) : (
@@ -136,20 +222,47 @@ function InlineDraftItem({ item, index, totalItems, runId, draftId, onExit }: { 
 }
 
 function EditableChartsSection({ runId, onSnapshotCreated }: { runId: string, onSnapshotCreated: () => void }) {
+  const client = useQueryClient();
+  const queryKey = reportDraftQueryKey(runId);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [reorderConflict, setReorderConflict] = useState<string | null>(null);
+  const draftMutationCount = useIsMutating({ mutationKey: ["report-draft-write", runId] });
   const draftQuery = useQuery({
-    queryKey: ["command-center", runId, "report-draft"],
+    queryKey,
     queryFn: () => getProfileReportDraft(runId)
   });
+  const titleUpdate = useMutation({
+    mutationKey: ["report-draft-write", runId],
+    mutationFn: ({ reportId, title }: { reportId: string; title: string }) => updateReportDraftTitle(reportId, title),
+    onMutate: async ({ title }) => {
+      await client.cancelQueries({ queryKey });
+      const previous = client.getQueryData<ReportDraft>(queryKey);
+      client.setQueryData<ReportDraft>(queryKey, (old) => old ? { ...old, title } : old);
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous !== undefined) client.setQueryData(queryKey, context.previous);
+    },
+    onSettled: () => {
+      finishReportDraftWrite(runId);
+      return client.invalidateQueries({ queryKey });
+    },
+  });
   const snapshot = useMutation({
+    mutationKey: ["report-draft-write", runId],
     mutationFn: () => snapshotReportDraft(draftQuery.data!.id),
-    onSuccess: () => onSnapshotCreated()
+    onSuccess: () => onSnapshotCreated(),
+    onSettled: () => {
+      finishReportDraftWrite(runId);
+      return client.invalidateQueries({ queryKey });
+    },
   });
 
   if (draftQuery.isPending) return <LoadingBlock label="Đang tải Report Draft..." />;
   if (draftQuery.isError) return <ErrorNotice error={draftQuery.error} />;
   
   const draft = draftQuery.data;
-  if (!draft || draft.items.length === 0) {
+  if (!draft) {
     return <div className="panel" style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>Chưa có biểu đồ nào được ghim vào báo cáo này.</div>;
   }
 
@@ -159,13 +272,28 @@ function EditableChartsSection({ runId, onSnapshotCreated }: { runId: string, on
         <div>
           <h3 style={{ margin: 0, color: "#0f172a" }}>Chế độ chỉnh sửa báo cáo</h3>
           <p className="muted" style={{ margin: "0.5rem 0 0 0", fontSize: "0.85rem" }}>Thay đổi vị trí, sửa tiêu đề, thêm ghi chú. Nhớ lưu lại thành snapshot mới khi hoàn tất.</p>
+          {isEditingTitle ? <form onSubmit={(event) => {
+            event.preventDefault();
+            const title = String(new FormData(event.currentTarget).get("report-title") || "").trim();
+            if (title.length >= 3 && draftMutationCount === 0 && startReportDraftWrite(runId)) {
+              titleUpdate.mutate({ reportId: draft.id, title }, { onSuccess: () => setIsEditingTitle(false) });
+            }
+          }} style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem" }}>
+            <input name="report-title" defaultValue={draft.title} aria-label="Tiêu đề báo cáo" disabled={draftMutationCount > 0} />
+            <button className="button primary" type="submit" disabled={draftMutationCount > 0}>Lưu tiêu đề</button>
+            <button className="button secondary" type="button" disabled={draftMutationCount > 0} onClick={() => setIsEditingTitle(false)}>Hủy</button>
+          </form> : <div style={{ marginTop: "0.75rem" }}><b>{draft.title}</b><button className="button secondary" type="button" disabled={draftMutationCount > 0} onClick={() => setIsEditingTitle(true)} style={{ marginLeft: "0.75rem", padding: "4px 8px" }}>Sửa tiêu đề</button></div>}
         </div>
-        <button className="button primary" onClick={() => snapshot.mutate()} disabled={snapshot.isPending}>
+        <button className="button primary" onClick={() => { if (startReportDraftWrite(runId)) snapshot.mutate(); }} disabled={snapshot.isPending || draftMutationCount > 0}>
           {snapshot.isPending ? "Đang lưu..." : "📸 Hoàn tất & Cập nhật"}
         </button>
       </div>
+      {reorderConflict && <div className="notice warning" role="alert"><p>{reorderConflict}</p></div>}
+      {titleUpdate.isError && <ErrorNotice error={titleUpdate.error} retry={() => titleUpdate.reset()} />}
+      {snapshot.isError && <ErrorNotice error={snapshot.error} retry={() => snapshot.reset()} />}
+      {draft.items.length === 0 && <div className="panel" style={{ padding: "2rem", textAlign: "center", color: "#64748b" }}>Chưa có biểu đồ nào được ghim vào báo cáo này.</div>}
       {draft.items.map((item: any, index: number) => (
-        <InlineDraftItem key={item.id} item={item} index={index} totalItems={draft.items.length} runId={runId} draftId={draft.id} onExit={() => {}} />
+        <InlineDraftItem key={item.id} item={item} index={index} totalItems={draft.items.length} runId={runId} draftId={draft.id} onExit={() => setReorderConflict("Thứ tự báo cáo đã thay đổi ở phiên khác. Đã tải lại thứ tự chính thức từ backend.")} />
       ))}
     </div>
   );
@@ -338,6 +466,7 @@ export default function ReportPage() {
             <span className="chip success">Bản tổng hợp hoàn chỉnh</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button type="button" className="button secondary" onClick={() => setIsEditing(true)} disabled={exporting || isEditing}>Chỉnh sửa Report Draft</button>
             {run.id && (
               <LoadingButton type="button" className="button primary" busy={exporting} onClick={() => void exportFullPdf(run.id)} disabled={isEditing} style={{ background: isEditing ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", boxShadow: isEditing ? "none" : "0 4px 12px rgba(37,99,235,0.25)", fontWeight: 700 }}>
                 {exporting ? "Đang tạo PDF…" : "Xuất báo cáo PDF"}

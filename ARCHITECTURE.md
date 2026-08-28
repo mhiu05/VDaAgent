@@ -17,12 +17,13 @@ Login / guest trial → workspace → dataset upload → queued Profile Run
 ## Product surface and roles
 
 The public frontend introduces the product through `/`, `/about`, `/guide`,
-`/docs` and `/contact`. Authentication routes are `/login`, `/signup`,
-`/forgot-password`, `/auth/callback` and `/account/update-password`.
+`/docs`, `/contact`, `/privacy` and `/terms`. Authentication routes are
+`/login`, `/signup`, `/forgot-password`, `/auth/callback` and
+`/account/update-password`.
 
 The analyst workspace includes `/dashboard`, `/workspaces`, `/datasets`,
-`/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`,
-`/charts`, `/chat`, `/compare`, `/reports`, `/activity`,
+`/datasets/new`, `/datasets/{datasetId}/runs`, `/connectors`, `/profiles/{runId}`,
+`/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/activity`,
 `/settings` and `/account`.
 
 There is one shared login UI at `/login`; `/admin/login` does not exist. A
@@ -43,6 +44,11 @@ System requests use `user.accounts.read`, `user.account.manage` and
 never inherit system-admin capabilities. Admin sessions use the lightweight
 session contract and do not receive an Analyst workspace bootstrap.
 
+The Command Center is enabled by default. With
+`NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true`, `/profiles/{runId}` wraps the
+profile overview with the Command Center shell, while `/charts` provides a
+Dataset → completed Profile Run picker for the same Explorer workflow.
+
 ## Design boundaries
 
 1. **Deterministic compute owns numbers.** DuckDB, pandas, NumPy, SciPy and the
@@ -50,7 +56,9 @@ session contract and do not receive an Analyst workspace bootstrap.
    LLM may plan or explain, but is never the authority for a metric.
 2. **Evidence is explicit.** A Preview is bounded and disposable. Promotion
    creates an Official execution with result hash, limits, provenance and
-   current context binding. Only Official evidence can enter a report.
+   current context binding. Only an Official execution can enter a report as
+   chart evidence; Report Drafts may also contain reviewed Agent answers or
+   user-authored notes.
 3. **All data access is workspace-scoped.** FastAPI resolves identity,
    workspace membership and capability before reading or writing a resource.
    Frontend checks are UX only; API guards are the security boundary.
@@ -66,6 +74,10 @@ session contract and do not receive an Analyst workspace bootstrap.
 6. **System and workspace roles are separate.** Workspace Analyst membership
    controls normal collaboration; system Admin controls user-account/system
    management and is not granted by an invitation.
+7. **Narratives are bound to evidence.** Chart insight generation receives the
+   complete Official execution separately from retrieval context; Preview data
+   cannot be used for insight or report pinning, and Analyst review is required
+   before a pin is accepted.
 
 ## Runtime architecture
 
@@ -101,6 +113,7 @@ flowchart LR
         Reports[Draft, snapshot and export source]
         Sources[Datasource validation and credential encryption]
         Compute[DuckDB, pandas, NumPy, SciPy\nforecast adapters]
+        Telemetry[PII-safe request performance telemetry]
         Repo[Repositories and audit]
         Routes --> Guard
         Guard --> Bootstrap & AdminAPI & ProfileJobs & Review & Charts & Agent & Reports & Sources
@@ -111,6 +124,7 @@ flowchart LR
         Sources --> Repo
         Agent --> Repo
         Reports --> Repo
+        Routes --> Telemetry
     end
 
     subgraph Worker[Dedicated profiling worker]
@@ -167,7 +181,10 @@ the run `pending_review`, and only the continuation after review makes it
 The PDF route is server-side by design: it requests an authorized export source
 from FastAPI and renders text/SVG with Playwright Core and Chromium. The
 frontend is otherwise a browser client of FastAPI and does not receive server
-secrets.
+secrets. Workspace requests also emit PII-safe phase timing (auth, workspace,
+database, serialization), query count, payload size and coarse slow-query
+fingerprints. `Server-Timing` stays off by default; logs never contain request
+bodies, SQL parameters, prompts, model output or raw rows.
 
 ## Deployment and integration boundaries
 
@@ -198,6 +215,12 @@ keys, OAuth credentials, storage credentials and LLM keys remain server-side.
 The concrete Supabase/Auth/Storage/session checklist is maintained in
 [`docs/production-supabase.md`](docs/production-supabase.md).
 
+When a Supabase Pooler DSN uses the session endpoint (`:5432`), the API and
+worker normalize it to the transaction endpoint (`:6543`) to stay within the
+project client limit. Metadata, checkpointer and migration DSNs can be supplied
+separately through `DATABASE_URL`, `DATABASE_CHECKPOINTER_URL` and
+`DATABASE_MIGRATION_URL`.
+
 Supabase is the identity provider. Google Drive is a separate OAuth storage
 integration with callback `/api/v1/google-drive/callback`. The selected
 `STORAGE_PROVIDER` is deployment configuration; local storage is for
@@ -212,7 +235,7 @@ a thread could make results or checkpoints inconsistent.
 
 | Component | Responsibility |
 | --- | --- |
-| Next.js / React | Browser UI, Supabase session transport, workspace navigation, charts, chat, reports, admin UI and PDF route |
+| Next.js / React | Browser UI, Supabase session transport, workspace navigation, Profile Run Command Center, charts, chat, reports, admin UI and PDF route |
 | Auth provider | Supabase email/password session, signup confirmation, refresh and workspace bootstrap transport |
 | FastAPI | REST/SSE API, CORS, auth, workspace/capability enforcement, audit and business workflows |
 | Permissions service | Canonical `analyst`/`admin` roles and capability sets; legacy owner/viewer values normalize to Analyst |
@@ -221,11 +244,13 @@ a thread could make results or checkpoints inconsistent.
 | LangGraph + native skills | Profiling/Q&A orchestration, bounded tool registry and optional redacted trace |
 | `AnalysisEngine` | Validates `QuerySpec`, runs bounded aggregate/profile analysis and forecast |
 | Chart planner | Converts approved-profile questions into a structured ChartPlan; deterministic fallback when LLM planning fails |
+| Chart insight workflow | Generates narratives from Official execution evidence only; requires Analyst review and idempotent pinning into a Report Draft |
 | Forecast registry | Catalogs 28 model adapters and runs only models whose dependency/data contract is available |
 | PostgreSQL repositories | User profiles, workspace state, profile metadata, analysis sessions/executions, reports, audit and trace |
 | Storage adapters | Dataset binary persistence and temporary materialization for tabular compute |
 | Datasource connectors | Validate MySQL/MongoDB/DuckDB source contracts, encrypt credentials at rest, then materialize a bounded temporary file for the profiling pipeline |
 | `mcp_server.py` | FastMCP stdio adapter for bounded profile/chart tools in trusted local processes |
+| Performance telemetry | Request-local, PII-safe phase/query/payload metrics and sampled slow-query fingerprints |
 
 The supported compute sources are uploaded files and external MySQL, MongoDB
 and DuckDB connections. External sources are validated by the API, stored as
@@ -339,6 +364,7 @@ sequenceDiagram
     participant API as FastAPI
     participant Plan as Chart planner
     participant Engine as AnalysisEngine
+    participant Agent as Insight Agent
     participant DB as PostgreSQL
 
     A->>UI: Select a completed Profile Run and ask a question
@@ -356,6 +382,11 @@ sequenceDiagram
     API->>Engine: Check context and quality gate; rerun Official
     Engine->>DB: Save Official result, hash and provenance
     Engine-->>UI: Evidence eligible for reporting
+    UI->>Agent: Request chart_insight with Official execution binding
+    Agent-->>UI: Redacted narrative and evidence status
+    A->>UI: Review/edit insight and pin
+    UI->>API: POST /reports/{reportId}/items + Idempotency-Key
+    API->>DB: Verify reviewed insight and persist Report Draft item
 ```
 
 The browser never decides that an LLM plan is executable. FastAPI validates
@@ -416,6 +447,7 @@ All FastAPI endpoints use the `/api/v1` prefix.
 | Admin | `GET/POST /admin/users`, `POST /admin/users/{userId}/status`, `POST /admin/users/{userId}/role`, `DELETE /admin/users/{userId}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback and `DELETE /google-drive/connection` |
 | Agent skills | `GET /agent-skills`, `GET /agent-skills/{skillName}`, inspect endpoint |
+| Diagnostics | `GET /status`, `GET /audit` (workspace-scoped) and public `/health` |
 
 ## Security and operational invariants
 
@@ -442,6 +474,10 @@ All FastAPI endpoints use the `/api/v1` prefix.
   long-term workspace/personal memory store.
 - `LANGSMITH_TRACING` is opt-in and requires a server-side API key. A LangSmith
   outage cannot fail a user request or replace PostgreSQL trace.
+- Performance telemetry is request-local and PII-safe: it keeps only route
+  templates, phase timings, query counts, payload sizes and coarse SQL
+  fingerprints. `PERF_SERVER_TIMING_ENABLED` is a guarded opt-in response
+  header, not a replacement for server logs.
 - `UX_COMMAND_CENTER_ENABLED` enables backend contracts; its `NEXT_PUBLIC_`
   counterpart is a frontend build-time flag and requires a new build/deploy.
 - Guest storage/retention is bounded and isolated from durable production

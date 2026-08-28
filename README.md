@@ -66,13 +66,22 @@ tra chất lượng và trình bày insight có provenance. Luồng chính gồm
 - Charts tại `/charts`: profile pack tự động hoặc câu hỏi tự nhiên → chart
   plan → Preview bounded → Official evidence. Backend kiểm tra cột, phép
   aggregate, PII policy, context version, budget và idempotency.
+- Khi `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true`, trang
+  `/profiles/{runId}` hiển thị Profile Run Command Center; `/charts` là màn
+  hình chọn Dataset và Profile Run để mở cùng workflow. Command Center được
+  bật mặc định trong backend và trong pipeline build hiện tại.
 - 15 loại chart native đang được phát hành: line, bar, table, KPI, histogram,
   scatter, box, heatmap, missing-value bar/heatmap, correlation heatmap,
   cardinality, violin, donut và outlier.
 - Forecast chuỗi thời gian với catalog **28 model**. Model chỉ chạy khi
   dependency và contract dữ liệu phù hợp; kết quả có interval và limitation,
   không phải giá trị chắc chắn.
-- Chat Agent tại `/chat`, Q&A theo Profile Run, evidence và trace đã redact.
+- Chat Agent tại `/chat`, Q&A theo Profile Run đã hoàn tất và evidence/trace đã
+  redact. UI chọn Dataset trước rồi mới chọn Profile Run, tránh dùng nhầm
+  phiên giữa các workspace hoặc dataset.
+- Insight của chart được tạo từ toàn bộ Official evidence, phải được Analyst
+  đối chiếu/chỉnh sửa trước khi ghim. Nút ghim cập nhật lạc quan ở UI nhưng
+  request vẫn idempotent và backend là nơi xác nhận cuối cùng.
 - Compare tại `/compare`: PSI, cardinality, null rate và distribution giữa hai
   Profile Run hoàn tất.
 - Report Draft: ghim Official evidence, chỉnh sửa insight, tạo snapshot bất
@@ -137,9 +146,9 @@ Các route frontend chính:
 
 | Nhóm | Route |
 | --- | --- |
-| Public | `/`, `/about`, `/guide`, `/docs`, `/contact` |
+| Public | `/`, `/about`, `/guide`, `/docs`, `/contact`, `/privacy`, `/terms` |
 | Auth | `/login`, `/signup`, `/forgot-password`, `/auth/callback`, `/account/update-password` |
-| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/datasets/new`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/activity`, `/settings`, `/account` |
+| Analyst workspace | `/dashboard`, `/workspaces`, `/workspaces/manage`, `/datasets`, `/datasets/new`, `/datasets/{datasetId}/runs`, `/connectors`, `/profiles/{runId}`, `/profiles/{runId}/review`, `/charts`, `/chat`, `/compare`, `/reports`, `/reports/{reportId}`, `/activity`, `/settings`, `/account` |
 | System admin | `/admin`, `/account` |
 | PDF/health | `/api/reports/profile/{runId}`, `/health` |
 
@@ -153,10 +162,11 @@ workspace context và permission cho mỗi request, kể cả khi UI đã ẩn r
 | --- | --- |
 | Frontend | Next.js 15, React 19, TypeScript, React Query, Supabase SSR/PKCE |
 | Backend | FastAPI, Python 3.11+, Pydantic, SQLAlchemy, Alembic |
-| Agent | LangGraph, LangChain, OpenAI/Gemini/Ollama tùy cấu hình, LangSmith tùy chọn |
+| Agent | LangGraph, LangChain và các provider OpenAI-compatible (OpenAI, Gemini, OpenRouter, Groq, Together, Ollama hoặc custom), LangSmith tùy chọn |
 | Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
 | Forecast | 28 adapter; model ngoài core chỉ khả dụng khi dependency được cài |
 | Data/Auth | PostgreSQL/Supabase Auth, Supabase Storage/Google Drive, connector MySQL/MongoDB/DuckDB |
+| Observability | Request-local performance telemetry PII-safe: phase timing, query count, payload size và slow-query fingerprint |
 | Quality/Deploy | pytest, Ruff, Vitest, Playwright, Docker, Azure App Service, GitHub Actions |
 
 ## Quick start
@@ -279,23 +289,31 @@ development/test. Khi dùng Google Drive, binary dataset đi qua OAuth callback
 backend `/api/v1/google-drive/callback`; metadata, workspace và audit vẫn ở
 PostgreSQL. Guest có storage provider và retention riêng.
 
-Supabase Auth là nguồn sự thật cho identity/session. Backend xác minh JWT bằng
+Backend xác minh JWT bằng
 issuer `<SUPABASE_URL>/auth/v1` và audience `authenticated`; giữ hai giá trị
 này rõ ràng ở production để tránh lỗi login thành công nhưng
 `/workspace-bootstrap` trả `401`. Publishable key có thể xuất hiện trong
 frontend, còn `SUPABASE_SECRET_KEY`, service key và database credential chỉ ở
 server/Azure App Settings.
 
+Với Supabase Pooler, API và worker tự chuyển endpoint PostgreSQL `:5432` sang
+transaction pooler `:6543` để tránh giới hạn client của session pooler. Có thể
+đặt `DATABASE_CHECKPOINTER_URL` riêng; checkpointer cũng chuẩn hóa DSN về dạng
+PostgreSQL mà LangGraph hỗ trợ. `DATABASE_MIGRATION_URL` chỉ dùng cho bước
+Alembic khi cần tách kết nối migration.
+
 Các biến cần chú ý:
 
 | Biến | Ý nghĩa |
 | --- | --- |
 | `DATABASE_URL` / `DATABASE_CHECKPOINTER_URL` | PostgreSQL cho metadata và LangGraph checkpoint |
+| `LLM_PROVIDER` / `LLM_MODEL` / provider API key | Chọn provider OpenAI-compatible và model; key luôn chỉ ở backend |
 | `AUTH_MODE` / `AUTH_REQUIRE_EMAIL_CONFIRMED` | Cơ chế và điều kiện xác thực |
 | `AUTH_ALLOW_SIGNUP` / `AUTH_ALLOW_GUEST` | Bật signup và guest trial |
 | `SUPABASE_URL` / `SUPABASE_AUTH_ISSUER` / `SUPABASE_AUTH_AUDIENCE` | Supabase project và thông tin verify JWT; production dùng issuer `<SUPABASE_URL>/auth/v1`, audience `authenticated` |
 | `GLOBAL_ADMIN_EMAILS` | Danh sách email được seed system role admin, phân tách bằng dấu phẩy |
 | `STORAGE_PROVIDER` / `GUEST_STORAGE_PROVIDER` | Backend storage cho user và guest |
+| `GUEST_MAX_UPLOAD_MB` / `GUEST_RETENTION_HOURS` | Trần upload và thời gian lưu guest workspace |
 | `DATASOURCE_ENCRYPTION_KEY` | Fernet key bắt buộc ở production để mã hóa credential connector; không đưa vào frontend |
 | `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_API_URL` | Origin frontend và base URL FastAPI được embed vào frontend build |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase browser client; chỉ publishable key được phép xuất hiện trong bundle |
@@ -303,6 +321,10 @@ Các biến cần chú ý:
 | `UX_COMMAND_CENTER_ENABLED` | Bật contract Command Center phía backend |
 | `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Bật UI Command Center tại thời điểm build |
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` cho trace đã redact |
+| `PERF_TELEMETRY_ENABLED` / `PERF_SERVER_TIMING_ENABLED` | Bật telemetry request; Server-Timing chỉ nên bật khi muốn expose breakdown cho browser |
+| `PERF_SLOW_QUERY_MS` / `PERF_SLOW_QUERY_SAMPLE_RATE` | Ngưỡng và sampling cho log slow-query fingerprint không chứa tham số |
+| `PROFILING_WORKER_*` | Concurrency, polling, lease, retry và shutdown grace của profiling worker |
+| `UX_PREVIEW_TIMEOUT_SECONDS` / `UX_PREVIEW_ROW_BUDGET` | Giới hạn Preview của Command Center |
 | `LANGSMITH_*` | Projection metadata-only tùy chọn, chỉ cấu hình server-side |
 | `GOOGLE_DRIVE_*` | OAuth/storage tùy chọn cho Google Drive |
 
@@ -337,10 +359,12 @@ hợp, trừ health/system route được đánh dấu public.
 | Connector center | `GET /connectors`, `POST/PATCH/DELETE /connectors/*`, test health và `POST /datasets/datasource/{connection_id}/use` |
 | Quality/drift | `POST /profile/{run_id}/test`, `POST /profile/{run_id}/drift` |
 | Charts/Explorer | `POST /profile/{run_id}/charts/auto-plan`, `POST /profile/{run_id}/charts/auto-profile-pack`, `GET /profile/{run_id}/charts/algorithms`, Preview và promote endpoints |
+| Analysis sessions | `/analysis-sessions` tạo/list session, context version, quality gate và execution |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, `/trace`, `/evidence`, `/plan` |
 | Reports | Draft, `POST /reports/{report_id}/items`, snapshot, submit, review, publish, archive và `GET /reports/{report_id}/export-source` |
 | Admin | `GET/POST /admin/users`, `POST /admin/users/{user_id}/status`, `POST /admin/users/{user_id}/role`, `DELETE /admin/users/{user_id}` |
 | Google Drive | `GET /google-drive/status`, `GET /google-drive/connect`, callback và `DELETE /google-drive/connection` |
+| Diagnostics | `GET /status`, `GET /audit` (workspace-scoped) và public `/health` |
 
 PDF report đi qua route cùng origin của Next.js:
 `/api/reports/profile/{runId}?reportId={reportId}`. Route này lấy export source
@@ -354,7 +378,8 @@ PDF report đi qua route cùng origin của Next.js:
 backend/src/api/                 FastAPI routes và dependency/capability guards
 backend/src/agents/              LangGraph, prompts, skills, trace/tools
 backend/src/services/            auth, permissions, profiling, compute, charts,
-                                 forecast, report, storage, datasource, retrieval, telemetry
+                                 forecast, report, storage, datasource, retrieval,
+                                 performance telemetry
 backend/src/workers/             durable profiling worker claim/lease/retry
 backend/src/models/              Pydantic request/response contracts
 backend/migrations/              Alembic migrations
@@ -396,11 +421,11 @@ chạy quality gate cho pull request và push vào `main`: Ruff, pytest với
 PostgreSQL service, evaluation offline, Vitest, typecheck, lint, Playwright
 E2E và frontend build.
 
-Workflow hiện dùng giá trị mặc định guest là `true` nếu GitHub repository
-variable `NEXT_PUBLIC_AUTH_ALLOW_GUEST` chưa được tạo. Production muốn tắt
-guest phải tạo variable này với giá trị `false`; workflow sẽ truyền cùng giá
-trị cho frontend và backend. Vì frontend flag là build-time, thay đổi variable
-chỉ có hiệu lực sau một lần deploy mới.
+Workflow hiện dùng giá trị mặc định guest là `false` nếu GitHub repository
+variable `NEXT_PUBLIC_AUTH_ALLOW_GUEST` chưa được tạo. Chỉ bật guest một cách
+tường minh bằng repository variable `true`; workflow sẽ truyền cùng giá trị
+cho frontend và backend. Vì frontend flag là build-time, thay đổi variable chỉ
+có hiệu lực sau một lần deploy mới.
 
 Khi deploy, workflow build/push hai image immutable lên Azure Container
 Registry:

@@ -6,6 +6,8 @@ export type ChatMessage = {
   text: string;
   label?: string;
   sources?: AnswerSource[];
+  /** Local streaming status; never represents an Agent answer. */
+  status?: "streaming" | "error";
 };
 
 export type ChatSnapshot = {

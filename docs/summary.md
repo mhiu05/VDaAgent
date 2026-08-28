@@ -28,9 +28,15 @@ chart, Agent, compare và report.
       └─ Report Draft → snapshot bất biến → PDF/JSON
 ```
 
-Frontend hiện có public/auth routes, analyst workspace routes và system admin
+Frontend hiện có public routes (`/`, `/about`, `/guide`, `/docs`, `/contact`,
+`/privacy`, `/terms`), auth routes, analyst workspace routes và system admin
 route. Admin không có login page riêng: admin cũng đăng nhập tại `/login`, sau
 đó `/admin` được mở theo permission `user.accounts.read`.
+
+Command Center được bật mặc định (`UX_COMMAND_CENTER_ENABLED=true`). Khi cờ
+frontend `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED=true`, `/profiles/{runId}` bọc
+trang profile trong Command Center; `/charts` cho phép chọn Dataset rồi chọn
+Profile Run hoàn tất để mở cùng phiên Explorer.
 
 ### Invariant cốt lõi
 
@@ -39,9 +45,11 @@ route. Admin không có login page riêng: admin cũng đăng nhập tại `/log
   Explorer, UI, report hay MCP tool.
 - Browser chỉ gửi `QuerySpec` có cấu trúc; không gửi raw SQL/Python/shell.
 - Preview là kết quả giới hạn; chỉ Official execution có `result_hash`,
-  provenance và context binding mới đủ điều kiện ghim vào report.
+  provenance và context binding mới đủ điều kiện ghim **chart evidence** vào
+  report.
 - PDF/JSON ưu tiên Report Snapshot bất biến, không dựng lại từ UI state live.
-- System role `admin` có toàn bộ quyền Analyst cộng quyền quản trị user/system;
+- System role `admin` chỉ có quyền quản trị user/system (`user.accounts.read`,
+  `user.account.manage`, `system.admin`), không có quyền Analyst workspace;
   workspace membership vẫn được chuẩn hóa về role `analyst`.
 
 ## 2. Runtime và ownership
@@ -52,11 +60,12 @@ route. Admin không có login page riêng: admin cũng đăng nhập tại `/log
 | Auth | Supabase Auth/SSR/PKCE | Identity, email/password login, signup/confirmation, session và token |
 | API | FastAPI | REST/SSE, auth/workspace guard, capability, audit, job submission, analysis, report và admin API |
 | Worker | Python profiling worker | Claim job/continuation bằng lease, retry hữu hạn, profiling và HITL resume |
-| Agent | LangGraph, native skill registry | Profiling/Q&A, chart planning và trace/provenance đã redact tùy cấu hình |
+| Agent | LangGraph, native skill registry | Profiling/Q&A, chart planning, Official-evidence insight và trace/provenance đã redact tùy cấu hình |
 | Compute | DuckDB, pandas, NumPy, SciPy | Profiling, aggregate bounded, quality/statistics, drift và forecast adapter |
 | Metadata | PostgreSQL/Supabase PostgreSQL | User profile, workspace, membership, dataset metadata, Profile Run, evidence, report, audit, trace |
 | File storage | Supabase Storage, Google Drive hoặc local | Binary dataset; compute materialize file tạm khi cần |
 | Datasource | MySQL, MongoDB, DuckDB | API xác thực nguồn, mã hóa credential và materialize tạm trước profiling |
+| Observability | PII-safe performance telemetry | Đo auth/workspace/DB/serialization, query count, payload và slow-query fingerprint theo request |
 
 Frontend gọi FastAPI qua `NEXT_PUBLIC_API_URL`, gửi Bearer token và
 `X-Workspace-Id`. `frontend/next.config.ts` chỉ forward allow-list biến public;
@@ -104,8 +113,11 @@ không thể vượt qua trạng thái `locked` hoặc tombstone `deleted`; ch�
 active mới nhận invitation hoặc provision workspace.
 
 Backend dùng join/aggregate cho bootstrap và mọi endpoint sau bootstrap vẫn
-kiểm tra workspace/capability. Telemetry chỉ ghi route, status, duration,
-correlation ID và timing breakdown; không ghi token, email hay payload.
+kiểm tra workspace/capability. Telemetry ghi route template, method, status,
+correlation ID, phase timing, query count, kích thước payload và fingerprint
+slow-query đã chuẩn hóa; không ghi token, email, tham số SQL, request body,
+câu hỏi, prompt, model output hay raw row. `PERF_SERVER_TIMING_ENABLED` mặc
+định tắt để không expose breakdown cho browser.
 
 Không có BigQuery/Snowflake hoặc vector database được triển khai như compute
 backend hiện tại. Knowledge-base retrieval là khả năng nội bộ tùy cấu hình.
@@ -120,6 +132,11 @@ bảng hoặc `SELECT`/`WITH` chỉ-đọc; MongoDB nhận collection và JSON f
 Nguồn được materialize vào file tạm, giới hạn 1.000.000 dòng, rồi đi qua đúng
 pipeline DuckDB/pandas của file upload. Đây không phải khả năng gửi SQL tự do
 cho Explorer, Agent hay MCP.
+
+Nếu DSN trỏ tới Supabase Pooler, API và worker chuyển port session `5432` sang
+transaction `6543` để tránh cạn client. Checkpointer LangGraph dùng DSN
+PostgreSQL riêng (nếu có `DATABASE_CHECKPOINTER_URL`), còn migration có thể
+dùng `DATABASE_MIGRATION_URL`.
 
 ## 3. Profiling và review
 
@@ -147,7 +164,7 @@ khám phá nhanh; `full` bao phủ file source đã pin.
 
 ### Chart workflow
 
-1. `/charts` chọn Profile Run `completed` và gọi
+1. `/charts` chọn Dataset rồi Profile Run `completed`, sau đó gọi
    `POST /profile/{run_id}/explorer/session` để lấy/tạo Explorer context.
 2. Người dùng nhập câu hỏi hoặc yêu cầu profile pack. Backend tạo plan qua
    `POST /profile/{run_id}/charts/auto-plan` hoặc
@@ -159,8 +176,10 @@ khám phá nhanh; `full` bao phủ file source đã pin.
 5. Preview có thể approximate hoặc hết hạn. Promote Preview sẽ kiểm tra
    context/quality gate rồi chạy Official, lưu execution, result hash,
    limitation và provenance.
-6. Renderer native hiển thị aggregate result. Insight của Agent phải bind vào
-   Official execution và được người dùng review trước khi ghim Report Draft.
+6. Renderer native hiển thị aggregate result. Insight của Agent đọc toàn bộ
+   Official evidence, bị ràng buộc bởi execution đó và phải được người dùng
+   review/chỉnh sửa trước khi ghim Report Draft. UI ghim lạc quan; backend dùng
+   idempotency key để tránh tạo item trùng khi retry.
 
 Analysis kind hiện có: aggregate, histogram, scatter, box, heatmap, forecast,
 missing bar/heatmap, correlation heatmap, cardinality, violin, donut và
@@ -207,7 +226,7 @@ toàn.
 ## 6. Báo cáo và export
 
 Report Draft thuộc đúng Profile Run. API đọc/tạo draft tại
-`GET/POST /profile/{run_id}/report-draft`; item chart/note đi qua
+`GET/POST /profile/{run_id}/report-draft`; item chart, Agent answer hoặc note đi qua
 `POST /reports/{report_id}/items`; snapshot được tạo bằng
 `POST /reports/{report_id}/snapshots`. `GET /reports/{report_id}/export-source`
 ưu tiên snapshot đã được cấp quyền.
@@ -224,18 +243,24 @@ export source.
 | Biến | Ý nghĩa |
 | --- | --- |
 | `DATABASE_URL` / `DATABASE_CHECKPOINTER_URL` | PostgreSQL metadata và LangGraph checkpoint |
+| `LLM_PROVIDER` / `LLM_MODEL` / provider API key | Provider OpenAI-compatible (OpenAI, Gemini, OpenRouter, Groq, Together, Ollama hoặc custom) và model; key chỉ ở backend |
 | `AUTH_MODE` | `dual` cho local/migration, `supabase` cho production |
 | `AUTH_ALLOW_SIGNUP` / `AUTH_ALLOW_GUEST` | Signup và guest trial |
 | `AUTH_REQUIRE_EMAIL_CONFIRMED` | Bắt buộc email confirmation |
 | `SUPABASE_URL` / `SUPABASE_AUTH_ISSUER` / `SUPABASE_AUTH_AUDIENCE` | Project Supabase và verify JWT; issuer production là `<SUPABASE_URL>/auth/v1`, audience `authenticated` |
 | `GLOBAL_ADMIN_EMAILS` | Email được seed system admin |
 | `STORAGE_PROVIDER` / `GUEST_STORAGE_PROVIDER` | `supabase`, `google_drive` hoặc `local` tùy môi trường |
+| `GUEST_MAX_UPLOAD_MB` / `GUEST_RETENTION_HOURS` | Trần upload và TTL của guest workspace |
 | `DATASOURCE_ENCRYPTION_KEY` | Fernet key bắt buộc ở production để mã hóa credential connector |
 | `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_API_URL` | Origin frontend và URL API được nhúng lúc build |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser client; chỉ publishable key được phép public |
 | `NEXT_PUBLIC_AUTH_ALLOW_SIGNUP` / `NEXT_PUBLIC_AUTH_ALLOW_GUEST` | Cờ UI/middleware; phải đồng bộ với backend và build lại khi đổi |
 | `UX_COMMAND_CENTER_ENABLED` / `NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED` | Contract backend và UI Command Center |
 | `AGENT_TRACE_MODE` | `off`, `shadow` hoặc `required` |
+| `PERF_TELEMETRY_ENABLED` / `PERF_SERVER_TIMING_ENABLED` | Telemetry request PII-safe; Server-Timing mặc định tắt |
+| `PERF_SLOW_QUERY_MS` / `PERF_SLOW_QUERY_SAMPLE_RATE` | Ngưỡng và sampling slow-query fingerprint |
+| `PROFILING_WORKER_*` | Concurrency, polling, lease, retry và shutdown grace |
+| `UX_PREVIEW_TIMEOUT_SECONDS` / `UX_PREVIEW_ROW_BUDGET` | Timeout và row budget của Preview |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Projection trace metadata-only tùy chọn |
 | `GOOGLE_DRIVE_*` | OAuth/storage Google Drive tùy chọn |
 
@@ -255,10 +280,12 @@ Mọi endpoint FastAPI dùng prefix `/api/v1`.
 | Connector center | `GET /connectors`, lifecycle test/disconnect and reuse saved datasource for new datasets |
 | Drift | `POST /profile/{run_id}/drift` |
 | Charts/Explorer | auto-plan, auto-profile-pack, algorithms, session, previews và promote endpoints |
+| Analysis sessions | `/analysis-sessions` cho context version, quality gate và executions |
 | Agent | `POST /qa`, `POST /qa/stream`, `GET /agent-runs/{run_id}`, trace, plan và evidence endpoints |
 | Reports | report-draft, items, snapshots, export-source, submit, review, publish, archive |
 | Admin | `GET/POST /admin/users`, status, role và delete user endpoints |
 | Google Drive | status, connect, callback và delete connection endpoints |
+| Diagnostics | `GET /status`, `GET /audit` và public `/health` |
 
 ## 9. Kiểm thử và release
 
