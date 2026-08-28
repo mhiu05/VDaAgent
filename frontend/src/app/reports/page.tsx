@@ -39,10 +39,12 @@ export default function ReportsPage() {
   useEffect(() => {
     if (reports.data?.reports) {
       reports.data.reports.slice(0, 3).forEach((r) => {
-        client.prefetchQuery({
+        void client.prefetchQuery({
           queryKey: ["report-export-source", r.id],
           queryFn: () => getReportExportSource(r.id),
           staleTime: 10 * 60_000,
+        }).catch(() => {
+          // Prefetch is best-effort; navigation may cancel it.
         });
       });
     }
@@ -105,10 +107,12 @@ export default function ReportsPage() {
           className="report-card"
           key={report.id}
           onMouseEnter={() => {
-            client.prefetchQuery({
+            void client.prefetchQuery({
               queryKey: ["report-export-source", report.id],
               queryFn: () => getReportExportSource(report.id),
               staleTime: 10 * 60_000,
+            }).catch(() => {
+              // Prefetch is best-effort; navigation may cancel it.
             });
           }}
         >

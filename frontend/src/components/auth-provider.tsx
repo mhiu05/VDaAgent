@@ -373,6 +373,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               staleTime: 60_000,
             }).then((datasets) => {
               queryClient.setQueryData(["chat-datasets"], datasets);
+            }).catch(() => {
+              // Background warming is optional. A navigation can cancel the
+              // request when its last observer is removed; do not surface
+              // that expected cancellation as an unhandled runtime error.
             });
             void queryClient.fetchQuery({
               queryKey: ["runs", "all"],
@@ -380,6 +384,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               staleTime: 60_000,
             }).then((runs) => {
               queryClient.setQueryData(["compare", selected, "runs", "all"], runs);
+            }).catch(() => {
+              // See the datasets prefetch above.
             });
           }, 150);
         }
