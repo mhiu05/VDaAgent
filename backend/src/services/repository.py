@@ -5573,6 +5573,12 @@ def build_engine(settings: Settings | None = None) -> Engine:
     # lived connection which is returned immediately at transaction end.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
     if is_supabase_pooler:
+        # Supabase's 5432 endpoint is session mode and has a small per-project
+        # client cap. API/worker metadata traffic is safe on transaction mode;
+        # transparently use it when a local .env still contains the session
+        # endpoint so `make dev` does not exhaust the project pool.
+        if url.port == 5432:
+            url = url.set(port=6543)
         engine = create_engine(
             url,
             future=True,

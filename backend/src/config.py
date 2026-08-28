@@ -447,6 +447,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL hoặc DATABASE_CHECKPOINTER_URL bắt buộc cho PostgreSQL checkpointer."
             )
+        # The session-mode Supabase pooler (5432) has a small client cap. The
+        # checkpointer uses short autocommit transactions and is compatible
+        # with transaction mode, so prefer 6543 for local dev as well.
+        if "pooler.supabase.com" in value.lower() and ":5432/" in value:
+            value = value.replace(":5432/", ":6543/", 1)
         if not value.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_CHECKPOINTER_URL phải là PostgreSQL.")
         return value
