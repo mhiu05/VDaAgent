@@ -1,16 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { listDatasets, listRuns, streamQuestion, type QAHistoryMessage } from "@/lib/api";
+import { streamQuestion, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource } from "@/lib/types";
 import { createConversation, getConversationSnapshot, updateConversationSnapshot, listConversations, type ChatConversation, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
-import { profileRunOptionLabel } from "@/components/profile-run-picker";
+import { ProfileRunPicker } from "@/components/profile-run-picker";
 
 const starters = [
   "Tóm tắt chất lượng dữ liệu hiện tại",
@@ -50,7 +49,7 @@ export function DraggableChatWidget({
 }: {
   conversations: ChatConversation[];
   onNewChat?: () => void;
-  onRemoveConversation: (conv: ChatConversation) => void;
+  onRemoveConversation: (conv: ChatConversation) => boolean | void | Promise<boolean | void>;
 }) {
   const pathname = usePathname();
 
@@ -75,6 +74,7 @@ export function DraggableChatWidget({
   const [isThinking, setIsThinking] = useState(false);
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
   const [selectedRunId, setSelectedRunId] = useState("");
+  const [isSelectedRunReady, setIsSelectedRunReady] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -87,6 +87,21 @@ export function DraggableChatWidget({
     setConvList(listConversations());
   }, [conversations, isOpen]);
 
+  // A workspace switch changes the scoped conversation list while this
+  // widget stays mounted. Never keep showing context from the old workspace.
+  useEffect(() => {
+    if (!activeConversationId || conversations.some((conversation) => conversation.id === activeConversationId)) return;
+    setActiveConversationId(null);
+    setSelectedDatasetId("");
+    setSelectedRunId("");
+    setIsSelectedRunReady(false);
+    setMessages([]);
+  }, [activeConversationId, conversations]);
+
+  useEffect(() => {
+    if (!isOpen) setIsSelectedRunReady(false);
+  }, [isOpen]);
+
   // Auto-scroll messages
   useEffect(() => {
     if (isOpen && viewMode === "chat") {
@@ -94,55 +109,15 @@ export function DraggableChatWidget({
     }
   }, [messages, isThinking, isOpen, viewMode]);
 
-  // A single Profile Run selector is easier to use than making the analyst
-  // choose a dataset first. Fetch runs in parallel only after the drawer opens.
-  const datasets = useQuery({
-    queryKey: ["datasets"],
-    queryFn: ({ signal }) => listDatasets(signal),
-    staleTime: 60_000,
-    gcTime: 10 * 60_000,
-  });
-  const runQueries = useQueries({
-    queries: (datasets.data ?? []).map((dataset) => ({
-      queryKey: ["runs", dataset.id],
-      queryFn: ({ signal }: { signal: AbortSignal }) => listRuns(dataset.id, signal),
-      enabled: isOpen,
-      staleTime: 60_000,
-      gcTime: 10 * 60_000,
-    })),
-  });
-  const profileRunGroups = useMemo(() => (datasets.data ?? []).map((dataset, index) => ({
-    dataset,
-    runs: (runQueries[index]?.data ?? []).filter((run) => run.status === "completed"),
-  })).filter((group) => group.runs.length > 0), [datasets.data, runQueries]);
-  const profileRunsLoading = isOpen && (datasets.isPending || runQueries.some((query) => query.isPending));
-
   // If path is a profile run, try to pre-select it
   useEffect(() => {
     const profileMatch = pathname.match(/\/profiles\/([^/?]+)/);
     if (profileMatch && profileMatch[1]) {
+      setSelectedDatasetId("");
       setSelectedRunId(profileMatch[1]);
+      setIsSelectedRunReady(false);
     }
   }, [pathname]);
-
-  // Resolve the dataset internally for history snapshots; the user only needs
-  // to choose a completed profile run.
-  useEffect(() => {
-    const matchingRun = profileRunGroups.flatMap((group) => group.runs.map((run) => ({
-      datasetId: group.dataset.id,
-      runId: run.id,
-    }))).find((item) => item.runId === selectedRunId);
-    if (matchingRun && matchingRun.datasetId !== selectedDatasetId) {
-      setSelectedDatasetId(matchingRun.datasetId);
-    }
-  }, [profileRunGroups, selectedDatasetId, selectedRunId]);
-
-  // Auto-select the first available run if none is selected
-  useEffect(() => {
-    if (!selectedRunId && profileRunGroups.length > 0 && profileRunGroups[0].runs.length > 0) {
-      setSelectedRunId(profileRunGroups[0].runs[0].id);
-    }
-  }, [profileRunGroups, selectedRunId]);
 
   // Initialize position to bottom right
   useEffect(() => {
@@ -175,15 +150,33 @@ export function DraggableChatWidget({
   // Initialize or load conversation
   useEffect(() => {
     if (!activeConversationId) {
+      const profileMatch = pathname.match(/\/profiles\/([^/?]+)/);
+      const routeProfileRunId = profileMatch?.[1] || "";
       const active = conversations[0];
       if (active) {
         setActiveConversationId(active.id);
         const snapshot = getConversationSnapshot(active.id);
-        if (snapshot && snapshot.messages.length > 0) {
-          setMessages(snapshot.messages);
-          if (snapshot.datasetId) setSelectedDatasetId(snapshot.datasetId);
-          if (snapshot.profileRunId) setSelectedRunId(snapshot.profileRunId);
+        if (snapshot) {
+          // A profile page represents an explicit run context. It must win
+          // over an older conversation snapshot loaded during mount.
+          setSelectedDatasetId(routeProfileRunId ? "" : snapshot.datasetId || "");
+          setSelectedRunId(routeProfileRunId || snapshot.profileRunId || "");
+          setIsSelectedRunReady(false);
+          if (snapshot.messages.length > 0) {
+            setMessages(snapshot.messages);
+          } else {
+            setMessages([
+              makeMessage(
+                "agent",
+                "Đã mở đoạn chat. Hãy chọn dataset/phiên profiling và đặt câu hỏi cho tôi nhé!",
+                "Sẵn sàng",
+              ),
+            ]);
+          }
         } else {
+          setSelectedDatasetId("");
+          setSelectedRunId("");
+          setIsSelectedRunReady(false);
           setMessages([
             makeMessage(
               "agent",
@@ -202,7 +195,7 @@ export function DraggableChatWidget({
         ]);
       }
     }
-  }, [activeConversationId, conversations]);
+  }, [activeConversationId, conversations, pathname]);
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -274,7 +267,7 @@ export function DraggableChatWidget({
   const handleSend = async (questionText?: string) => {
     const query = (questionText || input).trim();
     if (!query || isThinking) return;
-    if (!selectedRunId) {
+    if (!selectedRunId || !isSelectedRunReady) {
       setMessages((current) => [...current, makeMessage("agent", "Hãy chọn một Profile Run đã hoàn tất trước khi hỏi để tôi trả lời đúng theo evidence của dữ liệu.", "Cần chọn Profile Run")]);
       return;
     }
@@ -344,6 +337,10 @@ export function DraggableChatWidget({
 
   const handleStartNewChat = () => {
     const newConv = createConversation("Cuộc trò chuyện mới");
+    const profileMatch = pathname.match(/\/profiles\/([^/?]+)/);
+    setSelectedDatasetId("");
+    setSelectedRunId(profileMatch?.[1] || "");
+    setIsSelectedRunReady(false);
     setActiveConversationId(newConv.id);
     setConvList(listConversations());
     setMessages([
@@ -359,10 +356,11 @@ export function DraggableChatWidget({
   const handleSelectConversation = (conv: ChatConversation) => {
     setActiveConversationId(conv.id);
     const snap = getConversationSnapshot(conv.id);
+    setSelectedDatasetId(snap?.datasetId || "");
+    setSelectedRunId(snap?.profileRunId || "");
+    setIsSelectedRunReady(false);
     if (snap && snap.messages.length > 0) {
       setMessages(snap.messages);
-      if (snap.datasetId) setSelectedDatasetId(snap.datasetId);
-      if (snap.profileRunId) setSelectedRunId(snap.profileRunId);
     } else {
       setMessages([
         makeMessage("agent", `Đã mở đoạn chat "${conv.title}". Hãy tiếp tục câu hỏi của bạn!`, "Sẵn sàng"),
@@ -371,9 +369,10 @@ export function DraggableChatWidget({
     setViewMode("chat");
   };
 
-  const handleDeleteConv = (e: MouseEvent, conv: ChatConversation) => {
+  const handleDeleteConv = async (e: MouseEvent, conv: ChatConversation) => {
     e.stopPropagation();
-    onRemoveConversation(conv);
+    const removed = await onRemoveConversation(conv);
+    if (removed === false) return;
     const updated = listConversations();
     setConvList(updated);
     if (activeConversationId === conv.id) {
@@ -692,7 +691,7 @@ export function DraggableChatWidget({
           ) : (
             /* VIEW: CHAT CONVERSATION */
             <>
-              {/* PROFILE RUN SELECTOR */}
+              {/* DATASET + PROFILE RUN SELECTOR */}
               <div
                 style={{
                   padding: "0.6rem 1rem",
@@ -701,32 +700,17 @@ export function DraggableChatWidget({
                   fontSize: "0.75rem",
                 }}
               >
-                <label htmlFor="widget-profile-run" style={{ display: "block", color: "#475569", marginBottom: "2px", fontWeight: 600 }}>
-                  Profile Run dùng làm evidence
-                </label>
-                <select
+                <ProfileRunPicker
                   id="widget-profile-run"
+                  label="Profile Run dùng làm evidence"
                   value={selectedRunId}
-                  onChange={(e) => setSelectedRunId(e.target.value)}
-                  disabled={profileRunsLoading}
-                  style={{
-                    width: "100%",
-                    padding: "7px 9px",
-                    borderRadius: "6px",
-                    background: "#ffffff",
-                    color: "#0f172a",
-                    border: "1px solid #cbd5e1",
-                    fontSize: "0.78rem",
-                  }}
-                >
-                  {profileRunsLoading && <option value="">Đang tải Profile Run…</option>}
-                  {profileRunGroups.map((group) => (
-                    <optgroup key={group.dataset.id} label={group.dataset.name}>
-                      {group.runs.map((run) => <option key={run.id} value={run.id}>{profileRunOptionLabel(run)}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-                {!profileRunsLoading && !profileRunGroups.length && <small style={{ display: "block", marginTop: "5px", color: "#64748b" }}>Workspace chưa có Profile Run hoàn tất để Agent sử dụng.</small>}
+                  datasetId={selectedDatasetId}
+                  onDatasetChange={setSelectedDatasetId}
+                  onValidityChange={setIsSelectedRunReady}
+                  onChange={setSelectedRunId}
+                  helpText="Chọn bộ dữ liệu trước, sau đó chọn phiên Profile Run đã hoàn tất."
+                  disabled={isThinking}
+                />
               </div>
 
               {/* MESSAGES SCROLL AREA */}
@@ -820,7 +804,7 @@ export function DraggableChatWidget({
                       key={idx}
                       type="button"
                       onClick={() => handleSend(s)}
-                      disabled={!selectedRunId || isThinking}
+                      disabled={!isSelectedRunReady || isThinking}
                       style={{
                         padding: "4px 8px",
                         background: "#eff6ff",
@@ -857,8 +841,8 @@ export function DraggableChatWidget({
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={selectedRunId ? "Hỏi AI về Profile Run đã chọn…" : "Chọn Profile Run để bắt đầu hỏi…"}
-                  disabled={!selectedRunId || isThinking}
+                  placeholder={isSelectedRunReady ? "Hỏi AI về Profile Run đã chọn…" : "Chọn Profile Run để bắt đầu hỏi…"}
+                  disabled={!isSelectedRunReady || isThinking}
                   style={{
                     flex: 1,
                     padding: "8px 12px",
@@ -872,17 +856,17 @@ export function DraggableChatWidget({
                 />
                 <button
                   type="submit"
-                  disabled={!input.trim() || !selectedRunId || isThinking}
+                  disabled={!input.trim() || !isSelectedRunReady || isThinking}
                   style={{
                     padding: "8px 16px",
                     borderRadius: "8px",
-                    background: input.trim() && selectedRunId && !isThinking ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "#cbd5e1",
+                    background: input.trim() && isSelectedRunReady && !isThinking ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "#cbd5e1",
                     color: "#ffffff",
                     border: "none",
                     fontWeight: 600,
                     fontSize: "0.85rem",
-                    cursor: input.trim() && selectedRunId && !isThinking ? "pointer" : "not-allowed",
-                    boxShadow: input.trim() && selectedRunId && !isThinking ? "0 2px 6px rgba(37,99,235,0.25)" : "none",
+                    cursor: input.trim() && isSelectedRunReady && !isThinking ? "pointer" : "not-allowed",
+                    boxShadow: input.trim() && isSelectedRunReady && !isThinking ? "0 2px 6px rgba(37,99,235,0.25)" : "none",
                   }}
                 >
                   Gửi
