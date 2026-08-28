@@ -2422,6 +2422,7 @@ input[type="checkbox"] { width: auto; min-height: auto; }
 .command-center-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: -10px -4px 18px; padding: 16px 4px; border-bottom: 1px solid var(--border, #dbe3ef); background: var(--page-bg, #fff); }
 .command-center-header h1 { margin: 0; font-size: clamp(1.35rem, 2vw, 1.85rem); }
 .command-center-header p { margin: 4px 0 0; }
+.command-center-panel > .page-header { display: none; }
 .command-center-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .command-center-tabs { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 20px; border-bottom: 1px solid var(--border, #dbe3ef); }
 .command-center-tab { flex: 0 0 auto; border: 0; border-bottom: 3px solid transparent; padding: 12px 16px 10px; color: var(--muted, #667085); background: transparent; font: inherit; font-weight: 700; cursor: pointer; }
@@ -2504,6 +2505,13 @@ input[type="checkbox"] { width: auto; min-height: auto; }
 .chart-card-header { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #e5eaf1; }
 .chart-card-header h3 { margin: 2px 0 0; font-size: 1rem; }
 .chart-remove { min-height: 30px; padding: 4px 9px; font-size: .7rem; }
+.chart-pin-button { transition: transform .15s, background .15s, border-color .15s, box-shadow .15s; }
+.chart-pin-button:active:not(:disabled) { transform: scale(.97); }
+.chart-pin-status { gap: 6px; font-weight: 750; transition: transform .2s, background .2s, border-color .2s; }
+.chart-pin-status.pending { color: var(--info-foreground); border-color: var(--info-border); background: var(--info-background); }
+.chart-pin-status.confirmed { color: var(--success-foreground); border-color: var(--success-border); background: var(--success-background); animation: chart-pin-confirm .28s ease-out; }
+@keyframes chart-pin-confirm { from { opacity: .72; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .chart-pin-status.confirmed { animation: none; } }
 .chart-card-grid { display: grid; grid-template-columns: minmax(230px, .72fr) minmax(0, 1.28fr); gap: 18px; align-items: stretch; }
 .chart-config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-content: start; }
 .chart-config-fields label { display: grid; gap: 5px; color: var(--ink); font-size: .78rem; font-weight: 750; }

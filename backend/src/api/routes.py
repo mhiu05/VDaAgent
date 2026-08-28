@@ -793,6 +793,8 @@ def _qa_question_with_execution(question: str, execution: dict[str, Any] | None)
     if not execution:
         return question
     evidence = {
+        "execution_kind": execution.get("execution_kind"),
+        "is_approximate": bool(execution.get("is_approximate")),
         "canonical_query": execution.get("query_spec"),
         "result": execution.get("result"),
         "result_hash": execution.get("result_hash"),
@@ -879,8 +881,29 @@ def _qa_state(
                 status_code=409,
                 detail="The execution context changed. Run the result again.",
             )
+    if request.response_mode == "chart_insight" and not execution:
+        raise HTTPException(
+            status_code=422,
+            detail="chart_insight response mode requires a bound analysis execution.",
+        )
+    if (
+        request.response_mode == "chart_insight"
+        and execution
+        and execution.get("execution_kind") != "official"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="chart_insight requires an Official execution, not a Preview.",
+        )
     state = initial_qa_state(
-        question=_qa_question_with_execution(request.question, execution),
+        # Keep chart questions concise for retrieval. The official result is
+        # passed separately below so large aggregate payloads do not distort
+        # semantic search terms.
+        question=(
+            request.question
+            if request.response_mode == "chart_insight"
+            else _qa_question_with_execution(request.question, execution)
+        ),
         profile_run_id=request.profile_run_id,
         column_names=columns,
         requested_by=context.user_id,
@@ -890,9 +913,12 @@ def _qa_state(
     )
     if execution:
         state["qa_context"] = {
+            "chart_insight": request.response_mode == "chart_insight",
             "analysis_execution": {
                 "id": execution["id"],
                 "context_version_id": execution.get("context_version_id"),
+                "execution_kind": execution.get("execution_kind"),
+                "is_approximate": bool(execution.get("is_approximate")),
                 "query_spec": execution.get("query_spec"),
                 "result": execution.get("result"),
                 "result_hash": execution.get("result_hash"),

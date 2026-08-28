@@ -654,7 +654,7 @@ export async function downloadCombinedJson(runId: string, sections?: CombinedRep
   return response.blob();
 }
 
-export function askQuestion(payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[] }): Promise<QAResponse> {
+export function askQuestion(payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[]; analysis_execution_id?: string; workspace_context_version_id?: string; response_mode?: "default" | "chart_insight" }): Promise<QAResponse> {
   return request<QAResponse>("/qa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -669,6 +669,7 @@ export async function streamQuestion(
     history?: QAHistoryMessage[];
     analysis_execution_id?: string;
     workspace_context_version_id?: string;
+    response_mode?: "default" | "chart_insight";
   },
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,

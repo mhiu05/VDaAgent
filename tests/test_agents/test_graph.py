@@ -124,6 +124,67 @@ def test_router_blocks_prompt_injection_without_calling_llm() -> None:
     assert "không thể" in result["answer"].lower()
 
 
+def test_chart_insight_forces_qualitative_route() -> None:
+    result = qa_router_node(
+        {
+            "question": "Có bao nhiêu giá trị theo khu vực?",
+            "profile_run_id": "run-1",
+            "column_names": ["khu_vuc"],
+            "qa_context": {
+                "chart_insight": True,
+                "analysis_execution": {"id": "execution-1"},
+            },
+        }
+    )
+
+    assert result["question_type"] == "qualitative"
+    assert result["qa_context"]["chart_insight"] is True
+    assert result["qa_context"]["analysis_execution"]["id"] == "execution-1"
+
+
+def test_chart_insight_uses_official_execution_without_retrieval_hits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class EmptyIndex:
+        def search(self, _query: str, **_kwargs: object) -> list[object]:
+            return []
+
+    received: list[list[dict[str, object]]] = []
+
+    class LLM:
+        def invoke(self, messages: list[dict[str, object]]) -> SimpleNamespace:
+            received.append(messages)
+            return SimpleNamespace(content="## 1. Kết luận điều hành\nNội dung grounded.")
+
+    monkeypatch.setattr("src.agents.nodes.qa_nodes.get_index", lambda: EmptyIndex())
+    monkeypatch.setattr("src.agents.nodes.qa_nodes.get_llm", lambda: LLM())
+    monkeypatch.setattr(
+        "src.agents.nodes.qa_nodes.get_audit",
+        lambda: SimpleNamespace(log=lambda *_args, **_kwargs: None),
+    )
+
+    result = qa_vector_node(
+        {
+            "question": "Phân tích doanh số theo khu vực.",
+            "profile_run_id": "run-1",
+            "qa_context": {
+                "chart_insight": True,
+                "analysis_execution": {
+                    "id": "execution-1",
+                    "query_spec": {"aggregate": "sum", "dimensions": ["region"]},
+                    "result": {"data": [{"region": "North", "value": 120}], "row_count": 1},
+                    "limitations": ["Official result only"],
+                },
+            },
+            "tool_calls": 0,
+        }
+    )
+
+    assert result["answer"].startswith("## 1.")
+    assert "CHẾ ĐỘ VIẾT INSIGHT" in str(received[0][0]["content"])
+    assert '"official_execution"' in str(received[0][1]["content"])
+
+
 def test_vector_qa_never_falls_back_to_another_profile_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

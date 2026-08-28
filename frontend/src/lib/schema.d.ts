@@ -1966,6 +1966,8 @@ export interface components {
             analysis_execution_id?: string | null;
             /** Workspace Context Version Id */
             workspace_context_version_id?: string | null;
+            /** Output mode for the Q&A agent */
+            response_mode?: "default" | "chart_insight";
             /**
              * Stream
              * @default true

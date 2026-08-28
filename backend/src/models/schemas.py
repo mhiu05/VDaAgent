@@ -298,6 +298,10 @@ class QARequest(BaseModel):
     )
     analysis_execution_id: str | None = Field(default=None, max_length=64)
     workspace_context_version_id: str | None = Field(default=None, max_length=64)
+    response_mode: Literal["default", "chart_insight"] = Field(
+        default="default",
+        description="Output mode for the Q&A agent; chart_insight uses Official execution evidence.",
+    )
     stream: bool = True
 
     @field_validator("question")

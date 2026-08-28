@@ -19,6 +19,7 @@ from typing import Any
 
 from src.agents.prompts import (
     BASE_RULES,
+    CHART_INSIGHT_PROMPT,
     CLARIFY_PROMPT,
     QA_ROUTER_PROMPT,
     QA_STRUCTURED_PROMPT,
@@ -351,7 +352,12 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
             }
 
     lowered = question.lower()
+    chart_insight = bool((state.get("qa_context") or {}).get("chart_insight"))
     if not state.get("profile_run_id"):
+        heuristic = "qualitative"
+    elif chart_insight:
+        # A chart insight is a grounded narrative over an already-bound
+        # Official execution, even when the prompt contains numeric values.
         heuristic = "qualitative"
     elif any(h in lowered for h in _CONCEPT_HINTS):
         heuristic = "qualitative"
@@ -389,14 +395,25 @@ def qa_router_node(state: ProfilingState) -> dict[str, Any]:
             # Không có LLM: mặc định định tính (hybrid search vẫn chạy offline).
             question_type = "qualitative"
 
+    routed_context = {
+        "mentioned_columns": mentioned,
+        "columns_available": columns[:50],
+    }
+    # Preserve server-injected execution bindings while adding router metadata.
+    # ``qa_context`` is a normal state field, so LangGraph replaces rather than
+    # deep-merges it between nodes.
+    if chart_insight:
+        routed_context["chart_insight"] = True
+        if (state.get("qa_context") or {}).get("analysis_execution"):
+            routed_context["analysis_execution"] = (state.get("qa_context") or {})[
+                "analysis_execution"
+            ]
+
     return {
         "question": question,
         "question_type": question_type,
         "selected_skill": select_skill_for_question(question),
-        "qa_context": {
-            "mentioned_columns": mentioned,
-            "columns_available": columns[:50],
-        },
+        "qa_context": routed_context,
         "tool_calls": state.get("tool_calls", 0) + 1,
     }
 
@@ -681,6 +698,8 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
     workspace_id = state.get("workspace_id")
 
     qa_context = state.get("qa_context") or {}
+    chart_insight = bool(qa_context.get("chart_insight"))
+    official_execution = qa_context.get("analysis_execution")
     if qa_context.get("remembered_name"):
         return {
             "answer": _guard_answer(
@@ -705,11 +724,11 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             where={"knowledge_type": "profile_report", "profile_run_id": run_id},
             workspace_id=workspace_id,
         )
-        if run_id
+        if run_id and not chart_insight
         else []
     )
     knowledge_hits = []
-    if settings.retrieval_external_knowledge_enabled:
+    if settings.retrieval_external_knowledge_enabled and not chart_insight:
         knowledge_hits = _external_diverse(
             index.search(
                 question,
@@ -742,7 +761,9 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         knowledge_hits=knowledge_hits,
     )
     hits = profile_hits + knowledge_hits
-    if not hits:
+    # Chart insight can be grounded entirely by the bound Official execution;
+    # a missing profile-index hit must not discard that stronger evidence.
+    if not hits and not (chart_insight and official_execution):
         if not run_id and not settings.retrieval_external_knowledge_enabled:
             message = "Knowledge base hiện chưa được bật. Bạn có thể hỏi về dataset sau khi chạy profiling."
         elif not run_id:
@@ -789,31 +810,31 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
 
     try:
         llm = get_llm()
+        system_prompt = BASE_RULES + "\n\n" + QA_VECTOR_PROMPT
+        if chart_insight:
+            system_prompt += "\n\n" + CHART_INSIGHT_PROMPT
+        user_payload: dict[str, Any] = {
+            "question": question,
+            "conversation_history": _conversation_context(state),
+            "evidence": evidence,
+        }
+        if chart_insight and official_execution:
+            user_payload["official_execution"] = official_execution
         response = invoke_model(
             llm,
             [
                 {
                     "role": "system",
-                    "content": BASE_RULES
-                    + "\n\n"
-                    + QA_VECTOR_PROMPT
+                    "content": system_prompt
                     + "\n\nNative skill playbook:\n"
                     + skill_guidance(state.get("selected_skill")),
                 },
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {
-                            "question": question,
-                            "conversation_history": _conversation_context(state),
-                            "evidence": evidence,
-                        },
-                        ensure_ascii=False,
-                        default=str,
-                    ),
+                    "content": json.dumps(user_payload, ensure_ascii=False, default=str),
                 },
             ],
-            prompt_id="qa_vector",
+            prompt_id="chart_insight" if chart_insight else "qa_vector",
         )
         answer = _guard_answer(response_text(response))
     except LLMNotConfiguredError:
@@ -841,9 +862,15 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         profile_run_id=run_id,
         profile_hits=len(profile_hits),
         knowledge_hits=len(knowledge_hits),
-        retrieval_mode="external+profile"
-        if profile_hits and knowledge_hits
-        else ("external" if knowledge_hits else "profile"),
+        retrieval_mode=(
+            "official_execution"
+            if chart_insight
+            else (
+                "external+profile"
+                if profile_hits and knowledge_hits
+                else ("external" if knowledge_hits else "profile")
+            )
+        ),
         corpus_revision=next(
             (
                 h.metadata.get("corpus_revision")
