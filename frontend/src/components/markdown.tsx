@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { sanitizeGeneratedText } from "@/lib/generated-text";
 
 /**
  * Providers may serialize a response's content blocks as a Python-list
@@ -60,7 +59,7 @@ const getCleanId = (text: string) => {
 };
 
 export function MarkdownContent({ text, className = "markdown-message" }: { text: string; className?: string }) {
-  const lines = sanitizeGeneratedText(normalizeMarkdownText(text)).split("\n");
+  const lines = normalizeMarkdownText(text).split("\n");
   const blocks: ReactNode[] = [];
   let index = 0;
   let inDetailSection = false;

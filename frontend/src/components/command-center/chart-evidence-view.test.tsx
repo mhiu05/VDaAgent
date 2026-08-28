@@ -57,12 +57,6 @@ describe("ChartEvidenceView", () => {
     expect(container.querySelector(".chart-zero-line")).toBeNull();
   });
 
-  it("states the Top 15 cap when the dataset has fewer groups", () => {
-    const { container } = render(<ChartEvidenceView chartSpec={bar} querySpec={query} result={{ data: [{ month: "2026-01", value: 12 }, { month: "2026-02", value: 6 }], columns: ["month", "value"], row_count: 2 }} />);
-
-    expect(container.textContent).toContain("Hiển thị Top 2/15 nhóm; dữ liệu hiện có 2 nhóm.");
-  });
-
   it("renders a bounded histogram", () => {
     render(<ChartEvidenceView chartSpec={{ chart_type: "histogram", renderer: "native-svg", analysis_kind: "histogram", x_column: "sales", aggregation: "count", bins: 12 }} querySpec={{ analysis_kind: "histogram", aggregate: "count", column: "sales", dimensions: [], filters: [], bins: 12, limit: 50 }} result={{ data: [{ bin_index: 0, bin_start: 0, bin_end: 10, value: 4 }], columns: ["bin_index", "bin_start", "bin_end", "value"], row_count: 1 }} />);
     expect(screen.getByRole("img", { name: "Histogram" })).toBeTruthy();

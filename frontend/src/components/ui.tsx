@@ -8,7 +8,7 @@ import type { RunStatus } from "@/lib/types";
 export function StatusBadge({ status }: { status: RunStatus }) {
   const normalized = status.toLowerCase();
   const glyph = normalized === "completed" ? "✓" : ["failed", "cancelled"].includes(normalized) ? "×" : ["pending_review", "queued", "resuming"].includes(normalized) ? "!" : normalized === "running" ? "↻" : "•";
-  return <span className={`status status-${normalized}`}><span className="status-icon" aria-hidden="true">{glyph}</span><span>{formatStatus(normalized)}</span></span>;
+  return <span className={`status status-${normalized}`}><span aria-hidden="true">{glyph}</span> {formatStatus(normalized)}</span>;
 }
 
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {

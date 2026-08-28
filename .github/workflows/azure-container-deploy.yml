@@ -354,14 +354,6 @@ jobs:
             --container-registry-password "$ACR_PULL_PASSWORD" \
             --enable-app-service-storage false
 
-          # Keep the API process warm so the first user after an idle period
-          # does not pay container startup, DB connection, and JWKS setup time.
-          az webapp config set \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$BACKEND_APP" \
-            --always-on true \
-            --output none
-
           settings=(
             APP_ENV=production
             APP_LOG_LEVEL=INFO
@@ -459,11 +451,6 @@ jobs:
             --container-registry-user "$ACR_PULL_USERNAME" \
             --container-registry-password "$ACR_PULL_PASSWORD" \
             --enable-app-service-storage false
-          az webapp config set \
-            --resource-group "$RESOURCE_GROUP" \
-            --name "$FRONTEND_APP" \
-            --always-on true \
-            --output none
           az webapp config appsettings set \
             --resource-group "$RESOURCE_GROUP" \
             --name "$FRONTEND_APP" \

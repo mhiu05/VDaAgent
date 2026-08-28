@@ -236,7 +236,7 @@ export default function AdminUsersPage() {
       />
 
       <form onSubmit={handleCreateUser} className="panel" style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap", marginTop: "1rem", padding: "1rem" }}>
-        <label style={{ flex: "1 1 260px" }}>Email chuyên viên phân tích<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="analyst@company.com" /></label>
+        <label style={{ flex: "1 1 260px" }}>Email Analyst<input type="email" required value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="analyst@company.com" /></label>
         <label style={{ flex: "1 1 220px" }}>Mật khẩu (tuỳ chọn)<input type="password" minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Để trống để gửi lời mời" /></label>
         <button className="button primary" type="submit" disabled={isCreating}>{isCreating ? "Đang tạo…" : "Tạo Analyst"}</button>
       </form>

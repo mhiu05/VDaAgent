@@ -70,7 +70,6 @@ HƯỚNG DẪN XÁC ĐỊNH BUSINESS INTENT (Trường `problem`):
 9. "summary": Xem xét một con số tổng quát (KPI).
 
 Bắt buộc trả về đúng schema ChartPlanCandidate. Trong trường `rationale`, giải thích ngắn gọn vì sao chọn Intent và Dimension/Metric này để trả lời câu hỏi.
-LƯU Ý ĐẦU RA: Trường `rationale` phải được viết bằng tiếng Việt Unicode có dấu đầy đủ. Không dùng tiếng Việt không dấu và không trả lời bằng tiếng Anh.
 """
 
 SUMMARIZE_PROMPT = """\

@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     # Durable PostgreSQL-backed profiling worker.  A conservative default
     # protects the metadata/checkpointer pools and pandas/DuckDB memory use.
     profiling_worker_concurrency: int = Field(default=1, ge=1, le=8)
-    profiling_worker_poll_seconds: float = Field(default=0.1, ge=0.1, le=30.0)
+    profiling_worker_poll_seconds: float = Field(default=1.0, ge=0.1, le=30.0)
     profiling_worker_lease_seconds: int = Field(default=300, ge=30, le=3600)
     profiling_worker_max_attempts: int = Field(default=3, ge=1, le=10)
     profiling_worker_shutdown_grace_seconds: int = Field(
@@ -180,11 +180,6 @@ class Settings(BaseSettings):
 
     # --- retrieval (ADR-007) ----------------------------------------------
     retrieval_index_dir: str = "./data/index"
-    # Retrieval documents change when a profile is indexed, not on every QA
-    # request. Refreshing the in-memory index periodically avoids an extra
-    # full-table metadata query before every answer while keeping updates from
-    # other workers visible within a short bounded window.
-    retrieval_index_refresh_seconds: float = Field(default=5.0, ge=0.0, le=300.0)
     retrieval_top_k: int = Field(default=5, ge=1, le=50)
     retrieval_candidate_k: int = Field(default=20, ge=1, le=200)
     retrieval_embedding_provider: Literal["local", "openai", "voyage", "none"] = "local"
@@ -256,7 +251,7 @@ class Settings(BaseSettings):
             "GLOBAL_ADMIN_EMAILS", "ADMIN_EMAILS", "global_admin_emails"
         ),
     )
-    security_user_rate_per_minute: int = Field(default=600, ge=1)
+    security_user_rate_per_minute: int = Field(default=30, ge=1)
     security_max_upload_mb: int = Field(default=500, ge=1)
     security_allow_raw_export: bool = False
     security_mask_pii_in_answers: bool = True

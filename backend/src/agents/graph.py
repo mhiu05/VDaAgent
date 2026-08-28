@@ -96,10 +96,7 @@ def build_checkpointer() -> Any:
                 conninfo=url,
                 kwargs={
                     "autocommit": True,
-                    # PgBouncer/Supabase can switch the server connection
-                    # between transactions; disable psycopg prepared
-                    # statements to avoid duplicate statement names.
-                    "prepare_threshold": None,
+                    "prepare_threshold": 0,
                     "row_factory": dict_row,
                 },
                 min_size=1,

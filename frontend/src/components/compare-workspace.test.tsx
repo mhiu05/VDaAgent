@@ -7,7 +7,8 @@ import { CompareWorkspace } from "./compare-workspace";
 
 const api = vi.hoisted(() => ({
   detectDrift: vi.fn(),
-  listAllRuns: vi.fn(),
+  listDatasets: vi.fn(),
+  listRuns: vi.fn(),
 }));
 const auth = vi.hoisted(() => ({ workspaceId: "workspace-a" }));
 
@@ -44,11 +45,8 @@ describe("CompareWorkspace", () => {
 
   beforeEach(() => {
     auth.workspaceId = "workspace-a";
-    api.listAllRuns.mockResolvedValue([
-      { ...baseline, dataset_name: datasets[0].name },
-      { ...current, dataset_name: datasets[1].name },
-      { ...unfinished, dataset_name: datasets[0].name },
-    ]);
+    api.listDatasets.mockResolvedValue(datasets);
+    api.listRuns.mockImplementation((datasetId: string) => Promise.resolve(datasetId === "dataset-a" ? [baseline, unfinished] : [current]));
     api.detectDrift.mockReset();
   });
 

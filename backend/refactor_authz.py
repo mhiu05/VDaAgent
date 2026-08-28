@@ -1,5 +1,5 @@
 import re
-
+import sys
 
 def main():
     file_path = "src/api/authz_routes.py"

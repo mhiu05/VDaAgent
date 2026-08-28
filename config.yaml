@@ -46,7 +46,6 @@ stats:
 
 retrieval:
   index_dir: ./data/index
-  index_refresh_seconds: 5
   top_k: 5
   candidate_k: 20
   embedding_provider: voyage
@@ -66,9 +65,7 @@ retrieval:
 
 security:
   require_api_token: false
-  # Frontend polling can reach roughly 200 calls/minute while a profile is
-  # running. Keep a bounded per-user ceiling with room for concurrent views.
-  user_rate_per_minute: 600
+  user_rate_per_minute: 30
   max_upload_mb: 500
   allow_raw_export: false
   mask_pii_in_answers: true

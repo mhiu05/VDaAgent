@@ -103,11 +103,6 @@ async function fetchWithLocalFallback(path: string, init: RequestInit): Promise<
   throw lastConnectionError;
 }
 
-/** Fetch an auth-boundary request using the same loopback fallback as API calls. */
-export function fetchApiWithLocalFallback(path: string, init: RequestInit): Promise<Response> {
-  return fetchWithLocalFallback(path, init);
-}
-
 async function apiFetch(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
   let response: Response;
   const headers = await authHeaders(init.headers);
@@ -412,7 +407,7 @@ export async function provisionSelfSignup(role: SelfSignupRole, accessToken: str
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
   try {
-    const response = await fetchWithLocalFallback("/onboarding/provision", {
+    const response = await fetch(`${apiBase()}/onboarding/provision`, {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -437,7 +432,7 @@ export async function provisionSelfSignup(role: SelfSignupRole, accessToken: str
 
 export async function cleanupGuestSession(accessToken: string): Promise<void> {
   try {
-    await fetchWithLocalFallback("/guest/session", {
+    await fetch(`${apiBase()}/guest/session`, {
       method: "DELETE",
       headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` },
       credentials: "include",
@@ -503,10 +498,6 @@ export function setDatasetCollection(datasetIds: string[], collectionName: strin
 
 export function listRuns(datasetId: string, signal?: AbortSignal): Promise<ProfileRunSummary[]> {
   return request<ProfileRunSummary[]>(`/datasets/${encodeURIComponent(datasetId)}/runs`, { signal });
-}
-
-export function listAllRuns(signal?: AbortSignal, limit: number = 100): Promise<ProfileRunSummary[]> {
-  return request<ProfileRunSummary[]>(`/runs?limit=${limit}`, { signal });
 }
 
 export function getProfile(runId: string, signal?: AbortSignal): Promise<Profile> {
@@ -869,7 +860,7 @@ export function reorderReportDraft(reportId: string, itemIds: string[], expected
   });
 }
 
-export function updateReportDraftItem(reportId: string, itemId: string, payload: { title?: string; note?: string; content_json?: any }): Promise<ReportDraft> {
+export function updateReportDraftItem(reportId: string, itemId: string, payload: { title?: string; note?: string }): Promise<ReportDraft> {
   return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/items/${encodeURIComponent(itemId)}`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
   });

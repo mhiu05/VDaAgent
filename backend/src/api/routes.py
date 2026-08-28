@@ -25,8 +25,6 @@ import json
 import logging
 import os
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
-from contextvars import copy_context
 from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
@@ -42,19 +40,12 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import StreamingResponse
-# pyrefly: ignore [missing-import]
 from src.agents.graph import get_qa_graph
-# pyrefly: ignore [missing-import]
 from src.agents.nodes.profiling_nodes import clear_dataframe_cache
-# pyrefly: ignore [missing-import]
 from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_agent_run
-# pyrefly: ignore [missing-import]
 from src.agents.state import initial_qa_state
-# pyrefly: ignore [missing-import]
 from src.api.dependencies import RequestContext, require_permission
-# pyrefly: ignore [missing-import]
 from src.config import get_settings
-# pyrefly: ignore [missing-import]
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
@@ -77,11 +68,8 @@ from src.models.schemas import (
     TestResponse,
     UploadResponse,
 )
-# pyrefly: ignore [missing-import]
 from src.services import drift as drift_service
-# pyrefly: ignore [missing-import]
 from src.services.analysis_repository import get_analysis_repository
-# pyrefly: ignore [missing-import]
 from src.services.google_drive import (
     GoogleDriveConnectionRequiredError,
     GoogleDriveError,
@@ -89,9 +77,7 @@ from src.services.google_drive import (
     is_google_drive_ref,
     parse_google_drive_ref,
 )
-# pyrefly: ignore [missing-import]
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
-# pyrefly: ignore [missing-import]
 from src.services.datasource import (
     DatasourceError,
     decrypt_config,
@@ -100,14 +86,7 @@ from src.services.datasource import (
     probe,
     source_ref_for_connection,
 )
-# pyrefly: ignore [missing-import]
-from src.services.llm import (
-    LLMNotConfiguredError,
-    report_text,
-    safe_llm_warning,
-    sanitize_model_text,
-)
-# pyrefly: ignore [missing-import]
+from src.services.llm import LLMNotConfiguredError, llm_available, report_text, safe_llm_warning
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -122,19 +101,14 @@ from src.services.permissions import (
     WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
 )
-# pyrefly: ignore [missing-import]
 from src.services.repository import get_repository
-# pyrefly: ignore [missing-import]
 from src.services.retrieval import get_index
-# pyrefly: ignore [missing-import]
 from src.services.security import (
     get_audit,
     get_rate_limiter,
     safe_filename,
 )
-# pyrefly: ignore [missing-import]
 from src.services.stats_tests import TESTS, run_tests
-# pyrefly: ignore [missing-import]
 from src.services.storage import (
     StorageNotConfiguredError,
     StorageUploadError,
@@ -213,6 +187,7 @@ def _build_profile_response(
         "scan_mode": run.get("scan_mode"),
         "random_seed": run.get("random_seed"),
         "executed_query": run.get("executed_query"),
+        "is_approximate": bool(run.get("is_approximate")),
         "narrative_report": report_text(run.get("narrative_report"))
         if run.get("narrative_report")
         else None,
@@ -227,7 +202,7 @@ def _build_profile_response(
         "proposals": profile["proposals"],
         "test_results": profile["test_results"],
         "question_type": run.get("question_type"),
-        "answer": sanitize_model_text(str(run.get("answer") or "")) or None,
+        "answer": run.get("answer"),
         "answer_sources": run.get("answer_sources") or [],
         "error": run.get("error"),
     }
@@ -274,7 +249,6 @@ async def create_profile(
     context: RequestContext = Depends(require_permission(PROFILE_RUN)),
 ) -> ProfileJobResponse:
     """Validate the request and durably queue profiling for a worker."""
-    # pyrefly: ignore [missing-import]
     from src.services.profile_service import ProfileError, ProfileService
 
     get_rate_limiter().check(context.user_id)
@@ -510,7 +484,7 @@ def _profile_report_payload(
     warnings = [safe_llm_warning(item) for item in (run.get("risk_warnings") or [])]
     analysis_count = len(report_payload.get("analysis_sessions") or [])
 
-    summary = sanitize_model_text(str(run.get("narrative_report") or "")) or (
+    summary = run.get("narrative_report") or (
         f"Profile v{version} đã hoàn tất cho bộ dữ liệu {dataset_name}. "
         f"Báo cáo gồm {len(stats)} cột và {run.get('row_count') or 0} dòng."
     )
@@ -633,7 +607,6 @@ async def confirm_proposals(
     Đây là cửa duy nhất để một proposal chuyển sang `confirmed`. Agent không có
     quyền nào tự làm việc này (eval C-03).
     """
-    # pyrefly: ignore [missing-import]
     from src.services.profile_service import ProfileError, ProfileService
 
     get_rate_limiter().check(context.user_id)
@@ -708,7 +681,6 @@ async def run_statistical_tests(
     Nhiều kiểm định cùng lúc sẽ được hiệu chỉnh đa kiểm định (L1) — p điều chỉnh
     và kết luận sau hiệu chỉnh đều nằm trong response.
     """
-    # pyrefly: ignore [missing-import]
     from src.agents.nodes.profiling_nodes import get_dataframe
 
     settings = get_settings()
@@ -861,18 +833,7 @@ def _qa_state(
                     f"(trạng thái hiện tại: {run.get('status') or 'unknown'})."
                 ),
             )
-        # These reads are independent. Keeping them in one request phase but
-        # running them concurrently removes two database round-trip waits
-        # from every Profile-scoped question.
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            pending_future = executor.submit(
-                copy_context().run, repo.pending_count, request.profile_run_id
-            )
-            stats_future = executor.submit(
-                copy_context().run, repo.get_column_stats, request.profile_run_id
-            )
-            pending = pending_future.result()
-            stats = stats_future.result()
+        pending = repo.pending_count(request.profile_run_id)
         if pending:
             raise HTTPException(
                 status_code=409,
@@ -881,7 +842,7 @@ def _qa_state(
                     "Hãy hoàn tất Review proposals trước khi hỏi Agent về dataset."
                 ),
             )
-        columns = list(stats.keys())
+        columns = list(repo.get_column_stats(request.profile_run_id).keys())
     if request.analysis_execution_id:
         if not request.profile_run_id:
             raise HTTPException(
@@ -1108,7 +1069,7 @@ async def ask_question_stream(
     `done` (kết thúc) | `error`.
 
     Nhánh định lượng cần gọi tool nhiều vòng nên không stream token được — nó
-    chạy xong rồi phát một lần; nhánh định tính stream từng đoạn model sinh ra.
+    chạy xong rồi phát một lần, còn nhánh định tính stream token thật.
     """
     get_rate_limiter().check(context.user_id)
     state = _qa_state(request, context)
@@ -1131,42 +1092,7 @@ async def ask_question_stream(
 
     async def generator() -> Any:
         try:
-            token_queue: asyncio.Queue[str] = asyncio.Queue()
-            loop = asyncio.get_running_loop()
-            emitted_chars = 0
-
-            def enqueue_token(text: str) -> None:
-                if text:
-                    try:
-                        loop.call_soon_threadsafe(token_queue.put_nowait, text)
-                    except RuntimeError:
-                        # The browser may cancel a stream while the provider
-                        # is still producing chunks. Do not turn disconnects
-                        # into model/trace failures in the worker thread.
-                        pass
-
-            state["stream_callback"] = enqueue_token
-            graph_task = asyncio.create_task(
-                asyncio.to_thread(get_qa_graph().invoke, state)
-            )
-            while not graph_task.done() or not token_queue.empty():
-                try:
-                    token = await asyncio.wait_for(token_queue.get(), timeout=0.1)
-                except asyncio.TimeoutError:
-                    continue
-                emitted_chars += len(token)
-                yield _sse("token", {"text": token})
-
-            routed = await graph_task
-            # A worker can enqueue the final chunk just as it completes. Give
-            # the event loop one turn, then flush that chunk before deciding
-            # whether the complete-answer fallback is needed.
-            await asyncio.sleep(0)
-            while not token_queue.empty():
-                token = token_queue.get_nowait()
-                emitted_chars += len(token)
-                yield _sse("token", {"text": token})
-            state.pop("stream_callback", None)
+            routed = await asyncio.to_thread(get_qa_graph().invoke, state)
             answer = _guard_qa_answer(
                 routed.get("answer") or "",
                 profile_run_id=request.profile_run_id,
@@ -1177,9 +1103,19 @@ async def ask_question_stream(
 
             yield _sse("meta", {"question_type": qtype})
 
-            # The qualitative branch already emitted model chunks above. The
-            # other branches still return one complete, evidence-safe answer.
-            if emitted_chars == 0:
+            if qtype == "qualitative" and llm_available() and answer:
+                # Phát lại câu trả lời theo từng câu để client thấy tiến trình
+                # mà không phải gọi LLM lần hai.
+                buffer = ""
+                for char in answer:
+                    buffer += char
+                    if char in ".!?\n" and len(buffer) > 40:
+                        yield _sse("token", {"text": buffer})
+                        buffer = ""
+                        await asyncio.sleep(0)
+                if buffer:
+                    yield _sse("token", {"text": buffer})
+            else:
                 yield _sse("token", {"text": answer})
 
             if sources:
@@ -1745,37 +1681,7 @@ async def list_runs(
         dataset_id, limit=limit, workspace_id=context.workspace_id
     )
     return [
-        ProfileRunSummary(
-            **{
-                **run,
-                "dataset_name": run.get("dataset_name"),
-                "version": run.get("version") or None,
-                "error": run.get("error") or run.get("job_error_message"),
-            }
-        )
-        for run in runs
-    ]
-
-
-@router.get("/runs", response_model=list[ProfileRunSummary])
-async def list_all_runs(
-    limit: int = Query(default=100, ge=1, le=500),
-    context: RequestContext = Depends(require_permission(DATASET_READ)),
-) -> list[ProfileRunSummary]:
-    get_rate_limiter().check(context.user_id)
-    repo = get_repository()
-    runs = repo.list_profile_runs(
-        dataset_id=None, limit=limit, workspace_id=context.workspace_id
-    )
-    return [
-        ProfileRunSummary(
-            **{
-                **run,
-                "dataset_name": run.get("dataset_name"),
-                "version": run.get("version") or None,
-                "error": run.get("error") or run.get("job_error_message"),
-            }
-        )
+        ProfileRunSummary(**{**run, "version": run.get("version") or None})
         for run in runs
     ]
 
