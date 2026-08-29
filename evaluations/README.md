@@ -1,15 +1,11 @@
 # Evaluation artifacts
 
-Thư mục này chỉ lưu report và benchmark đã sinh ra từ evaluation. Không đặt mã
-nguồn evaluator, fixture hay test tại đây.
+Thư mục này chỉ chứa report và scorecard đã sinh. Code, fixture và pytest ở
+tests/evaluations; phương pháp, metric và giới hạn ở docs/eval_v1.md.
 
-- Mã chạy evaluation, fixture, release gate và unit test: [`tests/evaluations/`](../tests/evaluations/)
-- Tài liệu kiến trúc, cách chạy và các việc owner cần duyệt: [`docs/eval.md`](../docs/eval.md)
-- Scorecard gần nhất: [`results/latest_scorecard.md`](results/latest_scorecard.md)
+Scorecard offline có runtime offline_harness_contract chỉ kiểm tra evaluator.
+Chỉ staging_synthetic_api, chạy trên Profile Run synthetic, mới là kết quả
+model/API có thể dùng làm baseline v2.
 
-Chạy evaluation từ thư mục gốc:
-
-```powershell
-.\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --dry-run
-.\.venv\Scripts\python.exe tests\evaluations\run_evaluation.py --offline
-```
+Không đưa raw row, PII, prompt, output đầy đủ, credential hoặc workspace ID
+vào artifact này.

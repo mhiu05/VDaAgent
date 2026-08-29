@@ -2,7 +2,7 @@
   "schema_version": "p170-evaluation-scorecard-v2",
   "dataset_version": "p170-evidence-first-v2",
   "runtime": "staging_synthetic_api",
-  "generated_at": "2026-08-29T13:20:25.554770+00:00",
+  "generated_at": "2026-08-29T16:51:45.239842+00:00",
   "git_sha": "67172545e54b616d82cee3e3c161afd7d4e136c4",
   "data_classification": "synthetic_only",
   "case_count": 17,
@@ -53,10 +53,10 @@
       "latency_ms": {
         "status": "available",
         "count": 17,
-        "mean": 54493.04,
-        "p50": 52916.242,
-        "p95": 86011.897,
-        "max": 94561.896
+        "mean": 29219.651,
+        "p50": 25651.512,
+        "p95": 50152.554,
+        "max": 67296.329
       },
       "input_tokens": {
         "status": "not_available",
@@ -1124,7 +1124,7 @@
     {
       "gate": "latency_p95_ms",
       "status": "fail",
-      "actual": 86011.897,
+      "actual": 50152.554,
       "threshold": 30000
     },
     {

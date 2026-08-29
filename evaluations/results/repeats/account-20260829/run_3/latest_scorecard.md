@@ -13,17 +13,17 @@ This is an observed staging result over synthetic-only data.
 
 | Metric | Value |
 | --- | ---: |
-| answer_contract_rate | 70.00% |
+| answer_contract_rate | 60.00% |
 | api_status_rate | 100.00% |
 | approximation_rate | 100.00% |
 | evidence_binding_rate | 50.00% |
 | evidence_source_policy_rate | 50.00% |
 | evidence_status_rate | 50.00% |
-| forecast_calibration_rate | 0.00% |
+| forecast_calibration_rate | 100.00% |
 | groundedness_rate | 100.00% |
 | insufficient_evidence_rate | 0.00% |
-| intent_match_rate | 0.00% |
-| numeric_grounding_rate | 50.00% |
+| intent_match_rate | 50.00% |
+| numeric_grounding_rate | 100.00% |
 | planner_aggregation_rate | 100.00% |
 | planner_allowlist_rate | 75.00% |
 | planner_chart_type_rate | 75.00% |
@@ -50,13 +50,13 @@ This is an observed staging result over synthetic-only data.
 | evidence_binding_rate | FAIL | 0.5 | 1.0 |
 | evidence_source_policy_rate | FAIL | 0.5 | 1.0 |
 | evidence_status_rate | FAIL | 0.5 | 1.0 |
-| numeric_grounding_rate | FAIL | 0.5 | 0.98 |
+| numeric_grounding_rate | PASS | 1.0 | 0.98 |
 | approximation_rate | PASS | 1.0 | 0.98 |
 | insufficient_evidence_rate | FAIL | 0.0 | 0.95 |
-| forecast_calibration_rate | FAIL | 0.0 | 0.95 |
+| forecast_calibration_rate | PASS | 1.0 | 0.95 |
 | planner_allowlist_rate | FAIL | 0.75 | 1.0 |
 | planner_kind_rate | PASS | 1.0 | 1.0 |
-| latency_p95_ms | FAIL | 86011.897 | 30000 |
+| latency_p95_ms | FAIL | 32618.603 | 30000 |
 | critical_failures | FAIL | 8 | 0 |
 
 ## Safe diagnostics
