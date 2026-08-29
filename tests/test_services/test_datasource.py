@@ -38,3 +38,15 @@ def test_mongodb_filter_must_be_json_object() -> None:
             "mongodb",
             {"uri": "mongodb://localhost", "database": "app", "collection": "orders", "filter": "[]"},
         )
+
+
+def test_mongodb_probe_validation_allows_collection_to_be_deferred() -> None:
+    config = normalize_config(
+        "mongodb",
+        {"uri": "mongodb://localhost", "database": "app", "filter": "{}"},
+        require_collection=False,
+    )
+
+    assert config == {"uri": "mongodb://localhost", "database": "app", "filter": {}}
+    with pytest.raises(DatasourceError, match="collection"):
+        normalize_config("mongodb", config)

@@ -48,7 +48,7 @@ Chuẩn bị các thông tin sau trước khi mở VDaAgent:
 | Quyền | Tối thiểu role `read` trên database dữ liệu |
 | Network access | IP outbound của môi trường chạy backend được thêm vào Atlas |
 | Database | Tên database cần đọc |
-| Collection | Tên collection cần profiling |
+| Collection | Chọn sau khi kiểm tra kết nối |
 | Connection string | URI `mongodb+srv://...` hoặc `mongodb://...` |
 
 Trong project, backend đã có dependency `pymongo` trong
@@ -288,11 +288,11 @@ Sau đó:
 | Tên connector | `Mongo Atlas Analytics` | Tên hiển thị trong workspace |
 | MongoDB URI | `mongodb+srv://...` | Có username/password và `authSource` nếu cần |
 | Database | `analytics` | Bắt buộc, phân biệt hoa thường |
-| Collection | `orders` | Bắt buộc, phân biệt hoa thường |
-| Filter JSON | `{}` | Đọc toàn bộ document |
+| Collection | `orders` | Chọn sau khi kiểm tra kết nối, phân biệt hoa thường |
+| Filter JSON | `{}` | Nhập sau khi chọn collection; đọc toàn bộ document |
 
-`Database` và `Collection` phải nhập riêng ngay cả khi database đã xuất hiện
-trong URI. Backend hiện bắt buộc cả ba giá trị: URI, database và collection.
+`Database` phải nhập riêng ngay cả khi database đã xuất hiện trong URI. Collection
+được tải sau bước kiểm tra kết nối và bắt buộc phải chọn trước khi lưu connector.
 
 ### 8.2. Filter JSON
 
@@ -425,12 +425,13 @@ không chứng minh Azure backend/worker cũng chạy được.
 
 1. Mở `/connectors`.
 2. Chọn MongoDB.
-3. Nhập URI, database, collection và `{}`.
+3. Nhập URI và database; chưa cần nhập collection.
 4. Nhấn **Kiểm tra kết nối**.
-5. Xác nhận collection cần dùng xuất hiện trong danh sách.
-6. Nhấn **Lưu connector**.
-7. Tạo dataset mới từ connector đã lưu.
-8. Theo dõi profiling job đến trạng thái hoàn tất.
+5. Chọn collection cần dùng từ dropdown được tải về.
+6. Nhập hoặc giữ Filter JSON `{}`.
+7. Nhấn **Lưu connector**.
+8. Tạo dataset mới từ connector đã lưu.
+9. Theo dõi profiling job đến trạng thái hoàn tất.
 
 ## 11. Xử lý lỗi thường gặp
 

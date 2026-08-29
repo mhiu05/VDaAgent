@@ -5,10 +5,9 @@ import type { DatasourceKind } from "@/lib/types";
 
 /** Connector-center entry point. DatasourceConnector remains the compatibility
  * implementation used by /datasets/new. */
-export function ConnectionWizard({ kind = "mongodb", onClose, onSaved }: {
+export function ConnectionWizard({ kind = "mongodb", onSaved }: {
   kind?: DatasourceKind;
-  onClose?: () => void;
   onSaved?: () => void;
 }) {
-  return <DatasourceConnector initialKind={kind} saveOnly onBack={onClose} onSaved={onSaved} />;
+  return <DatasourceConnector initialKind={kind} saveOnly onSaved={onSaved} />;
 }

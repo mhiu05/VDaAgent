@@ -1474,7 +1474,14 @@ async def test_datasource(
     """Validate an external source without persisting its credentials."""
     get_rate_limiter().check(context.user_id)
     try:
-        normalized = normalize_config(request.kind, request.config)
+        # MongoDB collection is selected from the metadata returned by this
+        # probe, so it must not be required until the datasource is saved or
+        # materialized.
+        normalized = normalize_config(
+            request.kind,
+            request.config,
+            require_collection=request.kind != "mongodb",
+        )
         objects = await asyncio.to_thread(probe, request.kind, normalized)
     except DatasourceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

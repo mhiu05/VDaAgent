@@ -262,7 +262,13 @@ async def test_new_datasource(
 ) -> ConnectorTestResponse:
     get_rate_limiter().check(context.user_id)
     try:
-        normalized = normalize_config(request.kind, request.config)
+        # Collection is selected from the metadata returned by this probe;
+        # require it only when saving or using the datasource.
+        normalized = normalize_config(
+            request.kind,
+            request.config,
+            require_collection=request.kind != "mongodb",
+        )
         objects = await asyncio.to_thread(probe, request.kind, normalized)
     except DatasourceError as exc:
         return ConnectorTestResponse(provider=request.kind, ok=False, status=ConnectorStatus.attention_required, error_code="INVALID_CONFIGURATION", detail=str(exc))
