@@ -26,11 +26,11 @@ env:
   RESOURCE_GROUP: rg-p170-linh-260829
   ACR_NAME: p170linh260829acr
   ACR_LOGIN_SERVER: p170linh260829acr.azurecr.io
-  BACKEND_APP: p170-api-linh-260829
+  BACKEND_APP: vdaagent-api
   WORKER_APP: ${{ vars.AZURE_PROFILING_WORKER_APP }}
-  FRONTEND_APP: p170-web-linh-260829
-  BACKEND_URL: https://p170-api-linh-260829.azurewebsites.net
-  FRONTEND_URL: https://p170-web-linh-260829.azurewebsites.net
+  FRONTEND_APP: vdaagent
+  BACKEND_URL: https://vdaagent-api.azurewebsites.net
+  FRONTEND_URL: https://vdaagent.azurewebsites.net
   AZURE_CLI_IMAGE: mcr.microsoft.com/azure-cli:2.75.0
 
 jobs:
