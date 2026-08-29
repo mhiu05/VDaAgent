@@ -11,7 +11,6 @@ from src.services.auth import AuthContext, authenticate_bearer
 from src.services.permissions import (
     canonical_role,
     canonical_workspace_role,
-    permissions_for_role,
     system_permissions_for_role,
     workspace_permissions_for_role,
 )

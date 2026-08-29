@@ -43,7 +43,6 @@ from src.services.permissions import (
     WORKSPACE_SETTINGS_MANAGE,
     canonical_role,
     canonical_workspace_role,
-    permissions_for_role,
     system_permissions_for_role,
     workspace_permissions_for_role,
     role_can_manage_target,
