@@ -23,14 +23,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  RESOURCE_GROUP: rg-p170-hieu
-  ACR_NAME: p170acr08140037
-  ACR_LOGIN_SERVER: p170acr08140037.azurecr.io
-  BACKEND_APP: p170-api-08140037
+  RESOURCE_GROUP: rg-p170-linh-260829
+  ACR_NAME: p170linh260829acr
+  ACR_LOGIN_SERVER: p170linh260829acr.azurecr.io
+  BACKEND_APP: p170-api-linh-260829
   WORKER_APP: ${{ vars.AZURE_PROFILING_WORKER_APP }}
-  FRONTEND_APP: p170-web-08140019
-  BACKEND_URL: https://p170-api-08140037.azurewebsites.net
-  FRONTEND_URL: https://p170-web-08140019.azurewebsites.net
+  FRONTEND_APP: p170-web-linh-260829
+  BACKEND_URL: https://p170-api-linh-260829.azurewebsites.net
+  FRONTEND_URL: https://p170-web-linh-260829.azurewebsites.net
   AZURE_CLI_IMAGE: mcr.microsoft.com/azure-cli:2.75.0
 
 jobs:

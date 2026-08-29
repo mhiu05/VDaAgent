@@ -8,23 +8,23 @@ CI/CD được cấu hình bằng GitHub Actions trên nhánh `main`. Khi có co
 
 ## Azure services đang sử dụng
 
-- Resource Group: `rg-p170-hieu`
-- App Service Plan: `asp-p170-hieu`
-- Azure Container Registry: `p170acr08140037`
-- Backend Web App: `p170-api-08140037`
+- Resource Group: `rg-p170-linh-260829`
+- App Service Plan: `asp-p170-linh-260829`
+- Azure Container Registry: `p170linh260829acr`
+- Backend Web App: `p170-api-linh-260829`
 - Profiling Worker Web App: cấu hình qua repository variable `AZURE_PROFILING_WORKER_APP`
-- Frontend Web App: `p170-web-08140019`
+- Frontend Web App: `p170-web-linh-260829`
 
 ## Endpoint truy cập
 
-- Frontend: `https://p170-web-08140019.azurewebsites.net`
-- Backend: `https://p170-api-08140037.azurewebsites.net`
-- Backend health check: `https://p170-api-08140037.azurewebsites.net/health`
+- Frontend: `https://p170-web-linh-260829.azurewebsites.net`
+- Backend: `https://p170-api-linh-260829.azurewebsites.net`
+- Backend health check: `https://p170-api-linh-260829.azurewebsites.net/health`
 
 Frontend gọi backend thông qua:
 
 ```text
-https://p170-api-08140037.azurewebsites.net/api/v1
+https://p170-api-linh-260829.azurewebsites.net/api/v1
 ```
 
 ## Docker image
@@ -32,13 +32,13 @@ https://p170-api-08140037.azurewebsites.net/api/v1
 Backend image:
 
 ```text
-p170acr08140037.azurecr.io/backend:<tag>
+p170linh260829acr.azurecr.io/backend:<tag>
 ```
 
 Frontend image:
 
 ```text
-p170acr08140037.azurecr.io/frontend:<tag>
+p170linh260829acr.azurecr.io/frontend:<tag>
 ```
 
 Trong CI/CD, mỗi lần chạy workflow sẽ tạo image với tag là commit SHA hiện tại. Ngoài ra workflow cũng push thêm tag `latest` để dễ kiểm tra thủ công.
@@ -46,8 +46,8 @@ Trong CI/CD, mỗi lần chạy workflow sẽ tạo image với tag là commit S
 Ví dụ:
 
 ```text
-p170acr08140037.azurecr.io/backend:<GITHUB_SHA>
-p170acr08140037.azurecr.io/frontend:<GITHUB_SHA>
+p170linh260829acr.azurecr.io/backend:<GITHUB_SHA>
+p170linh260829acr.azurecr.io/frontend:<GITHUB_SHA>
 ```
 
 ## File deploy trong repo
@@ -63,8 +63,8 @@ Backend chạy bằng Azure App Service for Containers.
 
 Cấu hình chính:
 
-- App Service: `p170-api-08140037`
-- Image: `p170acr08140037.azurecr.io/backend:<GITHUB_SHA>`
+- App Service: `p170-api-linh-260829`
+- Image: `p170linh260829acr.azurecr.io/backend:<GITHUB_SHA>`
 - Port nội bộ: `8000`
 - App setting:
 
@@ -95,8 +95,8 @@ Frontend chạy bằng Azure App Service for Containers.
 
 Cấu hình chính:
 
-- App Service: `p170-web-08140019`
-- Image: `p170acr08140037.azurecr.io/frontend:<GITHUB_SHA>`
+- App Service: `p170-web-linh-260829`
+- Image: `p170linh260829acr.azurecr.io/frontend:<GITHUB_SHA>`
 - Port nội bộ: `8080`
 - App settings:
 
@@ -104,8 +104,8 @@ Cấu hình chính:
 WEBSITES_PORT=8080
 PORT=8080
 NODE_ENV=production
-NEXT_PUBLIC_API_URL=https://p170-api-08140037.azurewebsites.net/api/v1
-NEXT_PUBLIC_SITE_URL=https://p170-web-08140019.azurewebsites.net
+NEXT_PUBLIC_API_URL=https://p170-api-linh-260829.azurewebsites.net/api/v1
+NEXT_PUBLIC_SITE_URL=https://p170-web-linh-260829.azurewebsites.net
 ```
 
 Frontend được chạy bằng Next.js:
@@ -238,8 +238,8 @@ Quy trình deploy chuẩn:
 6. Khi workflow thành công, kiểm tra:
 
 ```text
-https://p170-web-08140019.azurewebsites.net
-https://p170-api-08140037.azurewebsites.net/health
+https://p170-web-linh-260829.azurewebsites.net
+https://p170-api-linh-260829.azurewebsites.net/health
 ```
 
 Nếu cần chạy deploy thủ công mà không push code mới:
