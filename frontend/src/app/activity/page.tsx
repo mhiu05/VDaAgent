@@ -55,8 +55,9 @@ function auditNotification(entry: ActivityEntry, index: number): NotificationIte
       return { ...base, tone: "success", category: "success", icon: "✓", title: "Kiểm tra kết nối thành công", message: `${provider} phản hồi bình thường.`, href: "/connectors" };
     case "connector.updated":
       return { ...base, tone: "info", category: "info", icon: "↻", title: `${provider} đã được cập nhật`, message: "Cấu hình connector mới đã được lưu.", href: "/connectors" };
+    case "connector.deleted":
     case "connector.disconnected":
-      return { ...base, tone: "warning", category: "attention", icon: "!", title: `${provider} đã ngắt kết nối`, message: "Các dataset hiện có vẫn được giữ nguyên.", href: "/connectors" };
+      return { ...base, tone: "warning", category: "attention", icon: "!", title: `${provider} đã xóa kết nối`, message: "Các dataset hiện có vẫn được giữ nguyên.", href: "/connectors" };
     case "api_datasource_connected":
       return { ...base, tone: "success", category: "success", icon: "✓", title: "Datasource đã kết nối", message: `Đã tạo dataset mới từ ${provider}.`, href: "/datasets" };
     case "api_datasource_reused":
