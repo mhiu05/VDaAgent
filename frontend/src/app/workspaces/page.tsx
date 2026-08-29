@@ -166,6 +166,7 @@ export default function WorkspacesPage() {
   });
 
   const canCreate = can(me?.effective_permissions, PERMISSIONS.workspaceCreate);
+  const canManageMembers = can(me?.effective_permissions, PERMISSIONS.workspaceMembersManage);
   const canDelete = can(me?.effective_permissions, PERMISSIONS.workspaceDelete);
   const workspaceActionBusy = deletion.isPending || purging.isPending || restoration.isPending;
   const workspacePending = (id: string) => pendingWorkspaceIds.has(id) || (purging.isPending && purging.variables === id);
@@ -255,7 +256,7 @@ export default function WorkspacesPage() {
   return <main className="page workspace-page">
     <header className="workspace-page-header">
       <div><p className="eyebrow">WORKSPACE HUB</p><h1>Quản lý Workspace</h1><p className="page-description">Mỗi workspace là một không gian chứa dataset, profile, report và kết quả làm việc của Analyst.</p></div>
-      <span className="workspace-count">{items.length} workspace</span>
+      <div className="workspace-page-header-actions">{canManageMembers && <Link className="button secondary" href="/workspaces/manage">Quản lý thành viên</Link>}<span className="workspace-count">{items.length} workspace</span></div>
     </header>
 
     {workspaces.isPending && <LoadingBlock label="Đang tải danh sách workspace…" />}

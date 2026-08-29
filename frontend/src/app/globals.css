@@ -888,6 +888,7 @@ small { color: var(--muted); }
 
 .workspace-page { max-width: 1120px; margin: 0 auto; }
 .workspace-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 22px; margin-bottom: 22px; }
+.workspace-page-header-actions { display: flex; align-items: center; gap: 9px; }
 .workspace-page-header h1 { margin-bottom: 9px; }
 .workspace-count { padding: 6px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); background: var(--panel); font-size: .72rem; font-weight: 800; white-space: nowrap; }
 .workspace-create-panel { display: grid; grid-template-columns: minmax(0, .9fr) minmax(320px, 1.1fr); gap: 24px; align-items: stretch; margin-bottom: 20px; background: linear-gradient(135deg, #fbfcff, #f3f6ff); }
@@ -1884,6 +1885,7 @@ input[type="checkbox"] { width: auto; min-height: auto; }
   .report-card-meta { align-items: flex-start; flex-direction: column; gap: 4px; }
   .report-detail-title { margin-bottom: 18px; font-size: 1.8rem; }
   .workspace-page-header { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .workspace-page-header-actions { align-items: flex-start; flex-wrap: wrap; }
   .workspace-count { align-self: flex-start; }
   .workspace-create-panel { grid-template-columns: 1fr; gap: 16px; }
   .workspace-create-gallery img { height: clamp(140px, 28vw, 190px); }
