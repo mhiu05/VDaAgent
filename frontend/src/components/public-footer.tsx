@@ -8,7 +8,9 @@ export function PublicFooter() {
         <div className="pub-footer-grid">
           <div>
             <Link href="/" className="pub-footer-brand">
-              <Image src="/img/logo.png" alt="VDaAgent" width={32} height={32} unoptimized style={{ objectFit: "contain" }} />
+              <span className="pub-brand-mascot pub-brand-mascot-footer" aria-hidden="true">
+                <Image src="/img/logo.png" alt="" width={110} height={110} unoptimized />
+              </span>
               <span>VDaAgent</span>
             </Link>
             <p className="pub-footer-desc">
