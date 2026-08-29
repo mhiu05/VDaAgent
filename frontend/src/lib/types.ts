@@ -20,7 +20,22 @@ export type Profile = Omit<Schemas["ProfileResponse"], "column_stats" | "correla
   quasi_identifiers: string[];
   pending_proposals: number;
 };
+export type ProfileSummary = {
+  profile_run_id: string;
+  dataset_id: string;
+  dataset_name?: string | null;
+  status: string;
+  job_status?: string | null;
+  scan_mode?: string | null;
+  row_count?: number | null;
+  column_count?: number | null;
+  warning_count: number;
+  pending_proposals: number;
+  context_version_id?: string | null;
+  next_action: string;
+};
 export type ProfilingJob = Schemas["ProfileJobResponse"];
+export type DatasetProfileResult = { dataset_id: string; run_id: string; job_id: string; status: "queued" | "running" | "succeeded" | "failed"; next_action: string; duplicate?: boolean; error?: { code: string; message: string } | null };
 export type UploadResult = Schemas["UploadResponse"];
 export type DatasourceKind = "mysql" | "mongodb" | "duckdb";
 export type DatasourceConfig = Record<string, string | number | Record<string, unknown>>;

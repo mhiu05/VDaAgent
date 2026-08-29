@@ -1,8 +1,10 @@
 import { parseSseChunk, type SseEvent } from "@/lib/sse";
 import type {
   Dataset,
+  DatasetProfileResult,
   DriftResponse,
   Profile,
+  ProfileSummary,
   ProfilingJob,
   ProfileRunSummary,
   ProposalDecisionType,
@@ -510,6 +512,40 @@ export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<Pr
   return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal, cache: "no-store" });
 }
 
+export function getProfileSummary(runId: string, signal?: AbortSignal): Promise<ProfileSummary> {
+  return request<ProfileSummary>(`/profile/${encodeURIComponent(runId)}/summary`, { signal, cache: "no-store" });
+}
+
+export async function streamProfileEvents(
+  jobId: string,
+  onEvent: (event: SseEvent<ProfileSummary>) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await apiFetch(`/profiling-jobs/${encodeURIComponent(jobId)}/events`, {
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  if (!response.ok) throw await readError(response);
+  if (!response.body) throw new ApiError("Trình duyệt không hỗ trợ streaming response.", 0);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let remainder = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const parsed = parseSseChunk(decoder.decode(value, { stream: true }), remainder);
+      remainder = parsed.remainder;
+      parsed.events.forEach((event) => onEvent(event as SseEvent<ProfileSummary>));
+    }
+    const final = parseSseChunk(decoder.decode(), remainder);
+    final.events.forEach((event) => onEvent(event as SseEvent<ProfileSummary>));
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /** Wait until the profile resume has persisted its final report. */
 export async function waitForProfileReady(
   runId: string,
@@ -851,6 +887,18 @@ export type ReportDraft = { id: string; title: string; profile_run_id: string; s
 
 export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
+}
+
+export function startDatasetProfile(datasetId: string, payload: { dataset_name?: string; collection_name?: string; run_name?: string; scan_mode: "full" | "sample"; sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number } }, idempotencyKey = crypto.randomUUID()): Promise<DatasetProfileResult> {
+  return request<DatasetProfileResult>(`/datasets/${encodeURIComponent(datasetId)}/profile`, {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(payload),
+  });
+}
+
+export function startDatasetProfiles(payload: { dataset_ids: string[]; dataset_name?: string; collection_name?: string; run_name?: string; scan_mode?: "full" | "sample"; sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number } }, idempotencyKey = crypto.randomUUID()): Promise<DatasetProfileResult[]> {
+  return request<DatasetProfileResult[]>("/datasets/profile", {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(payload),
+  });
 }
 
 /**

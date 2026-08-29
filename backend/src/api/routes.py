@@ -58,8 +58,11 @@ from src.models.schemas import (
     DriftRequest,
     DriftResponse,
     ProfileJobResponse,
+    DatasetProfileBatchRequest,
+    DatasetProfileResponse,
     ProfileRequest,
     ProfileResponse,
+    ProfileSummaryResponse,
     ProfileRunSummary,
     QARequest,
     QAResponse,
@@ -258,6 +261,70 @@ def _build_profile_job_response(
     )
 
 
+def _build_dataset_profile_response(
+    result: dict[str, Any], *, workspace_id: str, duplicate: bool = False
+) -> DatasetProfileResponse:
+    repo = get_repository()
+    job = _build_profile_job_response(result["job"], duplicate=duplicate)
+    summary = repo.get_profile_summary(result["run_id"], workspace_id=workspace_id) or {}
+    next_action = _profile_next_action(summary) if summary else "wait"
+    return DatasetProfileResponse(
+        dataset_id=str(result["dataset_id"]),
+        run_id=str(result["run_id"]),
+        job_id=job.job_id,
+        status=job.status,
+        next_action=next_action,
+        duplicate=duplicate,
+        error=job.error,
+    )
+
+
+def _batch_idempotency_prefix(idempotency_key: str) -> str:
+    """Keep a batch retry discoverable without storing the caller's key."""
+    return f"batch:{hashlib.sha256(idempotency_key.encode()).hexdigest()}:"
+
+
+def _batch_request_hash(request: DatasetProfileBatchRequest) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            request.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _profile_next_action(summary: dict[str, Any]) -> str:
+    if summary["status"] == "failed" or summary.get("job_status") == "failed":
+        return "retry"
+    if summary["status"] == "pending_review":
+        return "review"
+    if summary["status"] == "resuming":
+        return "wait"
+    if summary["status"] == "completed":
+        return "use_results"
+    return "wait"
+
+
+def _profile_event_name(summary: dict[str, Any]) -> str:
+    if summary["status"] == "failed" or summary.get("job_status") == "failed":
+        return "failed"
+    if summary["status"] == "pending_review":
+        return "review_required"
+    if summary["status"] == "resuming":
+        return "resuming"
+    if summary["status"] == "completed":
+        return "ready"
+    if summary.get("job_status") == "running" or summary["status"] in {"created", "running"}:
+        return "profiling"
+    return "queued"
+
+
+def _profiling_sse(event: str, data: Any, event_id: str) -> str:
+    return (
+        f"id: {event_id}\nevent: {event}\ndata: "
+        f"{json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Profiling
 # --------------------------------------------------------------------------- #
@@ -300,6 +367,104 @@ async def create_profile(
     return _build_profile_job_response(result["job"], duplicate=result["duplicate"])
 
 
+@router.post("/datasets/{dataset_id}/profile", response_model=DatasetProfileResponse, status_code=202)
+async def create_dataset_profile(
+    dataset_id: str,
+    request: ProfileRequest,
+    http_request: Request,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=255),
+    context: RequestContext = Depends(require_permission(PROFILE_RUN)),
+) -> DatasetProfileResponse:
+    """Queue one workspace dataset for profiling without running compute in HTTP."""
+    from src.services.profile_service import ProfileError, ProfileService
+
+    if request.dataset_ref or (request.dataset_id and request.dataset_id != dataset_id):
+        raise HTTPException(status_code=422, detail="dataset_id phải khớp với đường dẫn dataset.")
+    get_rate_limiter().check(context.user_id)
+    collection_name = request.collection_name.strip() if request.collection_name else None
+    if request.collection_name and not collection_name:
+        raise HTTPException(status_code=422, detail="collection_name không được để trống.")
+    try:
+        result = await ProfileService(get_repository()).submit_profile(
+            request.model_copy(update={"dataset_id": dataset_id, "dataset_ref": None}),
+            context.workspace_id,
+            context.user_id,
+            idempotency_key,
+            getattr(http_request.state, "correlation_id", None),
+        )
+    except ProfileError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    # Validate the profiling request before mutating collection metadata. This
+    # keeps a conflicting Idempotency-Key from becoming an unintended rename.
+    if collection_name and get_repository().set_dataset_collection(
+        [dataset_id], collection_name, workspace_id=context.workspace_id
+    ) is None:
+        raise HTTPException(status_code=404, detail="Dataset không thuộc workspace hiện tại.")
+    if not result["duplicate"]:
+        _audit(context, "api_dataset_profile", resource_type="profile_run", resource_id=result["run_id"], dataset_id=dataset_id, job_id=result["run_id"])
+    return _build_dataset_profile_response(result, workspace_id=context.workspace_id, duplicate=result["duplicate"])
+
+
+@router.post("/datasets/profile", response_model=list[DatasetProfileResponse], status_code=202)
+async def create_dataset_profiles(
+    request: DatasetProfileBatchRequest,
+    http_request: Request,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=255),
+    context: RequestContext = Depends(require_permission(PROFILE_RUN)),
+) -> list[DatasetProfileResponse]:
+    """Bounded batch queue submission; each item remains independently idempotent."""
+    from src.services.profile_service import ProfileError, ProfileService
+
+    get_rate_limiter().check(context.user_id)
+    repository = get_repository()
+    service = ProfileService(repository)
+    collection_name = request.collection_name.strip() if request.collection_name else None
+    if request.collection_name and not collection_name:
+        raise HTTPException(status_code=422, detail="collection_name không được để trống.")
+    batch_prefix = _batch_idempotency_prefix(idempotency_key)
+    batch_hash = _batch_request_hash(request)
+    previous_hashes = repository.profile_job_request_hashes_for_prefix(
+        workspace_id=context.workspace_id,
+        created_by_user_id=context.user_id,
+        idempotency_key_prefix=batch_prefix,
+    )
+    if previous_hashes and previous_hashes != {batch_hash}:
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key was already used for a different profiling batch.",
+        )
+    responses: list[DatasetProfileResponse] = []
+    for dataset_id in request.dataset_ids:
+        child_key = f"{batch_prefix}{hashlib.sha256(dataset_id.encode()).hexdigest()}"
+        payload = ProfileRequest(
+            dataset_id=dataset_id,
+            dataset_name=request.dataset_name,
+            collection_name=collection_name,
+            run_name=request.run_name,
+            scan_mode=request.scan_mode,
+            sampling=request.sampling,
+        )
+        try:
+            result = await service.submit_profile(
+                payload,
+                context.workspace_id,
+                context.user_id,
+                child_key,
+                getattr(http_request.state, "correlation_id", None),
+                request_hash_override=batch_hash,
+            )
+            if collection_name and repository.set_dataset_collection(
+                [dataset_id], collection_name, workspace_id=context.workspace_id
+            ) is None:
+                raise ProfileError("Dataset không thuộc workspace hiện tại.", 404)
+            responses.append(_build_dataset_profile_response(result, workspace_id=context.workspace_id, duplicate=result["duplicate"]))
+            if not result["duplicate"]:
+                _audit(context, "api_dataset_profile", resource_type="profile_run", resource_id=result["run_id"], dataset_id=dataset_id, job_id=result["run_id"])
+        except ProfileError as exc:
+            responses.append(DatasetProfileResponse(dataset_id=dataset_id, run_id="", job_id="", status="failed", next_action="retry", error={"code": exc.error_code, "message": exc.message}))
+    return responses
+
+
 @router.get("/profiling-jobs/{job_id}", response_model=ProfileJobResponse)
 async def get_profiling_job(
     job_id: str,
@@ -320,6 +485,74 @@ async def get_profile(
     """Đọc hồ sơ đã profiling. Giá trị mẫu của cột PII bị ẩn (eval C-01)."""
     get_rate_limiter().check(context.user_id)
     return _build_profile_response(run_id, context.workspace_id)
+
+
+@router.get("/profile/{run_id}/summary", response_model=ProfileSummaryResponse)
+async def get_profile_summary(
+    run_id: str, context: RequestContext = Depends(require_permission(PROFILE_READ))
+) -> ProfileSummaryResponse:
+    """Read the lightweight, workspace-scoped Command Center contract."""
+    get_rate_limiter().check(context.user_id)
+    summary = get_repository().get_profile_summary(
+        run_id, workspace_id=context.workspace_id
+    )
+    if not summary:
+        raise HTTPException(status_code=404, detail="Profile run not found.")
+    summary["next_action"] = _profile_next_action(summary)
+    return ProfileSummaryResponse(**summary)
+
+
+@router.get("/profiling-jobs/{job_id}/events")
+async def profiling_job_events(
+    job_id: str, context: RequestContext = Depends(require_permission(PROFILE_READ))
+) -> StreamingResponse:
+    """Stream durable profiling-summary milestones for one workspace job.
+
+    The stream reads the persisted run projection, so reconnecting or refreshing
+    always replays the latest state and cannot lose a milestone. No payload
+    contains profile details, source data, or another workspace's identifiers.
+    """
+    get_rate_limiter().check(context.user_id)
+    repository = get_repository()
+    initial = repository.get_profile_summary(job_id, workspace_id=context.workspace_id)
+    if not initial:
+        raise HTTPException(status_code=404, detail="Profiling job not found.")
+
+    async def generator() -> Any:
+        last_key: str | None = None
+        first = True
+        ticks = 0
+        while True:
+            summary = initial if first else repository.get_profile_summary(
+                job_id, workspace_id=context.workspace_id
+            )
+            first = False
+            if not summary:
+                yield _profiling_sse("failed", {"error": "Profiling job not found."}, "missing")
+                return
+            summary["next_action"] = _profile_next_action(summary)
+            event = _profile_event_name(summary)
+            key = json.dumps(summary, sort_keys=True, default=str)
+            event_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+            if key != last_key:
+                yield _profiling_sse(event, summary, event_id)
+                last_key = key
+            if event in {"ready", "failed"}:
+                return
+            ticks += 1
+            if ticks % 5 == 0:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/profile/{run_id}/export")

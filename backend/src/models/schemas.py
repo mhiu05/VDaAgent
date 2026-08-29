@@ -43,6 +43,7 @@ class ProfileRequest(BaseModel):
         description="Đường dẫn file CSV/Parquet, hoặc tên bảng BigQuery.",
     )
     dataset_name: str | None = Field(default=None, max_length=255)
+    collection_name: str | None = Field(default=None, max_length=255)
     run_name: str | None = Field(default=None, max_length=255)
     scan_mode: ScanMode | None = Field(
         default=None, description="Bỏ trống để dùng mặc định trong config.yaml."
@@ -156,6 +157,23 @@ class ProfileResponse(BaseModel):
     trace_summary: dict[str, Any] | None = None
 
 
+class ProfileSummaryResponse(BaseModel):
+    """Lightweight, workspace-scoped state used by the Command Center shell."""
+
+    profile_run_id: str
+    dataset_id: str
+    dataset_name: str | None = None
+    status: str
+    job_status: str | None = None
+    scan_mode: str | None = None
+    row_count: int | None = None
+    column_count: int | None = None
+    warning_count: int = 0
+    pending_proposals: int = 0
+    context_version_id: str | None = None
+    next_action: str
+
+
 class ProfileJobError(BaseModel):
     code: str
     message: str
@@ -174,6 +192,33 @@ class ProfileJobResponse(BaseModel):
     result_id: str | None = None
     error: ProfileJobError | None = None
     duplicate: bool = False
+
+
+class DatasetProfileResponse(BaseModel):
+    dataset_id: str
+    run_id: str
+    job_id: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    next_action: str
+    duplicate: bool = False
+    error: ProfileJobError | None = None
+
+
+class DatasetProfileBatchRequest(BaseModel):
+    dataset_ids: list[str] = Field(min_length=1, max_length=20)
+    dataset_name: str | None = Field(default=None, max_length=255)
+    collection_name: str | None = Field(default=None, max_length=255)
+    run_name: str | None = Field(default=None, max_length=255)
+    scan_mode: ScanMode | None = None
+    sampling: SamplingConfig | None = None
+
+    @field_validator("dataset_ids")
+    @classmethod
+    def _unique_dataset_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        if len(normalized) != len(values) or len(set(normalized)) != len(normalized):
+            raise ValueError("Danh sách dataset không hợp lệ.")
+        return normalized
 
 
 # --------------------------------------------------------------------------- #

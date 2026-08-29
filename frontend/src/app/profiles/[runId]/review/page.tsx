@@ -6,28 +6,11 @@ import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { ApiError, confirmProposals, getProfile, waitForProfileReady } from "@/lib/api";
+import { profileQueryKey, profileSummaryQueryKey, profilingJobQueryKey } from "@/lib/profile-query-keys";
+import { finalValueOptions, pendingReviewProposals, proposalLabel, proposalValue, reviewDecisions, reviewSelectionsComplete, type ReviewSelection } from "@/lib/profile-review";
 import { formatPercent, toTitle } from "@/lib/format";
 import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, Notice, PageHeader, ProgressSteps, StatusBadge } from "@/components/ui";
 import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
-
-type Selection = { decision: ProposalDecisionType; finalType?: string; note?: string };
-
-const SEMANTIC_TYPES = ["identifier", "free-text", "datetime", "categorical", "continuous", "boolean"];
-const PII_TYPES = ["email", "phone", "national_id", "address", "full_name", "credit_card", "dob", "ip_address", "unknown"];
-
-function proposalLabel(proposal: Proposal) {
-  return proposal.column_name || proposal.columns?.join(", ") || "Đề xuất cấp bộ dữ liệu";
-}
-
-function proposalValue(kind: ProposalKind, proposal: Proposal) {
-  return kind === "pii" ? proposal.pii_type || "unknown" : proposal.proposed_type || "Candidate key";
-}
-
-function finalValueOptions(kind: ProposalKind, proposal: Proposal) {
-  const initial = proposal.final_type || proposalValue(kind, proposal);
-  const values = kind === "semantic_type" ? SEMANTIC_TYPES : PII_TYPES;
-  return [...new Set([initial, ...values])];
-}
 
 function profileReturnPath(runId: string) {
   const fallback = `/profiles/${runId}`;
@@ -49,42 +32,31 @@ export default function ReviewPage() {
   const { runId } = useParams<{ runId: string }>();
   const router = useRouter();
   const client = useQueryClient();
-  const { me, isGuest } = useAuth();
-  const [selections, setSelections] = useState<Record<string, Selection>>({});
+  const { me, isGuest, workspaceId } = useAuth();
+  const [selections, setSelections] = useState<Record<string, ReviewSelection>>({});
   const reviewRequestKey = useRef<string | null>(null);
   const awaitingNarrative = useRef(false);
   const profile = useQuery({
-    queryKey: ["profile", runId],
+    queryKey: profileQueryKey(workspaceId, runId),
     queryFn: ({ signal }) => getProfile(runId, signal),
-    enabled: Boolean(runId),
-    refetchInterval: (query) => query.state.data?.status === "resuming" ? 2_000 : false,
+    enabled: Boolean(runId && workspaceId),
+    // After an in-page submit, `waitForProfileReady()` is the sole poller.
+    // A refreshed legacy review route still polls until it observes a terminal
+    // result, preserving the fallback route without duplicate full-profile GETs.
+    refetchInterval: (query) => query.state.data?.status === "resuming" && !awaitingNarrative.current ? 2_000 : false,
   });
-  const pending = useMemo(
-    () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
-      .filter((proposal) => proposal.status === "pending")
-      .map((proposal) => ({ proposal, kind: kind as ProposalKind }))),
-    [profile.data],
-  );
+  const pending = useMemo(() => pendingReviewProposals(profile.data), [profile.data]);
   const reviewerName = me?.user.email || (isGuest ? "Phiên dùng thử" : "Tài khoản đăng nhập hiện tại");
   const reviewerRole = "analyst";
   const mutation = useMutation({
     onMutate: async () => {
       // A pre-review GET must not finish after PATCH and restore stale pending
       // proposals into the shared Profile Run cache.
-      await client.cancelQueries({ queryKey: ["profile", runId] });
+      await client.cancelQueries({ queryKey: profileQueryKey(workspaceId, runId) });
     },
     mutationFn: () => confirmProposals(runId, {
       resume: true,
-      decisions: pending.map(({ proposal, kind }) => {
-        const selection = selections[proposal.id]!;
-        return {
-          kind,
-          proposal_id: proposal.id,
-          decision: selection.decision,
-          ...(selection.decision === "edit" && selection.finalType?.trim() ? { final_type: selection.finalType.trim() } : {}),
-          ...(selection.note?.trim() ? { note: selection.note.trim() } : {}),
-        };
-      }),
+      decisions: reviewDecisions(pending, selections),
     }, reviewRequestKey.current || (reviewRequestKey.current = crypto.randomUUID())),
     onError: async (error) => {
       // An error thrown while waiting after a successful PATCH must leave the
@@ -102,12 +74,12 @@ export default function ReviewPage() {
         );
         if (!stillPending && latest.pending_proposals === 0) {
           if (latest.status === "completed" && latest.narrative_report?.trim()) {
-            client.setQueryData(["profile", runId], latest);
+            client.setQueryData(profileQueryKey(workspaceId, runId), latest);
             router.replace(profileReturnPath(runId));
           } else if (latest.status === "resuming") {
             awaitingNarrative.current = true;
             const ready = await waitForProfileReady(runId);
-            client.setQueryData(["profile", runId], ready);
+            client.setQueryData(profileQueryKey(workspaceId, runId), ready);
             router.replace(profileReturnPath(runId));
           }
         }
@@ -119,7 +91,7 @@ export default function ReviewPage() {
     onSuccess: async (confirmed) => {
       // This is a backend response, not optimistic UI state. It immediately
       // replaces the fields that decide whether review is still required.
-      client.setQueryData<Profile>(["profile", runId], (current) => current && ({
+      client.setQueryData<Profile>(profileQueryKey(workspaceId, runId), (current) => current && ({
         ...current,
         status: confirmed.status,
         pending_proposals: confirmed.pending_proposals,
@@ -131,9 +103,10 @@ export default function ReviewPage() {
       if (confirmed.pending_proposals === 0 && confirmed.status === "resuming") {
         awaitingNarrative.current = true;
         const ready = await waitForProfileReady(runId);
-        client.setQueryData(["profile", runId], ready);
+        client.setQueryData(profileQueryKey(workspaceId, runId), ready);
       }
-      client.invalidateQueries({ queryKey: ["profiling-job", runId] });
+      client.invalidateQueries({ queryKey: profilingJobQueryKey(workspaceId, runId) });
+      client.invalidateQueries({ queryKey: profileSummaryQueryKey(workspaceId, runId) });
       reviewRequestKey.current = null;
       awaitingNarrative.current = false;
       router.replace(profileReturnPath(runId));
@@ -155,7 +128,7 @@ export default function ReviewPage() {
     });
   }
 
-  function updateSelection(id: string, patch: Partial<Selection>) {
+  function updateSelection(id: string, patch: Partial<ReviewSelection>) {
     setSelections((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   }
 
@@ -163,14 +136,7 @@ export default function ReviewPage() {
     setSelections(Object.fromEntries(pending.map(({ proposal }) => [proposal.id, { decision }])));
   }
 
-  const completeSelection = pending.length > 0
-    && pending.every(({ proposal }) => {
-      const selection = selections[proposal.id];
-      const finalType = selection?.finalType?.trim() || "";
-      const reviewNote = selection?.note?.trim() || "";
-      return Boolean(selection?.decision)
-        && (selection?.decision !== "edit" || Boolean(finalType && reviewNote.length >= 3));
-    });
+  const completeSelection = reviewSelectionsComplete(pending, selections);
 
   if (profile.isLoading) return <LoadingBlock label="Đang tải đề xuất cần review…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;

@@ -15,4 +15,10 @@ describe("parseSseChunk", () => {
     const second = parseSseChunk(' chào"}\n\n', first.remainder);
     expect(second.events).toEqual([{ event: "token", data: { text: "xin chào" } }]);
   });
+
+  it("preserves event ids for duplicate tolerance", () => {
+    expect(parseSseChunk("id: milestone-1\nevent: ready\ndata: {}\n\n").events).toEqual([
+      { id: "milestone-1", event: "ready", data: {} },
+    ]);
+  });
 });

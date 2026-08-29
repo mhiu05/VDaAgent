@@ -3880,6 +3880,24 @@ class Repository:
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
 
+    def profile_job_request_hashes_for_prefix(
+        self,
+        *,
+        workspace_id: str,
+        created_by_user_id: str,
+        idempotency_key_prefix: str,
+    ) -> set[str]:
+        """Return persisted batch request hashes without reading job payloads."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                select(profile_runs.c.job_request_hash).where(
+                    profile_runs.c.workspace_id == workspace_id,
+                    profile_runs.c.created_by_user_id == created_by_user_id,
+                    profile_runs.c.job_idempotency_key.startswith(idempotency_key_prefix),
+                )
+            ).scalars()
+            return {str(value) for value in rows if value}
+
     def claim_profile_job(
         self, *, worker_id: str, lease_seconds: int
     ) -> dict[str, Any] | None:
@@ -4438,6 +4456,66 @@ class Repository:
                 query = query.where(profile_runs.c.workspace_id == workspace_id)
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
+
+    def get_profile_summary(
+        self, run_id: str, *, workspace_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Project only the fields needed to render Command Center progress."""
+        column_count = (
+            select(func.count())
+            .select_from(column_stats)
+            .where(column_stats.c.profile_run_id == profile_runs.c.id)
+            .scalar_subquery()
+        )
+        pending_proposals = sum(
+            (
+                select(func.count())
+                .select_from(table)
+                .where(
+                    table.c.profile_run_id == profile_runs.c.id,
+                    table.c.status == "pending",
+                )
+                .scalar_subquery()
+            )
+            for table in PROPOSAL_TABLES.values()
+        )
+        query = select(
+            profile_runs.c.id,
+            profile_runs.c.dataset_id,
+            profile_runs.c.status,
+            profile_runs.c.job_status,
+            profile_runs.c.scan_mode,
+            profile_runs.c.row_count,
+            profile_runs.c.risk_warnings,
+            datasets.c.name.label("dataset_name"),
+            column_count.label("column_count"),
+            pending_proposals.label("pending_proposals"),
+        ).select_from(
+            profile_runs.join(datasets, datasets.c.id == profile_runs.c.dataset_id)
+        ).where(profile_runs.c.id == run_id)
+        if workspace_id is not None:
+            query = query.where(profile_runs.c.workspace_id == workspace_id)
+        # The SSE endpoint calls this projection repeatedly. Keep its three
+        # counters in the same short, read-only connection instead of opening
+        # a transaction per counter or retaining one for the stream lifetime.
+        with self.engine.connect() as conn:
+            run = conn.execute(query).mappings().first()
+        if not run:
+            return None
+        warnings = run.get("risk_warnings") or []
+        return {
+            "profile_run_id": str(run["id"]),
+            "dataset_id": str(run["dataset_id"]),
+            "dataset_name": run.get("dataset_name"),
+            "status": str(run.get("status") or "created"),
+            "job_status": run.get("job_status"),
+            "scan_mode": run.get("scan_mode"),
+            "row_count": run.get("row_count"),
+            "column_count": int(run.get("column_count") or 0),
+            "warning_count": len(warnings) if isinstance(warnings, list) else 0,
+            "pending_proposals": int(run.get("pending_proposals") or 0),
+            "context_version_id": None,
+        }
 
     def list_profile_runs(
         self,
@@ -5584,6 +5662,11 @@ def build_engine(settings: Settings | None = None) -> Engine:
             future=True,
             poolclass=NullPool,
             pool_pre_ping=True,
+            # Supavisor transaction pooling can hand the next query to a
+            # different backend connection, where psycopg's generated named
+            # prepared statement already exists. Disable client prepares just
+            # as the LangGraph checkpointer does for this pooler mode.
+            connect_args={"prepare_threshold": None},
         )
     else:
         # Local PostgreSQL benefits from a small bounded pool. Never use

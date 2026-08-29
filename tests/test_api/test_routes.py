@@ -781,6 +781,127 @@ def test_uploaded_datasets_can_be_named_as_one_collection(client: TestClient) ->
     }
 
 
+def test_dataset_profile_submission_is_idempotent_before_collection_mutation(
+    client: TestClient, monkeypatch
+) -> None:
+    headers = _analyst_headers(client, monkeypatch)
+    upload = client.post(
+        "/api/v1/datasets/upload",
+        headers=headers,
+        files={"file": ("orders.csv", b"id,total\n1,100\n", "text/csv")},
+    )
+    assert upload.status_code == 201, upload.text
+    dataset_id = upload.json()["dataset_id"]
+    key = uuid4().hex
+    payload = {
+        "dataset_name": "orders",
+        "collection_name": "August orders",
+        "scan_mode": "sample",
+    }
+
+    created = client.post(
+        f"/api/v1/datasets/{dataset_id}/profile",
+        headers={**headers, "Idempotency-Key": key},
+        json=payload,
+    )
+    assert created.status_code == 202, created.text
+    body = created.json()
+    assert body["dataset_id"] == dataset_id
+    assert body["status"] == "queued"
+    assert body["next_action"] == "wait"
+
+    duplicate = client.post(
+        f"/api/v1/datasets/{dataset_id}/profile",
+        headers={**headers, "Idempotency-Key": key},
+        json=payload,
+    )
+    assert duplicate.status_code == 202, duplicate.text
+    assert duplicate.json()["run_id"] == body["run_id"]
+    assert duplicate.json()["duplicate"] is True
+
+    conflicting = client.post(
+        f"/api/v1/datasets/{dataset_id}/profile",
+        headers={**headers, "Idempotency-Key": key},
+        json={**payload, "collection_name": "Should not replace August"},
+    )
+    assert conflicting.status_code == 409, conflicting.text
+
+    datasets = client.get("/api/v1/datasets", headers=headers)
+    assert datasets.status_code == 200, datasets.text
+    stored = next(item for item in datasets.json() if item["id"] == dataset_id)
+    assert stored["collection_name"] == "August orders"
+
+
+def test_batch_profile_partial_failure_retry_and_workspace_isolation(
+    client: TestClient, monkeypatch
+) -> None:
+    first_headers = _analyst_headers(client, monkeypatch)
+    first = client.post(
+        "/api/v1/datasets/upload",
+        headers=first_headers,
+        files={"file": ("orders.csv", b"id,total\n1,100\n", "text/csv")},
+    )
+    assert first.status_code == 201, first.text
+    dataset_id = first.json()["dataset_id"]
+    key = uuid4().hex
+    batch = {
+        "dataset_ids": [dataset_id, "dataset-not-in-workspace"],
+        "collection_name": "Batch August",
+        "scan_mode": "sample",
+    }
+
+    submitted = client.post(
+        "/api/v1/datasets/profile",
+        headers={**first_headers, "Idempotency-Key": key},
+        json=batch,
+    )
+    assert submitted.status_code == 202, submitted.text
+    created, failed = submitted.json()
+    assert created["dataset_id"] == dataset_id
+    assert created["status"] == "queued"
+    assert failed["dataset_id"] == "dataset-not-in-workspace"
+    assert failed["status"] == "failed"
+
+    retried = client.post(
+        "/api/v1/datasets/profile",
+        headers={**first_headers, "Idempotency-Key": key},
+        json=batch,
+    )
+    assert retried.status_code == 202, retried.text
+    assert retried.json()[0]["run_id"] == created["run_id"]
+    assert retried.json()[0]["duplicate"] is True
+
+    changed_batch = client.post(
+        "/api/v1/datasets/profile",
+        headers={**first_headers, "Idempotency-Key": key},
+        json={**batch, "collection_name": "Different batch"},
+    )
+    assert changed_batch.status_code == 409, changed_batch.text
+
+    summary = client.get(
+        f"/api/v1/profile/{created['run_id']}/summary", headers=first_headers
+    )
+    assert summary.status_code == 200, summary.text
+    assert set(summary.json()) == {
+        "profile_run_id", "dataset_id", "dataset_name", "status", "job_status",
+        "scan_mode", "row_count", "column_count", "warning_count",
+        "pending_proposals", "context_version_id", "next_action",
+    }
+
+    second_headers = _analyst_headers(client, monkeypatch)
+    for path in (
+        f"/api/v1/profile/{created['run_id']}/summary",
+        f"/api/v1/profiling-jobs/{created['job_id']}/events",
+        f"/api/v1/datasets/{dataset_id}/profile",
+    ):
+        response = client.get(path, headers=second_headers) if path.endswith(("summary", "events")) else client.post(
+            path,
+            headers={**second_headers, "Idempotency-Key": uuid4().hex},
+            json={"scan_mode": "sample"},
+        )
+        assert response.status_code == 404, response.text
+
+
 def test_upload_rejects_path_traversal_name(client: TestClient) -> None:
     """Tên file dạng `../../etc/passwd.csv` phải bị làm sạch, không ghi ra ngoài."""
     upload = client.post(

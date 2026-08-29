@@ -1,6 +1,7 @@
 export interface SseEvent<T = unknown> {
   event: string;
   data: T;
+  id?: string;
 }
 
 /** Parses complete SSE frames and keeps an incomplete tail for the next chunk. */
@@ -10,17 +11,19 @@ export function parseSseChunk(chunk: string, remainder = ""): { events: SseEvent
   const tail = frames.pop() ?? "";
   const events = frames.flatMap((frame) => {
     let event = "message";
+    let id: string | undefined;
     const dataLines: string[] = [];
     for (const line of frame.split(/\r?\n/)) {
       if (line.startsWith("event:")) event = line.slice(6).trim();
+      if (line.startsWith("id:")) id = line.slice(3).trim();
       if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
     }
     if (!dataLines.length) return [];
     const payload = dataLines.join("\n");
     try {
-      return [{ event, data: JSON.parse(payload) }];
+      return [{ event, data: JSON.parse(payload), ...(id ? { id } : {}) }];
     } catch {
-      return [{ event, data: payload }];
+      return [{ event, data: payload, ...(id ? { id } : {}) }];
     }
   });
   return { events, remainder: tail };

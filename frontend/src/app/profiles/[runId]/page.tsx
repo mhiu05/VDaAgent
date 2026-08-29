@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { getProfile } from "@/lib/api";
+import { profileQueryKey } from "@/lib/profile-query-keys";
 import { formatNumber, formatPercent, toTitle } from "@/lib/format";
 import { MarkdownContent } from "@/components/markdown";
 import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, Metric, Notice, PageHeader, StatusBadge } from "@/components/ui";
 import { CommandCenterShell } from "@/components/command-center/command-center-shell";
+import { useAuth } from "@/components/auth-provider";
 import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
 
 
@@ -26,15 +28,9 @@ function provenanceScanCopy(scanMode?: string | null, approximate?: boolean) {
 
 function ProfileOverview() {
   const { runId } = useParams<{ runId: string }>();
+  const { workspaceId } = useAuth();
   const profile = useQuery({
-    queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      return ["created", "queued", "running", "resuming"].includes(data?.status || "")
-        || (data?.status === "completed" && !data.narrative_report)
-        ? 3_000
-        : false;
-    },
+    queryKey: profileQueryKey(workspaceId, runId), queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId && workspaceId),
   });
   if (profile.isLoading) return <LoadingBlock label="Đang tải báo cáo profile…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
