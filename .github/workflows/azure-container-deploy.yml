@@ -28,6 +28,7 @@ env:
   ACR_LOGIN_SERVER: p170linh260829acr.azurecr.io
   BACKEND_APP: vdaagent-api
   WORKER_APP: ${{ vars.AZURE_PROFILING_WORKER_APP }}
+  WORKER_APP_SERVICE_PLAN: asp-vdaagent-worker
   FRONTEND_APP: vdaagent
   BACKEND_URL: https://vdaagent-api.azurewebsites.net
   FRONTEND_URL: https://vdaagent.azurewebsites.net
@@ -247,6 +248,26 @@ jobs:
             --output none
           az account set --subscription "$AZURE_SUBSCRIPTION_ID"
           echo "AZURE_CONFIG_DIR_HOST=$azure_config_dir" >> "$GITHUB_ENV"
+
+      - name: Ensure profiling worker uses dedicated plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          az() {
+            docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" az "$@"
+          }
+          worker_plan_id="$(az appservice plan show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WORKER_APP_SERVICE_PLAN" \
+            --query id -o tsv)"
+          worker_app_id="$(az webapp show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WORKER_APP" \
+            --query id -o tsv)"
+          az resource update \
+            --ids "$worker_app_id" \
+            --set "properties.serverFarmId=$worker_plan_id" \
+            --output none
 
       - name: Log in to Azure Container Registry
         shell: bash
