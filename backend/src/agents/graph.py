@@ -36,6 +36,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy.engine import make_url
+
 from langgraph.graph import END, StateGraph
 from src.agents.nodes.profiling_nodes import (
     compute_stats_node,
@@ -69,6 +71,15 @@ MAX_DEEP_ANALYSIS = 5
 # --------------------------------------------------------------------------- #
 # Checkpointer
 # --------------------------------------------------------------------------- #
+def _uses_supabase_transaction_pooler(url: str) -> bool:
+    """Whether a checkpointer connection can be reassigned between requests."""
+    parsed = make_url(url)
+    return (
+        "pooler.supabase.com" in (parsed.host or "").lower()
+        and parsed.port == 6543
+    )
+
+
 def build_checkpointer() -> Any:
     """Tạo PostgreSQL checkpointer theo `settings.checkpointer_url` (ADR-009)."""
     settings = get_settings()
@@ -91,14 +102,21 @@ def build_checkpointer() -> Any:
             # Keep this pool to one connection for Supabase session-mode
             # poolers. The metadata repository uses NullPool for the same
             # remote pooler, so an API and worker do not reserve idle sessions.
-            pool_limit = 1 if "pooler.supabase.com" in url.lower() else 2
+            is_supabase_pooler = "pooler.supabase.com" in url.lower()
+            pool_limit = 1 if is_supabase_pooler else 2
+            connection_kwargs: dict[str, Any] = {
+                "autocommit": True,
+                "row_factory": dict_row,
+            }
+            # Transaction pooling can reassign a connection between queries;
+            # psycopg named prepared statements are therefore unsafe only on
+            # Supavisor's transaction endpoint. Session and normal PostgreSQL
+            # connections retain psycopg's default prepared-statement behavior.
+            if _uses_supabase_transaction_pooler(url):
+                connection_kwargs["prepare_threshold"] = None
             pool = ConnectionPool(
                 conninfo=url,
-                kwargs={
-                    "autocommit": True,
-                    "prepare_threshold": 0,
-                    "row_factory": dict_row,
-                },
+                kwargs=connection_kwargs,
                 min_size=1,
                 max_size=pool_limit,
                 max_idle=300,

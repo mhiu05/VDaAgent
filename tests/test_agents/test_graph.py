@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END
 from src.agents.graph import (
     MAX_TOOL_CALLS,
+    _uses_supabase_transaction_pooler,
     build_profiling_graph,
     build_qa_graph,
     route_after_summarize,
@@ -26,6 +27,26 @@ from src.agents.nodes.qa_nodes import (
     qa_vector_node,
 )
 from src.agents.state import initial_profiling_state, initial_qa_state
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("postgresql://user:password@db.example.com:5432/p170", False),
+        (
+            "postgresql://user:password@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres",
+            False,
+        ),
+        (
+            "postgresql://user:password@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres",
+            True,
+        ),
+    ],
+)
+def test_checkpointer_disables_prepared_statements_only_for_transaction_pooling(
+    url: str, expected: bool
+) -> None:
+    assert _uses_supabase_transaction_pooler(url) is expected
 
 
 def test_profiling_graph_compiles_with_hitl_interrupt() -> None:
