@@ -36,8 +36,8 @@ env:
 jobs:
   backend-quality:
     name: Backend quality
-    # Empty on push and pull_request, so the gate only lifts for a manual run.
-    if: ${{ !inputs.skip_quality }}
+    # Pushes deploy directly; pull requests and manual runs keep the quality gate.
+    if: ${{ github.event_name != 'push' && !inputs.skip_quality }}
     runs-on: self-hosted
     timeout-minutes: 35
     services:
@@ -94,7 +94,7 @@ jobs:
 
   frontend-quality:
     name: Frontend quality
-    if: ${{ !inputs.skip_quality }}
+    if: ${{ github.event_name != 'push' && !inputs.skip_quality }}
     runs-on: self-hosted
     timeout-minutes: 35
     steps:
@@ -261,13 +261,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build \
+          backend_image="$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
+          docker buildx build \
+            --push \
             -f Dockerfile.backend.azure \
-            -t "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
+            -t "$backend_image" \
             -t "$ACR_LOGIN_SERVER/backend:latest" \
             .
-          docker push "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
-          docker push "$ACR_LOGIN_SERVER/backend:latest"
+          # The remote BuildKit exporter does not populate the host daemon.
+          # Pull the immutable release image back for the migration container.
+          docker pull "$backend_image"
 
       - name: Build and push frontend image
         shell: bash
@@ -278,7 +281,8 @@ jobs:
           NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
         run: |
           set -euo pipefail
-          docker build \
+          docker buildx build \
+            --push \
             -f Dockerfile.frontend.azure \
             --build-arg NEXT_PUBLIC_API_URL="$BACKEND_URL/api/v1" \
             --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
@@ -290,8 +294,6 @@ jobs:
             -t "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
             -t "$ACR_LOGIN_SERVER/frontend:latest" \
             frontend
-          docker push "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}"
-          docker push "$ACR_LOGIN_SERVER/frontend:latest"
 
       - name: Run Alembic migrations
         shell: bash
