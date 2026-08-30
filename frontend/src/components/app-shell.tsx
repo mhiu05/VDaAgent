@@ -302,6 +302,18 @@ function AppShellContent({ children }: { children: ReactNode }) {
       <aside className="sidebar"
         aria-label="Điều hướng chính"
       >
+        <div className="workspace-rail-brand">
+          <Link href="/" className="workspace-rail-brand-link" aria-label="VDaAgent - Trang chủ">
+            <span className="workspace-rail-brand-mark" aria-hidden="true">
+              <Image src="/img/logo.png" alt="" width={52} height={52} unoptimized />
+            </span>
+            <span className="workspace-rail-brand-copy">
+              <b>VDaAgent</b>
+              <small>DATA PROFILING</small>
+            </span>
+          </Link>
+          <span className="workspace-rail-brand-arc">ARC 01</span>
+        </div>
         {isAdmin ? (
           <div className="sidebar-top">
             <Link
@@ -397,7 +409,13 @@ function AppShellContent({ children }: { children: ReactNode }) {
         />
       )}
       {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><div className="history-modal-header-actions"><button type="button" className="history-clear-button" onClick={removeAllConversations}>Xóa tất cả</button><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div></div><div className="history-modal-list">{conversations.map((conversation) => <div className="history-modal-row" key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>)}</div></section></div>}
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        <div className="workspace-canvas-ribbon" aria-hidden="true">
+          <span>VDaAgent / EVIDENCE-FIRST</span>
+          <span>WORKSPACE ARC 01</span>
+        </div>
+        {children}
+      </main>
     </div>
   );
 

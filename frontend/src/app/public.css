@@ -1138,3 +1138,62 @@
   .pub-cta-panel { padding-inline: 22px; box-shadow: 5px 7px 0 var(--pub-coral); }
   .pub-cta-sun { top: 13px; left: 18px; }
 }
+
+/* Keep the public surface and workspace on the same visual contract. */
+:root {
+  --pub-bg: var(--vda-paper);
+  --pub-surface: var(--vda-surface);
+  --pub-ink: var(--vda-ink);
+  --pub-muted: var(--vda-muted);
+  --pub-border: var(--vda-line);
+  --pub-brand: var(--vda-violet);
+  --pub-brand-hover: var(--vda-violet-deep);
+  --pub-brand-tint: var(--vda-violet-tint);
+  --pub-mint: var(--vda-mint);
+  --pub-mint-tint: var(--vda-mint-soft);
+  --pub-coral: var(--vda-coral);
+  --pub-yellow: var(--vda-yellow);
+  --pub-dark-preview: var(--vda-night);
+  --pub-font: var(--vda-font);
+}
+
+[data-theme="dark"] {
+  --pub-bg: var(--vda-paper);
+  --pub-surface: var(--vda-surface);
+  --pub-ink: var(--vda-ink);
+  --pub-muted: var(--vda-muted);
+  --pub-border: var(--vda-line);
+  --pub-brand: var(--vda-violet);
+  --pub-brand-hover: var(--vda-violet-deep);
+  --pub-brand-tint: var(--vda-violet-tint);
+  --pub-mint: var(--vda-mint);
+  --pub-mint-tint: var(--vda-mint-soft);
+  --pub-coral: var(--vda-coral);
+  --pub-yellow: var(--vda-yellow);
+  --pub-dark-preview: var(--vda-night);
+  --pub-font: var(--vda-font);
+}
+
+/* Keep the public navbar close to the viewport edge without touching it. */
+.main-content.home-only-content {
+  padding-top: 0;
+}
+
+.pub-navbar-wrapper {
+  top: 10px;
+  padding-inline: 20px;
+}
+
+@media (max-width: 900px) {
+  .pub-navbar-wrapper {
+    top: 7px;
+    padding-inline: 12px;
+  }
+}
+
+@media (max-width: 700px) {
+  .pub-navbar-wrapper {
+    top: 6px;
+    padding-inline: 10px;
+  }
+}
