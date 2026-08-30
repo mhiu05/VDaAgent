@@ -14,7 +14,10 @@ const authState = {
   signOut: vi.fn(),
 };
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/",
+  useRouter: () => ({ prefetch: vi.fn() }),
+}));
 vi.mock("next/image", () => ({ default: () => <span aria-hidden="true" /> }));
 vi.mock("@/components/auth-provider", () => ({ useAuth: () => authState }));
 

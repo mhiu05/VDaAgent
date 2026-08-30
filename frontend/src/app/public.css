@@ -1187,11 +1187,86 @@
   padding-inline: 20px;
 }
 
+/* Keep public navigation responsive while the next page is being fetched. */
+.pub-navbar-wrapper[data-nav-pending="true"]::after {
+  position: fixed;
+  z-index: 200;
+  top: 0;
+  left: 0;
+  width: 34%;
+  height: 3px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(90deg, var(--pub-coral), var(--pub-brand), var(--pub-mint));
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--pub-brand) 42%, transparent);
+  content: "";
+  animation: pub-nav-progress 1.1s cubic-bezier(.22, .61, .36, 1) infinite;
+}
+.pub-nav-link.pending {
+  position: relative;
+  color: var(--pub-brand) !important;
+}
+.pub-nav-action.pending {
+  position: relative;
+  pointer-events: none;
+}
+.pub-nav-action.pending::after {
+  width: .8rem;
+  height: .8rem;
+  margin-left: .5rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: pub-nav-action-spin .65s linear infinite;
+}
+.pub-nav-action.pending[aria-busy="true"] {
+  opacity: .84;
+}
+.pub-nav-link.pending::after {
+  position: absolute;
+  right: 10px;
+  bottom: 2px;
+  left: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--pub-brand);
+  content: "";
+  animation: pub-nav-pulse 1s ease-in-out infinite;
+}
+.pub-nav-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes pub-nav-progress {
+  0% { transform: translateX(-120%); opacity: .2; }
+  25% { opacity: 1; }
+  100% { transform: translateX(330%); opacity: .8; }
+}
+@keyframes pub-nav-action-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes pub-nav-pulse {
+  0%, 100% { transform: scaleX(.65); opacity: .45; }
+  50% { transform: scaleX(1); opacity: 1; }
+}
+
 @media (max-width: 900px) {
   .pub-navbar-wrapper {
     top: 7px;
     padding-inline: 12px;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pub-navbar-wrapper[data-nav-pending="true"]::after,
+  .pub-nav-link.pending::after,
+  .pub-nav-action.pending::after { animation: none; }
 }
 
 @media (max-width: 700px) {

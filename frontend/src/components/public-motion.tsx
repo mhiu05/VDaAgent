@@ -4,7 +4,9 @@ import { useLayoutEffect, type RefObject } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-gsap.registerPlugin(ScrollTrigger);
+if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 type PublicMotionProps = { rootRef: RefObject<HTMLElement | null> };
 type MotionConditions = { reduced: boolean; desktop: boolean };
@@ -85,5 +87,40 @@ export function PublicMotion({ rootRef }: PublicMotionProps) {
     };
   }, [rootRef]);
 
+  return null;
+}
+
+/** Lightweight reveals for public content pages; selectors stay inside
+ * .pub-content so Workspace routes are never affected. */
+export function PublicPageMotion() {
+  useLayoutEffect(() => {
+    const root = document.querySelector<HTMLElement>(".pub-content");
+    if (!root) return;
+
+    const media = gsap.matchMedia();
+    const context = gsap.context(() => {
+      media.add({
+        reduced: "(prefers-reduced-motion: reduce)",
+        motion: "(prefers-reduced-motion: no-preference)",
+      }, (mediaContext) => {
+        const reduced = Boolean((mediaContext.conditions as { reduced: boolean }).reduced);
+        const heroItems = root.querySelectorAll<HTMLElement>(".pub-page-hero .pub-container > *");
+        const revealItems = root.querySelectorAll<HTMLElement>(
+          ".pub-section:not(.pub-page-hero) .pub-section-header, .pub-capability-card, .pub-glossary-grid article, .pub-status-list article, .pub-guide-step, .pub-principles-grid article, .pub-callout, .pub-architecture-flow > div, .pub-architecture-note, .pub-recap",
+        );
+        const allItems = [...heroItems, ...revealItems];
+        if (reduced) {
+          gsap.set(allItems, { clearProps: "all" });
+          return;
+        }
+        gsap.fromTo(heroItems, { autoAlpha: 0, y: 18 }, { autoAlpha: 1, y: 0, duration: 0.62, stagger: 0.08, ease: "power3.out" });
+        revealItems.forEach((element) => {
+          gsap.fromTo(element, { autoAlpha: 0, y: 22 }, { autoAlpha: 1, y: 0, duration: 0.68, ease: "power3.out", scrollTrigger: { trigger: element, start: "top 88%", once: true } });
+        });
+        return () => undefined;
+      }, root);
+    }, root);
+    return () => { media.revert(); context.revert(); };
+  }, []);
   return null;
 }
