@@ -39,6 +39,33 @@ function renderWorkspace() {
 }
 
 describe("CompareWorkspace", () => {
+  it("renders every evidence column and counts severity by signal", async () => {
+    api.detectDrift.mockResolvedValue({
+      baseline_run_id: baseline.id,
+      current_run_id: current.id,
+      summary: "Three drift signals detected.",
+      findings: [
+        { column_name: "net_revenue", drift_type: "numeric_shift", severity: "major", metric: "mean", baseline_value: 120, current_value: 220, psi: null, detail: "mean shift" },
+        { column_name: "net_revenue", drift_type: "null_rate_shift", severity: "minor", metric: "null_pct", baseline_value: 0, current_value: 10, psi: null, detail: "null shift" },
+        { column_name: "region", drift_type: "column_added", severity: "minor", metric: null, baseline_value: null, current_value: null, psi: null, detail: "new column" },
+      ],
+    });
+    const { container } = renderWorkspace();
+    await waitFor(() => expect(container.querySelector("#compare-baseline")).toBeTruthy());
+
+    fireEvent.change(container.querySelector("#compare-baseline")!, { target: { value: baseline.id } });
+    fireEvent.change(container.querySelector("#compare-current")!, { target: { value: current.id } });
+    fireEvent.click(screen.getByRole("button", { name: "So sánh dữ liệu" }));
+
+    expect(await screen.findByText("Three drift signals detected.")).toBeTruthy();
+    expect(screen.getByText("mean shift")).toBeTruthy();
+    expect(screen.getByText("null shift")).toBeTruthy();
+    expect(screen.getByText("new column")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "region" })).toBeTruthy();
+    expect(container.querySelectorAll(".compare-detail-panel")).toHaveLength(2);
+    expect(Array.from(container.querySelectorAll(".compare-summary-grid article b")).map((node) => node.textContent)).toEqual(["1", "2", "2"]);
+  });
+
   afterEach(() => {
     cleanup();
   });

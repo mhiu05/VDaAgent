@@ -32,7 +32,7 @@ test("analyst compares two completed Profile Runs through the drift API", async 
       body: JSON.stringify({
         baseline_run_id: "baseline-run",
         current_run_id: "current-run",
-        summary: "One numeric drift signal detected.",
+        summary: "Three drift signals detected.",
         findings: [{
           column_name: "net_revenue",
           drift_type: "numeric_shift",
@@ -42,6 +42,24 @@ test("analyst compares two completed Profile Runs through the drift API", async 
           current_value: 220,
           psi: null,
           detail: "mean shifted from the baseline.",
+        }, {
+          column_name: "net_revenue",
+          drift_type: "null_rate_shift",
+          severity: "minor",
+          metric: "null_pct",
+          baseline_value: 0,
+          current_value: 10,
+          psi: null,
+          detail: "null shifted from the baseline.",
+        }, {
+          column_name: "region",
+          drift_type: "column_added",
+          severity: "minor",
+          metric: null,
+          baseline_value: null,
+          current_value: null,
+          psi: null,
+          detail: "new column appeared.",
         }],
       }),
     });
@@ -55,7 +73,11 @@ test("analyst compares two completed Profile Runs through the drift API", async 
   await page.locator("#compare-current").selectOption("current-run");
   await page.getByRole("button", { name: "So sánh dữ liệu", exact: true }).click();
 
-  await expect(page.getByText("One numeric drift signal detected.")).toBeVisible();
+  await expect(page.getByText("Three drift signals detected.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "net_revenue" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "region" })).toBeVisible();
   await expect(page.getByText("220", { exact: true })).toBeVisible();
+  await expect(page.locator(".compare-detail-panel")).toHaveCount(2);
+  await expect(page.locator(".compare-summary-grid article b").nth(0)).toHaveText("1");
+  await expect(page.locator(".compare-summary-grid article b").nth(1)).toHaveText("2");
 });
