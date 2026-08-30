@@ -1,9 +1,9 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, type ReportDraft } from "@/lib/api";
+import { type ReportDraft } from "@/lib/api";
 import ReportPage from "./page";
 
 const api = vi.hoisted(() => ({
@@ -50,8 +50,7 @@ const draft: ReportDraft = {
   ],
 };
 
-function renderPage(client: QueryClient) {
-  api.getReportExportSource.mockResolvedValue({
+function renderPage(client: QueryClient, exportSource: any = {
     profile: {
       run: { id: "run-1", risk_warnings: [], narrative_report: "", created_at: null, row_count: 0, scan_mode: "sample" },
       dataset: { name: "Dataset" },
@@ -59,19 +58,21 @@ function renderPage(client: QueryClient) {
       drift_reports: [],
     },
     report_snapshot: { title: "Draft", items: draft.items },
-  });
+  }) {
+  api.getReportExportSource.mockResolvedValue(exportSource);
   api.getProfileReportDraft.mockResolvedValue(draft);
   const view = render(<QueryClientProvider client={client}><ReportPage /></QueryClientProvider>);
   return view;
 }
 
 async function openEditor() {
-  await screen.findByRole("button", { name: /chỉnh sửa report draft/i });
-  fireEvent.click(screen.getByRole("button", { name: /chỉnh sửa report draft/i }));
-  await screen.findAllByRole("button", { name: /edit/i });
+  const editButtons = await screen.findAllByRole("button", { name: "Chỉnh sửa" });
+  await waitFor(() => expect((editButtons[0] as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(editButtons[0]);
+  await screen.findByRole("button", { name: /lưu thay đổi/i });
 }
 
-describe("Report draft optimistic mutations", () => {
+describe("Final report item mutations", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
@@ -84,53 +85,88 @@ describe("Report draft optimistic mutations", () => {
     api.snapshotReportDraft.mockReset();
   });
 
-  it("updates an item in the cache before the server confirms it", async () => {
-    let resolve!: (value: ReportDraft) => void;
-    api.updateReportDraftItem.mockReturnValue(new Promise<ReportDraft>((done) => { resolve = done; }));
+  it("updates a draft item and snapshots the new final report", async () => {
+    api.updateReportDraftItem.mockResolvedValue(draft);
+    api.snapshotReportDraft.mockResolvedValue(draft);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     renderPage(client);
     await openEditor();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /edit/i })[0]);
     fireEvent.change(screen.getByDisplayValue("Before"), { target: { value: "After" } });
     fireEvent.click(screen.getByRole("button", { name: /lưu thay đổi/i }));
 
-    await waitFor(() => expect((client.getQueryData<ReportDraft>(key)?.items[0].title)).toBe("After"));
-    expect(api.updateReportDraftItem).toHaveBeenCalledWith("report-1", "item-a", { title: "After", note: "Original" });
-
-    await act(async () => resolve(draft));
+    await waitFor(() => expect(api.updateReportDraftItem).toHaveBeenCalledWith("report-1", "item-a", { title: "After", note: "Original" }));
+    await waitFor(() => expect(api.snapshotReportDraft).toHaveBeenCalledWith("report-1"));
   });
 
-  it("rolls an item back when the server rejects the edit", async () => {
+  it("keeps the editor open and shows the error when the server rejects the edit", async () => {
     api.updateReportDraftItem.mockRejectedValue(new Error("offline"));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     renderPage(client);
     await openEditor();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /edit/i })[0]);
     fireEvent.change(screen.getByDisplayValue("Before"), { target: { value: "Unconfirmed" } });
     fireEvent.click(screen.getByRole("button", { name: /lưu thay đổi/i }));
 
-    await waitFor(() => expect(client.getQueryData<ReportDraft>(key)?.items[0].title).toBe("Before"));
+    await waitFor(() => expect(screen.getByText("offline")).toBeTruthy());
+    expect(api.snapshotReportDraft).not.toHaveBeenCalled();
   });
 
-  it("uses the server draft version, blocks a duplicate reorder, and recovers a 409", async () => {
-    let reject!: (error: Error) => void;
-    api.reorderReportDraft.mockReturnValue(new Promise<ReportDraft>((_resolve, fail) => { reject = fail; }));
+  it("deletes a report item only after confirmation and snapshots the result", async () => {
+    api.unpinReportDraftItem.mockResolvedValue(draft);
+    api.snapshotReportDraft.mockResolvedValue(draft);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     renderPage(client);
-    await openEditor();
-    const down = screen.getAllByTitle("Xuống")[0];
+    const deleteButtons = await screen.findAllByRole("button", { name: "Xóa" });
+    await waitFor(() => expect((deleteButtons[0] as HTMLButtonElement).disabled).toBe(false));
 
-    fireEvent.click(down);
-    fireEvent.click(down);
+    fireEvent.click(deleteButtons[0]);
 
-    await waitFor(() => expect(client.getQueryData<ReportDraft>(key)?.items.map((item) => item.id)).toEqual(["item-b", "item-a"]));
-    expect(api.reorderReportDraft).toHaveBeenCalledTimes(1);
-    expect(api.reorderReportDraft).toHaveBeenCalledWith("report-1", ["item-b", "item-a"], 7);
+    expect(confirm).toHaveBeenCalledWith("Xóa mục “Before” khỏi báo cáo cuối cùng?");
+    await waitFor(() => expect(api.unpinReportDraftItem).toHaveBeenCalledWith("report-1", "item-a"));
+    await waitFor(() => expect(api.snapshotReportDraft).toHaveBeenCalledWith("report-1"));
+    confirm.mockRestore();
+  });
 
-    await act(async () => reject(new ApiError("stale draft", 409)));
-    await waitFor(() => expect(client.getQueryData<ReportDraft>(key)?.items.map((item) => item.id)).toEqual(["item-a", "item-b"]));
-    await screen.findByText(/thứ tự báo cáo đã thay đổi/i);
+  it("collapses report parts and expands a drift column on demand", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    renderPage(client, {
+      profile: {
+        run: { id: "run-1", risk_warnings: [], narrative_report: "", created_at: null, row_count: 10, scan_mode: "full" },
+        dataset: { name: "Dataset" },
+        column_stats: [],
+        drift_reports: [{
+          profile_run_id_a: "baseline-run",
+          profile_run_id_b: "current-run",
+          summary: "Revenue shifted",
+          drift_columns: [
+            { column_name: "revenue", drift_type: "numeric_shift", severity: "major", baseline_value: 10, current_value: 20, detail: "Mean increased" },
+            { column_name: "revenue", drift_type: "null_rate_shift", severity: "minor", baseline_value: 0, current_value: 0.1, detail: "Missing values increased" },
+            { column_name: "region", drift_type: "column_added", severity: "minor", detail: "New column" },
+          ],
+        }],
+      },
+      report_snapshot: { title: "Draft", items: draft.items },
+    });
+
+    const editButtons = await screen.findAllByRole("button", { name: "Chỉnh sửa" });
+    await waitFor(() => expect((editButtons[0] as HTMLButtonElement).disabled).toBe(false));
+    const partOne = document.querySelector("#part-1") as HTMLDetailsElement;
+    const partTwo = document.querySelector("#part-2") as HTMLDetailsElement;
+    expect(partOne.open).toBe(false);
+    expect(partTwo.open).toBe(false);
+
+    fireEvent.click(partOne.querySelector("summary")!);
+    fireEvent.click(partTwo.querySelector("summary")!);
+    expect(partOne.open).toBe(true);
+    expect(partTwo.open).toBe(true);
+
+    const driftColumns = document.querySelectorAll("#sec-drift .report-drift-column");
+    expect(driftColumns).toHaveLength(2);
+    expect((driftColumns[0] as HTMLDetailsElement).open).toBe(false);
+    fireEvent.click(driftColumns[0].querySelector("summary")!);
+    expect((driftColumns[0] as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByText("Mean increased")).toBeTruthy();
   });
 });
