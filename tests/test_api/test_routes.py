@@ -714,6 +714,7 @@ def test_qa_stream_emits_done_without_error(
     ) as stream:
         events = [line.removeprefix("event: ") for line in stream.iter_lines() if line.startswith("event:")]
 
+    assert events[0] == "status"
     assert "done" in events
     assert "error" not in events
 

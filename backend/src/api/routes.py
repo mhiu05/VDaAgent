@@ -1354,25 +1354,36 @@ async def ask_question_stream(
     """
     get_rate_limiter().check(context.user_id)
     state = _qa_state(request, context)
-    agent_run_id = start_agent_run(
-        workspace_id=context.workspace_id,
-        actor_user_id=context.user_id,
-        run_type="qa",
-        resource_bindings={
-            key: value
-            for key, value in {
-                "profile_run_id": request.profile_run_id,
-                "analysis_execution_id": request.analysis_execution_id,
-                "context_version_id": request.workspace_context_version_id,
-            }.items()
-            if value
-        },
-        request_for_hash=request.model_dump(),
-    )
-    state["agent_run_id"] = agent_run_id
-
     async def generator() -> Any:
+        agent_run_id: str | None = None
         try:
+            yield _sse("status", {"stage": "starting", "detail": "Đang chuẩn bị yêu cầu…"})
+            agent_run_id = start_agent_run(
+                workspace_id=context.workspace_id,
+                actor_user_id=context.user_id,
+                run_type="qa",
+                resource_bindings={
+                    key: value
+                    for key, value in {
+                        "profile_run_id": request.profile_run_id,
+                        "analysis_execution_id": request.analysis_execution_id,
+                        "context_version_id": request.workspace_context_version_id,
+                    }.items()
+                    if value
+                },
+                request_for_hash=request.model_dump(),
+            )
+            state["agent_run_id"] = agent_run_id
+            # The graph must finish its evidence and guardrail work before an
+            # answer can be emitted. Send an immediate, truthful progress
+            # event so clients never appear stalled during that work.
+            yield _sse(
+                "status",
+                {
+                    "stage": "retrieving",
+                    "detail": "Đang tìm evidence và kiểm tra câu trả lời…",
+                },
+            )
             routed = await asyncio.to_thread(get_qa_graph().invoke, state)
             answer = _guard_qa_answer(
                 routed.get("answer") or "",
@@ -1383,6 +1394,7 @@ async def ask_question_stream(
             qtype = routed.get("question_type")
 
             yield _sse("meta", {"question_type": qtype})
+            yield _sse("status", {"stage": "generating", "detail": "Đang soạn câu trả lời…"})
 
             if qtype == "qualitative" and llm_available() and answer:
                 # Phát lại câu trả lời theo từng câu để client thấy tiến trình
@@ -1437,16 +1449,18 @@ async def ask_question_stream(
                 ),
             )
         except LLMNotConfiguredError as exc:
-            fail_agent_run(
-                agent_run_id,
-                workspace_id=context.workspace_id,
-                error=exc,
-                error_code="llm_not_configured",
-            )
+            if agent_run_id:
+                fail_agent_run(
+                    agent_run_id,
+                    workspace_id=context.workspace_id,
+                    error=exc,
+                    error_code="llm_not_configured",
+                )
             yield _sse("error", {"detail": str(exc)})
         except Exception as exc:
             logger.exception("SSE Q&A thất bại")
-            fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc)
+            if agent_run_id:
+                fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc)
             yield _sse(
                 "error",
                 {"detail": "Agent không thể hoàn tất câu trả lời. Vui lòng thử lại."},

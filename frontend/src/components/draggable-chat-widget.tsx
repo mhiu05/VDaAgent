@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useEffect, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { streamQuestion, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource } from "@/lib/types";
 import { createConversation, getConversationSnapshot, updateConversationSnapshot, listConversations, type ChatConversation, type ChatMessage } from "@/lib/chat-history";
 import { AnswerSources } from "@/components/answer-sources";
+import { MarkdownContent } from "@/components/markdown";
 import { ProfileRunPicker } from "@/components/profile-run-picker";
 
 const starters = [
@@ -39,8 +38,15 @@ function DataAnalyticsIcon({ size = 26 }: { size?: number; color?: string }) {
   );
 }
 
-function makeMessage(role: ChatMessage["role"], text: string, label?: string, sources?: AnswerSource[]): ChatMessage {
-  return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources };
+function makeMessage(
+  role: ChatMessage["role"],
+  text: string,
+  label?: string,
+  sources?: AnswerSource[],
+  status?: ChatMessage["status"],
+  statusDetail?: string,
+): ChatMessage {
+  return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources, status, statusDetail };
 }
 
 export function DraggableChatWidget({
@@ -48,7 +54,6 @@ export function DraggableChatWidget({
   onRemoveConversation,
 }: {
   conversations: ChatConversation[];
-  onNewChat?: () => void;
   onRemoveConversation: (conv: ChatConversation) => boolean | void | Promise<boolean | void>;
 }) {
   const pathname = usePathname();
@@ -77,6 +82,45 @@ export function DraggableChatWidget({
   const [isSelectedRunReady, setIsSelectedRunReady] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const streamSequenceRef = useRef(0);
+  const streamFrameRef = useRef<number | null>(null);
+
+  const replaceMessages = (nextMessages: ChatMessage[]) => {
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+  };
+
+  const updateMessages = (updater: (currentMessages: ChatMessage[]) => ChatMessage[]) => {
+    replaceMessages(updater(messagesRef.current));
+  };
+
+  const cancelActiveStream = () => {
+    streamSequenceRef.current += 1;
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    if (streamFrameRef.current !== null) {
+      window.cancelAnimationFrame(streamFrameRef.current);
+      streamFrameRef.current = null;
+    }
+    setIsThinking(false);
+  };
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => () => {
+    streamSequenceRef.current += 1;
+    streamAbortRef.current?.abort();
+    if (streamFrameRef.current !== null) window.cancelAnimationFrame(streamFrameRef.current);
+  }, []);
 
   useEffect(() => {
     positionRef.current = position;
@@ -90,12 +134,16 @@ export function DraggableChatWidget({
   // A workspace switch changes the scoped conversation list while this
   // widget stays mounted. Never keep showing context from the old workspace.
   useEffect(() => {
-    if (!activeConversationId || conversations.some((conversation) => conversation.id === activeConversationId)) return;
+    const activeConversationStillExists = conversations.some((conversation) => conversation.id === activeConversationId)
+      || listConversations().some((conversation) => conversation.id === activeConversationId);
+    if (!activeConversationId || activeConversationStillExists) return;
+    cancelActiveStream();
+    activeConversationIdRef.current = null;
     setActiveConversationId(null);
     setSelectedDatasetId("");
     setSelectedRunId("");
     setIsSelectedRunReady(false);
-    setMessages([]);
+    replaceMessages([]);
   }, [activeConversationId, conversations]);
 
   useEffect(() => {
@@ -105,14 +153,15 @@ export function DraggableChatWidget({
   // Auto-scroll messages
   useEffect(() => {
     if (isOpen && viewMode === "chat") {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current?.scrollIntoView({ behavior: isThinking ? "auto" : "smooth" });
     }
-  }, [messages, isThinking, isOpen, viewMode]);
+  }, [messages.length, isThinking, isOpen, viewMode]);
 
   // If path is a profile run, try to pre-select it
   useEffect(() => {
     const profileMatch = pathname.match(/\/profiles\/([^/?]+)/);
     if (profileMatch && profileMatch[1]) {
+      if (streamAbortRef.current) cancelActiveStream();
       setSelectedDatasetId("");
       setSelectedRunId(profileMatch[1]);
       setIsSelectedRunReady(false);
@@ -154,6 +203,7 @@ export function DraggableChatWidget({
       const routeProfileRunId = profileMatch?.[1] || "";
       const active = conversations[0];
       if (active) {
+        activeConversationIdRef.current = active.id;
         setActiveConversationId(active.id);
         const snapshot = getConversationSnapshot(active.id);
         if (snapshot) {
@@ -163,9 +213,9 @@ export function DraggableChatWidget({
           setSelectedRunId(routeProfileRunId || snapshot.profileRunId || "");
           setIsSelectedRunReady(false);
           if (snapshot.messages.length > 0) {
-            setMessages(snapshot.messages);
+            replaceMessages(snapshot.messages);
           } else {
-            setMessages([
+            replaceMessages([
               makeMessage(
                 "agent",
                 "Đã mở đoạn chat. Hãy chọn dataset/phiên profiling và đặt câu hỏi cho tôi nhé!",
@@ -177,7 +227,7 @@ export function DraggableChatWidget({
           setSelectedDatasetId("");
           setSelectedRunId("");
           setIsSelectedRunReady(false);
-          setMessages([
+          replaceMessages([
             makeMessage(
               "agent",
               "Xin chào! Tôi là Trợ lý AI Data Agent. Bạn có thể hỏi bất kỳ điều gì về dataset, thống kê cột, rủi ro PII, hay đề xuất biểu đồ ngay tại đây.",
@@ -186,7 +236,7 @@ export function DraggableChatWidget({
           ]);
         }
       } else {
-        setMessages([
+        replaceMessages([
           makeMessage(
             "agent",
             "Xin chào! Tôi là Trợ lý AI Data Agent. Bạn có thể vừa thao tác dữ liệu vừa hỏi đáp với tôi ở khung này.",
@@ -268,114 +318,226 @@ export function DraggableChatWidget({
     const query = (questionText || input).trim();
     if (!query || isThinking) return;
     if (!selectedRunId || !isSelectedRunReady) {
-      setMessages((current) => [...current, makeMessage("agent", "Hãy chọn một Profile Run đã hoàn tất trước khi hỏi để tôi trả lời đúng theo evidence của dữ liệu.", "Cần chọn Profile Run")]);
+      updateMessages((current) => [
+        ...current,
+        makeMessage("agent", "Hãy chọn một Profile Run đã hoàn tất trước khi hỏi để tôi trả lời đúng theo evidence của dữ liệu.", "Cần chọn Profile Run"),
+      ]);
       return;
     }
 
+    let conversationId = activeConversationIdRef.current;
+    if (!conversationId) {
+      const conversation = createConversation("Cuộc trò chuyện mới");
+      conversationId = conversation.id;
+      activeConversationIdRef.current = conversation.id;
+      setActiveConversationId(conversation.id);
+      setConvList(listConversations());
+    }
+
     setInput("");
-    const userMsg = makeMessage("user", query);
-    const newHistory = [...messages, userMsg];
-    setMessages(newHistory);
+    const userMessage = makeMessage("user", query);
+    const priorMessages = messagesRef.current;
+    const newHistory = [...priorMessages, userMessage];
+    const assistantMessage = makeMessage("agent", "", undefined, [], "streaming", "Đang chuẩn bị phản hồi…");
+    const initialMessages = [...newHistory, assistantMessage];
+    replaceMessages(initialMessages);
     setIsThinking(true);
 
-    const botMsgId = `${Date.now()}-${Math.random()}`;
+    const requestId = ++streamSequenceRef.current;
+    const requestController = new AbortController();
+    streamAbortRef.current = requestController;
     let botText = "";
     let botSources: AnswerSource[] = [];
+    let latestAssistant = assistantMessage;
+    let pendingFrame: number | null = null;
 
-    // History payload
+    const saveSnapshot = (nextMessages: ChatMessage[]) => {
+      updateConversationSnapshot(conversationId, {
+        messages: nextMessages,
+        profile: null,
+        datasetId: selectedDatasetId || null,
+        profileRunId: selectedRunId || null,
+      });
+    };
+
+    // Persist the question and placeholder before the request starts. This also
+    // gives an unsaved widget conversation a durable id before navigation.
+    saveSnapshot(initialMessages);
+
+    const isCurrentStream = () => (
+      streamSequenceRef.current === requestId && activeConversationIdRef.current === conversationId
+    );
+    const updateAssistant = (changes: Partial<ChatMessage>) => {
+      latestAssistant = { ...latestAssistant, ...changes };
+      if (!isCurrentStream()) return;
+      updateMessages((current) => current.map((message) => (
+        message.id === assistantMessage.id ? latestAssistant : message
+      )));
+    };
+    const flushResponse = () => {
+      pendingFrame = null;
+      streamFrameRef.current = null;
+      updateAssistant({ text: botText, sources: botSources, status: "streaming" });
+    };
+    const scheduleResponseRender = () => {
+      if (pendingFrame !== null) return;
+      pendingFrame = window.requestAnimationFrame(flushResponse);
+      streamFrameRef.current = pendingFrame;
+    };
+
     const historyPayload: QAHistoryMessage[] = newHistory
-      .filter((m) => m.role === "user" || m.role === "agent")
+      .filter((message) => message.role === "user" || message.role === "agent")
       .slice(-6)
-      .map((m) => ({ role: m.role as "user" | "agent", text: m.text }));
+      .map((message) => ({ role: message.role as "user" | "agent", text: message.text }));
 
     try {
       await streamQuestion(
         {
           question: query,
-          profile_run_id: selectedRunId || undefined,
+          profile_run_id: selectedRunId,
           history: historyPayload,
         },
         (event) => {
+          if (event.event === "status" && event.data && typeof event.data === "object") {
+            const status = event.data as { stage?: unknown; detail?: unknown };
+            const stage = String(status.stage || "");
+            const statusDetail = typeof status.detail === "string"
+              ? status.detail
+              : stage === "retrieving"
+                ? "Đang tìm evidence…"
+                : stage === "generating"
+                  ? "Đang soạn câu trả lời…"
+                  : "Đang chuẩn bị phản hồi…";
+            updateAssistant({ status: "streaming", statusDetail });
+            return;
+          }
           if (event.event === "token" && event.data && typeof event.data === "object") {
-            const token = String((event.data as { text?: unknown }).text || "");
-            botText += token;
-            setMessages((prev) => {
-              const withoutLast = prev.filter((m) => m.id !== botMsgId);
-              return [...withoutLast, { id: botMsgId, role: "agent", text: botText, sources: botSources }];
-            });
+            botText += String((event.data as { text?: unknown }).text || "");
+            scheduleResponseRender();
+            return;
+          }
+          if (event.event === "source" && event.data && typeof event.data === "object") {
+            const sourceData = event.data as { source?: unknown; sources?: unknown };
+            if (Array.isArray(sourceData.sources)) {
+              botSources = sourceData.sources as AnswerSource[];
+              updateAssistant({ sources: botSources });
+            } else if (sourceData.source && typeof sourceData.source === "object") {
+              botSources = [...botSources, sourceData.source as AnswerSource];
+              updateAssistant({ sources: botSources });
+            }
+            return;
+          }
+          if (event.event === "error") {
+            const data = event.data as { message?: unknown; detail?: unknown } | undefined;
+            const errorDetail = typeof data?.message === "string"
+              ? data.message
+              : typeof data?.detail === "string"
+                ? data.detail
+                : "Agent không thể hoàn tất phản hồi.";
+            throw new Error(errorDetail);
           }
           if (event.event === "done" && event.data && typeof event.data === "object") {
-            const doneData = event.data as { sources?: AnswerSource[] };
-            if (Array.isArray(doneData.sources)) {
-              botSources = doneData.sources;
-            }
-            setMessages((prev) => {
-              const withoutLast = prev.filter((m) => m.id !== botMsgId);
-              return [...withoutLast, { id: botMsgId, role: "agent", text: botText, sources: botSources }];
-            });
+            const doneData = event.data as { sources?: unknown };
+            if (Array.isArray(doneData.sources)) botSources = doneData.sources as AnswerSource[];
           }
-        }
+        },
+        requestController.signal,
       );
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Đã xảy ra lỗi khi kết nối với AI Agent.";
-      setMessages((prev) => [
-        ...prev,
-        { id: botMsgId, role: "agent", text: `⚠️ ${errMsg}`, label: "Lỗi kết nối" },
-      ]);
-    } finally {
-      setIsThinking(false);
-      if (activeConversationId) {
-        updateConversationSnapshot(activeConversationId, {
-          messages: [...newHistory, { id: botMsgId, role: "agent", text: botText, sources: botSources }],
-          profile: null,
-          datasetId: selectedDatasetId || null,
-          profileRunId: selectedRunId || null,
-        });
+
+      if (pendingFrame !== null) {
+        window.cancelAnimationFrame(pendingFrame);
+        pendingFrame = null;
+        streamFrameRef.current = null;
       }
+      latestAssistant = {
+        ...latestAssistant,
+        text: botText || "Agent chưa trả về nội dung. Hãy thử lại.",
+        sources: botSources,
+        status: botText ? undefined : "error",
+        statusDetail: undefined,
+      };
+    } catch (reason) {
+      if (pendingFrame !== null) {
+        window.cancelAnimationFrame(pendingFrame);
+        pendingFrame = null;
+        streamFrameRef.current = null;
+      }
+      const wasCancelled = requestController.signal.aborted || streamSequenceRef.current !== requestId;
+      const errorMessage = wasCancelled
+        ? "Phiên trả lời đã dừng khi bạn chuyển đoạn chat hoặc workspace."
+        : reason instanceof Error
+          ? reason.message
+          : "Đã xảy ra lỗi khi kết nối với AI Agent.";
+      latestAssistant = {
+        ...latestAssistant,
+        text: botText ? `${botText}\n\n⚠️ ${errorMessage}` : `⚠️ ${errorMessage}`,
+        sources: botSources,
+        label: "Lỗi kết nối",
+        status: "error",
+        statusDetail: undefined,
+      };
+    } finally {
+      const finalMessages = initialMessages.map((message) => (
+        message.id === assistantMessage.id ? latestAssistant : message
+      ));
+      saveSnapshot(finalMessages);
+      if (isCurrentStream()) replaceMessages(finalMessages);
+      if (streamAbortRef.current === requestController) streamAbortRef.current = null;
+      if (streamSequenceRef.current === requestId) setIsThinking(false);
     }
   };
 
   const handleStartNewChat = () => {
-    const newConv = createConversation("Cuộc trò chuyện mới");
+    cancelActiveStream();
+    const newConversation = createConversation("Cuộc trò chuyện mới");
     const profileMatch = pathname.match(/\/profiles\/([^/?]+)/);
+    const greeting = makeMessage(
+      "agent",
+      "Đã tạo cuộc trò chuyện mới. Hãy chọn dataset/phiên profiling và đặt câu hỏi cho tôi nhé!",
+      "Mới",
+    );
+    activeConversationIdRef.current = newConversation.id;
     setSelectedDatasetId("");
     setSelectedRunId(profileMatch?.[1] || "");
     setIsSelectedRunReady(false);
-    setActiveConversationId(newConv.id);
+    setActiveConversationId(newConversation.id);
     setConvList(listConversations());
-    setMessages([
-      makeMessage(
-        "agent",
-        "Đã tạo cuộc trò chuyện mới. Hãy chọn dataset/phiên profiling và đặt câu hỏi cho tôi nhé!",
-        "Mới"
-      ),
-    ]);
+    replaceMessages([greeting]);
+    updateConversationSnapshot(newConversation.id, {
+      messages: [greeting],
+      profile: null,
+      datasetId: null,
+      profileRunId: profileMatch?.[1] || null,
+    });
     setViewMode("chat");
   };
 
-  const handleSelectConversation = (conv: ChatConversation) => {
-    setActiveConversationId(conv.id);
-    const snap = getConversationSnapshot(conv.id);
-    setSelectedDatasetId(snap?.datasetId || "");
-    setSelectedRunId(snap?.profileRunId || "");
+  const handleSelectConversation = (conversation: ChatConversation) => {
+    cancelActiveStream();
+    activeConversationIdRef.current = conversation.id;
+    setActiveConversationId(conversation.id);
+    const snapshot = getConversationSnapshot(conversation.id);
+    setSelectedDatasetId(snapshot?.datasetId || "");
+    setSelectedRunId(snapshot?.profileRunId || "");
     setIsSelectedRunReady(false);
-    if (snap && snap.messages.length > 0) {
-      setMessages(snap.messages);
+    if (snapshot && snapshot.messages.length > 0) {
+      replaceMessages(snapshot.messages);
     } else {
-      setMessages([
-        makeMessage("agent", `Đã mở đoạn chat "${conv.title}". Hãy tiếp tục câu hỏi của bạn!`, "Sẵn sàng"),
+      replaceMessages([
+        makeMessage("agent", `Đã mở đoạn chat "${conversation.title}". Hãy tiếp tục câu hỏi của bạn!`, "Sẵn sàng"),
       ]);
     }
     setViewMode("chat");
   };
 
-  const handleDeleteConv = async (e: MouseEvent, conv: ChatConversation) => {
-    e.stopPropagation();
-    const removed = await onRemoveConversation(conv);
+  const handleDeleteConv = async (event: MouseEvent, conversation: ChatConversation) => {
+    event.stopPropagation();
+    const removed = await onRemoveConversation(conversation);
     if (removed === false) return;
+    if (activeConversationIdRef.current === conversation.id) cancelActiveStream();
     const updated = listConversations();
     setConvList(updated);
-    if (activeConversationId === conv.id) {
+    if (activeConversationIdRef.current === conversation.id) {
       if (updated.length > 0) {
         handleSelectConversation(updated[0]);
       } else {
@@ -746,36 +908,19 @@ export function DraggableChatWidget({
                           border: isUser ? "none" : "1px solid #e2e8f0",
                           fontSize: "0.85rem",
                           lineHeight: "1.5",
-                          whiteSpace: "pre-wrap",
+                          whiteSpace: isUser ? "pre-wrap" : "normal",
                           wordBreak: "break-word",
                           boxShadow: isUser ? "0 2px 8px rgba(37,99,235,0.2)" : "none",
                         }}
                       >
                         {isUser ? (
                           m.text
+                        ) : m.text ? (
+                          <MarkdownContent text={m.text} className="widget-markdown-message" />
                         ) : (
-                          <div className="markdown-message-widget">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                h1: ({node, ...props}) => <h1 style={{fontSize: "1.25rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                h2: ({node, ...props}) => <h2 style={{fontSize: "1.1rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                h3: ({node, ...props}) => <h3 style={{fontSize: "1rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                h4: ({node, ...props}) => <h4 style={{fontSize: "0.95rem", margin: "0.5rem 0", fontWeight: 700}} {...props} />,
-                                p: ({node, ...props}) => <p style={{margin: "0.25rem 0"}} {...props} />,
-                                ul: ({node, ...props}) => <ul style={{margin: "0.5rem 0", paddingLeft: "1.2rem"}} {...props} />,
-                                ol: ({node, ...props}) => <ol style={{margin: "0.5rem 0", paddingLeft: "1.2rem"}} {...props} />,
-                                li: ({node, ...props}) => <li style={{margin: "0.25rem 0"}} {...props} />,
-                                table: ({node, ...props}) => <div style={{overflowX: "auto", margin: "0.5rem 0"}}><table style={{width: "100%", borderCollapse: "collapse", fontSize: "0.8rem"}} {...props} /></div>,
-                                th: ({node, ...props}) => <th style={{border: "1px solid #cbd5e1", padding: "4px 8px", background: "#f8fafc", textAlign: "left", fontWeight: 600}} {...props} />,
-                                td: ({node, ...props}) => <td style={{border: "1px solid #cbd5e1", padding: "4px 8px"}} {...props} />,
-                                code: ({node, ...props}) => <code style={{background: "rgba(0,0,0,0.05)", padding: "2px 4px", borderRadius: "4px", fontSize: "0.9em"}} {...props} />,
-                                pre: ({node, ...props}) => <pre style={{background: "#f1f5f9", padding: "8px", borderRadius: "8px", overflowX: "auto", fontSize: "0.8rem", margin: "0.5rem 0"}} {...props} />,
-                              }}
-                            >
-                              {m.text}
-                            </ReactMarkdown>
-                          </div>
+                          <span className={m.status === "error" ? "widget-response-error" : "widget-response-status"}>
+                            {m.statusDetail || (m.status === "error" ? "Không thể nhận phản hồi từ Agent." : "Đang chuẩn bị phản hồi…")}
+                          </span>
                         )}
                       </div>
                       {m.sources && m.sources.length > 0 && (
@@ -787,12 +932,6 @@ export function DraggableChatWidget({
                   );
                 })}
 
-                {isThinking && (
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#64748b", fontSize: "0.8rem", padding: "4px 8px" }}>
-                    <span className="dashboard-loading-mark" style={{ width: "14px", height: "14px" }} />
-                    AI Agent đang suy nghĩ & truy vấn bằng chứng…
-                  </div>
-                )}
                 <div ref={messagesEndRef} />
               </div>
 

@@ -2097,6 +2097,19 @@ input[type="checkbox"] { width: auto; min-height: auto; }
 .markdown-message strong { color: #233b69; font-weight: 800; }
 .markdown-message code { display: inline-block; padding: 1px 5px; border: 1px solid #d5def2; border-radius: 5px; color: #3156a8; background: #edf2ff; font-family: inherit; font-size: .92em; font-weight: 750; }
 .markdown-message h5 { margin: 7px 0 0; color: #50627d; font-size: .78rem; font-weight: 800; }
+.chat-markdown-message { gap: 5px; }
+.chat-markdown-message h4, .chat-markdown-message h5 { margin-top: 1px; }
+.chat-markdown-message .markdown-detail-item { padding-top: 5px; padding-bottom: 5px; }
+.chat-markdown-message ul { gap: 2px; }
+.widget-markdown-message { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.widget-markdown-message > * { margin: 0; }
+.widget-markdown-message > * + * { margin-top: 6px; }
+.widget-markdown-message h3 { color: #233b69; font-size: .95rem; line-height: 1.35; }
+.widget-markdown-message p { padding: 0; border: 0; background: transparent; }
+.widget-markdown-message ul, .widget-markdown-message ol { margin: 0; padding-left: 18px; }
+.widget-markdown-message li + li { margin-top: 2px; }
+.widget-response-status, .widget-response-error { display: block; color: #64748b; font-size: .82rem; }
+.widget-response-error { color: #b42318; }
 .markdown-section-heading { display: flex; align-items: baseline; gap: 7px; margin-top: 5px; color: #405574; font-size: .82rem; font-weight: 800; }
 .markdown-section-heading > span { color: #294a9b; font-size: 1rem; font-weight: 900; }
 .markdown-detail-item { position: relative; margin-left: 28px; padding: 8px 12px 8px 15px; border-left: 3px solid #9fb4e6; border-radius: 0 8px 8px 0; color: #435570; background: #fbfcff; font-size: .88rem; }
@@ -4019,4 +4032,59 @@ td { border-color: var(--vda-line); }
   .workspace-notice { padding: 14px; }
   .reports-hero { margin-right: 2px; margin-left: 2px; padding: 18px; }
   .workspace-rail-brand-arc { display: none; }
+}
+
+/* Performance-first workspace motion: CSS only, no layout-affecting animation. */
+.main-content:not(.home-only-content) .metric-card,
+.main-content:not(.home-only-content) .dashboard-stat-card,
+.main-content:not(.home-only-content) .report-card,
+.main-content:not(.home-only-content) .activity-entry,
+.main-content:not(.home-only-content) .workspace-card {
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+
+.main-content:not(.home-only-content) .metric-card:hover,
+.main-content:not(.home-only-content) .dashboard-stat-card:hover,
+.main-content:not(.home-only-content) .report-card:hover,
+.main-content:not(.home-only-content) .activity-entry:hover,
+.main-content:not(.home-only-content) .workspace-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 7px 8px 0 color-mix(in srgb, var(--vda-violet) 18%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-content:not(.home-only-content) .metric-card:hover,
+  .main-content:not(.home-only-content) .dashboard-stat-card:hover,
+  .main-content:not(.home-only-content) .report-card:hover,
+  .main-content:not(.home-only-content) .activity-entry:hover,
+  .main-content:not(.home-only-content) .workspace-card:hover {
+    transform: none;
+  }
+}
+
+
+/* Optimistic route feedback for navigation within the authenticated workspace. */
+.workspace-nav-progress {
+  position: fixed;
+  z-index: 1200;
+  top: 0;
+  left: 0;
+  width: min(38vw, 540px);
+  height: 3px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(90deg, var(--vda-coral), var(--vda-violet), var(--vda-mint));
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--vda-violet) 45%, transparent);
+  pointer-events: none;
+  animation: workspace-nav-progress 1.05s cubic-bezier(.22, .61, .36, 1) infinite;
+}
+.sidebar[aria-busy="true"] .nav-link {
+  cursor: progress;
+}
+@keyframes workspace-nav-progress {
+  0% { transform: translateX(-120%); opacity: .2; }
+  25% { opacity: 1; }
+  100% { transform: translateX(330%); opacity: .8; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-nav-progress { animation: none; }
 }
