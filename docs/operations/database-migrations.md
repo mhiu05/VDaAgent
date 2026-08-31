@@ -40,6 +40,7 @@ Alembic version. It also refuses databases that already contain an
 `alembic_version` table; those databases must use the regular Alembic upgrade
 path. Adoption is data-preserving and never calls SQLAlchemy `create_all()`.
 
-CI runs `scripts/migration_smoke.py`, which creates an isolated PostgreSQL
-database, executes the fresh upgrade, verifies the head, runs `alembic check`,
-and removes only that temporary database.
+CI runs `scripts/migration_smoke.py`, which creates isolated PostgreSQL
+databases for both a fresh upgrade and an upgrade from the deployed pre-fix
+revision, verifies the head, runs `alembic check`, asserts the RLS/grant
+boundary with actual browser roles, and removes only those temporary databases.

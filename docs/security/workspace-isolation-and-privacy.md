@@ -4,6 +4,8 @@
 
 Workspace id được resolve từ membership đã xác thực, không tin body của request. Dataset, Profile Run, analysis session/context/execution, report, connector, profile/report retrieval document, audit và agent query mang predicate của workspace đã resolve. External-knowledge document có thể là global với `workspace_id` null và chỉ được đưa vào retrieval khi configuration cho phép. Cross-workspace header bị reject mà không tiết lộ target có tồn tại hay không. Agent trace/evidence endpoint dùng cùng scope.
 
+Browser không truy cập trực tiếp các bảng ứng dụng qua Supabase Data API. Toàn bộ bảng domain, evidence, connector, audit và checkpointer được phân loại backend-only; migration bật RLS, thu hồi quyền bảng của `anon`/`authenticated` và thu hồi default privilege của role tạo bảng. Không có policy truy cập trực tiếp. Inventory được kiểm tra trong CI để bảng mới không thể xuất hiện mà thiếu quyết định truy cập.
+
 ## Dữ liệu thô và PII
 
 Raw file/object nằm ở Supabase Storage, Google Drive hoặc local development storage; PostgreSQL lưu metadata và derived result. Profiler phát hiện PII bằng heuristic tên column và giá trị sample, không lưu raw value trong proposal evidence và bỏ top-k value của PII column. Quasi-identifier được hiển thị riêng. Analysis reject column có PII proposal ở trạng thái `pending`, `confirmed`, `edited` hoặc `auto_confirmed` trong selection, dimension và filter; chỉ proposal đã `rejected` mới hết bị mask theo quy tắc này.
