@@ -208,7 +208,7 @@ export function testSavedConnector(id: string): Promise<{ id: string; provider: 
   return request(`/connectors/${encodeURIComponent(id)}/test`, { method: "POST" });
 }
 
-export function disconnectConnector(id: string): Promise<{ id: string; deleted: boolean }> {
+export function deleteConnector(id: string): Promise<{ id: string; deleted: boolean }> {
   return request(`/connectors/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
@@ -224,7 +224,7 @@ export function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
   return request<GoogleDriveStatus>("/google-drive/status");
 }
 
-export function disconnectGoogleDrive(): Promise<{ deleted: boolean }> {
+export function deleteGoogleDriveConnection(): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>("/google-drive/connection", { method: "DELETE" });
 }
 

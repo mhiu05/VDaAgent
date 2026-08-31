@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,7 +22,6 @@ const navigation = vi.hoisted(() => ({ pathname: "/dashboard" }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => navigation.pathname }));
 vi.mock("next/image", () => ({ default: ({ alt }: { alt?: string }) => <span aria-label={alt} /> }));
-vi.mock("react-markdown", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/api", () => api);
 vi.mock("@/lib/chat-history", () => chatHistory);
 vi.mock("@/components/answer-sources", () => ({ AnswerSources: () => null }));
@@ -168,5 +167,52 @@ describe("DraggableChatWidget", () => {
     const container = bubble.parentElement as HTMLDivElement;
     expect(Number.parseInt(container.style.left, 10)).toBeLessThanOrEqual(window.innerWidth - 72);
     expect(Number.parseInt(container.style.top, 10)).toBeGreaterThanOrEqual(16);
+  });
+
+  it("creates and saves a conversation before streaming an unsaved question", async () => {
+    const createdConversation: ChatConversation = { id: "new-conversation", title: "New conversation", createdAt: "2026-01-03T00:00:00Z", updatedAt: "2026-01-03T00:00:00Z" };
+    let emit: ((event: { event: string; data?: unknown }) => void) | undefined;
+    let finish!: () => void;
+    const response = new Promise<void>((resolve) => { finish = resolve; });
+    chatHistory.createConversation.mockReturnValue(createdConversation);
+    chatHistory.listConversations.mockReturnValue([createdConversation]);
+    api.streamQuestion.mockImplementation((_payload: unknown, callback: (event: { event: string; data?: unknown }) => void) => {
+      emit = callback;
+      return response;
+    });
+    renderWidget();
+
+    const bubble = await screen.findByRole("button", { name: /trợ lý ai copilot/i });
+    fireEvent.pointerDown(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
+    fireEvent.pointerUp(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
+    const datasetSelect = document.querySelector("#widget-profile-run-dataset") as HTMLSelectElement;
+    const runSelect = document.querySelector("#widget-profile-run") as HTMLSelectElement;
+    await waitFor(() => expect(datasetSelect.options).toHaveLength(2));
+    fireEvent.change(datasetSelect, { target: { value: dataset.id } });
+    await waitFor(() => expect(runSelect.disabled).toBe(false));
+    fireEvent.change(runSelect, { target: { value: run.id } });
+
+    const input = document.querySelector("form input[type='text']") as HTMLInputElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    fireEvent.change(input, { target: { value: "Keep this question" } });
+    fireEvent.submit(input.closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(chatHistory.createConversation).toHaveBeenCalledTimes(1));
+    const initialSnapshot = chatHistory.updateConversationSnapshot.mock.calls[0][1];
+    expect(initialSnapshot.messages.some((message: { role: string; text: string }) => message.role === "user" && message.text === "Keep this question")).toBe(true);
+    expect(initialSnapshot.messages.filter((message: { role: string }) => message.role === "agent")).toHaveLength(2);
+
+    await act(async () => {
+      emit?.({ event: "status", data: { stage: "retrieving", detail: "Finding evidence" } });
+      emit?.({ event: "source", data: { sources: [{ source_type: "profile", source_ref: "run-a" }] } });
+      emit?.({ event: "token", data: { text: "Verified answer" } });
+      emit?.({ event: "done", data: {} });
+      finish();
+    });
+
+    await waitFor(() => expect(screen.getByText("Verified answer")).toBeTruthy());
+    const finalSnapshot = chatHistory.updateConversationSnapshot.mock.calls.at(-1)?.[1];
+    expect(finalSnapshot.messages.filter((message: { role: string }) => message.role === "agent")).toHaveLength(2);
+    expect(finalSnapshot.messages.at(-1).sources).toHaveLength(1);
   });
 });

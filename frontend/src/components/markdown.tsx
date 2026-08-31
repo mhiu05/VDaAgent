@@ -131,6 +131,17 @@ export function MarkdownContent({ text, className = "markdown-message" }: { text
       continue;
     }
 
+    if (/^\d+[.)]\s+/.test(line) && /^\d+[.)]\s+/.test(lines[index + 1]?.trim() || "")) {
+      const items: ReactNode[] = [];
+      while (/^\d+[.)]\s+/.test(lines[index]?.trim() || "")) {
+        const item = lines[index].trim().replace(/^\d+[.)]\s+/, "");
+        items.push(<li key={`ordered-item-${index}`}>{renderInlineMarkdown(item)}</li>);
+        index += 1;
+      }
+      blocks.push(<ol key={`ordered-list-${index}`}>{items}</ol>);
+      continue;
+    }
+
     if (/^(?:\*\*)?(?:\d+\.)+\s+/.test(line)) {
       const cleanId = getCleanId(line);
       const headingId = `heading-${cleanId}`;

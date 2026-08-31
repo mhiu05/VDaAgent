@@ -1,89 +1,52 @@
-import { PublicNavbar } from "@/components/public-navbar";
+import Link from "next/link";
 import { PublicFooter } from "@/components/public-footer";
-import { DocsTableOfContents } from "@/components/docs-table-of-contents";
+import { PublicNavbar } from "@/components/public-navbar";
 
-export const metadata = { title: "Tài liệu - VDaAgent" };
+export const metadata = { title: "Documentation · VDaAgent" };
+
+const glossary = [
+  ["Column & dtype", "Column là trường trong dataset; dtype là kiểu được engine suy ra (ví dụ số, chuỗi, datetime). Kiểu suy ra giúp chọn phép tính phù hợp, không tự sửa dữ liệu."],
+  ["Row count / column count", "Số dòng và số cột trong phạm vi scan. Với sample scan, số liệu được đánh dấu approximate và có thể có margin of error."],
+  ["Null count / null %", "Null count là số giá trị thiếu; null % = null count trên tổng số dòng, hiển thị theo phần trăm. Missingness cao có thể ảnh hưởng đến phép tính và cần tìm nguyên nhân."],
+  ["Cardinality", "Số giá trị khác nhau (bỏ qua null) của một cột. Cardinality cao thường gặp ở identifier; cardinality thấp phù hợp cho nhóm/phân loại, nhưng không tự nói lên chất lượng."],
+  ["Uniqueness ratio", "Cardinality chia cho số giá trị non-null. Gần 1 có nghĩa phần lớn giá trị là duy nhất; đây là tín hiệu cho candidate key, không phải xác nhận key tự động."],
+  ["Top values", "Các giá trị xuất hiện nhiều nhất và số lần xuất hiện, tối đa theo cấu hình profiling. Giá trị của cột được đánh dấu PII không được đưa vào top values."],
+  ["Duplicate rows", "Số dòng trùng hoàn toàn sau khi so sánh các cột; duplicate rate là tỷ lệ trên tổng số dòng. Trùng có thể là lỗi hoặc có chủ đích, nên cần hiểu grain trước khi loại bỏ."],
+  ["Mean, median, std, quantiles", "Với cột số, engine có thể hiển thị min, max, mean, median, std, q1 (25%) và q3 (75%). Đây là thống kê mô tả, không phải kiểm định nguyên nhân."],
+  ["Outlier", "outlier_count là số điểm được đánh dấu theo phương pháp cấu hình (mặc định IQR; hệ thống cũng hỗ trợ z-score/both). Outlier là tín hiệu cần xem xét, không mặc định là lỗi."],
+  ["Correlation", "Ma trận tương quan Pearson giữa các cột số, trong khoảng -1 đến 1. Dấu cho biết hướng và trị tuyệt đối cho biết mức liên hệ tuyến tính; correlation không hàm ý causation."],
+  ["PII / risk proposal", "PII là thông tin có thể nhận diện cá nhân. Pipeline tạo proposal và cảnh báo/quasi-identifier để Analyst review; PII không được đưa vào top values và output bị giới hạn theo policy."],
+];
+
+const concepts = [
+  ["Preview", "Kết quả exploratory, bounded và có thể approximate/hết hạn. Dùng để kiểm tra câu hỏi, biểu đồ và limitations trước khi lưu."],
+  ["Official Evidence", "Kết quả được Promote sau khi engine revalidate và chạy lại; có result hash, context và provenance để dùng cho Agent và Report Draft."],
+  ["Provenance", "Thông tin về nguồn và ngữ cảnh tạo kết quả: Dataset, Profile Run, QuerySpec/context và phạm vi tính. Nó giúp truy lại vì sao một con số xuất hiện."],
+  ["Profile Run", "Phiên profiling của một Dataset; là analytical context trung tâm cho profile statistics, chart, Agent, Compare và report."],
+  ["Aggregation / grouping / filter", "Aggregation tóm tắt metric (như count hoặc mean); grouping chia kết quả theo dimension; filter giới hạn dòng theo điều kiện được hỗ trợ."],
+  ["Distribution / trend / comparison / relationship", "Các câu hỏi trực quan hóa: phân bố giá trị, thay đổi theo thời gian, đối chiếu nhóm hoặc mối liên hệ giữa biến. Chọn chart dựa trên câu hỏi và kiểu dữ liệu."],
+];
+
+const statuses = [
+  ["Job: queued / running / succeeded / failed", "Trạng thái của profiling job trong worker. Job có thể succeeded nhưng Profile Run còn chờ quyết định proposal."],
+  ["Profile Run: created / pending_review / resuming / completed / failed", "created là vừa tạo; pending_review cần quyết định proposal; resuming đang tiếp tục sau review; completed sẵn sàng cho phân tích; failed không sẵn sàng."],
+  ["Proposal: pending / confirmed / rejected / edited / auto_confirmed", "pending cần Analyst; confirmed chấp nhận; rejected loại bỏ; edited dùng giá trị chính thức khác; auto_confirmed do pipeline xác nhận theo rule."],
+  ["Report: empty / draft / stale / snapshot", "Draft còn chỉnh sửa; stale có lý do cần xem lại; snapshot là phiên bản bất biến dùng ưu tiên cho chia sẻ/export."],
+  ["Approximate / uncertainty", "Nhãn cho sample scan hoặc kết quả có ước lượng. Đọc cùng margin of error/limitations thay vì coi là số liệu đầy đủ."],
+];
+
+const fundamentals = [
+  ["Profiling trước khi phân tích", "Biết grain, kiểu dữ liệu, missingness và duplicate giúp tránh đặt câu hỏi sai hoặc diễn giải sai denominator."],
+  ["Data quality checklist", "Kiểm tra null, duplicate, cardinality, outlier, range và PII; ghi lại quyết định review thay vì âm thầm thay đổi dữ liệu."],
+  ["Drift", "Compare cho biết signal thay đổi giữa Baseline và Current Profile Run. Drift là dấu hiệu cần điều tra nguồn, thời gian hoặc quy trình; không tự chứng minh nguyên nhân."],
+  ["Diễn giải thận trọng", "Phân biệt mô tả với nhân quả, correlation với causation, sample với full scan và Preview với Official Evidence. Luôn đọc limitations."],
+];
 
 export default function DocsPage() {
-  return (
-    <div className="public-page">
-      <PublicNavbar />
-      <main style={{ flex: 1 }}>
-        <section className="pub-section bg-surface" style={{ padding: "64px 0" }}>
-          <div className="pub-container">
-            <span className="pub-eyebrow">TÀI LIỆU VDAAGENT</span>
-            <h1 style={{ fontSize: "40px", fontWeight: 700, margin: "16px 0 24px", color: "var(--pub-ink)" }}>Khái niệm, workflow và cách đọc kết quả.</h1>
-            <p style={{ fontSize: "18px", color: "var(--pub-muted)", maxWidth: "800px" }}>
-              Từ điển thuật ngữ dành cho Data Analyst, bao gồm các khái niệm phân tích dữ liệu chuyên sâu và các thuật ngữ đặc thù trong hệ thống VDaAgent.
-            </p>
-          </div>
-        </section>
-
-        <section className="pub-container pub-docs-layout" style={{ marginTop: "0" }}>
-          <DocsTableOfContents />
-          
-          <div className="pub-docs-article">
-            <h2 id="data-quality">1. Data Quality & Profiling (Chất lượng Dữ liệu)</h2>
-            <p>Các chỉ số đánh giá sức khỏe và độ tin cậy của dữ liệu trước khi phân tích.</p>
-            
-            <h3>Missing (Dữ liệu khuyết thiếu)</h3>
-            <p>Tỷ lệ hoặc số lượng các giá trị bị rỗng (null, NaN, khoảng trắng) trong một cột. Missing rate cao ảnh hưởng đến độ tin cậy của thuật toán.</p>
-            <div className="pub-callout">
-              <strong>Công thức</strong>
-              <p><code>null_count / total_rows</code></p>
-            </div>
-            
-            <h3>Unique & Cardinality (Tính duy nhất và Lực lượng)</h3>
-            <p><strong>Unique:</strong> Số lượng các giá trị khác biệt nhau hoàn toàn trong một cột. Ví dụ: Cột ID phải có tỷ lệ Unique là 100%.</p>
-            <p><strong>Cardinality:</strong> Mức độ đa dạng của các giá trị. High-cardinality (như ID, Tên) rất đa dạng. Low-cardinality (như Giới tính, Trạng thái) có rất ít giá trị khác nhau.</p>
-            
-            <h3>Outlier (Ngoại lệ)</h3>
-            <p>Các giá trị bất thường, nằm quá xa so với phân bố chung của dữ liệu (thường dùng quy tắc IQR hoặc Z-score để phát hiện).</p>
-
-            <h2 id="statistical">2. Statistical Metrics (Chỉ số Thống kê)</h2>
-            <p>Các đại lượng thống kê mô tả đặc điểm của một biến số.</p>
-            
-            <h3>Mean & Median</h3>
-            <p><strong>Mean:</strong> Trung bình cộng. <strong>Median:</strong> Trung vị (giá trị nằm giữa). Nếu Mean và Median chênh lệch lớn, dữ liệu đang có Outlier hoặc bị lệch (skewed).</p>
-            
-            <h3>Standard Deviation (Độ lệch chuẩn)</h3>
-            <p>Đo lường mức độ phân tán của dữ liệu xung quanh giá trị trung bình. Độ lệch chuẩn càng lớn, dữ liệu càng biến động.</p>
-            
-            <h3>Correlation (Tương quan)</h3>
-            <p>Mối liên hệ tuyến tính giữa hai cột dữ liệu số (thường dùng hệ số Pearson). Nằm trong khoảng [-1, 1]. VDaAgent tự động tính toán correlation matrix cho các cột số để tìm ra các biến có ảnh hưởng lẫn nhau.</p>
-
-            <h2 id="semantic">3. Semantic Data Types (Kiểu dữ liệu ngữ nghĩa)</h2>
-            <p>Cách hệ thống nhận diện ý nghĩa của dữ liệu để áp dụng phương pháp phân tích thích hợp thay vì chỉ nhìn vào kiểu dữ liệu kỹ thuật (string, int).</p>
-            
-            <h3>Numeric (Số học)</h3>
-            <p>Các con số có ý nghĩa về mặt lượng (Doanh thu, Tuổi). Hỗ trợ tính trung bình, phân phối histogram.</p>
-            
-            <h3>Categorical (Phân loại)</h3>
-            <p>Dữ liệu dạng danh mục (Giới tính, Khu vực). Thường được phân tích bằng biểu đồ tần suất (Bar chart, Pie chart).</p>
-            
-            <h3>DateTime (Thời gian)</h3>
-            <p>Ngày tháng năm. Cần thiết cho việc phân tích chuỗi thời gian (Time-series analysis) và nhận diện xu hướng.</p>
-            
-            <div className="pub-callout pub-callout-warning">
-              <strong>PII (Thông tin định danh)</strong>
-              <p>Personally Identifiable Information. (Email, SĐT, Số CCCD). VDaAgent sẽ tự động đánh dấu để che mờ (redact) nhằm bảo mật.</p>
-            </div>
-
-            <h2 id="system">4. VDaAgent Concepts (Khái niệm trong Hệ thống)</h2>
-            <p>Các thuật ngữ đặc thù trong kiến trúc và quy trình của VDaAgent.</p>
-            
-            <h3>Profile Run</h3>
-            <p>Đơn vị làm việc trung tâm. Một phiên chạy phân tích trên một dataset cụ thể. Mọi biểu đồ, báo cáo, và bối cảnh hỏi đáp đều được đóng gói trong một Profile Run thuộc một Workspace.</p>
-            
-            <h3>Official Evidence</h3>
-            <p>Các biểu đồ và số liệu đã được hệ thống xác thực bằng Compute Deterministic, có lưu lại result_hash và provenance để truy xuất nguồn gốc rõ ràng. LLM chỉ được cấp quyền đọc thông tin từ Official Evidence, không được đọc file thô.</p>
-            
-            <h3>Report Draft & Snapshot</h3>
-            <p><strong>Draft:</strong> Bản nháp đang thiết kế của báo cáo.<br/><strong>Snapshot:</strong> Trạng thái "đóng băng" bất biến của báo cáo để đảm bảo số liệu không bị thay đổi ngầm sau khi chốt, là bản được dùng để xuất PDF/JSON chia sẻ.</p>
-          </div>
-        </section>
-      </main>
-      <PublicFooter />
-    </div>
-  );
+  return <div className="public-page"><PublicNavbar /><main className="pub-content"><section className="pub-section pub-page-hero"><div className="pub-container"><span className="pub-eyebrow">DOCUMENTATION / REFERENCE</span><h1>Tra cứu để đọc<br /><em>đúng một kết quả.</em></h1><p className="pub-lead">Documentation giải thích metric, concept và status trong VDaAgent. Để thực hiện workflow, hãy mở <Link href="/guide">Guide</Link>.</p><nav className="pub-toc pub-toc-compact" aria-label="Mục lục Documentation"><a href="#metrics">Metrics</a><a href="#evidence">Evidence & visualization</a><a href="#statuses">Statuses</a><a href="#fundamentals">Analyst fundamentals</a></nav></div></section>
+    <section className="pub-section bg-surface" id="metrics"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">01 / METRICS GLOSSARY</span><h2>Các con số trong<br /><em>Profile Run.</em></h2><p>Metric được ghi theo contract profiling hiện tại; số liệu sample luôn có nhãn approximate.</p></div><div className="pub-glossary-grid">{glossary.map(([term, body]) => <article key={term}><h3>{term}</h3><p>{body}</p></article>)}</div></div></section>
+    <section className="pub-section" id="evidence"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">02 / EVIDENCE & VISUALIZATION</span><h2>Biết kết quả<br /><em>đến từ đâu.</em></h2></div><div className="pub-glossary-grid">{concepts.map(([term, body]) => <article key={term}><h3>{term}</h3><p>{body}</p></article>)}</div><div className="pub-callout"><b>Quy tắc thực hành</b><p>Preview giúp khám phá. Chỉ Official Evidence đã được revalidate và lưu provenance mới là kết quả bền vững cho Agent hoặc Report Draft.</p></div></div></section>
+    <section className="pub-section bg-surface" id="statuses"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">03 / STATUS GLOSSARY</span><h2>Trạng thái là<br /><em>bước tiếp theo.</em></h2></div><div className="pub-status-list">{statuses.map(([term, body]) => <article key={term}><h3>{term}</h3><p>{body}</p></article>)}</div></div></section>
+    <section className="pub-section" id="fundamentals"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">04 / DATA ANALYST FUNDAMENTALS</span><h2>Một checklist<br /><em>đủ dùng.</em></h2><p>Ghi nhớ ngắn gọn khi đọc một Profile Run hoặc insight.</p></div><div className="pub-principles-grid">{fundamentals.map(([term, body]) => <article key={term}><b>{term}</b><p>{body}</p></article>)}</div><div className="pub-crosslink"><span>Cần thao tác từng bước?</span><Link href="/guide">Quay lại Guide end-to-end →</Link></div></div></section>
+  </main><PublicFooter /></div>;
 }

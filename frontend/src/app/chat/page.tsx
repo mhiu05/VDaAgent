@@ -20,8 +20,15 @@ const starters = [
 ];
 const ACTIVE_PROFILE_JOB_KEY = "p170_active_profile_job";
 
-function makeMessage(role: ChatMessage["role"], text: string, label?: string, sources?: AnswerSource[], status?: ChatMessage["status"]): ChatMessage {
-  return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources, status };
+function makeMessage(
+  role: ChatMessage["role"],
+  text: string,
+  label?: string,
+  sources?: AnswerSource[],
+  status?: ChatMessage["status"],
+  statusDetail?: string,
+): ChatMessage {
+  return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources, status, statusDetail };
 }
 
 function ChatStatsPreview({ profile }: { profile: Profile }) {
@@ -117,7 +124,7 @@ function MarkdownMessage({ text, profile }: { text: string; profile: Profile | n
     blocks.push(<p key={`paragraph-${index}`}>{renderInlineMarkdown(line)}</p>);
     index += 1;
   }
-  return <div className="markdown-message">{blocks}</div>;
+  return <div className="markdown-message chat-markdown-message">{blocks}</div>;
 }
 
 const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
@@ -148,14 +155,34 @@ export default function ChatPage() {
   const streamSequence = useRef(0);
   const hydrated = useRef(false);
   const activeConversationRef = useRef<string | null>(null);
+  const pendingSnapshotRef = useRef<{
+    conversationId: string;
+    snapshot: {
+      messages: ChatMessage[];
+      profile: Profile | null;
+      datasetId: string | null;
+      profileRunId: string | null;
+      sources: AnswerSource[];
+    };
+  } | null>(null);
+  const snapshotTimerRef = useRef<number | null>(null);
   const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
   const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
   const runs = useQuery({ queryKey: ["chat-runs", selectedDatasetId], queryFn: () => listRuns(selectedDatasetId), enabled: Boolean(selectedDatasetId) });
   const completedRuns = runs.data?.filter((run) => run.status === "completed") || [];
 
+  function flushPendingSnapshot() {
+    const pendingSnapshot = pendingSnapshotRef.current;
+    if (!pendingSnapshot) return;
+    updateConversationSnapshot(pendingSnapshot.conversationId, pendingSnapshot.snapshot);
+    pendingSnapshotRef.current = null;
+  }
+
   useEffect(() => () => {
     streamSequence.current += 1;
     controller.current?.abort();
+    if (snapshotTimerRef.current !== null) window.clearTimeout(snapshotTimerRef.current);
+    flushPendingSnapshot();
   }, []);
 
   function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null, savedProfileRunId?: string | null) {
@@ -230,13 +257,31 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!hydrated.current || !conversationId) return;
-    updateConversationSnapshot(conversationId, {
-      messages,
-      profile,
-      datasetId: selectedDatasetId || profile?.dataset_id || null,
-      profileRunId: selectedRunId || profile?.profile_run_id || null,
-      sources,
-    });
+    pendingSnapshotRef.current = {
+      conversationId,
+      snapshot: {
+        messages,
+        profile,
+        datasetId: selectedDatasetId || profile?.dataset_id || null,
+        profileRunId: selectedRunId || profile?.profile_run_id || null,
+        sources,
+      },
+    };
+
+    if (!messages.some((message) => message.status === "streaming")) {
+      if (snapshotTimerRef.current !== null) {
+        window.clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+      flushPendingSnapshot();
+      return;
+    }
+
+    if (snapshotTimerRef.current !== null) return;
+    snapshotTimerRef.current = window.setTimeout(() => {
+      snapshotTimerRef.current = null;
+      flushPendingSnapshot();
+    }, 450);
   }, [conversationId, messages, profile, selectedDatasetId, selectedRunId, sources]);
 
   useEffect(() => {
@@ -255,6 +300,10 @@ export default function ChatPage() {
         : null;
       const nextId = eventConversationId || new URLSearchParams(window.location.search).get("conversation");
       if (!nextId || nextId === conversationId || !getConversation(nextId)) return;
+      streamSequence.current += 1;
+      controller.current?.abort();
+      controller.current = null;
+      flushPendingSnapshot();
       const saved = getConversationSnapshot(nextId);
       activeConversationRef.current = nextId;
       setConversationId(nextId);
@@ -390,15 +439,24 @@ export default function ChatPage() {
         if (requestId !== streamSequence.current || assistantMessageId.current !== assistantPlaceholder.id) return;
         if (event.event === "token" && typeof event.data === "object" && event.data) {
           draftRef.current += String((event.data as { text?: unknown }).text || "");
-          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, text: draftRef.current, status: "streaming" } : message));
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, text: draftRef.current, status: "streaming", statusDetail: undefined } : message));
+        }
+        if (event.event === "status" && typeof event.data === "object" && event.data) {
+          const status = event.data as { detail?: unknown };
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id
+            ? { ...message, status: "streaming", statusDetail: typeof status.detail === "string" ? status.detail : undefined }
+            : message));
         }
         if (event.event === "source" && typeof event.data === "object" && event.data) {
-          responseSourcesRef.current = (event.data as { sources?: AnswerSource[] }).sources || [];
+          const data = event.data as { source?: AnswerSource; sources?: AnswerSource[] };
+          responseSourcesRef.current = data.source
+            ? [...responseSourcesRef.current, data.source]
+            : data.sources || responseSourcesRef.current;
           setSources(responseSourcesRef.current);
           setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, sources: responseSourcesRef.current } : message));
         }
         if (event.event === "done") {
-          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, status: draftRef.current ? undefined : "error", sources: responseSourcesRef.current } : message));
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, status: draftRef.current ? undefined : "error", statusDetail: undefined, sources: responseSourcesRef.current } : message));
           setState("ready");
         }
         if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent response failed."));

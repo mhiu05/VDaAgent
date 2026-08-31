@@ -56,7 +56,7 @@ This is an observed staging result over synthetic-only data.
 | forecast_calibration_rate | FAIL | 0.0 | 0.95 |
 | planner_allowlist_rate | FAIL | 0.75 | 1.0 |
 | planner_kind_rate | PASS | 1.0 | 1.0 |
-| latency_p95_ms | FAIL | 86011.897 | 30000 |
+| latency_p95_ms | FAIL | 50152.554 | 30000 |
 | critical_failures | FAIL | 8 | 0 |
 
 ## Safe diagnostics

@@ -2,7 +2,7 @@
   "schema_version": "p170-evaluation-scorecard-v2",
   "dataset_version": "p170-evidence-first-v2",
   "runtime": "staging_synthetic_api",
-  "generated_at": "2026-08-29T13:20:25.554770+00:00",
+  "generated_at": "2026-08-29T16:55:23.967478+00:00",
   "git_sha": "67172545e54b616d82cee3e3c161afd7d4e136c4",
   "data_classification": "synthetic_only",
   "case_count": 17,
@@ -17,8 +17,8 @@
       "forecast_calibration_rate": 0.0,
       "groundedness_rate": 1.0,
       "insufficient_evidence_rate": 0.0,
-      "intent_match_rate": 0.0,
-      "numeric_grounding_rate": 0.5,
+      "intent_match_rate": 0.5,
+      "numeric_grounding_rate": 1.0,
       "planner_aggregation_rate": 1.0,
       "planner_allowlist_rate": 0.75,
       "planner_chart_type_rate": 0.75,
@@ -53,10 +53,10 @@
       "latency_ms": {
         "status": "available",
         "count": 17,
-        "mean": 54493.04,
-        "p50": 52916.242,
-        "p95": 86011.897,
-        "max": 94561.896
+        "mean": 25657.687,
+        "p50": 25538.667,
+        "p95": 34001.286,
+        "max": 37113.035
       },
       "input_tokens": {
         "status": "not_available",
@@ -158,7 +158,7 @@
         },
         {
           "key": "intent_match",
-          "score": 0.0,
+          "score": 1.0,
           "comment": "Addresses all required intent terms.",
           "hard_gate": false
         },
@@ -188,7 +188,7 @@
         },
         {
           "key": "numeric_grounding",
-          "score": 0.0,
+          "score": 1.0,
           "comment": "Deterministic numeric reference is preserved.",
           "hard_gate": false
         },
@@ -973,7 +973,7 @@
         {
           "key": "planner_allowlist",
           "score": 0.0,
-          "comment": "used=['channel', 'sales']",
+          "comment": "used=['order_id', 'sales']",
           "hard_gate": true
         },
         {
@@ -1087,8 +1087,8 @@
     },
     {
       "gate": "numeric_grounding_rate",
-      "status": "fail",
-      "actual": 0.5,
+      "status": "pass",
+      "actual": 1.0,
       "threshold": 0.98
     },
     {
@@ -1124,7 +1124,7 @@
     {
       "gate": "latency_p95_ms",
       "status": "fail",
-      "actual": 86011.897,
+      "actual": 34001.286,
       "threshold": 30000
     },
     {

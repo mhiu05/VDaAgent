@@ -24,17 +24,23 @@ export function flattenDriftFindings(reports: unknown[]): DriftRecord[] {
   });
 }
 
-export function groupDriftFindings(reports: unknown[]): DriftColumn[] {
+export function groupDriftFindingRecords(findings: unknown[]): DriftColumn[] {
   const groups = new Map<string, DriftRecord[]>();
-  flattenDriftFindings(reports).forEach((finding) => {
+  findings.filter(isRecord).forEach((finding) => {
     const name = typeof finding.column_name === "string" && finding.column_name.trim() ? finding.column_name : "Dataset";
     groups.set(name, [...(groups.get(name) || []), finding]);
   });
-  return [...groups.entries()].map(([name, findings]) => ({
-    name,
-    findings,
-    severity: findings.some((finding) => finding.severity === "major") ? "major" : "minor",
-  }));
+  return [...groups.entries()]
+    .map(([name, columnFindings]) => ({
+      name,
+      findings: columnFindings,
+      severity: (columnFindings.some((finding) => finding.severity === "major") ? "major" : "minor") as DriftSeverity,
+    }))
+    .sort((a, b) => Number(b.severity === "major") - Number(a.severity === "major") || a.name.localeCompare(b.name, "vi"));
+}
+
+export function groupDriftFindings(reports: unknown[]): DriftColumn[] {
+  return groupDriftFindingRecords(flattenDriftFindings(reports));
 }
 
 export function driftDisplayValue(value: unknown): string {

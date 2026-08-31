@@ -11,6 +11,39 @@ import { ChartEvidenceView } from "@/components/command-center/chart-evidence-vi
 import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
 import { DRIFT_PART_TITLE, driftDetailText, driftDisplayValue, driftEvidenceLabel, driftSeverityLabel, driftSeverityLabels, driftSignalLabel, driftTypeLabel, groupDriftFindings } from "@/lib/drift-evidence";
 
+function ReportAccordion({
+  id,
+  eyebrow,
+  title,
+  description,
+  children,
+  className = "",
+  forceOpen = false,
+}: {
+  id: string;
+  eyebrow: React.ReactNode;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  forceOpen?: boolean;
+}) {
+  return (
+    <details id={id} className={`report-accordion ${className}`.trim()} open={forceOpen || undefined}>
+      <summary className="report-accordion-summary">
+        <span className="report-accordion-chevron" aria-hidden="true">⌄</span>
+        <span className="report-accordion-copy">
+          <span className="report-accordion-eyebrow">{eyebrow}</span>
+          <span className="report-accordion-title" role="heading" aria-level={2}>{title}</span>
+          {description && <span className="report-accordion-description">{description}</span>}
+        </span>
+        <span className="report-accordion-action">Xem chi tiết</span>
+      </summary>
+      <div className="report-accordion-content">{children}</div>
+    </details>
+  );
+}
+
 function DriftEvidenceDetails({ reports }: { reports: any[] }) {
   const columns = groupDriftFindings(reports);
   const findings = columns.flatMap((column) => column.findings);
@@ -25,10 +58,21 @@ function DriftEvidenceDetails({ reports }: { reports: any[] }) {
     {columns.length > 0 && <div style={{ overflowX: "auto" }}><table className="compare-table" style={{ width: "100%" }}><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>
       {columns.map((column) => <tr key={column.name}><td><b>{column.name}</b></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></td><td>{driftEvidenceLabel(column.findings[0])}</td><td>{driftSignalLabel(column.findings.length)}</td></tr>)}
     </tbody></table></div>}
-      <div style={{ display: "grid", gap: "1rem", marginTop: "1.25rem" }}>{columns.map((column) => <article key={column.name} className="panel compare-detail-panel" style={{ padding: "1.25rem", boxShadow: "none" }}>
-      <div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h3 style={{ margin: 0 }}>{column.name}</h3><p>{driftSignalLabel(column.findings.length)} từ backend</p></div><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span></div>
-      <div className="compare-evidence-list">{column.findings.map((finding: any, index: number) => <article key={`${finding.drift_type}-${index}`} className="compare-evidence-item"><div><b>{driftTypeLabel(finding.drift_type)}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{driftSeverityLabel(finding.severity)}</span></div><p>{driftDetailText(finding.detail)}</p><dl><div><dt>Evidence</dt><dd>{driftEvidenceLabel(finding)}</dd></div>{(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{driftDisplayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{driftDisplayValue(finding.current_value)}</dd></div></>}</dl></article>)}</div>
-    </article>)}</div>
+      <div className="report-drift-column-list">{columns.map((column) => <details key={column.name} className="report-drift-column">
+        <summary className="report-drift-column-summary">
+          <span className="report-accordion-chevron" aria-hidden="true">⌄</span>
+          <span className="report-drift-column-copy">
+            <span className="eyebrow">EVIDENCE CỘT</span>
+            <span className="report-drift-column-name" role="heading" aria-level={3}>{column.name}</span>
+            <span className="report-drift-column-meta">{driftSignalLabel(column.findings.length)} từ backend</span>
+          </span>
+          <span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabels[column.severity]}</span>
+          <span className="report-drift-column-action">Xem metrics</span>
+        </summary>
+        <div className="report-drift-column-content">
+          <div className="compare-evidence-list">{column.findings.map((finding: any, index: number) => <article key={`${finding.drift_type}-${index}`} className="compare-evidence-item"><div><b>{driftTypeLabel(finding.drift_type)}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{driftSeverityLabel(finding.severity)}</span></div><p>{driftDetailText(finding.detail)}</p><dl><div><dt>Evidence</dt><dd>{driftEvidenceLabel(finding)}</dd></div>{(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{driftDisplayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{driftDisplayValue(finding.current_value)}</dd></div></>}</dl></article>)}</div>
+        </div>
+      </details>)}</div>
   </div>;
 }
 
@@ -43,6 +87,130 @@ function startReportDraftWrite(runId: string) {
 
 function finishReportDraftWrite(runId: string) {
   activeReportDraftWrites.delete(runId);
+}
+
+function scrollToReportSection(id: string) {
+  const target = document.getElementById(id);
+  const accordion = target?.closest("details");
+  if (accordion instanceof HTMLDetailsElement) accordion.open = true;
+  target?.scrollIntoView({ behavior: "smooth" });
+}
+
+function ReportItemActions({
+  item,
+  reportId,
+  runId,
+  draftItemId,
+}: {
+  item: any;
+  reportId: string;
+  runId: string;
+  draftItemId: string | null;
+}) {
+  const client = useQueryClient();
+  const [isEditing, setIsEditing] = useState(false);
+  const draftMutationCount = useIsMutating({ mutationKey: ["report-draft-write", runId] });
+  const exportSourceKey = ["report-export-source", reportId] as const;
+  const draftKey = reportDraftQueryKey(runId);
+  const itemLabel = item.title || (item.item_type === "chart" ? "Biểu đồ Phân tích" : "Kết luận từ Agent");
+  const canMutate = Boolean(draftItemId) && draftMutationCount === 0;
+
+  const updateItem = useMutation({
+    mutationKey: ["report-draft-write", runId],
+    mutationFn: async ({ title, note }: { title: string; note: string }) => {
+      if (!draftItemId) throw new Error("Không xác định được mục hiện tại trong Report Draft.");
+      await updateReportDraftItem(reportId, draftItemId, { title, note });
+      return snapshotReportDraft(reportId);
+    },
+    onSuccess: async () => {
+      setIsEditing(false);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: exportSourceKey }),
+        client.invalidateQueries({ queryKey: draftKey }),
+      ]);
+    },
+    onSettled: () => finishReportDraftWrite(runId),
+  });
+
+  const deleteItem = useMutation({
+    mutationKey: ["report-draft-write", runId],
+    mutationFn: async () => {
+      if (!draftItemId) throw new Error("Không xác định được mục hiện tại trong Report Draft.");
+      await unpinReportDraftItem(reportId, draftItemId);
+      return snapshotReportDraft(reportId);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: exportSourceKey }),
+        client.invalidateQueries({ queryKey: draftKey }),
+      ]);
+    },
+    onSettled: () => finishReportDraftWrite(runId),
+  });
+
+  function handleDelete() {
+    if (!canMutate || !window.confirm(`Xóa mục “${itemLabel}” khỏi báo cáo cuối cùng?`)) return;
+    if (startReportDraftWrite(runId)) deleteItem.mutate();
+  }
+
+  if (isEditing) {
+    return (
+      <div className="report-item-actions report-item-editing" aria-busy={updateItem.isPending}>
+        <form
+          className="report-item-edit-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canMutate) return;
+            const form = new FormData(event.currentTarget);
+            if (startReportDraftWrite(runId)) {
+              updateItem.mutate({
+                title: String(form.get("title") || ""),
+                note: String(form.get("note") || ""),
+              });
+            }
+          }}
+        >
+          <label>
+            <span>Tiêu đề</span>
+            <input name="title" defaultValue={item.title || ""} aria-label={`Tiêu đề mục ${itemLabel}`} disabled={draftMutationCount > 0} />
+          </label>
+          <label>
+            <span>Ghi chú</span>
+            <textarea name="note" defaultValue={item.note || ""} rows={2} aria-label={`Ghi chú mục ${itemLabel}`} disabled={draftMutationCount > 0} />
+          </label>
+          <div className="report-item-edit-form-actions">
+            <button className="button primary" type="submit" disabled={!canMutate || updateItem.isPending}>{updateItem.isPending ? "Đang lưu…" : "Lưu thay đổi"}</button>
+            <button className="button secondary" type="button" onClick={() => setIsEditing(false)} disabled={updateItem.isPending}>Hủy</button>
+          </div>
+        </form>
+        {updateItem.isError && <ErrorNotice error={updateItem.error} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="report-item-actions" aria-busy={deleteItem.isPending}>
+      <button type="button" className="button secondary" onClick={() => setIsEditing(true)} disabled={!canMutate} title={!draftItemId ? "Đang tải Report Draft" : undefined}>Chỉnh sửa</button>
+      <button type="button" className="button danger" onClick={handleDelete} disabled={!canMutate || deleteItem.isPending}>{deleteItem.isPending ? "Đang xóa…" : "Xóa"}</button>
+      {(updateItem.isError || deleteItem.isError) && <ErrorNotice error={updateItem.error || deleteItem.error} />}
+    </div>
+  );
+}
+
+function resolveReportDraftItemId(item: any, index: number, draft: ReportDraft | undefined, isDraftFallback: boolean): string | null {
+  if (!draft) return isDraftFallback && typeof item.id === "string" ? item.id : null;
+  const directMatch = draft.items.find((draftItem) => draftItem.id === item.id);
+  if (directMatch) return directMatch.id;
+  const executionMatch = item.query_execution_id
+    ? draft.items.find((draftItem) => draftItem.query_execution_id === item.query_execution_id)
+    : undefined;
+  if (executionMatch) return executionMatch.id;
+  const agentMatch = item.agent_run_id
+    ? draft.items.find((draftItem: any) => draftItem.agent_run_id === item.agent_run_id && draftItem.item_type === item.item_type)
+    : undefined;
+  if (agentMatch) return agentMatch.id;
+  const position = typeof item.position === "number" ? item.position : index;
+  return draft.items.find((draftItem) => draftItem.position === position && draftItem.item_type === item.item_type)?.id || null;
 }
 
 // --- Inline Editor Component ---
@@ -304,12 +472,16 @@ export default function ReportPage() {
   const toast = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<unknown>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const queryClient = useQueryClient();
 
   const reportQuery = useQuery({
     queryKey: ["report-export-source", params.reportId],
     queryFn: () => getReportExportSource(params.reportId),
+  });
+  const reportDraftRunId = (reportQuery.data as any)?.profile?.run?.id as string | undefined;
+  const reportDraftQuery = useQuery({
+    queryKey: reportDraftRunId ? reportDraftQueryKey(reportDraftRunId) : ["report-draft-unavailable", params.reportId],
+    queryFn: () => getProfileReportDraft(reportDraftRunId!),
+    enabled: Boolean(reportDraftRunId && (reportQuery.data as any)?.report_snapshot?.items?.length),
   });
 
   async function exportFullPdf(profileRunId: string) {
@@ -407,7 +579,7 @@ export default function ReportPage() {
   if (columns.length > 0) addToc("sec-columns", "Hồ sơ kỹ thuật", false, true);
 
   const formattedItems = JSON.parse(JSON.stringify(items));
-  if (formattedItems.length > 0 || isEditing) {
+  if (formattedItems.length > 0) {
     addToc("part-2", "PHẦN 2: CHUYÊN ĐỀ PHÂN TÍCH", true);
     addToc("sec-charts", "Biểu đồ đã ghim", false, true);
     const parentNum = tocNumber - 1;
@@ -466,9 +638,8 @@ export default function ReportPage() {
             <span className="chip success">Bản tổng hợp hoàn chỉnh</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button type="button" className="button secondary" onClick={() => setIsEditing(true)} disabled={exporting || isEditing}>Chỉnh sửa Report Draft</button>
             {run.id && (
-              <LoadingButton type="button" className="button primary" busy={exporting} onClick={() => void exportFullPdf(run.id)} disabled={isEditing} style={{ background: isEditing ? "#94a3b8" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", boxShadow: isEditing ? "none" : "0 4px 12px rgba(37,99,235,0.25)", fontWeight: 700 }}>
+              <LoadingButton type="button" className="button primary" busy={exporting} onClick={() => void exportFullPdf(run.id)} style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)", boxShadow: "0 4px 12px rgba(37,99,235,0.25)", fontWeight: 700 }}>
                 {exporting ? "Đang tạo PDF…" : "Xuất báo cáo PDF"}
               </LoadingButton>
             )}
@@ -489,9 +660,13 @@ export default function ReportPage() {
         </div>
 
         {/* PHẦN 1: TỪ PROFILE */}
-        <div id="part-1" style={{ marginTop: "3rem", marginBottom: "1.5rem", borderBottom: "3px solid #2563eb", paddingBottom: "0.5rem" }}>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 900, color: "#1e293b", textTransform: "uppercase", margin: 0 }}>Phần 1: Hồ sơ kỹ thuật & Chất lượng dữ liệu</h2>
-        </div>
+        <ReportAccordion
+          id="part-1"
+          eyebrow="PHẦN 1 · PROFILE"
+          title="Phần 1: Hồ sơ kỹ thuật & Chất lượng dữ liệu"
+          description="Mở để xem tổng quan, cảnh báo chất lượng, tóm tắt từ Agent và hồ sơ kỹ thuật."
+          className="report-part-accordion report-part-1-accordion"
+        >
         <section id="sec-overview" className="panel report-detail-section" style={{ padding: "2rem", marginBottom: "1.5rem" }}>
           <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>{tocItems.find(t => t.id === 'sec-overview')?.title}</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem", margin: "1rem 0" }}>
@@ -577,36 +752,46 @@ export default function ReportPage() {
           </section>
         )}
 
+        </ReportAccordion>
+
 
 
         {/* PHẦN 2: TỪ CHARTS */}
-        {(formattedItems.length > 0 || isEditing) && (
-          <>
-            <div id="part-2" style={{ marginTop: "4rem", marginBottom: "1.5rem", borderBottom: "3px solid #8b5cf6", paddingBottom: "0.5rem" }}>
-              <h2 style={{ fontSize: "1.5rem", fontWeight: 900, color: "#1e293b", textTransform: "uppercase", margin: 0 }}>Phần 2: Biểu đồ trực quan & Phân tích chuyên sâu</h2>
-            </div>
+        {formattedItems.length > 0 && (
+          <ReportAccordion
+            id="part-2"
+            eyebrow="PHẦN 2 · CHARTS"
+            title="Phần 2: Biểu đồ trực quan & Phân tích chuyên sâu"
+            description={`${formattedItems.length} mục phân tích đã ghim vào báo cáo.`}
+            className="report-part-accordion report-part-2-accordion"
+          >
             <section id="sec-charts" style={{ marginTop: "1rem" }}>
               <div style={{ marginBottom: "1rem" }}>
                 <span className="eyebrow" style={{ color: "#2563eb", fontWeight: 700, textTransform: "uppercase", fontSize: "0.8rem" }}>CHUYÊN ĐỀ PHÂN TÍCH CHUYÊN SÂU</span>
                 <h2 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#0f172a", margin: "0.25rem 0" }}>{tocItems.find(t => t.id === 'sec-charts')?.title} ({formattedItems.length} mục đã ghim)</h2>
               </div>
             
-            {isEditing ? (
-              <EditableChartsSection runId={run.id} onSnapshotCreated={() => { setIsEditing(false); queryClient.invalidateQueries({ queryKey: ["report-export-source", params.reportId] }); }} />
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
                 {formattedItems.map((item: any, index: number) => (
                   <article key={item.id} className="panel report-detail-section" style={{ padding: "2rem", borderRadius: "12px", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05)" }}>
                     <header style={{ marginBottom: "1.25rem", borderBottom: "1px solid #e2e8f0", paddingBottom: "1rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span className="eyebrow" style={{ textTransform: "uppercase", fontSize: "0.75rem", color: "#2563eb", fontWeight: 700 }}>
-                          {item.item_type === "chart" ? `CÂU HỎI #${index + 1}` : `GHI CHÚ #${index + 1}`}
-                        </span>
-                        {item.query_spec && (
-                          <span style={{ fontSize: "0.75rem", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px" }}>
-                            {item.query_spec.aggregate} · {item.query_spec.analysis_kind}
+                      <div className="report-item-header-row">
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", minWidth: 0 }}>
+                          <span className="eyebrow" style={{ textTransform: "uppercase", fontSize: "0.75rem", color: "#2563eb", fontWeight: 700 }}>
+                            {item.item_type === "chart" ? `CÂU HỎI #${index + 1}` : `GHI CHÚ #${index + 1}`}
                           </span>
-                        )}
+                          {item.query_spec && (
+                            <span style={{ fontSize: "0.75rem", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px" }}>
+                              {item.query_spec.aggregate} · {item.query_spec.analysis_kind}
+                            </span>
+                          )}
+                        </div>
+                        <ReportItemActions
+                          item={item}
+                          reportId={params.reportId}
+                          runId={run.id}
+                          draftItemId={resolveReportDraftItemId(item, index, reportDraftQuery.data, report_snapshot?.snapshot_hash === "draft")}
+                        />
                       </div>
                       <h3 style={{ fontSize: "1.3rem", fontWeight: 700, margin: "0.5rem 0", color: "#1e293b" }}>{item.title || (item.item_type === "chart" ? "Biểu đồ Phân tích" : "Kết luận từ Agent")}</h3>
                     </header>
@@ -634,9 +819,8 @@ export default function ReportPage() {
                   </article>
                 ))}
               </div>
-            )}
           </section>
-          </>
+          </ReportAccordion>
         )}
 
         {/* PHẦN 3: SO SÁNH DỮ LIỆU */}
@@ -680,7 +864,7 @@ export default function ReportPage() {
             <ul className="report-toc-list" style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.4rem" }}>
               {tocItems.map((item) => (
                 <li key={item.id} style={{ marginLeft: item.isSubSection ? "2rem" : item.isSection ? "1rem" : "0", marginTop: item.isPart ? "0.85rem" : "0" }}>
-                  <a href={`#${item.id}`} onClick={(e) => { e.preventDefault(); document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth" }); }} style={{ color: item.isPart ? "#0f172a" : item.isSubSection ? "#475569" : "#2563eb", textDecoration: "none", display: "block", padding: "4px 0", fontWeight: item.isPart ? 800 : (item.isSection ? 600 : 500), fontSize: item.isPart ? "1.05rem" : item.isSubSection ? "0.9rem" : "0.95rem" }}>
+                  <a href={`#${item.id}`} onClick={(e) => { e.preventDefault(); scrollToReportSection(item.id); }} style={{ color: item.isPart ? "#0f172a" : item.isSubSection ? "#475569" : "#2563eb", textDecoration: "none", display: "block", padding: "4px 0", fontWeight: item.isPart ? 800 : (item.isSection ? 600 : 500), fontSize: item.isPart ? "1.05rem" : item.isSubSection ? "0.9rem" : "0.95rem" }}>
                     <span>{item.title}</span>
                   </a>
                 </li>
