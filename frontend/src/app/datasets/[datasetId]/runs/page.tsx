@@ -78,7 +78,7 @@ export default function DatasetRunsPage() {
       eyebrow="Lịch sử profiling"
       title="Các profile run"
       description="Theo dõi và tạo các phiên profiling của bộ dữ liệu này."
-      action={<><Link href="/datasets" className="button secondary">Quay lại</Link><button type="button" className="button primary" onClick={openCreateModal}>Profiling phiên bản mới</button></>}
+      action={<div className="profile-runs-header-actions"><Link href="/datasets" className="button secondary profile-runs-back-button">← Quay lại</Link><button type="button" className="button primary" onClick={openCreateModal}>Profiling phiên bản mới</button></div>}
     />
     {runs.isLoading && <LoadingBlock />}
     {runs.isError && <ErrorNotice error={runs.error} retry={() => runs.refetch()} />}
