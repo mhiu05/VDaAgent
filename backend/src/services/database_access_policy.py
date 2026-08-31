@@ -20,6 +20,10 @@ INTERNAL_BACKEND_ONLY_TABLES = frozenset(
         "approval_requests",
         "audit_events",
         "connector_idempotency",
+        "conversation_feedback",
+        "conversation_messages",
+        "conversations",
+        "evaluation_candidates",
         "datasource_connections",
         "evidence_items",
         "google_drive_connections",
@@ -28,6 +32,7 @@ INTERNAL_BACKEND_ONLY_TABLES = frozenset(
         "retrieval_documents",
         "tool_invocations",
         "verification_runs",
+        "qa_answer_cache",
     }
 )
 

@@ -25,7 +25,9 @@ import json
 import logging
 import os
 import tempfile
+import threading
 import time
+from datetime import datetime
 from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
@@ -43,12 +45,24 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from src.agents.graph import get_qa_graph
 from src.agents.nodes.profiling_nodes import clear_dataframe_cache
-from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_agent_run
+from src.agents.runtime.trace import (
+    cancel_agent_run,
+    complete_agent_run,
+    fail_agent_run,
+    start_agent_run,
+)
 from src.agents.state import initial_qa_state
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
 from src.services import ai_latency
 from src.models.schemas import (
+    AnswerProvenance,
+    ChatSuggestion,
+    ChatFeedbackRequest,
+    ConversationCreateRequest,
+    ConversationDetailOut,
+    ConversationOut,
+    ConversationUpdateRequest,
     ConfirmRequest,
     ConfirmResponse,
     DatasourceConnectResponse,
@@ -94,11 +108,13 @@ from src.services.datasource import (
 from src.services.llm import (
     LLMNotConfiguredError,
     is_llm_runtime_warning,
-    llm_available,
     normalize_profile_action_numbering,
     report_text,
     safe_llm_warning,
 )
+from src.services.chat_errors import chat_error, http_detail
+from src.services.chat_answer import build_answer_envelope
+from src.services.chat_cache import cache_candidate, cache_response_payload, revalidate_cache_hit, _VALIDATOR_VERSION
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -114,6 +130,8 @@ from src.services.permissions import (
     WORKSPACE_AUDIT_READ,
 )
 from src.services.repository import get_repository
+from src.services.chat_suggestions import generate_contextual_suggestions
+from src.services.chat_verifier import _digest as verifier_digest, verification_payload, verify_public_projection
 from src.services.retrieval import get_index
 from src.services.security import (
     get_audit,
@@ -1112,6 +1130,162 @@ def _qa_question_with_execution(question: str, execution: dict[str, Any] | None)
     )
 
 
+# --------------------------------------------------------------------------- #
+# Durable conversations (Chat P2)
+# --------------------------------------------------------------------------- #
+def _conversation_out(row: dict[str, Any]) -> ConversationOut:
+    return ConversationOut.model_validate(row)
+
+
+@router.post("/conversations", response_model=ConversationOut, status_code=201)
+async def create_conversation(
+    payload: ConversationCreateRequest,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> ConversationOut:
+    """Create an empty server conversation; never upload browser history."""
+
+    get_rate_limiter().check(context.user_id)
+    try:
+        row = get_repository().create_conversation(
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            title=payload.title,
+            conversation_id=payload.id,
+            active_dataset_id=payload.active_dataset_id,
+            active_profile_run_id=payload.active_profile_run_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=http_detail("CONTEXT_MISMATCH")) from exc
+    _audit(context, "conversation_created", resource_type="conversation", resource_id=row["id"])
+    return _conversation_out(row)
+
+
+@router.get("/conversations", response_model=list[ConversationOut])
+async def list_conversations(
+    limit: int = Query(default=30, ge=1, le=100),
+    archived: bool = False,
+    before: str | None = None,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> list[ConversationOut]:
+    """Return one bounded page of workspace conversations, newest first."""
+
+    before_at: datetime | None = None
+    if before:
+        try:
+            before_at = datetime.fromisoformat(before.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=http_detail("INVALID_QUESTION")) from exc
+    rows = get_repository().list_conversations(
+        workspace_id=context.workspace_id,
+        limit=limit,
+        include_archived=archived,
+        before_updated_at=before_at,
+    )
+    return [_conversation_out(row) for row in rows]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ConversationDetailOut)
+async def get_conversation(
+    conversation_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    before: str | None = None,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> ConversationDetailOut:
+    repository = get_repository()
+    row = repository.get_conversation(conversation_id, workspace_id=context.workspace_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE"))
+    try:
+        messages, next_before = repository.get_conversation_messages(
+            conversation_id,
+            workspace_id=context.workspace_id,
+            limit=limit,
+            before_message_id=before,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE")) from exc
+    return ConversationDetailOut(
+        conversation=_conversation_out(row),
+        messages=messages,
+        next_before=next_before,
+    )
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
+async def rename_conversation(
+    conversation_id: str,
+    payload: ConversationUpdateRequest,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> ConversationOut:
+    row = get_repository().update_conversation_title(
+        conversation_id, workspace_id=context.workspace_id, title=payload.title
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE"))
+    _audit(context, "conversation_renamed", resource_type="conversation", resource_id=conversation_id)
+    return _conversation_out(row)
+
+
+@router.post("/conversations/{conversation_id}/archive", response_model=dict[str, bool])
+async def archive_conversation(
+    conversation_id: str,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> dict[str, bool]:
+    archived = get_repository().archive_conversation(conversation_id, workspace_id=context.workspace_id)
+    if not archived:
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE"))
+    _audit(context, "conversation_archived", resource_type="conversation", resource_id=conversation_id)
+    return {"archived": True}
+
+
+@router.delete("/conversations/{conversation_id}", response_model=dict[str, bool])
+async def delete_conversation(
+    conversation_id: str,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> dict[str, bool]:
+    deleted = get_repository().soft_delete_conversation(conversation_id, workspace_id=context.workspace_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE"))
+    _audit(context, "conversation_deleted", resource_type="conversation", resource_id=conversation_id)
+    return {"deleted": True}
+
+
+@router.get("/profile/{run_id}/chat-suggestions", response_model=list[ChatSuggestion])
+async def chat_suggestions(
+    run_id: str,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> list[ChatSuggestion]:
+    return generate_contextual_suggestions(
+        get_repository(), workspace_id=context.workspace_id, profile_run_id=run_id
+    )
+
+
+@router.get("/qa/feedback/analytics")
+async def chat_feedback_analytics(
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> dict[str, Any]:
+    return get_repository().feedback_analytics(workspace_id=context.workspace_id)
+
+
+def _qa_request_identity(request: QARequest) -> dict[str, Any]:
+    """Hash only the immutable logical request for idempotent recovery.
+
+    Browser history, generated message IDs, and retry linkage can legitimately
+    change while reconnecting an interrupted request.  Including them would
+    turn a safe reconnect into an ``idempotency_key_reused`` conflict even
+    though the question and evidence context are unchanged.
+    """
+
+    return {
+        "question": request.question,
+        "profile_run_id": request.profile_run_id,
+        "analysis_execution_id": request.analysis_execution_id,
+        "workspace_context_version_id": request.workspace_context_version_id,
+        "response_mode": request.response_mode,
+        "answer_detail": request.answer_detail,
+    }
+
+
 def _qa_state(
     request: QARequest,
     context: RequestContext,
@@ -1128,31 +1302,25 @@ def _qa_state(
         if not run:
             raise HTTPException(
                 status_code=404,
-                detail=f"Không tìm thấy profile run '{request.profile_run_id}'.",
+                detail=http_detail("PROFILE_UNAVAILABLE"),
             )
         if run.get("status") != "completed":
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    f"Profile run '{request.profile_run_id}' chưa hoàn tất "
-                    f"(trạng thái hiện tại: {run.get('status') or 'unknown'})."
-                ),
+                detail=http_detail("PROFILE_NOT_READY"),
             )
         pending = repo.pending_count(request.profile_run_id)
         if pending:
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    f"Profile còn {pending} đề xuất cần review. "
-                    "Hãy hoàn tất Review proposals trước khi hỏi Agent về dataset."
-                ),
+                detail=http_detail("PROFILE_NOT_READY"),
             )
         columns = list(repo.get_column_stats(request.profile_run_id).keys())
     if request.analysis_execution_id:
         if not request.profile_run_id:
             raise HTTPException(
                 status_code=422,
-                detail="analysis_execution_id requires profile_run_id.",
+                detail=http_detail("INVALID_QUESTION"),
             )
         analyses = get_analysis_repository()
         execution = analyses.get_execution(
@@ -1173,7 +1341,7 @@ def _qa_state(
         ):
             raise HTTPException(
                 status_code=404,
-                detail="No ready execution exists in this Profile Run.",
+                detail=http_detail("CONTEXT_MISMATCH"),
             )
         if (
             request.workspace_context_version_id
@@ -1182,12 +1350,12 @@ def _qa_state(
         ):
             raise HTTPException(
                 status_code=409,
-                detail="The execution context changed. Run the result again.",
+                detail=http_detail("CONTEXT_MISMATCH"),
             )
     if request.response_mode == "chart_insight" and not execution:
         raise HTTPException(
             status_code=422,
-            detail="chart_insight response mode requires a bound analysis execution.",
+            detail=http_detail("INVALID_QUESTION"),
         )
     if (
         request.response_mode == "chart_insight"
@@ -1196,7 +1364,7 @@ def _qa_state(
     ):
         raise HTTPException(
             status_code=409,
-            detail="chart_insight requires an Official execution, not a Preview.",
+            detail=http_detail("CONTEXT_MISMATCH"),
         )
     state = initial_qa_state(
         # Keep chart questions concise for retrieval. The official result is
@@ -1213,6 +1381,11 @@ def _qa_state(
         history=[item.model_dump() for item in request.history[-12:]],
         workspace_id=context.workspace_id,
         agent_run_id=agent_run_id,
+        answer_detail=request.answer_detail,
+        qa_started_monotonic=time.perf_counter(),
+        qa_deadline_monotonic=(
+            time.perf_counter() + get_settings().qa_latency_full_agent_budget_seconds
+        ),
     )
     if execution:
         state["qa_context"] = {
@@ -1320,14 +1493,81 @@ def _guard_qa_answer(
     return guarded.text
 
 
+def _qa_answer_envelope(
+    *,
+    request: QARequest,
+    context: RequestContext,
+    agent_run_id: str | None,
+    answer: str,
+    sources: list[dict[str, Any]],
+    evidence_status: str,
+    deterministic_claims: list[dict[str, Any]] | None = None,
+    answerability: str = "answerable",
+    clarification: dict[str, Any] | None = None,
+):
+    """Attach immutable context to the additive V2 answer contract."""
+
+    repository = get_repository()
+    run = (
+        repository.get_profile_run(
+            request.profile_run_id, workspace_id=context.workspace_id
+        )
+        if request.profile_run_id
+        else None
+    ) or {}
+    get_dataset = getattr(repository, "get_dataset", None)
+    dataset = (
+        get_dataset(run.get("dataset_id"), workspace_id=context.workspace_id)
+        if run.get("dataset_id") and callable(get_dataset)
+        else {}
+    ) or {}
+    pending_count = getattr(repository, "pending_count", None)
+    has_pending_proposals = bool(
+        pending_count(request.profile_run_id)
+        if request.profile_run_id and callable(pending_count)
+        else False
+    )
+    provenance = AnswerProvenance(
+        workspace_id=context.workspace_id,
+        dataset_id=run.get("dataset_id"),
+        dataset_name=dataset.get("name"),
+        profile_run_id=request.profile_run_id,
+        profile_run_label=run.get("run_name") or (f"Version {run.get('version')}" if run.get("version") else None),
+        scan_mode=run.get("scan_mode"),
+        row_scope="sample" if bool(run.get("is_approximate")) else "full",
+        row_count=run.get("row_count"),
+        profiled_at=run.get("updated_at") or run.get("created_at"),
+        proposal_status="review_required" if has_pending_proposals else "reviewed" if request.profile_run_id else None,
+        context_version_id=request.workspace_context_version_id,
+        analysis_execution_id=request.analysis_execution_id,
+        agent_run_id=agent_run_id,
+    )
+    return build_answer_envelope(
+        answer=answer,
+        sources=sources,
+        evidence_status=evidence_status,
+        is_approximate=bool(run.get("is_approximate")),
+        provenance=provenance,
+        deterministic_claims=deterministic_claims,
+        answer_detail=request.answer_detail,
+        answerability=(
+            answerability
+            if answerability in {"answerable", "needs_clarification", "insufficient_evidence"}
+            else "insufficient_evidence" if evidence_status == "no_evidence" else "answerable"
+        ),
+        clarification=clarification,
+    )
+
+
 async def _ask_question_impl(
     request: QARequest,
     context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
 ) -> QAResponse:
     """Q&A không streaming — tiện cho script và test."""
+    request_id = request.request_id or uuid4().hex
     get_rate_limiter().check(context.user_id)
     state = _qa_state(request, context)
-    agent_run_id = start_agent_run(
+    agent_run_id, created = start_agent_run(
         workspace_id=context.workspace_id,
         actor_user_id=context.user_id,
         run_type="qa",
@@ -1340,9 +1580,74 @@ async def _ask_question_impl(
             }.items()
             if value
         },
-        request_for_hash=request.model_dump(),
+        request_for_hash=_qa_request_identity(request),
+        idempotency_key=request_id,
+        return_created=True,
     )
+    if not created:
+        existing = (
+            get_repository().get_agent_run(agent_run_id, workspace_id=context.workspace_id)
+            if agent_run_id
+            else None
+        ) or {}
+        recovery = (existing.get("usage") or {}).get("chat_recovery")
+        if existing.get("status") == "completed" and isinstance(recovery, dict):
+            return QAResponse.model_validate(recovery)
+        raise HTTPException(
+            status_code=409,
+            detail=http_detail(
+                "REQUEST_IN_PROGRESS"
+                if existing.get("status") in {"running", "created"}
+                else "CHAT_CANCELLED"
+            ),
+        )
     state["agent_run_id"] = agent_run_id
+    durable_message_id = _prepare_durable_turn(request, context, request_id=request_id)
+    cache_candidate_value = _cache_candidate_for_request(request, context)
+    cached = _cached_answer_for_request(request, context, cache_candidate_value)
+    if cached:
+        run = (
+            get_repository().get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
+            if request.profile_run_id
+            else {}
+        ) or {}
+        evidence_metadata = _qa_evidence_metadata(
+            request,
+            agent_run_id=agent_run_id,
+            workspace_id=context.workspace_id,
+            validated_status=str(cached.get("evidence_status") or "verified"),
+        )
+        answer = _guard_qa_answer(str(cached.get("answer") or ""), profile_run_id=request.profile_run_id, context=context)
+        sources = list(cached.get("sources") or [])
+        envelope = _qa_answer_envelope(
+            request=request, context=context, agent_run_id=agent_run_id,
+            answer=answer, sources=sources,
+            evidence_status=str(evidence_metadata["evidence_status"]),
+            deterministic_claims=cached.get("deterministic_claims"),
+            answerability=str(cached.get("answerability") or "answerable"),
+            clarification=cached.get("clarification"),
+        )
+        verification = _run_independent_verifier(
+            request=request, context=context, agent_run_id=agent_run_id, answer=answer,
+            sources=sources, qa_path="semantic_cache", is_approximate=bool(run.get("is_approximate")),
+            answerability=str(cached.get("answerability") or "answerable"),
+        )
+        response = QAResponse(
+            question=_guard_qa_answer(request.question, profile_run_id=request.profile_run_id, context=context),
+            request_id=request_id, message_id=durable_message_id,
+            question_type=cached.get("question_type"), answer=answer, sources=sources,
+            is_approximate=bool(run.get("is_approximate")), agent_run_id=agent_run_id,
+            **evidence_metadata, verification=verification,
+            answer_envelope=envelope, answer_detail=request.answer_detail,
+            answerability=str(cached.get("answerability") or "answerable"),
+            clarification=cached.get("clarification"),
+            suggestions=_contextual_suggestions(request, context),
+        )
+        ai_latency.set_dimensions(execution_path="semantic_cache", intent=cache_candidate_value.intent, model=get_settings().llm_model, cache_status=str(cached.get("cache_status") or "semantic_hit"))
+        ai_latency.set_outcome("success")
+        complete_agent_run(agent_run_id, workspace_id=context.workspace_id, usage={"chat_recovery": response.model_dump(mode="json")})
+        _complete_durable_turn(durable_message_id, request=request, context=context, agent_run_id=agent_run_id, answer=answer, envelope=envelope)
+        return response
 
     try:
         result = await asyncio.to_thread(get_qa_graph().invoke, state)
@@ -1351,7 +1656,7 @@ async def _ask_question_impl(
         fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc)
         raise HTTPException(
             status_code=500,
-            detail="Q&A thất bại. Vui lòng thử lại và kiểm tra server log nếu lỗi lặp lại.",
+            detail=http_detail("SERVER_ERROR"),
         ) from exc
 
     is_approximate = False
@@ -1361,7 +1666,22 @@ async def _ask_question_impl(
         )
         is_approximate = bool((run or {}).get("is_approximate"))
 
-    complete_agent_run(agent_run_id, workspace_id=context.workspace_id)
+    if result.get("error_code"):
+        error = chat_error(str(result["error_code"]))
+        fail_agent_run(
+            agent_run_id,
+            workspace_id=context.workspace_id,
+            error=error.message,
+            error_code=error.code.lower(),
+        )
+        raise HTTPException(status_code=504 if error.code == "CHAT_TIMEOUT" else 503, detail=error.as_payload())
+    ai_latency.set_dimensions(
+        execution_path=result.get("qa_path"),
+        intent=result.get("fast_path_intent") or result.get("question_type"),
+        model=get_settings().llm_model,
+        cache_status="semantic_miss" if cache_candidate_value else "not_eligible",
+    )
+    ai_latency.set_outcome("success")
     trace_summary = (
         get_repository().agent_trace_summary(
             agent_run_id, workspace_id=context.workspace_id
@@ -1370,30 +1690,65 @@ async def _ask_question_impl(
         else None
     )
 
-    return QAResponse(
+    evidence_metadata = _qa_evidence_metadata(
+        request,
+        agent_run_id=agent_run_id,
+        workspace_id=context.workspace_id,
+        validated_status=result.get("evidence_status"),
+    )
+    guarded_answer = _guard_qa_answer(
+        result.get("answer") or "",
+        profile_run_id=request.profile_run_id,
+        context=context,
+    )
+    sources = result.get("answer_sources") or []
+
+    envelope = _qa_answer_envelope(
+        request=request,
+        context=context,
+        agent_run_id=agent_run_id,
+        answer=guarded_answer,
+        sources=sources,
+        evidence_status=str(evidence_metadata["evidence_status"]),
+        deterministic_claims=result.get("deterministic_claims"),
+        answerability=str(result.get("answerability") or "answerable"),
+        clarification=result.get("clarification"),
+    )
+    verification = _run_independent_verifier(
+        request=request, context=context, agent_run_id=agent_run_id, answer=guarded_answer,
+        sources=sources, qa_path=result.get("qa_path"), is_approximate=is_approximate,
+        answerability=str(result.get("answerability") or "answerable"),
+    )
+    response = QAResponse(
         question=_guard_qa_answer(
             request.question,
             profile_run_id=request.profile_run_id,
             context=context,
         ),
+        request_id=request_id,
+        message_id=durable_message_id,
         question_type=result.get("question_type"),
-        answer=_guard_qa_answer(
-            result.get("answer") or "",
-            profile_run_id=request.profile_run_id,
-            context=context,
-        ),
-        sources=result.get("answer_sources") or [],
+        answer=guarded_answer,
+        sources=sources,
         is_approximate=is_approximate,
         agent_run_id=agent_run_id,
-        **_qa_evidence_metadata(
-            request,
-            agent_run_id=agent_run_id,
-            workspace_id=context.workspace_id,
-            validated_status=result.get("evidence_status"),
-        ),
-        verification={"status": "not_run", "mode": get_settings().agent_verifier_mode},
+        **evidence_metadata,
+        verification=verification,
         trace_summary=trace_summary,
+        answer_envelope=envelope,
+        answer_detail=request.answer_detail,
+        answerability=str(result.get("answerability") or ("insufficient_evidence" if evidence_metadata["evidence_status"] == "no_evidence" else "answerable")),
+        clarification=result.get("clarification"),
+        suggestions=_contextual_suggestions(request, context),
     )
+    _store_cached_answer(cache_candidate_value, request=request, context=context, routed=result, answer=guarded_answer, sources=sources)
+    complete_agent_run(
+        agent_run_id,
+        workspace_id=context.workspace_id,
+        usage={"chat_recovery": response.model_dump(mode="json")},
+    )
+    _complete_durable_turn(durable_message_id, request=request, context=context, agent_run_id=agent_run_id, answer=guarded_answer, envelope=envelope)
+    return response
 
 
 @router.post("/qa", response_model=QAResponse)
@@ -1411,148 +1766,753 @@ async def ask_question(
         ai_latency.reset(latency_token)
 
 
-def _sse(event: str, data: Any) -> str:
-    """Đóng gói một SSE frame (ADR-010)."""
-    return (
-        f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+@router.post("/qa/feedback", status_code=202)
+async def submit_chat_feedback(
+    request: ChatFeedbackRequest,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> dict[str, bool]:
+    """Upsert P2 feedback and its review-only evaluation candidate metadata."""
+
+    get_rate_limiter().check(context.user_id)
+    run = get_repository().get_agent_run(request.agent_run_id, workspace_id=context.workspace_id)
+    if not run or run.get("run_type") != "qa":
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE"))
+    recovery = (run.get("usage") or {}).get("chat_recovery") or {}
+    version = run.get("version_snapshot") or {}
+    safe_metadata = {
+        "intent": recovery.get("question_type") or "unknown",
+        # The run ledger deliberately does not persist prompts or full traces.
+        "execution_path": recovery.get("execution_path") or "unknown",
+        "evidence_status": recovery.get("evidence_status") or "unknown",
+        "answer_detail": recovery.get("answer_detail") or "standard",
+        "model": version.get("llm_model") or get_settings().llm_model,
+        "latency_bucket": "unknown",
+    }
+    try:
+        get_repository().record_conversation_feedback(
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            agent_run_id=request.agent_run_id,
+            message_id=request.message_id,
+            polarity=request.polarity,
+            reason_code=request.reason_code,
+            metadata_payload=safe_metadata,
+        )
+    except Exception as exc:
+        logger.exception("Could not persist chat feedback")
+        raise HTTPException(status_code=503, detail=http_detail("SERVER_ERROR")) from exc
+    _audit(
+        context,
+        "qa_feedback",
+        resource_type="agent_run",
+        resource_id=request.agent_run_id,
+        message_id=request.message_id,
+        polarity=request.polarity,
+        reason_code=request.reason_code,
     )
+    return {"accepted": True}
+
+
+def _sse(event: str, data: Any, *, event_id: int | None = None) -> str:
+    """Đóng gói một SSE frame (ADR-010)."""
+    payload = {
+        "schema_version": "chat_stream.v1",
+        **(data if isinstance(data, dict) else {"value": data}),
+    }
+
+    identifier = f"id: {event_id}\n" if event_id is not None else ""
+    return (
+        f"{identifier}event: {event}\ndata: "
+        f"{json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+    )
+
+
+def _conversation_context_snapshot(
+    request: QARequest, context: RequestContext
+) -> dict[str, Any]:
+    """Build the immutable, public-safe context stored with one turn."""
+
+    repository = get_repository()
+    run = (
+        repository.get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
+        if request.profile_run_id
+        else None
+    ) or {}
+    dataset = (
+        repository.get_dataset(run.get("dataset_id"), workspace_id=context.workspace_id)
+        if run.get("dataset_id") and hasattr(repository, "get_dataset")
+        else None
+    ) or {}
+    return {
+        "workspace_id": context.workspace_id,
+        "dataset_id": run.get("dataset_id"),
+        "dataset_name": dataset.get("name"),
+        "profile_run_id": request.profile_run_id,
+        "profile_run_label": run.get("run_name") or (f"Version {run.get('version')}" if run.get("version") else None),
+        "scan_mode": run.get("scan_mode"),
+        "row_scope": "sample" if run.get("is_approximate") else "full" if request.profile_run_id else None,
+        "row_count": run.get("row_count"),
+        "profiled_at": (run.get("updated_at") or run.get("created_at")).isoformat()
+        if isinstance(run.get("updated_at") or run.get("created_at"), datetime)
+        else None,
+        "context_version_id": request.workspace_context_version_id,
+        "analysis_execution_id": request.analysis_execution_id,
+    }
+
+
+def _prepare_durable_turn(
+    request: QARequest,
+    context: RequestContext,
+    *,
+    request_id: str,
+) -> str | None:
+    """Persist only the newly sent turn; never import legacy browser history."""
+
+    if not request.conversation_id:
+        return None
+    repository = get_repository()
+    conversation = repository.get_conversation(
+        request.conversation_id, workspace_id=context.workspace_id
+    ) if hasattr(repository, "get_conversation") else None
+    if not conversation:
+        # Older P1 browser IDs can become a server conversation only when the
+        # user actively sends a *new* message. No local snapshot is uploaded.
+        try:
+            repository.create_conversation(
+                workspace_id=context.workspace_id,
+                actor_user_id=context.user_id,
+                conversation_id=request.conversation_id,
+                active_profile_run_id=request.profile_run_id,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=http_detail("CONTEXT_MISMATCH")) from exc
+    assistant_message_id = request.assistant_message_id or uuid4().hex
+    try:
+        snapshot = _conversation_context_snapshot(request, context)
+        repository.start_conversation_turn(
+            conversation_id=request.conversation_id,
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            request_id=request_id,
+            user_message_id=request.message_id,
+            assistant_message_id=assistant_message_id,
+            question=request.question,
+            context_snapshot=snapshot,
+            profile_run_id=request.profile_run_id,
+            dataset_id=snapshot.get("dataset_id"),
+            parent_message_id=request.parent_message_id,
+            retry_of=request.retry_of,
+            regeneration_of=request.regeneration_of,
+            persist_user_message=request.persist_user_message,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=http_detail("PROFILE_UNAVAILABLE")) from exc
+    return assistant_message_id
+
+
+def _complete_durable_turn(
+    message_id: str | None,
+    *,
+    request: QARequest,
+    context: RequestContext,
+    agent_run_id: str | None,
+    answer: str,
+    envelope: Any | None,
+    status: str = "completed",
+) -> None:
+    if not message_id:
+        return
+    try:
+        get_repository().complete_conversation_message(
+            message_id,
+            workspace_id=context.workspace_id,
+            agent_run_id=agent_run_id,
+            text=answer,
+            answer_envelope=(envelope.model_dump(mode="json") if hasattr(envelope, "model_dump") else envelope),
+            context_snapshot=_conversation_context_snapshot(request, context),
+            status=status,
+        )
+    except Exception:  # Durability failures are observable but never expose DB detail.
+        logger.exception("Could not persist durable chat message")
+        _audit(context, "conversation_message_persist_failed", resource_type="conversation", resource_id=request.conversation_id)
+
+
+def _contextual_suggestions(request: QARequest, context: RequestContext) -> list[ChatSuggestion]:
+    try:
+        return generate_contextual_suggestions(
+            get_repository(), workspace_id=context.workspace_id, profile_run_id=request.profile_run_id
+        )
+    except Exception:
+        logger.warning("Could not build chat suggestions", exc_info=True)
+        return []
+
+
+def _run_independent_verifier(
+    *,
+    request: QARequest,
+    context: RequestContext,
+    agent_run_id: str | None,
+    answer: str,
+    sources: list[dict[str, Any]],
+    qa_path: str | None,
+    is_approximate: bool,
+    answerability: str,
+) -> dict[str, Any]:
+    settings = get_settings()
+    if settings.agent_verifier_mode == "off":
+        return {"status": "disabled", "mode": "off"}
+    started_at = time.perf_counter()
+    decision = verify_public_projection(
+        answer=answer,
+        sources=sources,
+        workspace_id=context.workspace_id,
+        profile_run_id=request.profile_run_id,
+        qa_path=qa_path,
+        is_approximate=is_approximate,
+        answer_detail=request.answer_detail,
+        answerability=answerability,
+        threshold=settings.qa_verifier_risk_threshold,
+    )
+    payload = verification_payload(decision, mode=settings.agent_verifier_mode)
+    elapsed_seconds = time.perf_counter() - started_at
+    # This verifier is bounded, local string/metadata validation (not a
+    # model/network call). Keep the configured budget observable nevertheless:
+    # an unexpectedly slow projection is never represented as a pass.
+    timed_out = elapsed_seconds > settings.qa_verifier_timeout_seconds
+    if timed_out:
+        payload = {
+            **payload,
+            "status": "timed_out",
+            "violations": [*payload.get("violations", []), "verifier_timeout_observed"],
+        }
+    if decision.should_run and agent_run_id:
+        try:
+            get_repository().record_independent_verification(
+                agent_run_id=agent_run_id,
+                workspace_id=context.workspace_id,
+                answer_hash=verifier_digest(answer),
+                claim_hash=verifier_digest(json.dumps(sorted(str(item.get("citation_id") or "") for item in sources), separators=(",", ":"))),
+                outcome="passed" if decision.valid and not timed_out else "failed",
+                violations=list(payload.get("violations") or []),
+                recovery_decision="abstain" if (not decision.valid or timed_out) and settings.agent_verifier_mode == "enforce" else None,
+            )
+        except Exception:
+            logger.warning("Could not record independent verification", exc_info=True)
+    return payload
+
+
+def _cache_candidate_for_request(request: QARequest, context: RequestContext) -> Any | None:
+    if not get_settings().qa_semantic_cache_enabled:
+        return None
+    try:
+        run = (
+            get_repository().get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
+            if request.profile_run_id
+            else None
+        )
+        return cache_candidate(
+            question=request.question,
+            workspace_id=context.workspace_id,
+            profile_run=run,
+            profile_run_id=request.profile_run_id,
+            context_version_id=request.workspace_context_version_id,
+            analysis_execution_id=request.analysis_execution_id,
+            answer_detail=request.answer_detail,
+            has_history=bool(request.history),
+        )
+    except Exception:
+        logger.warning("Could not prepare semantic cache candidate", exc_info=True)
+        return None
+
+
+def _cached_answer_for_request(request: QARequest, context: RequestContext, candidate: Any | None) -> dict[str, Any] | None:
+    if not candidate or not request.profile_run_id:
+        return None
+    repository = get_repository()
+    getter = getattr(repository, "get_qa_answer_cache", None)
+    if not callable(getter):
+        return None
+    try:
+        cached = getter(workspace_id=context.workspace_id, cache_key=candidate.key)
+        if not cached:
+            _audit(context, "qa_cache", cache_status="miss", intent=candidate.intent)
+            return None
+        result = revalidate_cache_hit(
+            cached=cached,
+            candidate=candidate,
+            question=request.question,
+            profile_run_id=request.profile_run_id,
+            workspace_id=context.workspace_id,
+        )
+        _audit(context, "qa_cache", cache_status=(result or {}).get("cache_status", "rejected_hit"), intent=candidate.intent)
+        return result
+    except Exception:
+        logger.warning("Semantic cache lookup failed; using normal QA", exc_info=True)
+        _audit(context, "qa_cache", cache_status="lookup_failure", intent=candidate.intent)
+        return None
+
+
+def _store_cached_answer(candidate: Any | None, *, request: QARequest, context: RequestContext, routed: dict[str, Any], answer: str, sources: list[dict[str, Any]]) -> None:
+    if not candidate or routed.get("qa_path") != "deterministic_profile" or routed.get("fast_path_intent") != candidate.intent:
+        return
+    payload = cache_response_payload(
+        answer=answer,
+        sources=sources,
+        evidence_status=str(routed.get("evidence_status") or "no_evidence"),
+        question_type=routed.get("question_type"),
+        deterministic_claims=routed.get("deterministic_claims"),
+        answerability=str(routed.get("answerability") or "answerable"),
+        clarification=routed.get("clarification"),
+        question_hash=candidate.exact_question_hash,
+    )
+    if not payload:
+        return
+    try:
+        get_repository().put_qa_answer_cache(
+            workspace_id=context.workspace_id,
+            cache_key=candidate.key,
+            intent=candidate.intent,
+            dimensions=candidate.dimensions,
+            response=payload,
+            validator_version=_VALIDATOR_VERSION,
+            ttl_seconds=get_settings().qa_semantic_cache_ttl_seconds,
+            max_entries=get_settings().qa_semantic_cache_max_entries_per_workspace,
+        )
+        _audit(context, "qa_cache", cache_status="stored", intent=candidate.intent)
+    except Exception:
+        logger.warning("Semantic cache store failed", exc_info=True)
+def _public_answer_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove internal workspace bindings from the browser-facing stream."""
+
+    return [
+        {key: value for key, value in source.items() if key != "workspace_id"}
+        for source in sources
+        if isinstance(source, dict)
+    ]
+
+
+async def _qa_stream_frames(
+    *,
+    request: QARequest,
+    request_id: str,
+    context: RequestContext,
+    http_request: Request,
+    state: dict[str, Any],
+):
+    """Run one QA request while forwarding only milestones the graph reached."""
+
+    sequence = 0
+
+    def frame(event: str, payload: dict[str, Any]) -> str:
+        nonlocal sequence
+        sequence += 1
+        return _sse(event, {"request_id": request_id, **payload}, event_id=sequence)
+
+    agent_run_id: str | None = None
+    durable_message_id: str | None = None
+    durable_terminal_status = "failed"
+    cancel_event = threading.Event()
+    latency_token = ai_latency.begin("qa_stream")
+    try:
+        ai_latency.set_budget("full_agent", get_settings().qa_latency_full_agent_budget_seconds)
+        yield frame("status", {"stage": "preparing", "detail": "Preparing request"})
+        ai_latency.mark_first_status()
+        agent_run_id, created = start_agent_run(
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            run_type="qa",
+            resource_bindings={
+                key: value
+                for key, value in {
+                    "profile_run_id": request.profile_run_id,
+                    "analysis_execution_id": request.analysis_execution_id,
+                    "context_version_id": request.workspace_context_version_id,
+                }.items()
+                if value
+            },
+            request_for_hash=_qa_request_identity(request),
+            idempotency_key=request_id,
+            return_created=True,
+        )
+        if not created:
+            ai_latency.set_outcome("duplicate")
+            existing = (
+                get_repository().get_agent_run(agent_run_id, workspace_id=context.workspace_id)
+                if agent_run_id
+                else None
+            ) or {}
+            recovery = (existing.get("usage") or {}).get("chat_recovery")
+            if existing.get("status") == "completed" and isinstance(recovery, dict):
+                # The original request has already passed the same guardrails
+                # and evidence validation. Replay only its public projection;
+                # never start another execution or expose trace internals.
+                answer = str(recovery.get("answer") or "")
+                sources = _public_answer_sources(recovery.get("sources") or [])
+                envelope = recovery.get("answer_envelope")
+                yield frame("status", {"stage": "preparing", "detail": "Recovered completed answer"})
+                yield frame("meta", {
+                    "question_type": recovery.get("question_type"),
+                    "agent_run_id": agent_run_id,
+                    "message_id": recovery.get("message_id"),
+                    "evidence_status": recovery.get("evidence_status", "no_evidence"),
+                    "is_approximate": bool(recovery.get("is_approximate")),
+                    "verification": recovery.get("verification"),
+                    "recovered": True,
+                })
+                if sources and recovery.get("evidence_status") == "verified":
+                    yield frame("source", {"sources": sources})
+                for index in range(0, len(answer), 640):
+                    chunk = answer[index : index + 640]
+                    if chunk:
+                        yield frame("token", {"text": chunk, "delivery": "validated_replay"})
+                if recovery.get("suggestions"):
+                    yield frame("suggestions", {"suggestions": recovery["suggestions"]})
+                yield frame("done", {
+                    "question_type": recovery.get("question_type"),
+                    "length": len(answer),
+                    "agent_run_id": agent_run_id,
+                    "message_id": recovery.get("message_id"),
+                    "answer_envelope": envelope,
+                    "answer_detail": recovery.get("answer_detail", request.answer_detail),
+                    "answerability": recovery.get("answerability", "answerable"),
+                    "clarification": recovery.get("clarification"),
+                    "verification": recovery.get("verification"),
+                    "evidence_status": recovery.get("evidence_status", "no_evidence"),
+                    "recovered": True,
+                })
+                return
+            error = chat_error(
+                "REQUEST_IN_PROGRESS"
+                if existing.get("status") in {"running", "created"}
+                else "CHAT_CANCELLED" if existing.get("status") == "cancelled" else "SERVER_ERROR"
+            )
+            yield frame("error", {**error.as_payload(), "state": "failed", "agent_run_id": agent_run_id})
+            return
+        state["agent_run_id"] = agent_run_id
+        durable_message_id = _prepare_durable_turn(request, context, request_id=request_id)
+        cache_candidate_value = _cache_candidate_for_request(request, context)
+        cached = _cached_answer_for_request(request, context, cache_candidate_value)
+        if cached:
+            run = (
+                get_repository().get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
+                if request.profile_run_id
+                else {}
+            ) or {}
+            answer = _guard_qa_answer(str(cached.get("answer") or ""), profile_run_id=request.profile_run_id, context=context)
+            raw_sources = list(cached.get("sources") or [])
+            sources = _public_answer_sources(raw_sources)
+            evidence_metadata = _qa_evidence_metadata(
+                request, agent_run_id=agent_run_id, workspace_id=context.workspace_id,
+                validated_status=str(cached.get("evidence_status") or "verified"),
+            )
+            envelope = _qa_answer_envelope(
+                request=request, context=context, agent_run_id=agent_run_id,
+                answer=answer, sources=raw_sources,
+                evidence_status=str(evidence_metadata["evidence_status"]),
+                deterministic_claims=cached.get("deterministic_claims"),
+                answerability=str(cached.get("answerability") or "answerable"),
+                clarification=cached.get("clarification"),
+            )
+            verification = _run_independent_verifier(
+                request=request, context=context, agent_run_id=agent_run_id, answer=answer,
+                sources=raw_sources, qa_path="semantic_cache", is_approximate=bool(run.get("is_approximate")),
+                answerability=str(cached.get("answerability") or "answerable"),
+            )
+            suggestions = _contextual_suggestions(request, context)
+            recovery = {
+                "question_type": cached.get("question_type"), "answer": answer,
+                "execution_path": "semantic_cache",
+                "sources": raw_sources, "evidence_status": evidence_metadata["evidence_status"],
+                "is_approximate": bool(run.get("is_approximate")),
+                "answer_envelope": envelope.model_dump(mode="json"),
+                "answer_detail": request.answer_detail,
+                "answerability": cached.get("answerability") or "answerable",
+                "clarification": cached.get("clarification"), "message_id": durable_message_id,
+                "verification": verification, "suggestions": [item.model_dump() for item in suggestions],
+            }
+            complete_agent_run(agent_run_id, workspace_id=context.workspace_id, usage={"chat_recovery": recovery})
+            _complete_durable_turn(durable_message_id, request=request, context=context, agent_run_id=agent_run_id, answer=answer, envelope=envelope)
+            durable_terminal_status = "completed"
+            ai_latency.set_dimensions(execution_path="semantic_cache", intent=cache_candidate_value.intent, model=get_settings().llm_model, cache_status=str(cached.get("cache_status") or "semantic_hit"))
+            ai_latency.set_outcome("success")
+            yield frame("meta", {
+                "question_type": cached.get("question_type"), "agent_run_id": agent_run_id,
+                "message_id": durable_message_id, "evidence_status": evidence_metadata["evidence_status"],
+                "is_approximate": bool(run.get("is_approximate")), "cache_status": cached.get("cache_status"),
+                "verification": verification,
+            })
+            if sources:
+                ai_latency.mark_first_evidence()
+                yield frame("source", {"sources": sources})
+            for index in range(0, len(answer), 640):
+                chunk = answer[index:index + 640]
+                if chunk:
+                    ai_latency.mark_first_validated_output()
+                    yield frame("token", {"text": chunk, "delivery": "validated_replay"})
+            if suggestions:
+                yield frame("suggestions", {"suggestions": [item.model_dump() for item in suggestions]})
+            yield frame("done", {
+                "question_type": cached.get("question_type"), "length": len(answer),
+                "agent_run_id": agent_run_id, "message_id": durable_message_id,
+                "answer_envelope": envelope.model_dump(mode="json"),
+                "answer_detail": request.answer_detail, "answerability": recovery["answerability"],
+                "clarification": cached.get("clarification"), "verification": verification,
+                "cache_status": cached.get("cache_status"), **evidence_metadata,
+            })
+            return
+        state["cancel_event"] = cancel_event
+        loop = asyncio.get_running_loop()
+        progress_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+        def publish_progress(payload: dict[str, Any]) -> None:
+            # Nodes run in a worker thread. Queue only a small, fixed event
+            # shape; no prompt, source payload, row data, or secret crosses it.
+            loop.call_soon_threadsafe(progress_queue.put_nowait, payload)
+
+        state["progress_callback"] = publish_progress
+        graph_task = asyncio.create_task(asyncio.to_thread(get_qa_graph().invoke, state))
+        stream_deadline = time.perf_counter() + get_settings().qa_latency_full_agent_budget_seconds
+        while not graph_task.done():
+            if time.perf_counter() > stream_deadline:
+                cancel_event.set()
+                graph_task.cancel()
+                error = chat_error("CHAT_TIMEOUT")
+                fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=error.message, error_code="chat_timeout")
+                ai_latency.mark_budget_exceeded(stage="request", fallback="timeout")
+                ai_latency.set_outcome("timeout")
+                yield frame("error", {**error.as_payload(), "state": "timeout", "agent_run_id": agent_run_id})
+                return
+            if await http_request.is_disconnected():
+                cancel_event.set()
+                graph_task.cancel()
+                cancel_agent_run(agent_run_id, workspace_id=context.workspace_id)
+                durable_terminal_status = "cancelled"
+                ai_latency.set_outcome("cancelled")
+                return
+            try:
+                progress = await asyncio.wait_for(progress_queue.get(), timeout=0.05)
+            except TimeoutError:
+                continue
+            stage = str(progress.get("stage") or "")
+            if stage:
+                yield frame("status", {"stage": stage, "detail": progress.get("detail")})
+
+        routed = await graph_task
+        if await http_request.is_disconnected():
+            cancel_event.set()
+            cancel_agent_run(agent_run_id, workspace_id=context.workspace_id)
+            durable_terminal_status = "cancelled"
+            ai_latency.set_outcome("cancelled")
+            return
+
+        if routed.get("error_code"):
+            error = chat_error(str(routed["error_code"]))
+            fail_agent_run(
+                agent_run_id,
+                workspace_id=context.workspace_id,
+                error=error.message,
+                error_code=error.code.lower(),
+            )
+            ai_latency.set_outcome("timeout" if error.code == "CHAT_TIMEOUT" else "failed")
+            yield frame(
+                "error",
+                {**error.as_payload(), "state": "timeout" if error.code == "CHAT_TIMEOUT" else "failed", "agent_run_id": agent_run_id},
+            )
+            return
+
+        answer = _guard_qa_answer(
+            routed.get("answer") or "",
+            profile_run_id=request.profile_run_id,
+            context=context,
+        )
+        raw_sources = routed.get("answer_sources") or []
+        sources = _public_answer_sources(raw_sources)
+        evidence_metadata = _qa_evidence_metadata(
+            request,
+            agent_run_id=agent_run_id,
+            workspace_id=context.workspace_id,
+            validated_status=routed.get("evidence_status"),
+        )
+        run = (
+            get_repository().get_profile_run(
+                request.profile_run_id, workspace_id=context.workspace_id
+            )
+            if request.profile_run_id
+            else None
+        ) or {}
+        envelope = _qa_answer_envelope(
+            request=request,
+            context=context,
+            agent_run_id=agent_run_id,
+            answer=answer,
+            sources=raw_sources,
+            evidence_status=str(evidence_metadata["evidence_status"]),
+            deterministic_claims=routed.get("deterministic_claims"),
+            answerability=str(routed.get("answerability") or "answerable"),
+            clarification=routed.get("clarification"),
+        )
+        verification = _run_independent_verifier(
+            request=request, context=context, agent_run_id=agent_run_id, answer=answer,
+            sources=raw_sources, qa_path=routed.get("qa_path"),
+            is_approximate=bool(run.get("is_approximate")),
+            answerability=str(routed.get("answerability") or "answerable"),
+        )
+        suggestions = _contextual_suggestions(request, context)
+        ai_latency.set_dimensions(
+            execution_path=routed.get("qa_path"),
+            intent=routed.get("fast_path_intent") or routed.get("question_type"),
+            model=get_settings().llm_model,
+            cache_status="semantic_miss" if cache_candidate_value else "not_eligible",
+        )
+
+        recovery = {
+            "question_type": routed.get("question_type"),
+            "execution_path": routed.get("qa_path"),
+            "answer": answer,
+            "sources": raw_sources,
+            "evidence_status": evidence_metadata["evidence_status"],
+            "is_approximate": bool(run.get("is_approximate")),
+            "answer_envelope": envelope.model_dump(mode="json"),
+            "answer_detail": request.answer_detail,
+            "answerability": routed.get("answerability") or ("insufficient_evidence" if evidence_metadata["evidence_status"] == "no_evidence" else "answerable"),
+            "clarification": routed.get("clarification"),
+            "message_id": durable_message_id,
+            "verification": verification,
+            "suggestions": [item.model_dump() for item in suggestions],
+        }
+        # Mark completion before delivery. A dropped response can now replay
+        # this projection from the idempotent run without executing the graph
+        # again. It is scoped to the same workspace by ``get_agent_run``.
+        complete_agent_run(agent_run_id, workspace_id=context.workspace_id, usage={"chat_recovery": recovery})
+        _store_cached_answer(cache_candidate_value, request=request, context=context, routed=routed, answer=answer, sources=raw_sources)
+        _complete_durable_turn(durable_message_id, request=request, context=context, agent_run_id=agent_run_id, answer=answer, envelope=envelope)
+        durable_terminal_status = "completed"
+        ai_latency.set_outcome("success")
+        trace_summary = (
+            get_repository().agent_trace_summary(agent_run_id, workspace_id=context.workspace_id)
+            if agent_run_id
+            else None
+        )
+
+        yield frame(
+            "meta",
+            {
+                "question_type": routed.get("question_type"),
+                "agent_run_id": agent_run_id,
+                "message_id": durable_message_id,
+                "evidence_status": evidence_metadata["evidence_status"],
+                "is_approximate": bool(run.get("is_approximate")),
+                "verification": verification,
+            },
+        )
+        if sources and evidence_metadata["evidence_status"] == "verified":
+            ai_latency.mark_first_evidence()
+            yield frame("source", {"sources": sources})
+        yield frame("status", {"stage": "preparing_answer", "detail": "Preparing answer"})
+        # These chunks are explicitly post-validation delivery, not claims of
+        # provider token streaming. Quantitative answers have always required
+        # that ordering to remain evidence-safe.
+        for index in range(0, len(answer), 640):
+            chunk = answer[index : index + 640]
+            if not chunk:
+                continue
+            ai_latency.mark_first_validated_output()
+            yield frame("token", {"text": chunk, "delivery": "validated_replay"})
+            await asyncio.sleep(0)
+
+        if suggestions:
+            # Deliberately after validated output: suggestions never delay
+            # TTFVA and are not an answer/evidence dependency.
+            yield frame("suggestions", {"suggestions": [item.model_dump() for item in suggestions]})
+        yield frame("status", {"stage": "completed", "detail": "Completed"})
+        yield frame(
+            "done",
+            {
+                "question_type": routed.get("question_type"),
+                "length": len(answer),
+                "agent_run_id": agent_run_id,
+                "message_id": durable_message_id,
+                "trace_summary": trace_summary,
+                "answer_envelope": envelope.model_dump(mode="json"),
+                "answer_detail": request.answer_detail,
+                "answerability": recovery["answerability"],
+                "clarification": routed.get("clarification"),
+                "latency": ai_latency.current().snapshot() if ai_latency.current() else None,
+                "verification": verification,
+                "cache_status": "semantic_miss" if cache_candidate_value else "not_eligible",
+                **evidence_metadata,
+            },
+        )
+        _audit(
+            context,
+            "qa_stream",
+            profile_run_id=request.profile_run_id,
+            resource_type="profile_run" if request.profile_run_id else None,
+            resource_id=request.profile_run_id,
+            question_type=routed.get("question_type"),
+            **audit_question_fields(
+                request.question,
+                include_content=get_settings().guardrails_audit_question_content,
+            ),
+        )
+    except asyncio.CancelledError:
+        cancel_event.set()
+        cancel_agent_run(agent_run_id, workspace_id=context.workspace_id)
+        durable_terminal_status = "cancelled"
+        ai_latency.set_outcome("cancelled")
+        raise
+    except LLMNotConfiguredError as exc:
+        error = chat_error("PROVIDER_UNAVAILABLE")
+        fail_agent_run(
+            agent_run_id,
+            workspace_id=context.workspace_id,
+            error=exc,
+            error_code=error.code.lower(),
+        )
+        ai_latency.set_outcome("failed")
+        yield frame("error", {**error.as_payload(), "state": "failed", "agent_run_id": agent_run_id})
+    except Exception as exc:  # noqa: BLE001 - response is deliberately redacted
+        logger.exception("SSE Q&A failed")
+        error = chat_error("SERVER_ERROR")
+        fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc, error_code=error.code.lower())
+        ai_latency.set_outcome("failed")
+        yield frame("error", {**error.as_payload(), "state": "failed", "agent_run_id": agent_run_id})
+    finally:
+        if durable_message_id and durable_terminal_status != "completed":
+            _complete_durable_turn(
+                durable_message_id, request=request, context=context,
+                agent_run_id=agent_run_id,
+                answer="Request cancelled." if durable_terminal_status == "cancelled" else "Request did not complete.",
+                envelope=None, status=durable_terminal_status,
+            )
+        ai_latency.emit()
+        ai_latency.reset(latency_token)
 
 
 @router.post("/qa/stream")
 async def ask_question_stream(
     request: QARequest,
+    http_request: Request,
     context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
 ) -> StreamingResponse:
     """Q&A streaming qua SSE.
 
-    Event: `token` (từng đoạn văn bản) → `source` (danh sách nguồn) →
-    `done` (kết thúc) | `error`.
-
-    Nhánh định lượng cần gọi tool nhiều vòng nên không stream token được — nó
-    chạy xong rồi phát một lần, còn nhánh định tính stream token thật.
+    Emits versioned `status`, `meta`, `source`, `token`, `done`, and `error`
+    frames. Tokens are explicitly marked as validated delivery because answers
+    are checked against evidence before any answer text is released.
     """
     get_rate_limiter().check(context.user_id)
+    request_id = request.request_id or uuid4().hex
     state = _qa_state(request, context)
     async def generator() -> Any:
-        agent_run_id: str | None = None
-        latency_token = ai_latency.begin("qa_stream")
-        try:
-            yield _sse("status", {"stage": "starting", "detail": "Đang chuẩn bị yêu cầu…"})
-            agent_run_id = start_agent_run(
-                workspace_id=context.workspace_id,
-                actor_user_id=context.user_id,
-                run_type="qa",
-                resource_bindings={
-                    key: value
-                    for key, value in {
-                        "profile_run_id": request.profile_run_id,
-                        "analysis_execution_id": request.analysis_execution_id,
-                        "context_version_id": request.workspace_context_version_id,
-                    }.items()
-                    if value
-                },
-                request_for_hash=request.model_dump(),
-            )
-            state["agent_run_id"] = agent_run_id
-            # The graph must finish its evidence and guardrail work before an
-            # answer can be emitted. Send an immediate, truthful progress
-            # event so clients never appear stalled during that work.
-            yield _sse(
-                "status",
-                {
-                    "stage": "retrieving",
-                    "detail": "Đang tìm evidence và kiểm tra câu trả lời…",
-                },
-            )
-            routed = await asyncio.to_thread(get_qa_graph().invoke, state)
-            answer = _guard_qa_answer(
-                routed.get("answer") or "",
-                profile_run_id=request.profile_run_id,
-                context=context,
-            )
-            sources = routed.get("answer_sources") or []
-            qtype = routed.get("question_type")
-
-            yield _sse("meta", {"question_type": qtype})
-            yield _sse("status", {"stage": "generating", "detail": "Đang soạn câu trả lời…"})
-
-            if qtype == "qualitative" and llm_available() and answer:
-                # Phát lại câu trả lời theo từng câu để client thấy tiến trình
-                # mà không phải gọi LLM lần hai.
-                buffer = ""
-                for char in answer:
-                    buffer += char
-                    if char in ".!?\n" and len(buffer) > 40:
-                        ai_latency.mark_first_validated_output()
-                        yield _sse("token", {"text": buffer})
-                        buffer = ""
-                        await asyncio.sleep(0)
-                if buffer:
-                    ai_latency.mark_first_validated_output()
-                    yield _sse("token", {"text": buffer})
-            else:
-                ai_latency.mark_first_validated_output()
-                yield _sse("token", {"text": answer})
-
-            if sources:
-                yield _sse("source", {"sources": sources})
-            complete_agent_run(agent_run_id, workspace_id=context.workspace_id)
-            trace_summary = (
-                get_repository().agent_trace_summary(
-                    agent_run_id, workspace_id=context.workspace_id
-                )
-                if agent_run_id
-                else None
-            )
-            yield _sse(
-                "done",
-                {
-                    "question_type": qtype,
-                    "length": len(answer),
-                    "agent_run_id": agent_run_id,
-                    "trace_summary": trace_summary,
-                    **_qa_evidence_metadata(
-                        request,
-                        agent_run_id=agent_run_id,
-                        workspace_id=context.workspace_id,
-                        validated_status=routed.get("evidence_status"),
-                    ),
-                },
-            )
-
-            _audit(
-                context,
-                "qa_stream",
-                profile_run_id=request.profile_run_id,
-                resource_type="profile_run" if request.profile_run_id else None,
-                resource_id=request.profile_run_id,
-                question_type=qtype,
-                **audit_question_fields(
-                    request.question,
-                    include_content=get_settings().guardrails_audit_question_content,
-                ),
-            )
-        except LLMNotConfiguredError as exc:
-            if agent_run_id:
-                fail_agent_run(
-                    agent_run_id,
-                    workspace_id=context.workspace_id,
-                    error=exc,
-                    error_code="llm_not_configured",
-                )
-            yield _sse("error", {"detail": str(exc)})
-        except Exception as exc:
-            logger.exception("SSE Q&A thất bại")
-            if agent_run_id:
-                fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc)
-            yield _sse(
-                "error",
-                {"detail": "Agent không thể hoàn tất câu trả lời. Vui lòng thử lại."},
-            )
-
-        finally:
-            ai_latency.emit()
-            ai_latency.reset(latency_token)
+        async for item in _qa_stream_frames(
+            request=request,
+            request_id=request_id,
+            context=context,
+            http_request=http_request,
+            state=state,
+        ):
+            yield item
 
     return StreamingResponse(
         generator(),

@@ -22,7 +22,8 @@ Trang này chụp trạng thái implementation tại ngày 2026-08-31 để main
 - Storage: Supabase Storage, Google Drive hoặc local development storage.
 - Authentication: Supabase JWT ở production; `dual`/guest là compatibility hoặc trial path.
 - Deployment: Azure App Service containers + ACR qua workflow GitHub Actions.
-- Migration head: `20260831_0022`, gồm schema parity và backend-only Supabase Data API boundary.
+- Migration head: `20260831_0024`, including durable P2 chat continuity,
+  feedback/evaluation candidates, and the verified deterministic answer cache.
 
 ## Giới hạn mặc định đáng nhớ
 
@@ -45,6 +46,17 @@ Giá trị hiệu lực luôn là environment override → `config.yaml` → cod
 
 ## Những thay đổi mới đã phản ánh
 
+- Chat Agent P1 adds message actions, immutable per-answer context, typed
+  recovery/replay, controlled retrieval budgets, answer-detail controls,
+  structured clarification, and semantic numeric validation. See
+  [the implementation report](features/chat-agent-p1-implementation.md) for
+  verified local evidence and the remaining staging release block.
+- Chat Agent P2 adds tenant-scoped durable conversation history, deterministic
+  Profile Run suggestions, idempotent reason-coded feedback/evaluation
+  candidates, a revalidated deterministic semantic cache, and shadow-mode
+  high-risk projection verification. See [the P2 implementation
+  report](features/chat-agent-p2-implementation.md) for storage/privacy
+  boundaries and the staging measurements still required.
 - Profiling CSV/TSV/Parquet/JSON chạy aggregate trực tiếp trong DuckDB trên file tạm; full DataFrame không còn được giữ cho pipeline chính.
 - Remote source được stream với byte limit và cleanup; statistical test chỉ reload các cột được yêu cầu.
 - Candidate-key và data-quality QA có deterministic prefetch/render path; validator fail-closed kiểm tra workspace/run, artifact, citation và số trong answer.

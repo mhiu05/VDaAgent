@@ -1,5 +1,97 @@
 import type { AnswerSource, Profile } from "@/lib/types";
 
+export type ChatLifecycle =
+  | "draft"
+  | "sending"
+  | "routing"
+  | "retrieving"
+  | "computing"
+  | "validating"
+  | "answering"
+  | "completed"
+  | "cancelled"
+  | "failed"
+  | "timeout"
+  | "needs_clarification"
+  | "no_evidence";
+
+export type ChatCitation = {
+  citation_id: string;
+  source_type: "profile_report" | "tool" | "external_knowledge" | "official_execution";
+  claim?: string | null;
+  field?: string | null;
+  metric?: string | null;
+  value?: number | string | null;
+  unit?: string | null;
+  aggregation?: string | null;
+  numerator?: number | null;
+  denominator?: number | null;
+  time_window?: string | null;
+  filters?: Record<string, string | number | boolean> | null;
+  source_artifact?: string | null;
+  source_field?: string | null;
+  profile_run_id?: string | null;
+  sample_scope?: "full" | "sample" | null;
+  rounding?: number | null;
+  is_approximate?: boolean;
+};
+
+export type ChatClarification = {
+  question: string;
+  reason: "column" | "metric" | "aggregation" | "context_mismatch" | "scope";
+  options: Array<{ id: string; label: string }>;
+};
+
+export type ChatSuggestion = {
+  id: string;
+  label: string;
+  action_type: "ask_question";
+  question: string;
+  referenced_columns: string[];
+  source_reason: string;
+};
+
+export type ChatContextSnapshot = {
+  datasetId?: string | null;
+  datasetName?: string | null;
+  profileRunId?: string | null;
+  profileRunLabel?: string | null;
+  scanMode?: string | null;
+  rowScope?: string | null;
+  rowCount?: number | null;
+  profiledAt?: string | null;
+  proposalStatus?: string | null;
+  contextVersionId?: string | null;
+};
+
+export type ChatAnswerEnvelope = {
+  schema_version: "v2";
+  summary?: string | null;
+  findings: Array<{ text: string; citations: ChatCitation[] }>;
+  limitations: string[];
+  actions: string[];
+  evidence_status: "verified" | "profile_only" | "no_evidence";
+  is_approximate: boolean;
+  provenance: {
+    workspace_id?: string | null;
+    dataset_id?: string | null;
+    dataset_name?: string | null;
+    profile_run_id?: string | null;
+    profile_run_label?: string | null;
+    scan_mode?: string | null;
+    row_scope?: string | null;
+    row_count?: number | null;
+    profiled_at?: string | null;
+    proposal_status?: string | null;
+    context_version_id?: string | null;
+    analysis_execution_id?: string | null;
+    agent_run_id?: string | null;
+  };
+  answer_detail?: "quick" | "standard" | "deep";
+  answerability?: "answerable" | "needs_clarification" | "insufficient_evidence";
+  clarification?: ChatClarification | null;
+};
+
 export type ChatMessage = {
   id: string;
   role: "agent" | "user";
@@ -7,9 +99,28 @@ export type ChatMessage = {
   label?: string;
   sources?: AnswerSource[];
   /** Local streaming status; never represents an Agent answer. */
-  status?: "streaming" | "error";
+  status?: "streaming" | "error" | "cancelled";
+  lifecycle?: ChatLifecycle;
   /** Short progress text received before the complete answer is available. */
   statusDetail?: string;
+  errorCode?: string;
+  recoveryActions?: string[];
+  requestId?: string;
+  agentRunId?: string;
+  /** Local wall-clock start used only to show real elapsed request time. */
+  startedAt?: number;
+  evidenceStatus?: "verified" | "profile_only" | "no_evidence";
+  isApproximate?: boolean;
+  answerEnvelope?: ChatAnswerEnvelope;
+  suggestions?: ChatSuggestion[];
+  verification?: Record<string, unknown>;
+  /** Immutable local copy for user messages and pre-V2 fallback answers. */
+  context?: ChatContextSnapshot;
+  conversationId?: string;
+  parentMessageId?: string;
+  retryOf?: string;
+  regenerationOf?: string;
+  answerDetail?: "quick" | "standard" | "deep";
 };
 
 export type ChatSnapshot = {
@@ -18,6 +129,7 @@ export type ChatSnapshot = {
   /** Dataset/profile context selected from the current workspace. */
   datasetId?: string | null;
   profileRunId?: string | null;
+  answerDetail?: "quick" | "standard" | "deep";
   /** Legacy, retained solely to migrate existing browser snapshots. */
   sources?: AnswerSource[];
 };
@@ -172,6 +284,7 @@ export function getConversationSnapshot(id: string): ChatSnapshot | null {
       profile: parsed.profile || null,
       datasetId: parsed.datasetId || parsed.profile?.dataset_id || null,
       profileRunId: parsed.profileRunId || parsed.profile?.profile_run_id || null,
+      answerDetail: parsed.answerDetail === "quick" || parsed.answerDetail === "deep" ? parsed.answerDetail : "standard",
       // Snapshots from v1 held one conversation-wide source array. Associate it
       // with its last agent answer once, then all later saves use message scope.
       messages: (() => {

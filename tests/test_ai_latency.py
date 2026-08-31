@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from src.agents.nodes import qa_nodes
+from src.services import ai_latency
 from src.services.chart_planner import can_plan_deterministically
 
 
@@ -170,3 +171,56 @@ def test_ambiguous_chart_request_retains_semantic_planner() -> None:
         {"dimensions": ["region"], "measures": ["sales"]},
         {"region": {"dtype": "string"}, "sales": {"dtype": "float"}},
     )
+
+
+def test_chat_latency_snapshot_has_user_journey_metrics_without_sensitive_content() -> None:
+    token = ai_latency.begin("qa_stream")
+    try:
+        ai_latency.mark_first_status()
+        ai_latency.record_tool(4.0)
+        ai_latency.mark_first_evidence()
+        ai_latency.mark_first_validated_output()
+        ai_latency.set_dimensions(
+            execution_path="deterministic_profile",
+            intent="row_count",
+            model="test-model",
+            cache_status="not_applicable",
+        )
+        ai_latency.set_outcome("success")
+        snapshot = ai_latency.emit()
+    finally:
+        ai_latency.reset(token)
+
+    assert snapshot is not None
+    assert snapshot["ttfs_ms"] is not None
+    assert snapshot["ttfe_ms"] is not None
+    assert snapshot["ttfva_ms"] is not None
+    assert snapshot["e2e_ms"] >= snapshot["ttfs_ms"]
+    assert snapshot["execution_path"] == "deterministic_profile"
+    assert snapshot["tool_calls"] == 1
+    serialized = str(snapshot).casefold()
+    assert "prompt" not in serialized
+    assert "raw_row" not in serialized
+
+
+def test_latency_snapshot_records_budget_exhaustion_and_parallel_branch_policy() -> None:
+    token = ai_latency.begin("qa_stream")
+    try:
+        ai_latency.set_budget("deterministic", 5.0)
+        ai_latency.record_parallel_branch("profile_retrieval", 8.0, required=True, outcome="completed")
+        ai_latency.record_parallel_branch("external_retrieval", 5.0, required=False, outcome="timeout")
+        ai_latency.mark_budget_exceeded(stage="retrieval", fallback="timeout")
+        snapshot = ai_latency.emit()
+    finally:
+        ai_latency.reset(token)
+
+    assert snapshot is not None
+    assert snapshot["budget_category"] == "deterministic"
+    assert snapshot["budget_configured_ms"] == 5_000.0
+    assert snapshot["budget_exceeded"] is True
+    assert snapshot["timeout_stage"] == "retrieval"
+    assert snapshot["fallback_selected"] == "timeout"
+    assert snapshot["parallel_branches"] == [
+        {"branch": "profile_retrieval", "duration_ms": 8.0, "required": True, "outcome": "completed"},
+        {"branch": "external_retrieval", "duration_ms": 5.0, "required": False, "outcome": "timeout"},
+    ]

@@ -22,6 +22,7 @@ from typing import Any, Literal
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -664,6 +665,109 @@ audit_events = Table(
     Column("fields", JSON, nullable=True),
 )
 
+# P2 chat storage deliberately remains a narrow aggregate, rather than a
+# generic messaging system.  Every row carries its workspace identifier and
+# all repository accessors below predicate on it before returning data.
+conversations = Table(
+    "conversations",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("title", String(160), nullable=False),
+    Column("active_dataset_id", String(32), ForeignKey("datasets.id"), nullable=True),
+    Column("active_profile_run_id", String(32), ForeignKey("profile_runs.id"), nullable=True),
+    Column("archived_at", DateTime(timezone=True), nullable=True),
+    Column("deleted_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+)
+Index("ix_conversations_workspace_updated", conversations.c.workspace_id, conversations.c.updated_at)
+
+conversation_messages = Table(
+    "conversation_messages",
+    metadata,
+    Column("id", String(128), primary_key=True),
+    Column("conversation_id", String(128), ForeignKey("conversations.id"), nullable=False),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False),
+    Column("role", String(16), nullable=False),
+    Column("request_id", String(128), nullable=True),
+    Column("agent_run_id", String(32), ForeignKey("agent_runs.id"), nullable=True),
+    Column("parent_message_id", String(128), nullable=True),
+    Column("retry_of", String(128), nullable=True),
+    Column("regeneration_of", String(128), nullable=True),
+    # Text is the user-visible user question or answer only. Never write rows,
+    # system/developer prompts, provider traces, secrets, or hidden evidence
+    # payloads to this table.
+    Column("text", Text, nullable=False),
+    Column("answer_envelope", JSON, nullable=True),
+    Column("context_snapshot", JSON, nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    CheckConstraint("role IN ('user', 'agent')", name="ck_conversation_messages_role"),
+)
+Index("ix_conversation_messages_workspace_created", conversation_messages.c.workspace_id, conversation_messages.c.created_at)
+Index("ix_conversation_messages_conversation_created", conversation_messages.c.conversation_id, conversation_messages.c.created_at)
+
+# Feedback has no raw question, answer, prompt, row, or trace.  It can become
+# a review candidate but is intentionally not a production-data gold label.
+conversation_feedback = Table(
+    "conversation_feedback",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False),
+    Column("actor_user_id", String(36), nullable=False),
+    Column("conversation_id", String(128), ForeignKey("conversations.id"), nullable=True),
+    # A legacy P1 client can submit feedback for an answer that pre-dates
+    # durable storage, so agent-run binding is canonical and this remains a
+    # scalar rather than an FK. P2 turns use a real conversation message ID.
+    Column("message_id", String(128), nullable=False),
+    Column("agent_run_id", String(32), ForeignKey("agent_runs.id"), nullable=False),
+    Column("polarity", String(16), nullable=False),
+    Column("reason_code", String(64), nullable=True),
+    Column("metadata", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+    UniqueConstraint("workspace_id", "actor_user_id", "message_id", name="uq_conversation_feedback_workspace_actor_message"),
+    CheckConstraint("polarity IN ('helpful', 'not_helpful')", name="ck_conversation_feedback_polarity"),
+)
+Index("ix_conversation_feedback_workspace_created", conversation_feedback.c.workspace_id, conversation_feedback.c.created_at)
+
+evaluation_candidates = Table(
+    "evaluation_candidates",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False),
+    Column("feedback_id", String(32), ForeignKey("conversation_feedback.id"), nullable=False),
+    Column("status", String(32), nullable=False, default="pending_review"),
+    # Reproducible, structured metadata only; no production question/answer.
+    Column("case_spec", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("reviewed_at", DateTime(timezone=True), nullable=True),
+    UniqueConstraint("feedback_id", name="uq_evaluation_candidates_feedback"),
+)
+Index("ix_evaluation_candidates_workspace_created", evaluation_candidates.c.workspace_id, evaluation_candidates.c.created_at)
+
+# A cache entry can only represent an already public, verified deterministic
+# answer. Cache dimensions are hashes/versions, never prompts or raw evidence.
+qa_answer_cache = Table(
+    "qa_answer_cache",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False),
+    Column("cache_key", String(71), nullable=False),
+    Column("intent", String(64), nullable=False),
+    Column("dimensions", JSON, nullable=False),
+    Column("response", JSON, nullable=False),
+    Column("validator_version", String(64), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("last_hit_at", DateTime(timezone=True), nullable=True),
+    Column("hit_count", Integer, nullable=False, default=0),
+    UniqueConstraint("workspace_id", "cache_key", name="uq_qa_answer_cache_workspace_key"),
+)
+Index("ix_qa_answer_cache_workspace_expiry", qa_answer_cache.c.workspace_id, qa_answer_cache.c.expires_at)
+
 # Agent runtime V2 is additive.  These records are deliberately separate from
 # LangGraph checkpoints: an orchestration checkpoint is not an auditable run
 # ledger and cannot safely serve as the source of truth for a resumed action.
@@ -698,6 +802,16 @@ Index(
     agent_runs.c.created_at,
 )
 Index("ix_agent_runs_workspace_status", agent_runs.c.workspace_id, agent_runs.c.status)
+Index(
+    "uq_agent_runs_workspace_actor_type_idempotency",
+    agent_runs.c.workspace_id,
+    agent_runs.c.actor_user_id,
+    agent_runs.c.run_type,
+    agent_runs.c.idempotency_key,
+    unique=True,
+    postgresql_where=agent_runs.c.idempotency_key.is_not(None),
+    sqlite_where=agent_runs.c.idempotency_key.is_not(None),
+)
 
 agent_plans = Table(
     "agent_plans",
@@ -1180,6 +1294,7 @@ class Repository:
             self._migrate_user_profile_admin_columns()
             self._migrate_upload_provenance_columns()
             self._migrate_profile_job_columns()
+            self._migrate_agent_run_idempotency()
             # Connector identity is required by the read path. Keep this small,
             # additive guard for local deployments that have not run the newest
             # Alembic revision yet; production migrations remain the source of
@@ -1263,6 +1378,26 @@ class Repository:
                 text(
                     "CREATE INDEX IF NOT EXISTS ix_profile_runs_job_claim "
                     "ON profile_runs (job_status, job_available_at, created_at)"
+                )
+            )
+
+    def _migrate_agent_run_idempotency(self) -> None:
+        """Add the scoped partial unique index for legacy local databases."""
+        from sqlalchemy import inspect, text
+
+        inspector = inspect(self.engine)
+        if "agent_runs" not in inspector.get_table_names():
+            return
+        indexes = {item["name"] for item in inspector.get_indexes("agent_runs")}
+        if "uq_agent_runs_workspace_actor_type_idempotency" in indexes:
+            return
+        with self.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_agent_runs_workspace_actor_type_idempotency "
+                    "ON agent_runs (workspace_id, actor_user_id, run_type, idempotency_key) "
+                    "WHERE idempotency_key IS NOT NULL"
                 )
             )
 
@@ -1467,6 +1602,555 @@ class Repository:
                         .values(role="admin")
                     )
 
+    # --- Durable chat (P2) --------------------------------------------- #
+    # Conversation access always takes the workspace separately from the
+    # opaque conversation ID. This is intentional defence in depth alongside
+    # the API membership capability check.
+    def create_conversation(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        title: str | None = None,
+        conversation_id: str | None = None,
+        active_dataset_id: str | None = None,
+        active_profile_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        conversation_id = conversation_id or _uuid()
+        now = _now()
+        safe_title = " ".join((title or "New chat").split())[:160] or "New chat"
+        with self.engine.begin() as conn:
+            existing = conn.execute(
+                select(conversations).where(conversations.c.id == conversation_id)
+            ).mappings().first()
+            if existing:
+                if existing["workspace_id"] != workspace_id:
+                    raise LookupError("Conversation does not belong to workspace.")
+                return dict(existing)
+            if active_dataset_id:
+                dataset = conn.execute(
+                    select(datasets.c.id).where(
+                        datasets.c.id == active_dataset_id,
+                        datasets.c.workspace_id == workspace_id,
+                    )
+                ).first()
+                if not dataset:
+                    raise LookupError("Dataset does not belong to workspace.")
+            if active_profile_run_id:
+                profile = conn.execute(
+                    select(profile_runs.c.id, profile_runs.c.dataset_id).where(
+                        profile_runs.c.id == active_profile_run_id,
+                        profile_runs.c.workspace_id == workspace_id,
+                    )
+                ).mappings().first()
+                if not profile or (active_dataset_id and profile["dataset_id"] != active_dataset_id):
+                    raise LookupError("Profile Run does not belong to workspace.")
+            row = {
+                "id": conversation_id,
+                "workspace_id": workspace_id,
+                "created_by_user_id": actor_user_id,
+                "title": safe_title,
+                "active_dataset_id": active_dataset_id,
+                "active_profile_run_id": active_profile_run_id,
+                "created_at": now,
+                "updated_at": now,
+            }
+            conn.execute(conversations.insert().values(**row))
+        return row
+
+    def get_conversation(
+        self,
+        conversation_id: str,
+        *,
+        workspace_id: str,
+        include_deleted: bool = False,
+    ) -> dict[str, Any] | None:
+        query = select(conversations).where(
+            conversations.c.id == conversation_id,
+            conversations.c.workspace_id == workspace_id,
+        )
+        if not include_deleted:
+            query = query.where(conversations.c.deleted_at.is_(None))
+        with self.engine.connect() as conn:
+            row = conn.execute(query).mappings().first()
+        return dict(row) if row else None
+
+    def list_conversations(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 30,
+        include_archived: bool = False,
+        before_updated_at: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        query = select(conversations).where(
+            conversations.c.workspace_id == workspace_id,
+            conversations.c.deleted_at.is_(None),
+        )
+        if not include_archived:
+            query = query.where(conversations.c.archived_at.is_(None))
+        if before_updated_at:
+            query = query.where(conversations.c.updated_at < ensure_utc(before_updated_at))
+        query = query.order_by(conversations.c.updated_at.desc(), conversations.c.id.desc()).limit(max(1, min(limit, 100)))
+        with self.engine.connect() as conn:
+            return [dict(row) for row in conn.execute(query).mappings()]
+
+    def get_conversation_messages(
+        self,
+        conversation_id: str,
+        *,
+        workspace_id: str,
+        limit: int = 50,
+        before_message_id: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        # Check the parent first so a message ID cannot probe another tenant.
+        if not self.get_conversation(conversation_id, workspace_id=workspace_id):
+            raise LookupError("Conversation does not belong to workspace.")
+        before_at: datetime | None = None
+        if before_message_id:
+            with self.engine.connect() as conn:
+                marker = conn.execute(
+                    select(conversation_messages.c.created_at).where(
+                        conversation_messages.c.id == before_message_id,
+                        conversation_messages.c.conversation_id == conversation_id,
+                        conversation_messages.c.workspace_id == workspace_id,
+                    )
+                ).scalar_one_or_none()
+            if marker is None:
+                raise LookupError("Conversation message does not belong to workspace.")
+            before_at = ensure_utc(marker)
+        query = select(conversation_messages).where(
+            conversation_messages.c.conversation_id == conversation_id,
+            conversation_messages.c.workspace_id == workspace_id,
+        )
+        if before_at:
+            query = query.where(conversation_messages.c.created_at < before_at)
+        page_size = max(1, min(limit, 100))
+        query = query.order_by(conversation_messages.c.created_at.desc(), conversation_messages.c.id.desc()).limit(page_size + 1)
+        with self.engine.connect() as conn:
+            rows = [dict(row) for row in conn.execute(query).mappings()]
+        has_more = len(rows) > page_size
+        rows = rows[:page_size]
+        rows.reverse()
+        return rows, (str(rows[0]["id"]) if has_more and rows else None)
+
+    def update_conversation_title(
+        self, conversation_id: str, *, workspace_id: str, title: str
+    ) -> dict[str, Any] | None:
+        safe_title = " ".join(title.split())[:160]
+        if not safe_title:
+            raise ValueError("Conversation title cannot be empty.")
+        with self.engine.begin() as conn:
+            updated = conn.execute(
+                conversations.update()
+                .where(
+                    conversations.c.id == conversation_id,
+                    conversations.c.workspace_id == workspace_id,
+                    conversations.c.deleted_at.is_(None),
+                )
+                .values(title=safe_title, updated_at=_now())
+            )
+            if not updated.rowcount:
+                return None
+            row = conn.execute(
+                select(conversations).where(
+                    conversations.c.id == conversation_id,
+                    conversations.c.workspace_id == workspace_id,
+                )
+            ).mappings().one()
+        return dict(row)
+
+    def archive_conversation(self, conversation_id: str, *, workspace_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                conversations.update()
+                .where(
+                    conversations.c.id == conversation_id,
+                    conversations.c.workspace_id == workspace_id,
+                    conversations.c.deleted_at.is_(None),
+                )
+                .values(archived_at=_now(), updated_at=_now())
+            )
+        return bool(result.rowcount)
+
+    def soft_delete_conversation(self, conversation_id: str, *, workspace_id: str) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                conversations.update()
+                .where(
+                    conversations.c.id == conversation_id,
+                    conversations.c.workspace_id == workspace_id,
+                    conversations.c.deleted_at.is_(None),
+                )
+                .values(deleted_at=_now(), updated_at=_now())
+            )
+        return bool(result.rowcount)
+
+    def purge_expired_deleted_conversations(
+        self, *, retention_days: int, limit: int = 250
+    ) -> int:
+        """Purge only conversations already soft-deleted past retention.
+
+        This is intentionally an internal scheduled-maintenance primitive,
+        rather than an API action.  It is bounded and deletes dependent review
+        records first so PostgreSQL foreign keys cannot leave partial data.
+        """
+        cutoff = _now() - timedelta(days=max(1, retention_days))
+        with self.engine.begin() as conn:
+            conversation_ids = list(
+                conn.execute(
+                    select(conversations.c.id)
+                    .where(
+                        conversations.c.deleted_at.is_not(None),
+                        conversations.c.deleted_at < cutoff,
+                    )
+                    .order_by(conversations.c.deleted_at.asc())
+                    .limit(max(1, min(limit, 1_000)))
+                ).scalars()
+            )
+            if not conversation_ids:
+                return 0
+            feedback_ids = list(
+                conn.execute(
+                    select(conversation_feedback.c.id).where(
+                        conversation_feedback.c.conversation_id.in_(conversation_ids)
+                    )
+                ).scalars()
+            )
+            if feedback_ids:
+                conn.execute(
+                    evaluation_candidates.delete().where(
+                        evaluation_candidates.c.feedback_id.in_(feedback_ids)
+                    )
+                )
+                conn.execute(
+                    conversation_feedback.delete().where(
+                        conversation_feedback.c.id.in_(feedback_ids)
+                    )
+                )
+            conn.execute(
+                conversation_messages.delete().where(
+                    conversation_messages.c.conversation_id.in_(conversation_ids)
+                )
+            )
+            deleted = conn.execute(
+                conversations.delete().where(conversations.c.id.in_(conversation_ids))
+            )
+        return int(deleted.rowcount or 0)
+
+    def start_conversation_turn(
+        self,
+        *,
+        conversation_id: str,
+        workspace_id: str,
+        actor_user_id: str,
+        request_id: str,
+        user_message_id: str | None,
+        assistant_message_id: str,
+        question: str,
+        context_snapshot: dict[str, Any],
+        profile_run_id: str | None,
+        dataset_id: str | None,
+        parent_message_id: str | None = None,
+        retry_of: str | None = None,
+        regeneration_of: str | None = None,
+        persist_user_message: bool = True,
+    ) -> None:
+        now = _now()
+        with self.engine.begin() as conn:
+            conversation = conn.execute(
+                select(conversations.c.id).where(
+                    conversations.c.id == conversation_id,
+                    conversations.c.workspace_id == workspace_id,
+                    conversations.c.deleted_at.is_(None),
+                    conversations.c.archived_at.is_(None),
+                )
+            ).first()
+            if not conversation:
+                raise LookupError("Conversation is unavailable in this workspace.")
+            if persist_user_message and user_message_id:
+                existing_user = conn.execute(
+                    select(conversation_messages.c.id).where(conversation_messages.c.id == user_message_id)
+                ).first()
+                if not existing_user:
+                    conn.execute(conversation_messages.insert().values(
+                        id=user_message_id,
+                        conversation_id=conversation_id,
+                        workspace_id=workspace_id,
+                        role="user",
+                        request_id=request_id,
+                        parent_message_id=parent_message_id,
+                        text=question,
+                        context_snapshot=context_snapshot,
+                        status="completed",
+                        created_at=now,
+                    ))
+                    # Give a newly created conversation a stable, useful title
+                    # without asking a model to summarize user content. An
+                    # explicitly renamed title is never replaced.
+                    existing_turn = conn.execute(
+                        select(conversation_messages.c.id)
+                        .where(
+                            conversation_messages.c.conversation_id == conversation_id,
+                            conversation_messages.c.workspace_id == workspace_id,
+                            conversation_messages.c.role == "user",
+                        )
+                        .limit(2)
+                    ).all()
+                    if len(existing_turn) == 1:
+                        conn.execute(
+                            conversations.update()
+                            .where(
+                                conversations.c.id == conversation_id,
+                                conversations.c.workspace_id == workspace_id,
+                                conversations.c.title == "New chat",
+                            )
+                            .values(title=question.strip()[:120] or "New chat", updated_at=now)
+                        )
+            existing_assistant = conn.execute(
+                select(conversation_messages.c.id).where(conversation_messages.c.id == assistant_message_id)
+            ).first()
+            if not existing_assistant:
+                conn.execute(conversation_messages.insert().values(
+                    id=assistant_message_id,
+                    conversation_id=conversation_id,
+                    workspace_id=workspace_id,
+                    role="agent",
+                    request_id=request_id,
+                    parent_message_id=parent_message_id,
+                    retry_of=retry_of,
+                    regeneration_of=regeneration_of,
+                    text="",
+                    context_snapshot=context_snapshot,
+                    status="running",
+                    # Keep a deterministic causal order even on databases
+                    # whose timestamp resolution places both inserts in the
+                    # same tick; history always renders the user before agent.
+                    created_at=now + timedelta(microseconds=1),
+                ))
+            conn.execute(
+                conversations.update()
+                .where(conversations.c.id == conversation_id, conversations.c.workspace_id == workspace_id)
+                .values(active_dataset_id=dataset_id, active_profile_run_id=profile_run_id, updated_at=now)
+            )
+
+    def complete_conversation_message(
+        self,
+        message_id: str,
+        *,
+        workspace_id: str,
+        agent_run_id: str | None,
+        text: str,
+        answer_envelope: dict[str, Any] | None,
+        context_snapshot: dict[str, Any],
+        status: str = "completed",
+    ) -> bool:
+        # An answer and its provenance are written together once. Completed
+        # rows never change, so later dataset/Profile Run changes cannot
+        # reconstruct or silently alter historical context.
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                conversation_messages.update()
+                .where(
+                    conversation_messages.c.id == message_id,
+                    conversation_messages.c.workspace_id == workspace_id,
+                    conversation_messages.c.role == "agent",
+                    conversation_messages.c.status == "running",
+                )
+                .values(
+                    agent_run_id=agent_run_id,
+                    text=text,
+                    answer_envelope=answer_envelope,
+                    status=status,
+                )
+            )
+        return bool(result.rowcount)
+
+    def record_conversation_feedback(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        agent_run_id: str,
+        message_id: str,
+        polarity: str,
+        reason_code: str | None,
+        metadata_payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        now = _now()
+        with self.engine.begin() as conn:
+            message = conn.execute(
+                select(conversation_messages.c.conversation_id).where(
+                    conversation_messages.c.id == message_id,
+                    conversation_messages.c.workspace_id == workspace_id,
+                    conversation_messages.c.agent_run_id == agent_run_id,
+                )
+            ).mappings().first()
+            existing = conn.execute(
+                select(conversation_feedback).where(
+                    conversation_feedback.c.workspace_id == workspace_id,
+                    conversation_feedback.c.actor_user_id == actor_user_id,
+                    conversation_feedback.c.message_id == message_id,
+                )
+            ).mappings().first()
+            values = {
+                "agent_run_id": agent_run_id,
+                "conversation_id": message.get("conversation_id") if message else None,
+                "polarity": polarity,
+                "reason_code": reason_code,
+                "metadata": metadata_payload,
+                "updated_at": now,
+            }
+            if existing:
+                conn.execute(conversation_feedback.update().where(conversation_feedback.c.id == existing["id"]).values(**values))
+                feedback = {**dict(existing), **values}
+                created = False
+            else:
+                feedback = {
+                    "id": _uuid(),
+                    "workspace_id": workspace_id,
+                    "actor_user_id": actor_user_id,
+                    "message_id": message_id,
+                    "created_at": now,
+                    **values,
+                }
+                conn.execute(conversation_feedback.insert().values(**feedback))
+                created = True
+            candidate = conn.execute(
+                select(evaluation_candidates.c.id).where(evaluation_candidates.c.feedback_id == feedback["id"])
+            ).first()
+            if polarity == "not_helpful":
+                case_spec = {
+                    "intent": metadata_payload.get("intent"),
+                    "execution_path": metadata_payload.get("execution_path"),
+                    "evidence_status": metadata_payload.get("evidence_status"),
+                    "answer_detail": metadata_payload.get("answer_detail"),
+                    "reason_code": reason_code,
+                    "source": "user_feedback",
+                }
+                if candidate:
+                    conn.execute(evaluation_candidates.update().where(evaluation_candidates.c.id == candidate[0]).values(status="pending_review", case_spec=case_spec, reviewed_at=None))
+                else:
+                    conn.execute(evaluation_candidates.insert().values(
+                        id=_uuid(), workspace_id=workspace_id, feedback_id=feedback["id"],
+                        status="pending_review", case_spec=case_spec, created_at=now,
+                    ))
+            elif candidate:
+                conn.execute(evaluation_candidates.update().where(evaluation_candidates.c.id == candidate[0]).values(status="superseded"))
+        return feedback, created
+
+    def feedback_analytics(self, *, workspace_id: str) -> dict[str, Any]:
+        """Return aggregate-only feedback metrics, never conversational text."""
+        with self.engine.connect() as conn:
+            rows = [dict(row) for row in conn.execute(
+                select(conversation_feedback.c.polarity, conversation_feedback.c.reason_code, conversation_feedback.c.metadata)
+                .where(conversation_feedback.c.workspace_id == workspace_id)
+            ).mappings()]
+        total = len(rows)
+        helpful = sum(1 for row in rows if row["polarity"] == "helpful")
+        def counts(key: str) -> dict[str, int]:
+            result: dict[str, int] = {}
+            for row in rows:
+                value = row.get(key) if key != "metadata" else None
+                if key == "metadata":
+                    continue
+                label = str(value or "unspecified")
+                result[label] = result.get(label, 0) + 1
+            return result
+        dimensions: dict[str, dict[str, int]] = {name: {} for name in ("intent", "execution_path", "answer_detail", "evidence_status", "model", "latency_bucket")}
+        for row in rows:
+            metadata_payload = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            for name in dimensions:
+                label = str(metadata_payload.get(name) or "unknown")
+                dimensions[name][label] = dimensions[name].get(label, 0) + 1
+        return {
+            "total": total,
+            "helpful": helpful,
+            "not_helpful": total - helpful,
+            "helpful_rate": helpful / total if total else None,
+            "reason_distribution": counts("reason_code"),
+            "by": dimensions,
+        }
+
+    def get_qa_answer_cache(self, *, workspace_id: str, cache_key: str) -> dict[str, Any] | None:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(qa_answer_cache).where(
+                    qa_answer_cache.c.workspace_id == workspace_id,
+                    qa_answer_cache.c.cache_key == cache_key,
+                    qa_answer_cache.c.expires_at > now,
+                )
+            ).mappings().first()
+            if not row:
+                return None
+            conn.execute(qa_answer_cache.update().where(qa_answer_cache.c.id == row["id"]).values(last_hit_at=now, hit_count=int(row.get("hit_count") or 0) + 1))
+        return dict(row)
+
+    def put_qa_answer_cache(
+        self,
+        *,
+        workspace_id: str,
+        cache_key: str,
+        intent: str,
+        dimensions: dict[str, Any],
+        response: dict[str, Any],
+        validator_version: str,
+        ttl_seconds: int,
+        max_entries: int,
+    ) -> None:
+        now = _now()
+        values = {
+            "intent": intent,
+            "dimensions": dimensions,
+            "response": response,
+            "validator_version": validator_version,
+            "expires_at": now + timedelta(seconds=ttl_seconds),
+            "created_at": now,
+            "last_hit_at": None,
+            "hit_count": 0,
+        }
+        with self.engine.begin() as conn:
+            existing = conn.execute(select(qa_answer_cache.c.id).where(qa_answer_cache.c.workspace_id == workspace_id, qa_answer_cache.c.cache_key == cache_key)).first()
+            if existing:
+                conn.execute(qa_answer_cache.update().where(qa_answer_cache.c.id == existing[0]).values(**values))
+            else:
+                conn.execute(qa_answer_cache.insert().values(id=_uuid(), workspace_id=workspace_id, cache_key=cache_key, **values))
+            stale_ids = [row[0] for row in conn.execute(
+                select(qa_answer_cache.c.id).where(qa_answer_cache.c.workspace_id == workspace_id, qa_answer_cache.c.expires_at <= now)
+            )]
+            if stale_ids:
+                conn.execute(qa_answer_cache.delete().where(qa_answer_cache.c.id.in_(stale_ids)))
+            overflow = [row[0] for row in conn.execute(
+                select(qa_answer_cache.c.id).where(qa_answer_cache.c.workspace_id == workspace_id)
+                .order_by(qa_answer_cache.c.created_at.desc()).offset(max_entries)
+            )]
+            if overflow:
+                conn.execute(qa_answer_cache.delete().where(qa_answer_cache.c.id.in_(overflow)))
+
+    def record_independent_verification(
+        self,
+        *,
+        agent_run_id: str,
+        workspace_id: str,
+        answer_hash: str,
+        claim_hash: str,
+        outcome: str,
+        violations: list[str],
+        recovery_decision: str | None,
+        verifier_version: str = "p2-deterministic-v1",
+    ) -> None:
+        if not agent_run_id:
+            return
+        with self.engine.begin() as conn:
+            conn.execute(verification_runs.insert().values(
+                id=_uuid(), agent_run_id=agent_run_id, workspace_id=workspace_id,
+                answer_hash=answer_hash, claim_hash=claim_hash,
+                verifier_version=verifier_version, outcome=outcome,
+                violations=violations, recovery_decision=recovery_decision,
+                created_at=_now(),
+            ))
+
     # --- Agent runtime -------------------------------------------------- #
     # These methods are kept in the domain repository so a state transition
     # and its trace event share one database transaction.  Callers must pass a
@@ -1522,7 +2206,8 @@ class Repository:
         correlation_id: str | None = None,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
-    ) -> str:
+        return_created: bool = False,
+    ) -> str | tuple[str, bool]:
         run_id = _uuid()
         now = _now()
         runtime_version = str(version_snapshot.get("runtime_version") or "2.0.0")
@@ -1530,28 +2215,63 @@ class Repository:
             version_snapshot.get("policy_version") or "agent-policy-v1"
         )
         with self.engine.begin() as conn:
-            conn.execute(
-                agent_runs.insert().values(
-                    id=run_id,
-                    workspace_id=workspace_id,
-                    actor_user_id=actor_user_id,
-                    run_type=run_type,
-                    status="running",
-                    resource_bindings=resource_bindings,
-                    correlation_id=correlation_id,
-                    idempotency_key=idempotency_key,
-                    request_hash=request_hash,
-                    runtime_version=runtime_version,
-                    policy_version=policy_version,
-                    version_snapshot=version_snapshot,
-                    budget=budget or {},
-                    usage={},
-                    trace_sequence=0,
-                    started_at=now,
-                    created_at=now,
-                    updated_at=now,
-                )
-            )
+            existing = None
+            if idempotency_key:
+                existing = conn.execute(
+                    select(agent_runs.c.id, agent_runs.c.request_hash).where(
+                        agent_runs.c.workspace_id == workspace_id,
+                        agent_runs.c.actor_user_id == actor_user_id,
+                        agent_runs.c.run_type == run_type,
+                        agent_runs.c.idempotency_key == idempotency_key,
+                    )
+                ).mappings().first()
+            if existing:
+                if request_hash and existing["request_hash"] != request_hash:
+                    raise ValueError("idempotency_key_reused")
+                existing_id = str(existing["id"])
+                return (existing_id, False) if return_created else existing_id
+            try:
+                # The initial lookup avoids a normal duplicate exception; the
+                # savepoint covers a concurrent insert without leaving the
+                # outer PostgreSQL transaction unusable.
+                with conn.begin_nested():
+                    conn.execute(
+                        agent_runs.insert().values(
+                            id=run_id,
+                            workspace_id=workspace_id,
+                            actor_user_id=actor_user_id,
+                            run_type=run_type,
+                            status="running",
+                            resource_bindings=resource_bindings,
+                            correlation_id=correlation_id,
+                            idempotency_key=idempotency_key,
+                            request_hash=request_hash,
+                            runtime_version=runtime_version,
+                            policy_version=policy_version,
+                            version_snapshot=version_snapshot,
+                            budget=budget or {},
+                            usage={},
+                            trace_sequence=0,
+                            started_at=now,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                    )
+            except IntegrityError:
+                if not idempotency_key:
+                    raise
+                existing = conn.execute(
+                    select(agent_runs.c.id, agent_runs.c.request_hash).where(
+                        agent_runs.c.workspace_id == workspace_id,
+                        agent_runs.c.actor_user_id == actor_user_id,
+                        agent_runs.c.run_type == run_type,
+                        agent_runs.c.idempotency_key == idempotency_key,
+                    )
+                ).mappings().one()
+                if request_hash and existing["request_hash"] != request_hash:
+                    raise ValueError("idempotency_key_reused")
+                existing_id = str(existing["id"])
+                return (existing_id, False) if return_created else existing_id
             self._append_agent_trace(
                 conn,
                 agent_run_id=run_id,
@@ -1562,7 +2282,7 @@ class Repository:
                 reason_summary="Đã bắt đầu workflow đã được server scope.",
                 payload={"run_type": run_type, "resource_bindings": resource_bindings},
             )
-        return run_id
+        return (run_id, True) if return_created else run_id
 
     def append_agent_trace(
         self,
@@ -3988,6 +4708,27 @@ class Repository:
                 query = query.where(profile_runs.c.workspace_id == workspace_id)
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
+
+    def update_agent_run_usage(
+        self, agent_run_id: str, *, workspace_id: str, usage: dict[str, Any]
+    ) -> bool:
+        """Store a small, guarded recovery projection for an existing run.
+
+        This is not conversation persistence: it is retained only on the
+        idempotent execution ledger so a lost SSE response can be replayed to
+        the same authorized workspace without creating another agent run.
+        """
+
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                agent_runs.update()
+                .where(
+                    agent_runs.c.id == agent_run_id,
+                    agent_runs.c.workspace_id == workspace_id,
+                )
+                .values(usage=usage, updated_at=_now())
+            )
+            return bool(result.rowcount)
 
     def profile_job_request_hashes_for_prefix(
         self,

@@ -85,6 +85,21 @@ class ProfilingState(TypedDict, total=False):
     selected_skill: str | None
     answer: str
     answer_sources: list[dict[str, Any]]
+    # Request-local controls used only by the non-checkpointed QA graph.
+    # They must never be persisted as conversation content.
+    progress_callback: Any
+    cancel_event: Any
+    qa_path: str
+    fast_path_intent: str | None
+    deterministic_claims: list[dict[str, Any]]
+    # P1 request controls.  They are request-local and deliberately excluded
+    # from the persisted profiling/checkpoint conversation state.
+    answer_detail: Literal["quick", "standard", "deep"]
+    answerability: Literal["answerable", "needs_clarification", "insufficient_evidence"]
+    clarification: dict[str, Any] | None
+    qa_started_monotonic: float
+    qa_deadline_monotonic: float
+    qa_budget_category: str
 
     # --- Control -------------------------------------------------------- #
     tool_calls: int
@@ -153,6 +168,9 @@ def initial_qa_state(
     history: list[dict[str, Any]] | None = None,
     workspace_id: str | None = None,
     agent_run_id: str | None = None,
+    answer_detail: Literal["quick", "standard", "deep"] = "standard",
+    qa_started_monotonic: float | None = None,
+    qa_deadline_monotonic: float | None = None,
 ) -> ProfilingState:
     """State khởi tạo cho một lượt hỏi-đáp (chỉ chạy nhánh QA).
 
@@ -173,6 +191,12 @@ def initial_qa_state(
         answer_sources=[],
         tool_calls=0,
         error=None,
+        answer_detail=answer_detail,
+        answerability="answerable",
+        clarification=None,
+        qa_started_monotonic=qa_started_monotonic or 0.0,
+        qa_deadline_monotonic=qa_deadline_monotonic or 0.0,
+        qa_budget_category="full_agent",
     )
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -133,6 +134,8 @@ class ProfileResponse(BaseModel):
     graph_thread_id: str | None = None
     initial_question: str | None = None
     version: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     row_count: int | None = None
     column_count: int = 0
     scan_mode: str | None = None
@@ -329,10 +332,143 @@ class TestResponse(BaseModel):
 class QAHistoryMessage(BaseModel):
     role: Literal["user", "agent"]
     text: str = Field(..., min_length=1, max_length=2000)
+    # Browser history is still intentionally short-lived.  These bindings let
+    # the server reject a follow-up that would otherwise silently mix two
+    # Profile Runs; they are not a server-side conversation store.
+    profile_run_id: str | None = Field(default=None, max_length=64)
+    context_version_id: str | None = Field(default=None, max_length=64)
+
+
+class ClarificationOption(BaseModel):
+    """A server-authored, dataset-backed option for one clarification turn."""
+
+    id: str = Field(..., min_length=1, max_length=128)
+    label: str = Field(..., min_length=1, max_length=255)
+
+
+class ClarificationPayload(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+    options: list[ClarificationOption] = Field(default_factory=list, max_length=8)
+    reason: Literal["column", "metric", "aggregation", "context_mismatch", "scope"]
+
+
+class ChatFeedbackRequest(BaseModel):
+    agent_run_id: str = Field(..., min_length=1, max_length=64)
+    message_id: str = Field(..., min_length=1, max_length=128)
+    polarity: Literal["helpful", "not_helpful"]
+    reason_code: Literal[
+        "incorrect", "missing_detail", "too_verbose", "too_short", "wrong_context",
+        "bad_citation", "slow", "did_not_answer", "other",
+    ] | None = None
+
+    @field_validator("reason_code")
+    @classmethod
+    def normalize_reason_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        if not re.fullmatch(r"[a-z0-9_-]+", normalized):
+            raise ValueError("reason_code is invalid")
+        allowed = {
+            "incorrect", "missing_detail", "too_verbose", "too_short",
+            "wrong_context", "bad_citation", "slow", "did_not_answer", "other",
+        }
+        if normalized not in allowed:
+            raise ValueError("reason_code is unsupported")
+        return normalized
+
+
+class ConversationCreateRequest(BaseModel):
+    """Create a small, workspace-scoped durable chat aggregate."""
+
+    id: str | None = Field(default=None, min_length=8, max_length=128)
+    title: str | None = Field(default=None, max_length=160)
+    active_dataset_id: str | None = Field(default=None, max_length=64)
+    active_profile_run_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized[:160] or None
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=160)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("title must contain visible text")
+        return normalized[:160]
+
+
+class ConversationMessageOut(BaseModel):
+    id: str
+    conversation_id: str
+    role: Literal["user", "agent"]
+    text: str
+    status: str
+    request_id: str | None = None
+    agent_run_id: str | None = None
+    parent_message_id: str | None = None
+    retry_of: str | None = None
+    regeneration_of: str | None = None
+    answer_envelope: dict[str, Any] | None = None
+    context_snapshot: dict[str, Any] | None = None
+    created_at: datetime
+
+
+class ConversationOut(BaseModel):
+    id: str
+    title: str
+    workspace_id: str
+    active_dataset_id: str | None = None
+    active_profile_run_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = None
+
+
+class ConversationDetailOut(BaseModel):
+    conversation: ConversationOut
+    messages: list[ConversationMessageOut] = Field(default_factory=list)
+    next_before: str | None = None
+
+
+class ChatSuggestion(BaseModel):
+    """A validated UI action, never arbitrary model-generated markup."""
+
+    id: str = Field(..., min_length=1, max_length=96)
+    label: str = Field(..., min_length=1, max_length=240)
+    action_type: Literal["ask_question"] = "ask_question"
+    question: str = Field(..., min_length=1, max_length=1000)
+    referenced_columns: list[str] = Field(default_factory=list, max_length=4)
+    source_reason: str = Field(..., min_length=1, max_length=96)
 
 
 class QARequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
+    # A client generated identifier makes a click/retry one logical request.
+    # It is deliberately opaque: the server uses it only for correlation and
+    # never treats it as an authorization or workspace identifier.
+    request_id: str | None = Field(default=None, min_length=8, max_length=128)
+    # Identity is additive and opaque.  It is only used to preserve one
+    # browser conversation's causal relationships; authorization continues to
+    # come exclusively from the authenticated workspace context.
+    conversation_id: str | None = Field(default=None, min_length=8, max_length=128)
+    message_id: str | None = Field(default=None, min_length=8, max_length=128)
+    assistant_message_id: str | None = Field(default=None, min_length=8, max_length=128)
+    persist_user_message: bool = True
+    parent_message_id: str | None = Field(default=None, min_length=8, max_length=128)
+    retry_of: str | None = Field(default=None, min_length=8, max_length=128)
+    regeneration_of: str | None = Field(default=None, min_length=8, max_length=128)
     profile_run_id: str | None = Field(
         default=None, description="Bỏ trống để tìm trên toàn bộ index."
     )
@@ -346,6 +482,10 @@ class QARequest(BaseModel):
     response_mode: Literal["default", "chart_insight"] = Field(
         default="default",
         description="Output mode for the Q&A agent; chart_insight uses Official execution evidence.",
+    )
+    answer_detail: Literal["quick", "standard", "deep"] = Field(
+        default="standard",
+        description="Presentation detail only; it never selects a weaker reasoning path.",
     )
     stream: bool = True
 
@@ -397,6 +537,70 @@ class ToolSource(BaseModel):
     profile_run_id: str | None = None
 
 
+class AnswerCitation(BaseModel):
+    """A backend-authored claim-to-source link for structured answer clients."""
+
+    citation_id: str
+    source_type: Literal["profile_report", "tool", "external_knowledge", "official_execution"]
+    claim: str | None = None
+    field: str | None = None
+    metric: str | None = None
+    value: float | int | str | None = None
+    unit: str | None = None
+    aggregation: str | None = None
+    numerator: float | int | None = None
+    denominator: float | int | None = None
+    time_window: str | None = None
+    filters: dict[str, str | int | float | bool] | None = None
+    source_artifact: str | None = None
+    source_field: str | None = None
+    profile_run_id: str | None = None
+    sample_scope: Literal["full", "sample"] | None = None
+    rounding: int | None = Field(default=None, ge=0, le=12)
+    is_approximate: bool = False
+
+
+class AnswerFinding(BaseModel):
+    """A concise finding with only explicit, server-derived citations."""
+
+    text: str
+    citations: list[AnswerCitation] = Field(default_factory=list)
+
+
+class AnswerProvenance(BaseModel):
+    """Immutable context used for one answer, not the current UI selection."""
+
+    workspace_id: str | None = None
+    dataset_id: str | None = None
+    dataset_name: str | None = None
+    profile_run_id: str | None = None
+    profile_run_label: str | None = None
+    scan_mode: str | None = None
+    row_scope: str | None = None
+    row_count: int | None = None
+    profiled_at: datetime | None = None
+    proposal_status: str | None = None
+    context_version_id: str | None = None
+    analysis_execution_id: str | None = None
+    agent_run_id: str | None = None
+
+
+class AnswerEnvelopeV2(BaseModel):
+    """Additive structured answer contract; ``answer`` remains the V1 fallback."""
+
+    schema_version: Literal["v2"] = "v2"
+    summary: str | None = None
+    findings: list[AnswerFinding] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    evidence_status: Literal["verified", "profile_only", "no_evidence"] = "no_evidence"
+    is_approximate: bool = False
+    provenance: AnswerProvenance
+    answer_detail: Literal["quick", "standard", "deep"] = "standard"
+    answerability: Literal["answerable", "needs_clarification", "insufficient_evidence"] = "answerable"
+    clarification: ClarificationPayload | None = None
+
+
 AnswerSource = Annotated[
     ProfileReportSource | ExternalKnowledgeSource | ToolSource,
     Field(discriminator="type"),
@@ -405,6 +609,8 @@ AnswerSource = Annotated[
 
 class QAResponse(BaseModel):
     question: str
+    request_id: str | None = None
+    message_id: str | None = None
     question_type: str | None = None
     answer: str
     sources: list[AnswerSource] = Field(default_factory=list)
@@ -416,6 +622,12 @@ class QAResponse(BaseModel):
     analysis_execution_id: str | None = None
     verification: dict[str, Any] | None = None
     trace_summary: dict[str, Any] | None = None
+    answer_detail: Literal["quick", "standard", "deep"] = "standard"
+    answerability: Literal["answerable", "needs_clarification", "insufficient_evidence"] = "answerable"
+    clarification: ClarificationPayload | None = None
+    # V2 is additive so deployed V1 clients can continue rendering ``answer``.
+    answer_envelope: AnswerEnvelopeV2 | None = None
+    suggestions: list[ChatSuggestion] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
@@ -658,6 +870,10 @@ __all__ = [
     "DriftResponse",
     "ErrorResponse",
     "ExternalKnowledgeSource",
+    "AnswerCitation",
+    "AnswerEnvelopeV2",
+    "AnswerFinding",
+    "AnswerProvenance",
     "HealthResponse",
     "ProfileReportSource",
     "ProfileRequest",

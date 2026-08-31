@@ -107,14 +107,16 @@ def start_agent_run(
     resource_bindings: dict[str, str],
     request_for_hash: Any | None = None,
     correlation_id: str | None = None,
-) -> str | None:
+    idempotency_key: str | None = None,
+    return_created: bool = False,
+) -> str | None | tuple[str | None, bool]:
     """Create the authoritative domain run only when trace rollout is enabled."""
 
     if not trace_enabled():
-        return None
+        return (None, True) if return_created else None
     try:
         version_snapshot = build_version_snapshot()
-        agent_run_id = get_repository().create_agent_run(
+        agent_run_id, created = get_repository().create_agent_run(
             workspace_id=workspace_id,
             actor_user_id=actor_user_id,
             run_type=run_type,
@@ -122,22 +124,32 @@ def start_agent_run(
             version_snapshot=version_snapshot,
             budget={},
             correlation_id=correlation_id or uuid4().hex,
+            idempotency_key=idempotency_key,
             request_hash=stable_hash(request_for_hash or {}),
+            return_created=True,
         )
-        get_langsmith_observability().start_agent_run(
-            agent_run_id=agent_run_id,
-            workspace_id=workspace_id,
-            run_type=run_type,
-            version_snapshot=version_snapshot,
-        )
-        return agent_run_id
+        if created:
+            get_langsmith_observability().start_agent_run(
+                agent_run_id=agent_run_id,
+                workspace_id=workspace_id,
+                run_type=run_type,
+                version_snapshot=version_snapshot,
+            )
+        return (agent_run_id, created) if return_created else agent_run_id
     except Exception as exc:  # noqa: BLE001 - shadow trace must not change compatibility
         _trace_failure(exc)
-        return None
+        # Trace rollout is shadow-compatible: an observability outage must not
+        # reject the user request. In that rare path idempotency is unavailable
+        # rather than silently claiming a duplicate run was prevented.
+        return (None, True) if return_created else None
 
 
 def complete_agent_run(
-    agent_run_id: str | None, *, workspace_id: str, status: str = "completed"
+    agent_run_id: str | None,
+    *,
+    workspace_id: str,
+    status: str = "completed",
+    usage: dict[str, Any] | None = None,
 ) -> None:
     if not agent_run_id:
         return
@@ -152,6 +164,7 @@ def complete_agent_run(
                 if status == "completed"
                 else "Workflow đang chờ quyết định hoặc reconciliation."
             ),
+            usage=usage,
         )
         get_langsmith_observability().finish_agent_run(
             agent_run_id=agent_run_id,
@@ -188,6 +201,28 @@ def fail_agent_run(
             workspace_id=workspace_id,
             status="failed",
             error=error_code,
+        )
+    except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
+        _trace_failure(exc)
+
+
+def cancel_agent_run(agent_run_id: str | None, *, workspace_id: str) -> None:
+    """Record an explicit user/disconnect cancellation without an error payload."""
+
+    if not agent_run_id:
+        return
+    try:
+        get_repository().transition_agent_run(
+            agent_run_id,
+            workspace_id=workspace_id,
+            status="cancelled",
+            reason_code="request_cancelled",
+            reason_summary="The client cancelled the request before completion.",
+        )
+        get_langsmith_observability().finish_agent_run(
+            agent_run_id=agent_run_id,
+            workspace_id=workspace_id,
+            status="cancelled",
         )
     except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
         _trace_failure(exc)
@@ -596,6 +631,7 @@ def _uuid4_hex() -> str:
 
 __all__ = [
     "complete_agent_run",
+    "cancel_agent_run",
     "fail_agent_run",
     "invoke_model",
     "record_retrieval_call",

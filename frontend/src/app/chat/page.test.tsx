@@ -6,9 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatPage from "./page";
 
 const api = vi.hoisted(() => ({
+  createDurableConversation: vi.fn(),
   createProfile: vi.fn(),
+  deleteDurableConversation: vi.fn(),
+  getChatSuggestions: vi.fn(),
+  getDurableConversation: vi.fn(),
   getProfile: vi.fn(),
   listDatasets: vi.fn(),
+  listDurableConversations: vi.fn(),
   listRuns: vi.fn(),
   streamQuestion: vi.fn(),
   uploadDataset: vi.fn(),
@@ -56,6 +61,8 @@ describe("ChatPage SSE message lifecycle", () => {
     Object.values(chatHistory).forEach((mock) => mock.mockReset());
     api.listDatasets.mockResolvedValue([]);
     api.listRuns.mockResolvedValue([]);
+    api.listDurableConversations.mockResolvedValue([]);
+    api.getChatSuggestions.mockResolvedValue([]);
     api.getProfile.mockResolvedValue(profile);
     chatHistory.listConversations.mockReturnValue([conversation]);
     chatHistory.getConversation.mockReturnValue(conversation);
@@ -76,7 +83,7 @@ describe("ChatPage SSE message lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: /gửi câu hỏi/i }));
 
     expect(screen.getByText("What changed?")).toBeTruthy();
-    expect(screen.getAllByText(/đang tìm evidence/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Preparing request/i).length).toBeGreaterThan(0);
     expect(view.container.querySelectorAll(".agent-message.agent")).toHaveLength(2);
 
     await act(async () => { emit?.({ event: "token", data: { text: "Verified answer" } }); });

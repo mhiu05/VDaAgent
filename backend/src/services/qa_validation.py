@@ -35,7 +35,15 @@ _PROFILE_ARTIFACTS = frozenset(
     }
 )
 _CITATION_RE = re.compile(r"\[S(\d+)\]", re.IGNORECASE)
-_NUMBER_RE = re.compile(r"(?<![\w])\d+(?:[.,]\d+)?%?")
+_NUMBER_RE = re.compile(r"(?<![\w])\d+(?:[.,]\d+)*(?:\s*(?:%|percent(?:age)?|phan\s+tram))?", re.IGNORECASE)
+_PERCENT_SUFFIX_RE = re.compile(r"(?:%|percent(?:age)?|phan\s+tram)\s*$", re.IGNORECASE)
+_FRACTION_CONTEXT_RE = re.compile(r"\b(?:fraction|ratio|proportion|ty\s*le)\b", re.IGNORECASE)
+_APPROXIMATE_RE = re.compile(r"\b(?:approx(?:imate(?:ly)?)?|estimated|sampled?|uoc\s*tinh|mau)\b", re.IGNORECASE)
+_TEMPORAL_CLAIM_RE = re.compile(
+    r"\b(?:20\d{2}|q[1-4]|quarter|january|february|march|april|may|june|july|august|september|october|november|december|last\s+\d+\s+days?|thang\s*\d+|quy\s*[1-4])\b",
+    re.IGNORECASE,
+)
+_FILTER_CLAIM_RE = re.compile(r"\b(?:where|filter(?:ed)?|cohort|segment|group|among|for\s+(?:customers|orders|users))\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -68,35 +76,159 @@ def _flatten_keys(value: Any, prefix: str = "") -> set[str]:
     return keys
 
 
-def _numeric_values(value: Any) -> list[float]:
-    values: list[float] = []
+def _numeric_observations(value: Any, prefix: str = "") -> list[tuple[str, float]]:
+    """Flatten evidence values while retaining the semantic source field."""
+
+    values: list[tuple[str, float]] = []
     if isinstance(value, bool):
         return values
     if isinstance(value, (int, float)):
-        values.append(float(value))
+        values.append((prefix.casefold(), float(value)))
     elif isinstance(value, dict):
-        for item in value.values():
-            values.extend(_numeric_values(item))
+        for key, item in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            values.extend(_numeric_observations(item, path))
     elif isinstance(value, list):
-        for item in value[:50]:
-            values.extend(_numeric_values(item))
+        for index, item in enumerate(value[:50]):
+            values.extend(_numeric_observations(item, f"{prefix}[{index}]"))
     return values
 
 
-def _answer_numbers(answer: str) -> list[float]:
-    values: list[float] = []
+def _parse_localized_number(token: str) -> float | None:
+    """Parse common thousands/decimal forms without equating units."""
+
+    compact = re.sub(r"\s+", "", token)
+    if not compact:
+        return None
+    if "," in compact and "." in compact:
+        decimal = "," if compact.rfind(",") > compact.rfind(".") else "."
+        thousands = "." if decimal == "," else ","
+        compact = compact.replace(thousands, "").replace(decimal, ".")
+    elif "," in compact:
+        tail = compact.rsplit(",", 1)[1]
+        compact = compact.replace(",", "") if len(tail) == 3 else compact.replace(",", ".")
+    elif compact.count(".") > 1:
+        tail = compact.rsplit(".", 1)[1]
+        compact = compact.replace(".", "") if len(tail) == 3 else compact
+    try:
+        return float(compact)
+    except ValueError:
+        return None
+
+
+def _answer_numbers(answer: str) -> list[tuple[float, bool, bool, int]]:
+    """Return value/unit/precision without silently converting fractions."""
+
+    values: list[tuple[float, bool, bool, int]] = []
     for match in _NUMBER_RE.finditer(answer):
         line_start = answer.rfind("\n", 0, match.start()) + 1
         prefix = answer[line_start : match.start()].strip()
         # Markdown list/heading numbering is structure, not a factual claim.
         if re.fullmatch(r"[#>*-]*", prefix) and answer[match.end() : match.end() + 1] in {".", ")"}:
             continue
-        token = match.group(0).rstrip("%")
-        try:
-            values.append(float(token.replace(",", "")))
-        except ValueError:
+        raw = match.group(0)
+        is_percent = bool(_PERCENT_SUFFIX_RE.search(raw))
+        nearby = answer[max(0, match.start() - 16) : match.end() + 36]
+        is_fraction = not is_percent and bool(_FRACTION_CONTEXT_RE.search(nearby))
+        token = _PERCENT_SUFFIX_RE.sub("", raw).strip()
+        value = _parse_localized_number(token)
+        if value is None:
             continue
+        decimal = re.split(r"[.,]", token)[-1] if re.search(r"[.,]", token) else ""
+        values.append((value, is_percent, is_fraction, len(decimal)))
     return values
+
+
+def _metric_fields(question: str) -> tuple[str, ...]:
+    """Map a materially specific question to evidence keys, fail-closed."""
+
+    text = _plain(question)
+    if any(token in text for token in ("null", "missing", "thieu")):
+        return ("null_pct",) if any(token in text for token in ("pct", "percent", "phan tram", "ty le")) else ("null_pct", "null_count")
+    if any(token in text for token in ("row", "dong", "record")):
+        return ("row_count", "duplicate_row_count", "duplicate_row_rate")
+    if any(token in text for token in ("column", "cot")):
+        return ("column_count",)
+    if any(token in text for token in ("average", "mean", "trung binh")):
+        return ("mean",)
+    if any(token in text for token in ("median", "trung vi")):
+        return ("median",)
+    if any(token in text for token in ("sum", "total", "tong")):
+        return ("sum", "total")
+    if "cardinality" in text:
+        return ("cardinality",)
+    if any(token in text for token in ("unique", "uniqueness", "candidate key", "khoa chinh")):
+        return ("uniqueness_ratio", "candidate_key")
+    return ()
+
+
+def _rounding_matches(rendered: float, observed: float, decimals: int) -> bool:
+    """Permit only the normal half-unit tolerance of the rendered precision."""
+
+    tolerance = 0.5 * (10 ** -min(max(decimals, 0), 12)) + 1e-12
+    return abs(rendered - observed) <= tolerance
+
+
+def _numeric_claim_supported(
+    claim: tuple[float, bool, bool, int], observations: list[tuple[str, float]], *, metric_fields: tuple[str, ...]
+) -> bool:
+    rendered, percent, fraction, decimals = claim
+    candidates = [
+        (path, value)
+        for path, value in observations
+        if not metric_fields or any(field in path for field in metric_fields)
+    ]
+    # Do not silently satisfy a requested metric with an unrelated count from
+    # the same envelope.  A missing canonical field is a safe abstention.
+    if metric_fields and not candidates:
+        return False
+    for path, observed in candidates:
+        if percent:
+            if any(token in path for token in ("_pct", "percent", "percentage")):
+                expected = observed
+            elif any(token in path for token in ("_ratio", "rate", "proportion")):
+                expected = observed * 100.0
+            else:
+                continue
+        elif fraction:
+            if any(token in path for token in ("_pct", "percent", "percentage")):
+                expected = observed / 100.0
+            elif any(token in path for token in ("_ratio", "rate", "proportion")):
+                expected = observed
+            else:
+                continue
+        else:
+            expected = observed
+        if _rounding_matches(rendered, expected, decimals):
+            return True
+    return False
+
+
+def _has_scope_metadata(result: dict[str, Any], *, temporal: bool, filtered: bool) -> bool:
+    data = result.get("data")
+    keys = _flatten_keys(data)
+    source = result.get("evidence") or []
+    source_keys = _flatten_keys(source)
+    combined = keys | source_keys
+    if temporal and not any(token in key for key in combined for token in ("time", "date", "period", "window", "month", "quarter")):
+        return False
+    if filtered and not any(token in key for key in combined for token in ("filter", "cohort", "segment", "group")):
+        return False
+    return True
+
+
+def _percentage_denominators_are_consistent(result: dict[str, Any]) -> bool:
+    """Validate canonical count/rate pairs when the tool returned both."""
+
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return True
+    null_count, row_count, null_pct = data.get("null_count"), data.get("row_count"), data.get("null_pct")
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (null_count, row_count, null_pct)):
+        return True
+    if float(row_count) <= 0:
+        return False
+    return _rounding_matches(float(null_pct), 100.0 * float(null_count) / float(row_count), 6)
 
 
 def _required_artifact(question: str) -> tuple[str, ...]:
@@ -214,16 +346,31 @@ def validate_answer_evidence(
         return EvidenceValidation(False, "no_evidence", "source_tool_mismatch")
 
     answer_numbers = _answer_numbers(answer)
-    evidence_numbers = [
-        number
+    observations = [
+        observation
         for result in valid_results
-        for number in _numeric_values(result.get("data"))
+        for observation in _numeric_observations(result.get("data"))
     ]
-    if answer_numbers and evidence_numbers and any(
-        not any(abs(number - observed) <= 1e-9 for observed in evidence_numbers)
-        for number in answer_numbers
+    metric_fields = _metric_fields(question)
+    if answer_numbers and not observations:
+        return EvidenceValidation(False, "no_evidence", "numeric_evidence_missing")
+    if answer_numbers and any(
+        not _numeric_claim_supported(claim, observations, metric_fields=metric_fields)
+        for claim in answer_numbers
     ):
-        return EvidenceValidation(False, "no_evidence", "unsupported_value")
+        return EvidenceValidation(False, "no_evidence", "unsupported_value_or_unit")
+
+    temporal = bool(_TEMPORAL_CLAIM_RE.search(question) or _TEMPORAL_CLAIM_RE.search(answer))
+    filtered = bool(_FILTER_CLAIM_RE.search(question) or _FILTER_CLAIM_RE.search(answer))
+    if (temporal or filtered) and not all(
+        _has_scope_metadata(result, temporal=temporal, filtered=filtered)
+        for result in valid_results
+    ):
+        return EvidenceValidation(False, "no_evidence", "unsupported_time_or_filter_scope")
+    if any(not _percentage_denominators_are_consistent(result) for result in valid_results):
+        return EvidenceValidation(False, "no_evidence", "inconsistent_percentage_denominator")
+    if any(bool(result.get("is_approximate")) for result in valid_results) and not _APPROXIMATE_RE.search(answer):
+        return EvidenceValidation(False, "no_evidence", "approximation_not_disclosed")
 
     required = _required_artifact(question)
     if not required and not any(

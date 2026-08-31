@@ -199,6 +199,23 @@ class Settings(BaseSettings):
     retrieval_max_chunks_per_source: int = Field(default=2, ge=1, le=20)
     retrieval_profile_context_chars: int = Field(default=12_000, ge=500, le=100_000)
     retrieval_knowledge_context_chars: int = Field(default=12_000, ge=500, le=100_000)
+    # Chat P1 has product budgets by execution category.  They cap waiting and
+    # reserve time for deterministic validation; they are not promises about a
+    # provider's network latency.
+    qa_latency_deterministic_budget_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
+    qa_latency_tool_budget_seconds: float = Field(default=12.0, ge=2.0, le=60.0)
+    qa_latency_full_agent_budget_seconds: float = Field(default=25.0, ge=3.0, le=90.0)
+    qa_latency_router_budget_seconds: float = Field(default=3.0, ge=0.2, le=15.0)
+    qa_latency_retrieval_timeout_seconds: float = Field(default=8.0, ge=0.5, le=45.0)
+    qa_parallel_retrieval_concurrency: int = Field(default=2, ge=1, le=4)
+    # P2 cache reuse is intentionally limited to deterministic profile intents
+    # and every hit is revalidated against the current completed Profile Run.
+    qa_semantic_cache_enabled: bool = True
+    qa_semantic_cache_ttl_seconds: int = Field(default=900, ge=30, le=86_400)
+    qa_semantic_cache_max_entries_per_workspace: int = Field(default=200, ge=10, le=10_000)
+    qa_conversation_retention_days: int = Field(default=30, ge=1, le=3650)
+    qa_verifier_timeout_seconds: float = Field(default=2.0, ge=0.1, le=15.0)
+    qa_verifier_risk_threshold: int = Field(default=3, ge=1, le=20)
     embedding_api_key: str = ""
     voyage_api_key: str = ""
 
@@ -281,7 +298,11 @@ class Settings(BaseSettings):
     # redacted trace without changing the compatibility workflow; ``required``
     # makes a trace persistence failure fail the request closed.
     agent_trace_mode: Literal["off", "shadow", "required"] = "shadow"
-    agent_verifier_mode: Literal["off", "shadow", "enforce"] = "off"
+    # Shadow is the default P2 rollout: high-risk outputs receive an
+    # independent deterministic check and ledger record without changing a
+    # validated response. ``enforce`` remains deliberately blocked by the
+    # validator below until a separately reviewed fail-closed UX is shipped.
+    agent_verifier_mode: Literal["off", "shadow", "enforce"] = "shadow"
     agent_planner_enabled: bool = False
     agent_jobs_enabled: bool = False
     agent_workspace_memory_enabled: bool = False

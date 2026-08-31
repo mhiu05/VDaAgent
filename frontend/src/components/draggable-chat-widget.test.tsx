@@ -7,6 +7,7 @@ import { DraggableChatWidget } from "./draggable-chat-widget";
 import type { ChatConversation } from "@/lib/chat-history";
 
 const api = vi.hoisted(() => ({
+  getChatSuggestions: vi.fn(),
   getProfile: vi.fn(),
   listDatasets: vi.fn(),
   listRuns: vi.fn(),
@@ -47,6 +48,8 @@ describe("DraggableChatWidget", () => {
     Element.prototype.scrollIntoView = vi.fn();
     api.listDatasets.mockReset();
     api.listRuns.mockReset();
+    api.getProfile.mockReset();
+    api.getChatSuggestions.mockReset();
     api.streamQuestion.mockReset();
     chatHistory.createConversation.mockReset();
     chatHistory.getConversationSnapshot.mockReset();
@@ -55,6 +58,12 @@ describe("DraggableChatWidget", () => {
     chatHistory.listConversations.mockReturnValue([]);
     api.listDatasets.mockResolvedValue([dataset]);
     api.listRuns.mockResolvedValue([run]);
+    api.getProfile.mockResolvedValue({
+      profile_run_id: run.id, dataset_id: dataset.id, dataset_name: dataset.name,
+      run_name: run.run_name, version: run.version, status: "completed", scan_mode: run.scan_mode,
+      row_count: run.row_count, is_approximate: false, pending_proposals: 0,
+    });
+    api.getChatSuggestions.mockResolvedValue([]);
   });
 
   it("selects a dataset before loading its completed Profile Runs", async () => {

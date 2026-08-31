@@ -24,10 +24,25 @@ MIGRATION_PATH = (
     / "versions"
     / "20260831_0022_data_api_boundary.py"
 )
+P2_MIGRATION_PATH = (
+    ROOT
+    / "backend"
+    / "migrations"
+    / "versions"
+    / "20260831_0024_chat_agent_p2.py"
+)
 
 
 def _load_security_migration():
     spec = importlib.util.spec_from_file_location("p170_data_api_boundary", MIGRATION_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_p2_security_migration():
+    spec = importlib.util.spec_from_file_location("p170_chat_agent_p2", P2_MIGRATION_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -47,9 +62,10 @@ def test_direct_browser_access_is_an_explicit_empty_surface() -> None:
 
 def test_security_migration_covers_every_classified_backend_table() -> None:
     migration = _load_security_migration()
-    assert frozenset(migration.APPLICATION_TABLES) == (
-        MIGRATION_MANAGED_BACKEND_ONLY_TABLES
-    )
+    p2_migration = _load_p2_security_migration()
+    assert frozenset(migration.APPLICATION_TABLES) | frozenset(p2_migration.BACKEND_ONLY_TABLES) == MIGRATION_MANAGED_BACKEND_ONLY_TABLES
+    assert frozenset(migration.APPLICATION_TABLES).isdisjoint(p2_migration.BACKEND_ONLY_TABLES)
+    assert tuple(p2_migration.BROWSER_ROLES) == ("anon", "authenticated")
     assert frozenset(migration.RUNTIME_MANAGED_TABLES) == (
         RUNTIME_MANAGED_BACKEND_ONLY_TABLES
     )

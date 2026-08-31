@@ -33,7 +33,54 @@ export function setApiAuthTransport(next: AuthTransport | null) {
   authTransport = next;
 }
 
-export type QAHistoryMessage = { role: "user" | "agent"; text: string };
+export type QAHistoryMessage = {
+  role: "user" | "agent";
+  text: string;
+  profile_run_id?: string;
+  context_version_id?: string;
+};
+
+export type ChatSuggestion = {
+  id: string;
+  label: string;
+  action_type: "ask_question";
+  question: string;
+  referenced_columns: string[];
+  source_reason: string;
+};
+
+export type DurableConversation = {
+  id: string;
+  title: string;
+  workspace_id: string;
+  active_dataset_id?: string | null;
+  active_profile_run_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at?: string | null;
+};
+
+export type DurableConversationMessage = {
+  id: string;
+  conversation_id: string;
+  role: "user" | "agent";
+  text: string;
+  status: string;
+  request_id?: string | null;
+  agent_run_id?: string | null;
+  parent_message_id?: string | null;
+  retry_of?: string | null;
+  regeneration_of?: string | null;
+  answer_envelope?: import("@/lib/chat-history").ChatAnswerEnvelope | null;
+  context_snapshot?: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type DurableConversationDetail = {
+  conversation: DurableConversation;
+  messages: DurableConversationMessage[];
+  next_before?: string | null;
+};
 
 function apiBase(): string {
   if (configuredApiBase) return configuredApiBase.replace(/\/$/, "");
@@ -58,6 +105,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly correlationId?: string | null,
+    readonly code?: string,
+    readonly recoveryActions?: string[],
   ) {
     super(message);
     this.name = "ApiError";
@@ -67,16 +116,41 @@ export class ApiError extends Error {
 async function readError(response: Response): Promise<ApiError> {
   const correlationId = response.headers.get("x-correlation-id");
   let message = `Yêu cầu không thành công (${response.status}).`;
+  let code: string | undefined;
+  let recoveryActions: string[] | undefined;
   try {
     const body: unknown = await response.json();
     if (typeof body === "object" && body && "detail" in body) {
       const detail = (body as { detail?: unknown }).detail;
-      message = typeof detail === "string" ? detail : JSON.stringify(detail);
+      if (typeof detail === "object" && detail) {
+        const payload = detail as { code?: unknown; detail?: unknown; message?: unknown; recovery_actions?: unknown };
+        code = typeof payload.code === "string" ? payload.code : undefined;
+        message = typeof payload.detail === "string"
+          ? payload.detail
+          : typeof payload.message === "string"
+            ? payload.message
+            : JSON.stringify(detail);
+        recoveryActions = Array.isArray(payload.recovery_actions)
+          ? payload.recovery_actions.filter((item): item is string => typeof item === "string")
+          : undefined;
+      } else {
+        message = typeof detail === "string" ? detail : JSON.stringify(detail);
+      }
     }
   } catch {
     // The HTTP status is still safe, useful feedback for the analyst.
   }
-  return new ApiError(message, response.status, correlationId);
+  if (!code && response.status === 401) {
+    code = "AUTH_REQUIRED";
+    recoveryActions = ["refresh_session"];
+  } else if (!code && response.status === 403) {
+    code = "PERMISSION_DENIED";
+    recoveryActions = ["switch_workspace"];
+  } else if (!code && response.status === 404) {
+    code = "PROFILE_UNAVAILABLE";
+    recoveryActions = ["switch_context"];
+  }
+  return new ApiError(message, response.status, correlationId, code, recoveryActions);
 }
 
 async function authHeaders(headers?: HeadersInit): Promise<Headers> {
@@ -120,6 +194,9 @@ async function apiFetch(path: string, init: RequestInit = {}, retried = false): 
     throw new ApiError(
       "Không thể kết nối tới backend. Hãy kiểm tra backend đang chạy và thử lại.",
       0,
+      undefined,
+      "CHAT_NETWORK",
+      ["retry"],
     );
   }
   if (response.status === 401 && !retried && authTransport) {
@@ -723,7 +800,71 @@ export async function downloadCombinedJson(runId: string, sections?: CombinedRep
   return response.blob();
 }
 
-export function askQuestion(payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[]; analysis_execution_id?: string; workspace_context_version_id?: string; response_mode?: "default" | "chart_insight" }): Promise<QAResponse> {
+export type ChatRequestPayload = {
+  question: string;
+  request_id?: string;
+  conversation_id?: string;
+  message_id?: string;
+  assistant_message_id?: string;
+  persist_user_message?: boolean;
+  parent_message_id?: string;
+  retry_of?: string;
+  regeneration_of?: string;
+  profile_run_id?: string;
+  history?: QAHistoryMessage[];
+  analysis_execution_id?: string;
+  workspace_context_version_id?: string;
+  response_mode?: "default" | "chart_insight";
+  answer_detail?: "quick" | "standard" | "deep";
+};
+
+export function createDurableConversation(payload: {
+  id?: string;
+  title?: string;
+  active_dataset_id?: string;
+  active_profile_run_id?: string;
+} = {}): Promise<DurableConversation> {
+  return request<DurableConversation>("/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listDurableConversations(options: { limit?: number; archived?: boolean; before?: string } = {}): Promise<DurableConversation[]> {
+  const query = new URLSearchParams();
+  if (options.limit) query.set("limit", String(options.limit));
+  if (options.archived) query.set("archived", "true");
+  if (options.before) query.set("before", options.before);
+  return request<DurableConversation[]>(`/conversations${query.size ? `?${query}` : ""}`, { cache: "no-store" });
+}
+
+export function getDurableConversation(id: string, options: { limit?: number; before?: string } = {}): Promise<DurableConversationDetail> {
+  const query = new URLSearchParams();
+  if (options.limit) query.set("limit", String(options.limit));
+  if (options.before) query.set("before", options.before);
+  return request<DurableConversationDetail>(`/conversations/${encodeURIComponent(id)}${query.size ? `?${query}` : ""}`, { cache: "no-store" });
+}
+
+export function renameDurableConversation(id: string, title: string): Promise<DurableConversation> {
+  return request<DurableConversation>(`/conversations/${encodeURIComponent(id)}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
+  });
+}
+
+export function archiveDurableConversation(id: string): Promise<{ archived: boolean }> {
+  return request<{ archived: boolean }>(`/conversations/${encodeURIComponent(id)}/archive`, { method: "POST" });
+}
+
+export function deleteDurableConversation(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function getChatSuggestions(profileRunId: string): Promise<ChatSuggestion[]> {
+  return request<ChatSuggestion[]>(`/profile/${encodeURIComponent(profileRunId)}/chat-suggestions`, { cache: "no-store" });
+}
+
+export function askQuestion(payload: ChatRequestPayload): Promise<QAResponse> {
   return request<QAResponse>("/qa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -732,14 +873,7 @@ export function askQuestion(payload: { question: string; profile_run_id?: string
 }
 
 export async function streamQuestion(
-  payload: {
-    question: string;
-    profile_run_id?: string;
-    history?: QAHistoryMessage[];
-    analysis_execution_id?: string;
-    workspace_context_version_id?: string;
-    response_mode?: "default" | "chart_insight";
-  },
+  payload: ChatRequestPayload,
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -887,6 +1021,19 @@ export type ReportDraft = { id: string; title: string; profile_run_id: string; s
 
 export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
+}
+
+export function submitChatFeedback(payload: {
+  agent_run_id: string;
+  message_id: string;
+  polarity: "helpful" | "not_helpful";
+  reason_code?: string;
+}): Promise<{ accepted: boolean }> {
+  return request<{ accepted: boolean }>("/qa/feedback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 export function startDatasetProfile(datasetId: string, payload: { dataset_name?: string; collection_name?: string; run_name?: string; scan_mode: "full" | "sample"; sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number } }, idempotencyKey = crypto.randomUUID()): Promise<DatasetProfileResult> {
