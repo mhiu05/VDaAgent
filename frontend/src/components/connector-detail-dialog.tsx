@@ -48,12 +48,12 @@ export function ConnectorDetailDialog({ connector, onClose, onTest, onDisconnect
       <p className="connector-detail-name">{connector.name}</p>
       <dl className="connector-detail-meta"><div><dt>Target</dt><dd>{target(connector)}</dd></div><div><dt>Scope</dt><dd>{connector.owner_scope === "workspace_user" ? "Theo người dùng" : "Theo workspace"}</dd></div><div><dt>Dataset</dt><dd>{connector.dataset_count}</dd></div><div><dt>Kiểm tra gần nhất</dt><dd>{connector.last_tested_at ? new Date(connector.last_tested_at).toLocaleString("vi-VN") : "Chưa kiểm tra"}</dd></div></dl>
       {connector.last_error_code && <Notice tone="warning"><span aria-live="polite">{connector.last_error_code}. Hãy kiểm tra hoặc kết nối lại.</span></Notice>}
-      <p className="sr-only" aria-live="polite">{busy === `test:${connector.id}` ? "Đang kiểm tra kết nối…" : busy === `delete:${connector.id}` ? "Đang ngắt kết nối…" : ""}</p>
+      <p className="sr-only" aria-live="polite">{busy === `test:${connector.id}` ? "Đang kiểm tra kết nối…" : busy === `delete:${connector.id}` ? "Đang xóa kết nối…" : ""}</p>
       <div className="form-actions">
         {connector.can_test && connector.category === "data" && <LoadingButton className="button primary" type="button" busy={busy === `test:${connector.id}`} disabled={busy !== null} onClick={() => onTest(connector.id)}>Kiểm tra kết nối</LoadingButton>}
         {connector.category === "data" && <a className="button secondary" href="/datasets/new">Dùng cho dataset</a>}
         {connector.provider === "google_drive" && <a className="button secondary" href="/datasets/new">Dùng cho upload</a>}
-        {connector.can_disconnect && <LoadingButton className="button danger" type="button" busy={busy === `delete:${connector.id}`} disabled={busy !== null} onClick={() => onDisconnect(connector.id)}>Ngắt kết nối</LoadingButton>}
+        {connector.can_disconnect && <LoadingButton className="button danger" type="button" busy={busy === `delete:${connector.id}`} disabled={busy !== null} onClick={() => onDisconnect(connector.id)}>Xóa kết nối</LoadingButton>}
       </div>
     </div>
   </dialog>;

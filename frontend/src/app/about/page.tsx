@@ -1,204 +1,24 @@
-import { PublicNavbar } from "@/components/public-navbar";
-import { PublicFooter } from "@/components/public-footer";
 import Link from "next/link";
+import { PublicFooter } from "@/components/public-footer";
+import { PublicNavbar } from "@/components/public-navbar";
 
-export const metadata = { title: "Giới thiệu - VDaAgent" };
+export const metadata = { title: "Giới thiệu · VDaAgent" };
+
+const capabilities = [
+  ["Dataset & nguồn dữ liệu", "Tải CSV, TSV, Parquet hoặc JSON; kết nối MongoDB Atlas qua datasource đã kiểm tra. Khi Workspace dùng Google Drive làm storage provider, nút OAuth kết nối xuất hiện trước khi upload và file được lưu ở Drive."],
+  ["Profiling", "Profile Run tính schema, kiểu dữ liệu, số dòng/cột, null rate, cardinality, uniqueness, top values, thống kê mô tả, outlier, duplicate rows, correlation và cảnh báo chất lượng."],
+  ["Review proposal", "Candidate key, semantic type và PII là các proposal có thể cần Analyst xác nhận. Chọn xác nhận, từ chối hoặc chỉnh sửa (kèm lý do khi chỉnh sửa) trước khi pipeline tiếp tục."],
+  ["Command Center", "Đặt câu hỏi phân tích, tạo plan, chạy Preview bounded, xem visualization và Promote thành Official Evidence sau khi kiểm tra kết quả và limitations."],
+  ["Insight Agent", "Hỏi đáp trong phạm vi Profile Run đã chọn. Agent diễn giải evidence được cấp; engine deterministic mới là nơi tính số liệu, không phải LLM."],
+  ["Compare", "Chọn hai Profile Run đã completed làm Baseline và Current để xem aggregate signal về thay đổi phân phối, chất lượng hoặc cấu trúc; kết quả hiển thị severity theo cột."],
+  ["Report", "Ghim Official Evidence hoặc reviewed insight vào Report Draft, sắp xếp và thêm ghi chú, tạo Snapshot bất biến, xem Preview và xuất PDF. Draft là bản chỉnh sửa; Snapshot là phiên bản cố định để chia sẻ và export."],
+  ["Workspace & audit", "Dataset, Profile Run, evidence, report và hoạt động được scope theo Workspace. Thành viên, invitation và quyền truy cập được backend kiểm tra."],
+];
 
 export default function AboutPage() {
-  return (
-    <div className="public-page">
-      <PublicNavbar />
-      <main style={{ flex: 1 }}>
-        <section className="pub-section">
-          <div className="pub-container pub-hero" style={{ paddingTop: 0 }}>
-            <div className="pub-hero-copy">
-              <span className="pub-eyebrow">GIỚI THIỆU CHUYÊN SÂU</span>
-              <h1>VDaAgent —<br /><span>Evidence-First Data Profiling</span></h1>
-              <p>Hệ sinh thái phân tích dữ liệu giúp giải quyết triệt để vấn đề "hộp đen" của AI, biến mọi kết luận thành các bằng chứng có thể đo lường và truy nguyên.</p>
-              <p style={{ marginTop: "16px", color: "var(--pub-ink)", fontWeight: 500 }}>
-                Dự án không chỉ là một công cụ Data Profiling, mà là một chuẩn mực mới cho quy trình làm việc giữa Analyst và Agents.
-              </p>
-            </div>
-
-            <div className="pub-mockup">
-              <div className="pub-mockup-header">
-                <h3>Vấn đề (Painpoints) hiện tại</h3>
-              </div>
-              <p style={{ color: "rgba(255,255,255,0.7)", lineHeight: 1.6, fontSize: "15px", marginBottom: "16px" }}>
-                Các công cụ Data Analytics và AI chatbot truyền thống thường gặp những vấn đề nghiêm trọng:
-              </p>
-              <ul style={{ color: "rgba(255,255,255,0.8)", fontSize: "14px", lineHeight: 1.8, paddingLeft: "20px" }}>
-                <li><b>Blackbox AI:</b> Sinh ra kết quả (hallucination) mà không có nguồn gốc hay công thức tính toán rõ ràng.</li>
-                <li><b>Bảo mật kém:</b> Vô tình gửi dữ liệu thô (raw rows) hoặc thông tin định danh (PII) lên LLM.</li>
-                <li><b>Thiếu kiểm soát:</b> Cho phép thực thi SQL tự do trên Browser gây nguy hiểm cho hệ thống database.</li>
-                <li><b>Rời rạc:</b> Analyst phải nhảy qua lại giữa công cụ làm sạch, công cụ vẽ biểu đồ và công cụ viết báo cáo.</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <section className="pub-section bg-surface">
-          <div className="pub-container">
-            <div className="pub-section-header">
-              <span className="pub-eyebrow">GIẢI PHÁP & LỢI ÍCH</span>
-              <h2>Xây dựng niềm tin từ dữ liệu gốc</h2>
-              <p>VDaAgent định nghĩa lại cách Data Analyst làm việc bằng một Workspace có kiểm soát và minh bạch 100%.</p>
-            </div>
-
-            <div className="pub-feature-grid">
-              <div className="pub-feature-card">
-                <h3>Minh bạch (Clarity)</h3>
-                <p>Mọi chỉ số đều được hiển thị minh bạch. AI chỉ giải thích dựa trên các số liệu và biểu đồ đã được kiểm duyệt bằng thuật toán chuẩn xác.</p>
-              </div>
-              <div className="pub-feature-card">
-                <h3>Truy nguyên (Traceability)</h3>
-                <p>Báo cáo cuối cùng luôn đính kèm bối cảnh và nguồn gốc (hash) của dữ liệu nguồn. Biết chính xác kết luận nào được lấy từ biểu đồ nào.</p>
-              </div>
-              <div className="pub-feature-card">
-                <h3>Bảo mật (Security)</h3>
-                <p>Tự động phát hiện và che mờ (redact) dữ liệu PII. Ngăn chặn tuyệt đối việc gửi dữ liệu thô ra khỏi hệ thống nội bộ.</p>
-              </div>
-              <div className="pub-feature-card">
-                <h3>Tự động hóa (Automation)</h3>
-                <p>Quét toàn bộ cấu trúc và chất lượng dataset chỉ bằng một cú click, tiết kiệm hàng giờ viết code thủ công kiểm tra dữ liệu.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="pub-section">
-          <div className="pub-container">
-            <div className="pub-section-header">
-              <span className="pub-eyebrow">CHỨC NĂNG & QUY TRÌNH</span>
-              <h2>Hệ sinh thái tính năng & Userflow</h2>
-            </div>
-
-            <div className="pub-principle" style={{ alignItems: "flex-start" }}>
-              <div>
-                <ul style={{ listStyle: "none", padding: 0 }}>
-                  <li style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "32px" }}>
-                    <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>1</div>
-                    <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Tự động Data Profiling</h4>
-                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Nhận diện Schema, tính toán Completeness, Missing rate, Unique, Cardinality và phân phối dữ liệu cho từng cột độc lập.</p>
-                    </div>
-                  </li>
-                  <li style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "32px" }}>
-                    <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>2</div>
-                    <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Preview & Official Evidence</h4>
-                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Công cụ trực quan hóa dữ liệu. Biểu đồ sau khi được Analyst duyệt sẽ trở thành "Bằng chứng chính thức" lưu trữ qua mã Hash.</p>
-                    </div>
-                  </li>
-                  <li style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "32px" }}>
-                    <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>3</div>
-                    <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Evidence-bound AI Agent</h4>
-                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Trợ lý AI trả lời câu hỏi phân tích nhưng bị giới hạn nghiêm ngặt: chỉ được phép đọc các Official Evidence đã duyệt, không bịa đặt dữ liệu.</p>
-                    </div>
-                  </li>
-                  <li style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
-                    <div className="pub-workflow-icon" style={{ margin: 0, width: "40px", height: "40px", fontSize: "16px", flexShrink: 0 }}>4</div>
-                    <div>
-                      <h4 style={{ fontSize: "18px", color: "var(--pub-ink)", marginBottom: "8px" }}>Báo cáo truy nguyên & Snapshot</h4>
-                      <p style={{ color: "var(--pub-muted)", lineHeight: 1.6 }}>Xuất báo cáo PDF/JSON. Báo cáo khi xuất bản sẽ được "đóng băng" (Snapshot) để số liệu không bao giờ bị thay đổi ngầm sau này.</p>
-                    </div>
-                  </li>
-                </ul>
-              </div>
-
-              <div style={{ background: "var(--pub-surface)", padding: "40px", borderRadius: "16px", border: "1px solid var(--pub-border)" }}>
-                <h3 style={{ fontSize: "20px", marginBottom: "24px", color: "var(--pub-ink)" }}>Userflow hệ thống</h3>
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>1. Upload Dataset (CSV/JSON/Parquet)</div>
-                  <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>2. Profile deterministic & Review Metadata/PII</div>
-                  <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>3. Tạo Biểu đồ (Preview → Official Evidence)</div>
-                  <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                  <div style={{ background: "var(--pub-bg)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-border)", fontWeight: 500 }}>4. Đặt câu hỏi cho Agent (Dựa trên Evidence)</div>
-                  <div style={{ paddingLeft: "16px", color: "var(--pub-brand)", fontSize: "20px" }}>↓</div>
-                  <div style={{ background: "var(--pub-brand-tint)", color: "var(--pub-brand)", padding: "16px", borderRadius: "8px", border: "1px solid var(--pub-brand)", fontWeight: 600 }}>5. Báo cáo hoàn chỉnh (Snapshot PDF/JSON)</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="pub-section bg-surface">
-          <div className="pub-container pub-principle">
-            <div>
-              <span className="pub-eyebrow">CÁC NGUYÊN TẮC</span>
-              <h2>Bảo mật & Kiểm soát chặt chẽ</h2>
-              <p className="lead">
-                Dự án được xây dựng dựa trên các nguyên tắc thiết kế khắt khe nhằm đảm bảo độ tin cậy và bảo mật tối đa cho dữ liệu doanh nghiệp.
-              </p>
-              <ul style={{ listStyle: "none", padding: 0 }}>
-                <li style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginTop: "4px", color: "var(--pub-mint)", flexShrink: 0 }}><path d="M20 6L9 17l-5-5" /></svg>
-                  <span style={{ fontSize: "15px", lineHeight: 1.6 }}><b>Tính xác định:</b> Số liệu tạo bằng compute deterministic; LLM chỉ lập kế hoạch, diễn giải và hỏi đáp trong phạm vi evidence được cấp.</span>
-                </li>
-                <li style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginTop: "4px", color: "var(--pub-mint)", flexShrink: 0 }}><path d="M20 6L9 17l-5-5" /></svg>
-                  <span style={{ fontSize: "15px", lineHeight: 1.6 }}><b>Không rò rỉ dữ liệu thô:</b> UI, Agent và report không cung cấp raw row hoặc giá trị PII thô.</span>
-                </li>
-                <li style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginTop: "4px", color: "var(--pub-mint)", flexShrink: 0 }}><path d="M20 6L9 17l-5-5" /></svg>
-                  <span style={{ fontSize: "15px", lineHeight: 1.6 }}><b>Kiểm soát truy vấn:</b> Browser không gửi SQL hay mã thực thi tự do. Mọi aggregate dùng QuerySpec có allow-list, ngân sách thời gian và giới hạn kết quả.</span>
-                </li>
-                <li style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "16px" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginTop: "4px", color: "var(--pub-mint)", flexShrink: 0 }}><path d="M20 6L9 17l-5-5" /></svg>
-                  <span style={{ fontSize: "15px", lineHeight: 1.6 }}><b>Bảo mật từ gốc:</b> Backend luôn xác thực workspace, role và capability trước khi đọc hoặc ghi một resource.</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="pub-principle-visual">
-              <div className="pub-insight-line">
-                <span>Dữ liệu thô</span>
-                <b style={{ color: "#c8415a" }}>Bị chặn (Redacted)</b>
-              </div>
-              <div className="pub-insight-line">
-                <span>SQL Injection</span>
-                <b style={{ color: "#c8415a" }}>Ngăn chặn bởi QuerySpec</b>
-              </div>
-              <div className="pub-insight-line">
-                <span>Quyền truy cập</span>
-                <b>Xác thực Workspace & Role</b>
-              </div>
-              <div className="pub-insight-line">
-                <span>Chỉ số phân tích</span>
-                <b style={{ color: "var(--pub-mint)" }}>Compute Deterministic</b>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="pub-section" style={{ textAlign: "center", paddingBottom: "120px" }}>
-          <div className="pub-container">
-            <span className="pub-eyebrow">NGƯỜI DÙNG MỤC TIÊU</span>
-            <h2 style={{ fontSize: "32px", fontWeight: 700, margin: "16px 0 24px", color: "var(--pub-ink)" }}>Ai nên sử dụng VDaAgent?</h2>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px", maxWidth: "800px", margin: "0 auto 48px", textAlign: "left" }}>
-              <div style={{ background: "var(--pub-surface)", padding: "32px", borderRadius: "16px", border: "1px solid var(--pub-border)" }}>
-                <h3 style={{ color: "var(--pub-brand)", marginBottom: "12px", fontSize: "20px" }}>Đối tượng chính</h3>
-                <p style={{ color: "var(--pub-ink)", lineHeight: 1.6 }}>Data Analyst và Business Analyst cần khám phá, kiểm tra và trình bày insight từ một dataset một cách có căn cứ.</p>
-              </div>
-              <div style={{ background: "var(--pub-surface)", padding: "32px", borderRadius: "16px", border: "1px solid var(--pub-border)" }}>
-                <h3 style={{ color: "var(--pub-muted)", marginBottom: "12px", fontSize: "20px" }}>Đối tượng phụ</h3>
-                <p style={{ color: "var(--pub-ink)", lineHeight: 1.6 }}>Data/AI team, quản trị workspace và reviewer cần kiểm tra provenance, quyền truy cập, audit và chất lượng đầu ra AI.</p>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-              <Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
-              <Link href="/contact" className="pub-btn pub-btn-secondary">Liên hệ hợp tác</Link>
-            </div>
-          </div>
-        </section>
-
-      </main>
-      <PublicFooter />
-    </div>
-  );
+  return <div className="public-page"><PublicNavbar /><main className="pub-content"><section className="pub-section pub-page-hero"><div className="pub-container"><span className="pub-eyebrow">ABOUT / PRODUCT TRUTH</span><h1>VDaAgent biến profiling<br /><em>thành nền tảng phân tích.</em></h1><p className="pub-lead">Đây là workspace dành cho Analyst muốn biết dữ liệu có gì, kết quả đến từ đâu và insight được hỗ trợ bởi bằng chứng nào.</p><div className="pub-inline-actions"><Link href="/guide" className="pub-btn pub-btn-primary">Xem workflow →</Link><Link href="/docs" className="pub-btn pub-btn-secondary">Mở Documentation</Link></div></div></section>
+    <section className="pub-section bg-surface" id="capabilities"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">CAPABILITIES</span><h2>Một workspace,<br /><em>nhiều lớp kiểm chứng.</em></h2><p>Các nhóm dưới đây phản ánh những gì sản phẩm hiện hỗ trợ.</p></div><div className="pub-capability-grid">{capabilities.map(([title, body], index) => <article className="pub-capability-card" key={title}><span className="pub-card-index">{String(index + 1).padStart(2, "0")}</span><h3>{title}</h3><p>{body}</p></article>)}</div></div></section>
+    <section className="pub-section" id="architecture"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">ARCHITECTURE</span><h2>Luồng kỹ thuật<br /><em>theo từng lớp.</em></h2><p>Frontend gọi API; API xác thực Workspace và điều phối engine, worker, persistence và LLM ở đúng ranh giới.</p></div><div className="pub-architecture-flow"><div><b>Frontend</b><small>Next.js · React · TypeScript</small></div><i aria-hidden="true">→</i><div><b>API</b><small>FastAPI · Pydantic · SQLAlchemy</small></div><i aria-hidden="true">→</i><div><b>Compute / worker</b><small>Profiling worker · DuckDB · pandas · NumPy · SciPy · statsmodels · scikit-learn</small></div><i aria-hidden="true">→</i><div><b>Persistence</b><small>PostgreSQL / Supabase · Storage</small></div></div><div className="pub-architecture-note"><b>LLM layer, khi phù hợp</b><p>LangGraph / LangChain hỗ trợ planner và Agent runtime. Chỉ metadata đã được giới hạn được đưa vào lớp này; không có arbitrary code, raw-row explorer hay arbitrary SQL trong UI.</p></div></div></section>
+    <section className="pub-section bg-surface" id="principles"><div className="pub-container"><div className="pub-section-header"><span className="pub-eyebrow">DESIGN PRINCIPLES</span><h2>Vì sao workflow<br /><em>được tách lớp?</em></h2></div><div className="pub-principles-grid pub-principles-large"><article><b>Deterministic compute ≠ LLM</b><p>Engine thực hiện metric và phân tích bounded. LLM hỗ trợ lập kế hoạch, diễn giải và hỏi đáp; nó không thay thế phép tính.</p></article><article><b>Preview → Official Evidence</b><p>Preview là kết quả exploratory có thể hết hạn hoặc approximate. Promote sẽ revalidate và lưu result hash, context và provenance.</p></article><article><b>Traceability</b><p>Kết quả gắn với Dataset, Profile Run, QuerySpec/context và Workspace để Analyst biết nguồn và phạm vi của kết luận.</p></article><article><b>Human-in-the-loop</b><p>Analyst review proposal, kiểm tra visualization, review insight và quyết định nội dung report. AI hỗ trợ, không thay thế vai trò này.</p></article><article><b>Workspace isolation</b><p>Backend xác minh identity, membership và capability trên request được bảo vệ; frontend chỉ là lớp UX.</p></article></div><div className="pub-crosslink"><span>Muốn làm theo từng bước?</span><Link href="/guide">Đọc Guide từ kết nối đến PDF →</Link></div></div></section>
+  </main><PublicFooter /></div>;
 }

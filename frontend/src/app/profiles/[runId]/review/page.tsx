@@ -5,29 +5,12 @@ import { useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
-import { ApiError, confirmProposals, getProfile } from "@/lib/api";
+import { ApiError, confirmProposals, getProfile, waitForProfileReady } from "@/lib/api";
+import { profileQueryKey, profileSummaryQueryKey, profilingJobQueryKey } from "@/lib/profile-query-keys";
+import { finalValueOptions, pendingReviewProposals, proposalLabel, proposalValue, reviewDecisions, reviewSelectionsComplete, type ReviewSelection } from "@/lib/profile-review";
 import { formatPercent, toTitle } from "@/lib/format";
 import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, Notice, PageHeader, ProgressSteps, StatusBadge } from "@/components/ui";
 import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
-
-type Selection = { decision: ProposalDecisionType; finalType?: string; note?: string };
-
-const SEMANTIC_TYPES = ["identifier", "free-text", "datetime", "categorical", "continuous", "boolean"];
-const PII_TYPES = ["email", "phone", "national_id", "address", "full_name", "credit_card", "dob", "ip_address", "unknown"];
-
-function proposalLabel(proposal: Proposal) {
-  return proposal.column_name || proposal.columns?.join(", ") || "Đề xuất cấp bộ dữ liệu";
-}
-
-function proposalValue(kind: ProposalKind, proposal: Proposal) {
-  return kind === "pii" ? proposal.pii_type || "unknown" : proposal.proposed_type || "Candidate key";
-}
-
-function finalValueOptions(kind: ProposalKind, proposal: Proposal) {
-  const initial = proposal.final_type || proposalValue(kind, proposal);
-  const values = kind === "semantic_type" ? SEMANTIC_TYPES : PII_TYPES;
-  return [...new Set([initial, ...values])];
-}
 
 function profileReturnPath(runId: string) {
   const fallback = `/profiles/${runId}`;
@@ -49,38 +32,36 @@ export default function ReviewPage() {
   const { runId } = useParams<{ runId: string }>();
   const router = useRouter();
   const client = useQueryClient();
-  const { me, isGuest } = useAuth();
-  const [selections, setSelections] = useState<Record<string, Selection>>({});
+  const { me, isGuest, workspaceId } = useAuth();
+  const [selections, setSelections] = useState<Record<string, ReviewSelection>>({});
   const reviewRequestKey = useRef<string | null>(null);
-  const profile = useQuery({ queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId) });
-  const pending = useMemo(
-    () => Object.entries(profile.data?.proposals || {}).flatMap(([kind, proposals]) => proposals
-      .filter((proposal) => proposal.status === "pending")
-      .map((proposal) => ({ proposal, kind: kind as ProposalKind }))),
-    [profile.data],
-  );
+  const awaitingNarrative = useRef(false);
+  const profile = useQuery({
+    queryKey: profileQueryKey(workspaceId, runId),
+    queryFn: ({ signal }) => getProfile(runId, signal),
+    enabled: Boolean(runId && workspaceId),
+    // After an in-page submit, `waitForProfileReady()` is the sole poller.
+    // A refreshed legacy review route still polls until it observes a terminal
+    // result, preserving the fallback route without duplicate full-profile GETs.
+    refetchInterval: (query) => query.state.data?.status === "resuming" && !awaitingNarrative.current ? 2_000 : false,
+  });
+  const pending = useMemo(() => pendingReviewProposals(profile.data), [profile.data]);
   const reviewerName = me?.user.email || (isGuest ? "Phiên dùng thử" : "Tài khoản đăng nhập hiện tại");
   const reviewerRole = "analyst";
   const mutation = useMutation({
     onMutate: async () => {
       // A pre-review GET must not finish after PATCH and restore stale pending
       // proposals into the shared Profile Run cache.
-      await client.cancelQueries({ queryKey: ["profile", runId] });
+      await client.cancelQueries({ queryKey: profileQueryKey(workspaceId, runId) });
     },
     mutationFn: () => confirmProposals(runId, {
       resume: true,
-      decisions: pending.map(({ proposal, kind }) => {
-        const selection = selections[proposal.id]!;
-        return {
-          kind,
-          proposal_id: proposal.id,
-          decision: selection.decision,
-          ...(selection.decision === "edit" && selection.finalType?.trim() ? { final_type: selection.finalType.trim() } : {}),
-          ...(selection.note?.trim() ? { note: selection.note.trim() } : {}),
-        };
-      }),
+      decisions: reviewDecisions(pending, selections),
     }, reviewRequestKey.current || (reviewRequestKey.current = crypto.randomUUID())),
     onError: async (error) => {
+      // An error thrown while waiting after a successful PATCH must leave the
+      // user here; the profile query above will keep tracking the worker.
+      if (awaitingNarrative.current) return;
       // The DB transaction may have committed even when the PATCH response
       // was lost or a duplicate request raced the first click. Reconcile once
       // with the authoritative profile before showing an error.
@@ -92,8 +73,15 @@ export default function ReviewPage() {
           items.some((proposal) => proposal.status === "pending"),
         );
         if (!stillPending && latest.pending_proposals === 0) {
-          client.setQueryData(["profile", runId], latest);
-          router.replace(profileReturnPath(runId));
+          if (latest.status === "completed" && latest.narrative_report?.trim()) {
+            client.setQueryData(profileQueryKey(workspaceId, runId), latest);
+            router.replace(profileReturnPath(runId));
+          } else if (latest.status === "resuming") {
+            awaitingNarrative.current = true;
+            const ready = await waitForProfileReady(runId);
+            client.setQueryData(profileQueryKey(workspaceId, runId), ready);
+            router.replace(profileReturnPath(runId));
+          }
         }
       } catch {
         // Keep the original mutation error visible when reconciliation also
@@ -103,18 +91,24 @@ export default function ReviewPage() {
     onSuccess: async (confirmed) => {
       // This is a backend response, not optimistic UI state. It immediately
       // replaces the fields that decide whether review is still required.
-      client.setQueryData<Profile>(["profile", runId], (current) => current && ({
+      client.setQueryData<Profile>(profileQueryKey(workspaceId, runId), (current) => current && ({
         ...current,
         status: confirmed.status,
         pending_proposals: confirmed.pending_proposals,
         ...(confirmed.proposals ? { proposals: confirmed.proposals } : {}),
       }));
-      // The PATCH response contains the same post-transaction proposal
-      // snapshot used to calculate pending_proposals. Do not refetch profile
-      // here: a stale in-flight GET can otherwise overwrite the saved decision
-      // while the durable resume job is still moving from queued to completed.
-      client.invalidateQueries({ queryKey: ["profiling-job", runId] });
+      // Keep the user on this review page while the durable worker resumes the
+      // checkpoint and generates the narrative. Redirecting immediately made
+      // the profile page look finished while the summary was still pending.
+      if (confirmed.pending_proposals === 0 && confirmed.status === "resuming") {
+        awaitingNarrative.current = true;
+        const ready = await waitForProfileReady(runId);
+        client.setQueryData(profileQueryKey(workspaceId, runId), ready);
+      }
+      client.invalidateQueries({ queryKey: profilingJobQueryKey(workspaceId, runId) });
+      client.invalidateQueries({ queryKey: profileSummaryQueryKey(workspaceId, runId) });
       reviewRequestKey.current = null;
+      awaitingNarrative.current = false;
       router.replace(profileReturnPath(runId));
     },
   });
@@ -134,7 +128,7 @@ export default function ReviewPage() {
     });
   }
 
-  function updateSelection(id: string, patch: Partial<Selection>) {
+  function updateSelection(id: string, patch: Partial<ReviewSelection>) {
     setSelections((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
   }
 
@@ -142,14 +136,7 @@ export default function ReviewPage() {
     setSelections(Object.fromEntries(pending.map(({ proposal }) => [proposal.id, { decision }])));
   }
 
-  const completeSelection = pending.length > 0
-    && pending.every(({ proposal }) => {
-      const selection = selections[proposal.id];
-      const finalType = selection?.finalType?.trim() || "";
-      const reviewNote = selection?.note?.trim() || "";
-      return Boolean(selection?.decision)
-        && (selection?.decision !== "edit" || Boolean(finalType && reviewNote.length >= 3));
-    });
+  const completeSelection = reviewSelectionsComplete(pending, selections);
 
   if (profile.isLoading) return <LoadingBlock label="Đang tải đề xuất cần review…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
@@ -172,7 +159,12 @@ export default function ReviewPage() {
       </div>
       <div className="review-bulk-actions"><small>THAO TÁC HÀNG LOẠT</small><div className="inline-actions"><button className="button secondary" onClick={() => setAll("confirm")} disabled={mutation.isPending}>Xác nhận tất cả</button><button className="button secondary" onClick={() => setAll("reject")} disabled={mutation.isPending}>Từ chối tất cả</button></div></div>
     </section>
-    {pending.length === 0 ? (
+    {pending.length === 0 && profile.data.status === "resuming" ? (
+      <section className="panel review-submit-panel">
+        <div className="inline-actions"><LoadingButton className="button primary" busy disabled>Đang tạo tóm tắt agent…</LoadingButton><span className="muted">Quyết định đã được lưu. Bạn sẽ được chuyển đến báo cáo khi tóm tắt sẵn sàng.</span></div>
+        <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Tạo tóm tắt agent", "Cập nhật profile"]} activeStep={2} detail="Worker đang hoàn tất checkpoint; trang này sẽ tự cập nhật." />
+      </section>
+    ) : pending.length === 0 ? (
       <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
     ) : (
       <div className="grid" style={{ gap: 18 }}>
@@ -211,6 +203,6 @@ export default function ReviewPage() {
         })}
       </div>
     )}
-    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><LoadingButton className="button primary" busy={mutation.isPending} disabled={!completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tiếp tục pipeline…" : "Lưu quyết định & tiếp tục pipeline"}</LoadingButton><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div>{mutation.isPending && <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Cập nhật profile"]} activeStep={1} detail="Backend đang tiếp tục checkpoint; bạn không cần gửi lại thao tác." />}</section>}
+    {pending.length > 0 && <section className="panel review-submit-panel"><div className="inline-actions"><LoadingButton className="button primary" busy={mutation.isPending} disabled={!completeSelection} onClick={() => mutation.mutate()}>{mutation.isPending ? "Đang lưu và tạo tóm tắt agent…" : "Lưu quyết định & tiếp tục pipeline"}</LoadingButton><span className="muted">{Object.keys(selections).length}/{pending.length} đề xuất đã có quyết định rõ ràng.</span></div>{mutation.isPending && <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Tạo tóm tắt agent", "Cập nhật profile"]} activeStep={2} detail="Đang chờ worker hoàn tất checkpoint và lưu tóm tắt agent; bạn không cần gửi lại thao tác." />}</section>}
   </>;
 }

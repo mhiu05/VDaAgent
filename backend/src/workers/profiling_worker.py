@@ -13,6 +13,8 @@ import time
 from datetime import datetime
 from uuid import uuid4
 
+# pyrefly: ignore [missing-import]
+from sqlalchemy.exc import OperationalError
 from src.config import Settings, get_settings
 from src.services.profile_service import ProfileError, ProfileService
 from src.services.repository import Repository, get_repository
@@ -97,18 +99,39 @@ class ProfilingWorker:
             if now - last_recovery >= max(
                 10.0, self.settings.profiling_worker_lease_seconds / 2
             ):
-                await self.recover_stale_jobs()
-                last_recovery = now
+                try:
+                    await self.recover_stale_jobs()
+                except OperationalError as exc:
+                    # A remote pooler can temporarily reject a new session
+                    # (for example while another dev process is shutting
+                    # down). Keep the worker alive and retry instead of
+                    # losing the queue consumer during startup.
+                    logger.warning(
+                        "profiling_worker_db_unavailable phase=recovery error=%s; retrying",
+                        _safe_db_error(exc),
+                    )
+                    # Do not retry the recovery query in a tight loop while
+                    # the pooler is rejecting sessions.
+                    last_recovery = now
+                else:
+                    last_recovery = now
 
             while (
                 not self._stop.is_set()
                 and len(self._tasks) < self.settings.profiling_worker_concurrency
             ):
-                job = await asyncio.to_thread(
-                    self.repo.claim_profile_job,
-                    worker_id=self.worker_id,
-                    lease_seconds=self.settings.profiling_worker_lease_seconds,
-                )
+                try:
+                    job = await asyncio.to_thread(
+                        self.repo.claim_profile_job,
+                        worker_id=self.worker_id,
+                        lease_seconds=self.settings.profiling_worker_lease_seconds,
+                    )
+                except OperationalError as exc:
+                    logger.warning(
+                        "profiling_worker_db_unavailable phase=claim error=%s; retrying",
+                        _safe_db_error(exc),
+                    )
+                    break
                 if not job:
                     break
                 task = asyncio.create_task(self._execute_claimed(job))
@@ -272,6 +295,14 @@ def _elapsed_ms(start: object, end: object) -> int | None:
     if isinstance(start, datetime) and isinstance(end, datetime):
         return max(0, round((end - start).total_seconds() * 1000))
     return None
+
+
+def _safe_db_error(exc: Exception) -> str:
+    """Keep pool/database retry logs useful without leaking connection URLs."""
+    message = str(exc)
+    if "max clients" in message.lower():
+        return "pooler_max_clients"
+    return type(exc).__name__
 
 
 async def _serve_health(port: int, worker: ProfilingWorker) -> asyncio.Server:

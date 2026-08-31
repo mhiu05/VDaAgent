@@ -1,10 +1,10 @@
 ---
 name: compare-profile-drift
-description: Inspect persisted profile drift evidence. Use when the user asks how a dataset changed, wants schema or distribution drift findings, or compares compatible profiling runs.
+description: Kiểm tra profile drift evidence đã lưu. Dùng khi user hỏi dataset đã thay đổi thế nào, cần schema/distribution drift finding hoặc so sánh các profiling run tương thích.
 ---
 
-# Compare profile drift
+# So sánh profile drift
 
-Create drift through `POST /api/v1/profile/{run_id}/drift` only after the API validates same-dataset compatibility. Inspect persisted evidence only with `get_drift_summary`, `get_drift_findings`, and `get_schema_diff`.
+Chỉ tạo drift qua `POST /api/v1/profile/{run_id}/drift` sau khi API validate hai run đã completed, khác nhau và cùng workspace. Chỉ đọc evidence đã lưu bằng `get_drift_summary`, `get_drift_findings` và `get_schema_diff`.
 
-Never infer drift from raw rows or compare runs across workspaces. State when no persisted report exists.
+Không suy ra drift từ raw row và không so sánh run giữa các workspace. Nêu rõ khi chưa có report đã lưu.

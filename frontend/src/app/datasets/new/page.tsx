@@ -3,7 +3,7 @@
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { connectGoogleDrive, createProfile, getGoogleDriveStatus, listConnectors, setDatasetCollection, uploadDataset, useSavedDatasource, ApiError, type GoogleDriveStatus } from "@/lib/api";
+import { connectGoogleDrive, createProfile, getGoogleDriveStatus, listConnectors, startDatasetProfile, startDatasetProfiles, uploadDataset, useSavedDatasource, ApiError, type GoogleDriveStatus } from "@/lib/api";
 import { humanFileSize } from "@/lib/format";
 import type { UploadResult } from "@/lib/types";
 import { ErrorNotice, LoadingButton, Notice, PageHeader, ProgressSteps } from "@/components/ui";
@@ -25,8 +25,6 @@ export default function NewDatasetPage() {
   const [dragging, setDragging] = useState(false);
   const [scanMode, setScanMode] = useState<"full" | "sample">("sample");
   const [datasetName, setDatasetName] = useState("");
-  const [savingCollection, setSavingCollection] = useState(false);
-  const [collectionSaved, setCollectionSaved] = useState(false);
   const [busy, setBusy] = useState<"upload" | "profile" | null>(null);
   const [sourceMode, setSourceMode] = useState<"file" | "datasource">("file");
   const [savedDatasourceId, setSavedDatasourceId] = useState("");
@@ -39,6 +37,7 @@ export default function NewDatasetPage() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const driveStatusSequence = useRef(0);
   const profileSubmissionKeys = useRef(new Map<string, string>());
+  const profileInFlight = useRef(false);
   const connectorsQuery = useQuery({
     queryKey: ["connectors", workspaceId],
     queryFn: () => listConnectors(),
@@ -107,13 +106,34 @@ export default function NewDatasetPage() {
     if (driveStatus?.connected) setDriveConnecting(false);
   }, [driveStatus]);
 
+  function submissionKey(signature: string) {
+    const scopedSignature = `${workspaceId ?? "pending"}:${signature}`;
+    const cached = profileSubmissionKeys.current.get(scopedSignature);
+    if (cached) return cached;
+    const storageKey = `p170-profile-submission:${encodeURIComponent(scopedSignature)}`;
+    try {
+      const restored = window.sessionStorage.getItem(storageKey);
+      if (restored) {
+        profileSubmissionKeys.current.set(scopedSignature, restored);
+        return restored;
+      }
+      const next = crypto.randomUUID();
+      window.sessionStorage.setItem(storageKey, next);
+      profileSubmissionKeys.current.set(scopedSignature, next);
+      return next;
+    } catch {
+      const next = crypto.randomUUID();
+      profileSubmissionKeys.current.set(scopedSignature, next);
+      return next;
+    }
+  }
+
   function selectFiles(next: File[]) {
     setError(null);
     setSelectionWarning(null);
     setUploadResults([]);
     setProfiled([]);
     setProgress(0);
-    setCollectionSaved(false);
     setFiles([]);
     if (!next.length) return;
 
@@ -133,34 +153,6 @@ export default function NewDatasetPage() {
     setUploadResults(supported.map(() => null));
     setProfiled(supported.map(() => false));
     setDatasetName("");
-  }
-
-  async function saveDatasetCollection(): Promise<boolean> {
-    if (!allUploaded) {
-      setError(new ApiError("Hãy tải dữ liệu lên trước khi lưu tên bộ.", 422));
-      return false;
-    }
-    if (!datasetName.trim()) {
-      setError(new ApiError("Hãy nhập tên bộ dữ liệu trước khi lưu.", 422));
-      return false;
-    }
-    const datasetIds = uploadResults.flatMap((upload) => upload?.dataset_id ? [upload.dataset_id] : []);
-    if (datasetIds.length !== files.length) {
-      setError(new ApiError("Không tìm thấy mã dataset vừa tải lên.", 400));
-      return false;
-    }
-    setSavingCollection(true);
-    setError(null);
-    try {
-      await setDatasetCollection(datasetIds, datasetName.trim());
-      setCollectionSaved(true);
-      return true;
-    } catch (reason) {
-      setError(reason);
-      return false;
-    } finally {
-      setSavingCollection(false);
-    }
   }
 
   async function handleUpload() {
@@ -223,34 +215,43 @@ export default function NewDatasetPage() {
 
   async function handleProfile() {
     if (!files.length || !uploadResults.length || uploadResults.some((item) => !item)) return;
+    if (profileInFlight.current) return;
+    profileInFlight.current = true;
     setBusy("profile"); setError(null);
     const completed = [...profiled];
     try {
-      if (datasetName.trim() && !collectionSaved && !(await saveDatasetCollection())) return;
-      for (let index = 0; index < files.length; index += 1) {
-        if (completed[index]) continue;
-        const upload = uploadResults[index];
-        if (!upload) continue;
-        const payload = {
-          ...(upload.dataset_id ? { dataset_id: upload.dataset_id } : { dataset_ref: upload.dataset_ref }),
-          dataset_name: upload.suggested_name || upload.filename,
-          scan_mode: scanMode,
-          ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" as const } } : {}),
-        } as const;
-        const signature = JSON.stringify(payload);
-        const idempotencyKey = profileSubmissionKeys.current.get(signature) || crypto.randomUUID();
-        profileSubmissionKeys.current.set(signature, idempotencyKey);
-        const job = await createProfile(payload, idempotencyKey);
-        profileSubmissionKeys.current.delete(signature);
+      if (!datasetName.trim()) {
+        setError(new ApiError("Hãy nhập tên bộ dữ liệu trước khi profiling.", 422));
+        return;
+      }
+      const uploads = uploadResults.map((upload, index) => ({ upload, index })).filter((item): item is { upload: UploadResult; index: number } => Boolean(item.upload));
+      if (files.length === 1) {
+        const { upload, index } = uploads[0];
+        const payload = { dataset_name: upload.suggested_name || upload.filename, collection_name: datasetName.trim(), scan_mode: scanMode, ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" as const } } : {}) };
+        const signature = JSON.stringify({ dataset_id: upload.dataset_id, ...payload });
+        const key = submissionKey(signature);
+        const result = upload.dataset_id ? await startDatasetProfile(upload.dataset_id, payload, key) : await createProfile({ ...payload, dataset_ref: upload.dataset_ref }, key);
         completed[index] = true;
         setProfiled([...completed]);
-        if (files.length === 1) {
-          router.push(`/profiles/${job.profiling_run_id}`);
-          return;
-        }
+        const runId = "run_id" in result ? result.run_id : result.profiling_run_id;
+        router.push(`/profiles/${runId}`);
+        return;
       }
-      router.push("/datasets");
-    } catch (reason) { setError(reason); } finally { setBusy(null); }
+      const datasetIds = uploads.flatMap(({ upload }) => upload.dataset_id ? [upload.dataset_id] : []);
+      if (datasetIds.length !== files.length) throw new ApiError("Không tìm thấy mã dataset vừa tải lên.", 400);
+      const batchPayload = { dataset_ids: datasetIds, dataset_name: datasetName.trim(), collection_name: datasetName.trim(), scan_mode: scanMode, ...(scanMode === "sample" ? { sampling: { strategy: "reservoir" as const } } : {}) };
+      const results = await startDatasetProfiles(batchPayload, submissionKey(JSON.stringify(batchPayload)));
+      results.forEach((result, index) => { if (result.run_id && result.status !== "failed") completed[index] = true; });
+      setProfiled([...completed]);
+      const failed = results.filter((result) => result.status === "failed");
+      if (failed.length) {
+        setError(new ApiError(`${failed.length} dataset không thể xếp hàng profiling. Bạn có thể thử lại; các dataset đã thành công sẽ không bị tạo trùng.`, 409));
+        return;
+      }
+      // A batch has several runs, so enter the first durable Command Center
+      // immediately; the Dataset list remains the place to open its peers.
+      router.push(`/profiles/${results[0].run_id}`);
+    } catch (reason) { setError(reason); } finally { profileInFlight.current = false; setBusy(null); }
   }
 
   async function handleConnectDrive() {
@@ -287,15 +288,19 @@ export default function NewDatasetPage() {
       setError(new ApiError("Chọn datasource và nhập tên dataset trước khi tiếp tục.", 422));
       return;
     }
+    if (profileInFlight.current) return;
+    profileInFlight.current = true;
     setBusy("profile");
     setError(null);
     try {
       const result = await useSavedDatasource(savedDatasourceId, datasetName.trim());
-      const job = await createProfile({ dataset_id: result.dataset_id, dataset_name: result.name, scan_mode: scanMode });
-      router.push(`/profiles/${job.profiling_run_id}`);
+      const payload = { dataset_name: result.name, scan_mode: scanMode };
+      const job = await startDatasetProfile(result.dataset_id, payload, submissionKey(JSON.stringify({ dataset_id: result.dataset_id, ...payload })));
+      router.push(`/profiles/${job.run_id}`);
     } catch (reason) {
       setError(reason);
     } finally {
+      profileInFlight.current = false;
       setBusy(null);
     }
   }
@@ -355,10 +360,10 @@ export default function NewDatasetPage() {
         <div className="form-actions">{!allUploaded ? <><LoadingButton className="button primary" busy={busy === "upload"} disabled={!files.length || busy !== null || (driveBlocked && !driveStatus?.can_connect)} onClick={handleUploadClick}>{busy === "upload" ? "Đang tải lên…" : driveBlocked ? driveStatus?.can_connect ? "Kết nối Drive để tải" : "Drive chưa sẵn sàng" : uploadedCount ? `Tải tiếp ${files.length - uploadedCount} file` : "Tải dữ liệu lên"}</LoadingButton>{busy === "upload" && <button className="button secondary" onClick={() => abortRef.current?.abort()}>Hủy tải lên</button>}</> : <Notice tone="success"><b>Đã tải lên an toàn.</b><p>{files.length} file đã được lưu vào workspace.</p></Notice>}</div>
       </section>
       <section className="panel"><div className="panel-title"><h2>2. Cấu hình profiling</h2><small>Sampling có thể tái lập</small></div>
-        <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên bộ dữ liệu</label><input id="dataset-name" value={datasetName} onChange={(event) => { setDatasetName(event.target.value); setCollectionSaved(false); }} placeholder="Ví dụ: Dữ liệu bán hàng tháng 8" maxLength={255} disabled={!files.length || busy !== null || savingCollection} /><small className="muted">{files.length > 1 ? `Tên này gộp ${files.length} file thành một bộ; tên từng file vẫn được giữ nguyên.` : "Tên này dùng để phân loại dataset trong workspace."}{collectionSaved ? " Đã lưu." : ""}</small></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!allUploaded}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div></div>
+        <div className="form-grid"><div className="field full"><label htmlFor="dataset-name">Tên bộ dữ liệu</label><input id="dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} placeholder="Ví dụ: Dữ liệu bán hàng tháng 8" maxLength={255} disabled={!files.length || busy !== null} /><small className="muted">{files.length > 1 ? `Tên này gộp ${files.length} file thành một bộ; tên từng file vẫn được giữ nguyên.` : "Tên này dùng để phân loại dataset trong workspace."}</small></div><div className="field"><label htmlFor="scan-mode">Chế độ scan</label><select id="scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={!allUploaded}><option value="sample">Sample — nhanh, có uncertainty</option><option value="full">Full scan — chính xác hơn</option></select></div></div>
         <Notice tone="info"><b>Bảo mật quyền riêng tư</b><p>Hệ thống sẽ không hiển thị các dữ liệu mẫu nhạy cảm. Mọi phát hiện về thông tin cá nhân hoặc định danh đều cần bạn xác nhận trước khi lưu.</p></Notice>
         {busy === "profile" && <ProgressSteps steps={["Chuẩn bị", "Đang profiling", "Hoàn tất"]} activeStep={profiledCount === files.length ? 2 : 1} detail={`Đã xử lý ${profiledCount}/${files.length} file. Hệ thống đang tính metric từ dữ liệu thật.`} />}
-        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!allUploaded || busy !== null || savingCollection} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</LoadingButton></div>
+        <div className="form-actions"><LoadingButton className="button primary" busy={busy === "profile"} disabled={!allUploaded || busy !== null} onClick={handleProfile}>{busy === "profile" ? `Agent đang profiling… (${profiledCount}/${files.length})` : files.length > 1 ? `Bắt đầu profiling ${files.length} file` : "Bắt đầu profiling"}</LoadingButton></div>
       </section>
     </div>}
   </>;

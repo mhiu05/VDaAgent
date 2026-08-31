@@ -8,12 +8,12 @@ import type { RunStatus } from "@/lib/types";
 export function StatusBadge({ status }: { status: RunStatus }) {
   const normalized = status.toLowerCase();
   const glyph = normalized === "completed" ? "✓" : ["failed", "cancelled"].includes(normalized) ? "×" : ["pending_review", "queued", "resuming"].includes(normalized) ? "!" : normalized === "running" ? "↻" : "•";
-  return <span className={`status status-${normalized}`}><span aria-hidden="true">{glyph}</span> {formatStatus(normalized)}</span>;
+  return <span className={`status status-${normalized}`} data-status={normalized}><span aria-hidden="true">{glyph}</span> {formatStatus(normalized)}</span>;
 }
 
 export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: ReactNode }) {
-  return <header className="page-header">
-    <div>
+  return <header className="page-header workspace-page-header">
+    <div className="page-header-copy">
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
       <h1>{title}</h1>
       {description && <p className="page-description">{description}</p>}
@@ -23,7 +23,7 @@ export function PageHeader({ eyebrow, title, description, action }: { eyebrow?: 
 }
 
 export function Metric({ label, value, detail, approximate = false }: { label: string; value: ReactNode; detail?: string; approximate?: boolean }) {
-  return <article className="metric-card">
+  return <article className="metric-card workspace-metric">
     <p>{label}</p>
     <strong>{approximate && <abbr title="Chỉ số được ước lượng từ mẫu">≈</abbr>} {value}</strong>
     {detail && <small>{detail}</small>}
@@ -31,16 +31,19 @@ export function Metric({ label, value, detail, approximate = false }: { label: s
 }
 
 export function EmptyState({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
-  return <section className="empty-state"><span aria-hidden="true">◇</span><h2>{title}</h2><p>{detail}</p>{action}</section>;
+  return <section className="empty-state workspace-empty-state">
+    <span className="empty-state-mark" aria-hidden="true">◇</span>
+    <div className="empty-state-copy"><h2>{title}</h2><p>{detail}</p>{action}</div>
+  </section>;
 }
 
 export function ErrorNotice({ error, retry }: { error: unknown; retry?: () => void }) {
   const message = error instanceof Error ? error.message : "Đã có lỗi không xác định.";
-  return <section className="notice error" role="alert"><b>Không tải được dữ liệu.</b><p>{message}</p>{retry && <button className="button secondary" onClick={retry}>Thử lại</button>}</section>;
+  return <section className="notice error workspace-notice" role="alert"><span className="notice-mark" aria-hidden="true">!</span><div className="notice-copy"><b>Không tải được dữ liệu.</b><p>{message}</p>{retry && <button className="button secondary" onClick={retry}>Thử lại</button>}</div></section>;
 }
 
 export function LoadingBlock({ label = "Đang tải dữ liệu…" }: { label?: string }) {
-  return <section className="loading-block" aria-live="polite"><span className="spinner" aria-hidden="true" />{label}</section>;
+  return <section className="loading-block workspace-loading-block" aria-live="polite"><span className="spinner" aria-hidden="true" /><span className="loading-block-label">{label}</span></section>;
 }
 
 export function BusySpinner({ small = false }: { small?: boolean }) {

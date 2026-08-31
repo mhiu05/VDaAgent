@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
@@ -46,6 +47,7 @@ from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_a
 from src.agents.state import initial_qa_state
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
+from src.services import ai_latency
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
@@ -58,8 +60,11 @@ from src.models.schemas import (
     DriftRequest,
     DriftResponse,
     ProfileJobResponse,
+    DatasetProfileBatchRequest,
+    DatasetProfileResponse,
     ProfileRequest,
     ProfileResponse,
+    ProfileSummaryResponse,
     ProfileRunSummary,
     QARequest,
     QAResponse,
@@ -86,7 +91,14 @@ from src.services.datasource import (
     probe,
     source_ref_for_connection,
 )
-from src.services.llm import LLMNotConfiguredError, llm_available, report_text, safe_llm_warning
+from src.services.llm import (
+    LLMNotConfiguredError,
+    is_llm_runtime_warning,
+    llm_available,
+    normalize_profile_action_numbering,
+    report_text,
+    safe_llm_warning,
+)
 from src.services.permissions import (
     DATASET_DELETE,
     DATASET_READ,
@@ -119,6 +131,13 @@ from src.services.storage import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Profiling summaries are small, but every active SSE connection reads one from
+# PostgreSQL.  Keep the first follow-up responsive, then bound the per-client
+# query rate while the durable projection has not changed.
+_PROFILE_SSE_POLL_INTERVALS = (1.0, 2.0, 3.0, 5.0)
+_PROFILE_SSE_KEEPALIVE_SECONDS = 10.0
+_PROFILE_SSE_TERMINAL_EVENTS = frozenset({"ready", "failed"})
 
 
 # --------------------------------------------------------------------------- #
@@ -171,6 +190,23 @@ def _build_profile_response(
     dataset = profile["dataset"] or {}
     stats = {row["column_name"]: row for row in profile["column_stats"]}
 
+    narrative_report = (
+        normalize_profile_action_numbering(report_text(run.get("narrative_report")))
+        if run.get("narrative_report")
+        else None
+    )
+    # A successful retry replaces the old fallback report, but older rows can
+    # still retain the transient provider warning in risk_warnings. Do not
+    # show that stale warning beside a real narrative report.
+    has_fallback_report = bool(
+        narrative_report and "Báo cáo dạng bảng vì phần diễn giải LLM" in narrative_report
+    )
+    runtime_warnings = [
+        warning
+        for warning in (run.get("risk_warnings") or [])
+        if has_fallback_report or not is_llm_runtime_warning(warning)
+    ]
+
     payload: dict[str, Any] = {
         "profile_run_id": run["id"],
         "dataset_id": run["dataset_id"],
@@ -188,12 +224,10 @@ def _build_profile_response(
         "random_seed": run.get("random_seed"),
         "executed_query": run.get("executed_query"),
         "is_approximate": bool(run.get("is_approximate")),
-        "narrative_report": report_text(run.get("narrative_report"))
-        if run.get("narrative_report")
-        else None,
+        "narrative_report": narrative_report,
         "risk_warnings": [
             safe_llm_warning(warning)
-            for warning in (run.get("risk_warnings") or [])
+            for warning in runtime_warnings
         ],
         "quasi_identifiers": run.get("quasi_identifiers") or [],
         "correlation_matrix": run.get("correlation_matrix") or {},
@@ -233,6 +267,70 @@ def _build_profile_job_response(
         result_id=str(job["id"]) if status == "succeeded" else None,
         error=error,
         duplicate=duplicate,
+    )
+
+
+def _build_dataset_profile_response(
+    result: dict[str, Any], *, workspace_id: str, duplicate: bool = False
+) -> DatasetProfileResponse:
+    repo = get_repository()
+    job = _build_profile_job_response(result["job"], duplicate=duplicate)
+    summary = repo.get_profile_summary(result["run_id"], workspace_id=workspace_id) or {}
+    next_action = _profile_next_action(summary) if summary else "wait"
+    return DatasetProfileResponse(
+        dataset_id=str(result["dataset_id"]),
+        run_id=str(result["run_id"]),
+        job_id=job.job_id,
+        status=job.status,
+        next_action=next_action,
+        duplicate=duplicate,
+        error=job.error,
+    )
+
+
+def _batch_idempotency_prefix(idempotency_key: str) -> str:
+    """Keep a batch retry discoverable without storing the caller's key."""
+    return f"batch:{hashlib.sha256(idempotency_key.encode()).hexdigest()}:"
+
+
+def _batch_request_hash(request: DatasetProfileBatchRequest) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            request.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _profile_next_action(summary: dict[str, Any]) -> str:
+    if summary["status"] == "failed" or summary.get("job_status") == "failed":
+        return "retry"
+    if summary["status"] == "pending_review":
+        return "review"
+    if summary["status"] == "resuming":
+        return "wait"
+    if summary["status"] == "completed":
+        return "use_results"
+    return "wait"
+
+
+def _profile_event_name(summary: dict[str, Any]) -> str:
+    if summary["status"] == "failed" or summary.get("job_status") == "failed":
+        return "failed"
+    if summary["status"] == "pending_review":
+        return "review_required"
+    if summary["status"] == "resuming":
+        return "resuming"
+    if summary["status"] == "completed":
+        return "ready"
+    if summary.get("job_status") == "running" or summary["status"] in {"created", "running"}:
+        return "profiling"
+    return "queued"
+
+
+def _profiling_sse(event: str, data: Any, event_id: str) -> str:
+    return (
+        f"id: {event_id}\nevent: {event}\ndata: "
+        f"{json.dumps(data, ensure_ascii=False, default=str)}\n\n"
     )
 
 
@@ -278,6 +376,104 @@ async def create_profile(
     return _build_profile_job_response(result["job"], duplicate=result["duplicate"])
 
 
+@router.post("/datasets/{dataset_id}/profile", response_model=DatasetProfileResponse, status_code=202)
+async def create_dataset_profile(
+    dataset_id: str,
+    request: ProfileRequest,
+    http_request: Request,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=255),
+    context: RequestContext = Depends(require_permission(PROFILE_RUN)),
+) -> DatasetProfileResponse:
+    """Queue one workspace dataset for profiling without running compute in HTTP."""
+    from src.services.profile_service import ProfileError, ProfileService
+
+    if request.dataset_ref or (request.dataset_id and request.dataset_id != dataset_id):
+        raise HTTPException(status_code=422, detail="dataset_id phải khớp với đường dẫn dataset.")
+    get_rate_limiter().check(context.user_id)
+    collection_name = request.collection_name.strip() if request.collection_name else None
+    if request.collection_name and not collection_name:
+        raise HTTPException(status_code=422, detail="collection_name không được để trống.")
+    try:
+        result = await ProfileService(get_repository()).submit_profile(
+            request.model_copy(update={"dataset_id": dataset_id, "dataset_ref": None}),
+            context.workspace_id,
+            context.user_id,
+            idempotency_key,
+            getattr(http_request.state, "correlation_id", None),
+        )
+    except ProfileError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    # Validate the profiling request before mutating collection metadata. This
+    # keeps a conflicting Idempotency-Key from becoming an unintended rename.
+    if collection_name and get_repository().set_dataset_collection(
+        [dataset_id], collection_name, workspace_id=context.workspace_id
+    ) is None:
+        raise HTTPException(status_code=404, detail="Dataset không thuộc workspace hiện tại.")
+    if not result["duplicate"]:
+        _audit(context, "api_dataset_profile", resource_type="profile_run", resource_id=result["run_id"], dataset_id=dataset_id, job_id=result["run_id"])
+    return _build_dataset_profile_response(result, workspace_id=context.workspace_id, duplicate=result["duplicate"])
+
+
+@router.post("/datasets/profile", response_model=list[DatasetProfileResponse], status_code=202)
+async def create_dataset_profiles(
+    request: DatasetProfileBatchRequest,
+    http_request: Request,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=255),
+    context: RequestContext = Depends(require_permission(PROFILE_RUN)),
+) -> list[DatasetProfileResponse]:
+    """Bounded batch queue submission; each item remains independently idempotent."""
+    from src.services.profile_service import ProfileError, ProfileService
+
+    get_rate_limiter().check(context.user_id)
+    repository = get_repository()
+    service = ProfileService(repository)
+    collection_name = request.collection_name.strip() if request.collection_name else None
+    if request.collection_name and not collection_name:
+        raise HTTPException(status_code=422, detail="collection_name không được để trống.")
+    batch_prefix = _batch_idempotency_prefix(idempotency_key)
+    batch_hash = _batch_request_hash(request)
+    previous_hashes = repository.profile_job_request_hashes_for_prefix(
+        workspace_id=context.workspace_id,
+        created_by_user_id=context.user_id,
+        idempotency_key_prefix=batch_prefix,
+    )
+    if previous_hashes and previous_hashes != {batch_hash}:
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key was already used for a different profiling batch.",
+        )
+    responses: list[DatasetProfileResponse] = []
+    for dataset_id in request.dataset_ids:
+        child_key = f"{batch_prefix}{hashlib.sha256(dataset_id.encode()).hexdigest()}"
+        payload = ProfileRequest(
+            dataset_id=dataset_id,
+            dataset_name=request.dataset_name,
+            collection_name=collection_name,
+            run_name=request.run_name,
+            scan_mode=request.scan_mode,
+            sampling=request.sampling,
+        )
+        try:
+            result = await service.submit_profile(
+                payload,
+                context.workspace_id,
+                context.user_id,
+                child_key,
+                getattr(http_request.state, "correlation_id", None),
+                request_hash_override=batch_hash,
+            )
+            if collection_name and repository.set_dataset_collection(
+                [dataset_id], collection_name, workspace_id=context.workspace_id
+            ) is None:
+                raise ProfileError("Dataset không thuộc workspace hiện tại.", 404)
+            responses.append(_build_dataset_profile_response(result, workspace_id=context.workspace_id, duplicate=result["duplicate"]))
+            if not result["duplicate"]:
+                _audit(context, "api_dataset_profile", resource_type="profile_run", resource_id=result["run_id"], dataset_id=dataset_id, job_id=result["run_id"])
+        except ProfileError as exc:
+            responses.append(DatasetProfileResponse(dataset_id=dataset_id, run_id="", job_id="", status="failed", next_action="retry", error={"code": exc.error_code, "message": exc.message}))
+    return responses
+
+
 @router.get("/profiling-jobs/{job_id}", response_model=ProfileJobResponse)
 async def get_profiling_job(
     job_id: str,
@@ -298,6 +494,105 @@ async def get_profile(
     """Đọc hồ sơ đã profiling. Giá trị mẫu của cột PII bị ẩn (eval C-01)."""
     get_rate_limiter().check(context.user_id)
     return _build_profile_response(run_id, context.workspace_id)
+
+
+@router.get("/profile/{run_id}/summary", response_model=ProfileSummaryResponse)
+async def get_profile_summary(
+    run_id: str, context: RequestContext = Depends(require_permission(PROFILE_READ))
+) -> ProfileSummaryResponse:
+    """Read the lightweight, workspace-scoped Command Center contract."""
+    get_rate_limiter().check(context.user_id)
+    summary = get_repository().get_profile_summary(
+        run_id, workspace_id=context.workspace_id
+    )
+    if not summary:
+        raise HTTPException(status_code=404, detail="Profile run not found.")
+    summary["next_action"] = _profile_next_action(summary)
+    return ProfileSummaryResponse(**summary)
+
+
+@router.get("/profiling-jobs/{job_id}/events")
+async def profiling_job_events(
+    job_id: str,
+    http_request: Request,
+    context: RequestContext = Depends(require_permission(PROFILE_READ)),
+) -> StreamingResponse:
+    """Stream durable profiling-summary milestones for one workspace job.
+
+    The stream reads the persisted run projection, so reconnecting or refreshing
+    always replays the latest state and cannot lose a milestone. No payload
+    contains profile details, source data, or another workspace's identifiers.
+    """
+    get_rate_limiter().check(context.user_id)
+    repository = get_repository()
+    initial = repository.get_profile_summary(job_id, workspace_id=context.workspace_id)
+    if not initial:
+        raise HTTPException(status_code=404, detail="Profiling job not found.")
+
+    async def generator() -> Any:
+        last_key: str | None = None
+        first = True
+        backoff_index = 0
+        next_keepalive_at = time.monotonic() + _PROFILE_SSE_KEEPALIVE_SECONDS
+        while True:
+            # StreamingResponse normally cancels this generator on a dropped
+            # connection. This explicit check also avoids a fresh repository
+            # read when a disconnect is already observable at a poll boundary.
+            if await http_request.is_disconnected():
+                return
+            summary = initial if first else repository.get_profile_summary(
+                job_id, workspace_id=context.workspace_id
+            )
+            first = False
+            if not summary:
+                yield _profiling_sse("failed", {"error": "Profiling job not found."}, "missing")
+                return
+            summary["next_action"] = _profile_next_action(summary)
+            event = _profile_event_name(summary)
+            key = json.dumps(summary, sort_keys=True, default=str)
+            event_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+            if key != last_key:
+                yield _profiling_sse(event, summary, event_id)
+                last_key = key
+                # A durable progress change deserves the fastest next poll.
+                backoff_index = 0
+            else:
+                backoff_index = min(
+                    backoff_index + 1, len(_PROFILE_SSE_POLL_INTERVALS) - 1
+                )
+            if event in _PROFILE_SSE_TERMINAL_EVENTS:
+                return
+
+            # Keepalive comments are scheduled independently of polling. They
+            # let intermediaries see traffic during a long unchanged state,
+            # without performing an additional database query.
+            remaining = _PROFILE_SSE_POLL_INTERVALS[backoff_index]
+            while remaining > 0:
+                if await http_request.is_disconnected():
+                    return
+                now = time.monotonic()
+                until_keepalive = next_keepalive_at - now
+                if until_keepalive <= 0:
+                    yield ": keep-alive\n\n"
+                    next_keepalive_at = now + _PROFILE_SSE_KEEPALIVE_SECONDS
+                    continue
+                sleep_seconds = min(remaining, until_keepalive)
+                await asyncio.sleep(sleep_seconds)
+                remaining -= sleep_seconds
+                # Do not start a repository read after the connection dropped
+                # during this wait.
+                if await http_request.is_disconnected():
+                    return
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/profile/{run_id}/export")
@@ -699,21 +994,29 @@ async def run_statistical_tests(
             detail=f"Kiểm định không hỗ trợ: {', '.join(unknown)}. Có sẵn: {', '.join(sorted(TESTS))}.",
         )
 
-    df = await asyncio.to_thread(get_dataframe, run_id)
+    requested_columns = list(
+        dict.fromkeys(
+            column for test in request.tests for column in test.columns
+        )
+    )
+    df = await asyncio.to_thread(get_dataframe, run_id, requested_columns)
     if df is None:
         raise HTTPException(
             status_code=409,
             detail="Không nạp lại được dữ liệu của run này (file gốc có thể đã bị xoá/di chuyển).",
         )
 
-    results = await asyncio.to_thread(
-        run_tests,
-        df,
-        [t.model_dump() for t in request.tests],
-        request.alpha or settings.stats_alpha,
-        request.fdr_method or settings.stats_fdr_method,
-        settings.stats_max_tests_per_request,
-    )
+    try:
+        results = await asyncio.to_thread(
+            run_tests,
+            df,
+            [t.model_dump() for t in request.tests],
+            request.alpha or settings.stats_alpha,
+            request.fdr_method or settings.stats_fdr_method,
+            settings.stats_max_tests_per_request,
+        )
+    finally:
+        del df
     repo.save_test_results(run_id, results, requested_by=context.user_id)
     _audit(
         context,
@@ -793,6 +1096,8 @@ def _qa_question_with_execution(question: str, execution: dict[str, Any] | None)
     if not execution:
         return question
     evidence = {
+        "execution_kind": execution.get("execution_kind"),
+        "is_approximate": bool(execution.get("is_approximate")),
         "canonical_query": execution.get("query_spec"),
         "result": execution.get("result"),
         "result_hash": execution.get("result_hash"),
@@ -879,8 +1184,29 @@ def _qa_state(
                 status_code=409,
                 detail="The execution context changed. Run the result again.",
             )
+    if request.response_mode == "chart_insight" and not execution:
+        raise HTTPException(
+            status_code=422,
+            detail="chart_insight response mode requires a bound analysis execution.",
+        )
+    if (
+        request.response_mode == "chart_insight"
+        and execution
+        and execution.get("execution_kind") != "official"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="chart_insight requires an Official execution, not a Preview.",
+        )
     state = initial_qa_state(
-        question=_qa_question_with_execution(request.question, execution),
+        # Keep chart questions concise for retrieval. The official result is
+        # passed separately below so large aggregate payloads do not distort
+        # semantic search terms.
+        question=(
+            request.question
+            if request.response_mode == "chart_insight"
+            else _qa_question_with_execution(request.question, execution)
+        ),
         profile_run_id=request.profile_run_id,
         column_names=columns,
         requested_by=context.user_id,
@@ -890,9 +1216,12 @@ def _qa_state(
     )
     if execution:
         state["qa_context"] = {
+            "chart_insight": request.response_mode == "chart_insight",
             "analysis_execution": {
                 "id": execution["id"],
                 "context_version_id": execution.get("context_version_id"),
+                "execution_kind": execution.get("execution_kind"),
+                "is_approximate": bool(execution.get("is_approximate")),
                 "query_spec": execution.get("query_spec"),
                 "result": execution.get("result"),
                 "result_hash": execution.get("result_hash"),
@@ -903,8 +1232,22 @@ def _qa_state(
 
 
 def _qa_evidence_metadata(
-    request: QARequest, *, agent_run_id: str | None, workspace_id: str
+    request: QARequest,
+    *,
+    agent_run_id: str | None,
+    workspace_id: str,
+    validated_status: str | None = None,
 ) -> dict[str, Any]:
+    # Nodes perform the final evidence decision.  Preserve an explicit
+    # fail-closed abstention instead of inferring ``verified`` from an older
+    # trace row or from the mere presence of a Profile Run.
+    if validated_status in {"verified", "no_evidence"}:
+        return {
+            "evidence_status": validated_status,
+            "profile_run_id": request.profile_run_id,
+            "context_version_id": request.workspace_context_version_id,
+            "analysis_execution_id": request.analysis_execution_id,
+        }
     evidence_exists = False
     if agent_run_id and request.profile_run_id:
         try:
@@ -977,8 +1320,7 @@ def _guard_qa_answer(
     return guarded.text
 
 
-@router.post("/qa", response_model=QAResponse)
-async def ask_question(
+async def _ask_question_impl(
     request: QARequest,
     context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
 ) -> QAResponse:
@@ -1044,11 +1386,29 @@ async def ask_question(
         is_approximate=is_approximate,
         agent_run_id=agent_run_id,
         **_qa_evidence_metadata(
-            request, agent_run_id=agent_run_id, workspace_id=context.workspace_id
+            request,
+            agent_run_id=agent_run_id,
+            workspace_id=context.workspace_id,
+            validated_status=result.get("evidence_status"),
         ),
         verification={"status": "not_run", "mode": get_settings().agent_verifier_mode},
         trace_summary=trace_summary,
     )
+
+
+@router.post("/qa", response_model=QAResponse)
+async def ask_question(
+    request: QARequest,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> QAResponse:
+    """Run QA while emitting one PII-safe critical-path latency record."""
+
+    latency_token = ai_latency.begin("qa")
+    try:
+        return await _ask_question_impl(request, context)
+    finally:
+        ai_latency.emit()
+        ai_latency.reset(latency_token)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -1073,25 +1433,37 @@ async def ask_question_stream(
     """
     get_rate_limiter().check(context.user_id)
     state = _qa_state(request, context)
-    agent_run_id = start_agent_run(
-        workspace_id=context.workspace_id,
-        actor_user_id=context.user_id,
-        run_type="qa",
-        resource_bindings={
-            key: value
-            for key, value in {
-                "profile_run_id": request.profile_run_id,
-                "analysis_execution_id": request.analysis_execution_id,
-                "context_version_id": request.workspace_context_version_id,
-            }.items()
-            if value
-        },
-        request_for_hash=request.model_dump(),
-    )
-    state["agent_run_id"] = agent_run_id
-
     async def generator() -> Any:
+        agent_run_id: str | None = None
+        latency_token = ai_latency.begin("qa_stream")
         try:
+            yield _sse("status", {"stage": "starting", "detail": "Đang chuẩn bị yêu cầu…"})
+            agent_run_id = start_agent_run(
+                workspace_id=context.workspace_id,
+                actor_user_id=context.user_id,
+                run_type="qa",
+                resource_bindings={
+                    key: value
+                    for key, value in {
+                        "profile_run_id": request.profile_run_id,
+                        "analysis_execution_id": request.analysis_execution_id,
+                        "context_version_id": request.workspace_context_version_id,
+                    }.items()
+                    if value
+                },
+                request_for_hash=request.model_dump(),
+            )
+            state["agent_run_id"] = agent_run_id
+            # The graph must finish its evidence and guardrail work before an
+            # answer can be emitted. Send an immediate, truthful progress
+            # event so clients never appear stalled during that work.
+            yield _sse(
+                "status",
+                {
+                    "stage": "retrieving",
+                    "detail": "Đang tìm evidence và kiểm tra câu trả lời…",
+                },
+            )
             routed = await asyncio.to_thread(get_qa_graph().invoke, state)
             answer = _guard_qa_answer(
                 routed.get("answer") or "",
@@ -1102,6 +1474,7 @@ async def ask_question_stream(
             qtype = routed.get("question_type")
 
             yield _sse("meta", {"question_type": qtype})
+            yield _sse("status", {"stage": "generating", "detail": "Đang soạn câu trả lời…"})
 
             if qtype == "qualitative" and llm_available() and answer:
                 # Phát lại câu trả lời theo từng câu để client thấy tiến trình
@@ -1110,12 +1483,15 @@ async def ask_question_stream(
                 for char in answer:
                     buffer += char
                     if char in ".!?\n" and len(buffer) > 40:
+                        ai_latency.mark_first_validated_output()
                         yield _sse("token", {"text": buffer})
                         buffer = ""
                         await asyncio.sleep(0)
                 if buffer:
+                    ai_latency.mark_first_validated_output()
                     yield _sse("token", {"text": buffer})
             else:
+                ai_latency.mark_first_validated_output()
                 yield _sse("token", {"text": answer})
 
             if sources:
@@ -1139,6 +1515,7 @@ async def ask_question_stream(
                         request,
                         agent_run_id=agent_run_id,
                         workspace_id=context.workspace_id,
+                        validated_status=routed.get("evidence_status"),
                     ),
                 },
             )
@@ -1156,20 +1533,26 @@ async def ask_question_stream(
                 ),
             )
         except LLMNotConfiguredError as exc:
-            fail_agent_run(
-                agent_run_id,
-                workspace_id=context.workspace_id,
-                error=exc,
-                error_code="llm_not_configured",
-            )
+            if agent_run_id:
+                fail_agent_run(
+                    agent_run_id,
+                    workspace_id=context.workspace_id,
+                    error=exc,
+                    error_code="llm_not_configured",
+                )
             yield _sse("error", {"detail": str(exc)})
         except Exception as exc:
             logger.exception("SSE Q&A thất bại")
-            fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc)
+            if agent_run_id:
+                fail_agent_run(agent_run_id, workspace_id=context.workspace_id, error=exc)
             yield _sse(
                 "error",
                 {"detail": "Agent không thể hoàn tất câu trả lời. Vui lòng thử lại."},
             )
+
+        finally:
+            ai_latency.emit()
+            ai_latency.reset(latency_token)
 
     return StreamingResponse(
         generator(),
@@ -1193,7 +1576,14 @@ async def test_datasource(
     """Validate an external source without persisting its credentials."""
     get_rate_limiter().check(context.user_id)
     try:
-        normalized = normalize_config(request.kind, request.config)
+        # MongoDB collection is selected from the metadata returned by this
+        # probe, so it must not be required until the datasource is saved or
+        # materialized.
+        normalized = normalize_config(
+            request.kind,
+            request.config,
+            require_collection=request.kind != "mongodb",
+        )
         objects = await asyncio.to_thread(probe, request.kind, normalized)
     except DatasourceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

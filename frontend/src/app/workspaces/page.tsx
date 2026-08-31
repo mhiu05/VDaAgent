@@ -8,7 +8,7 @@ import { ErrorNotice, LoadingBlock, LoadingButton, useDialog, useToast } from "@
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { createWorkspace, deleteWorkspace, listArchivedWorkspaces, listWorkspaces, purgeWorkspace, restoreWorkspace, type WorkspaceSummary } from "@/lib/api";
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useRef, useState, type CSSProperties, type FormEvent } from "react";
 
 const roleLabel = "Analyst";
 const roleDescription = "Upload, profiling, Agent, review và tạo báo cáo";
@@ -40,6 +40,8 @@ export default function WorkspacesPage() {
   const [primaryColor, setPrimaryColor] = useState<string>(workspaceTemplates[0].primaryColor);
   const [secondaryColor, setSecondaryColor] = useState<string>(workspaceTemplates[0].secondaryColor);
   const [isCreateExpanded, setIsCreateExpanded] = useState(false);
+  const [pendingWorkspaceIds, setPendingWorkspaceIds] = useState<Set<string>>(() => new Set());
+  const workspaceMutationActive = useRef(false);
   const workspaces = useQuery({ queryKey: ["workspaces"], queryFn: listWorkspaces, enabled: Boolean(me) });
   const archivedWorkspaces = useQuery({
     queryKey: ["archived-workspaces"],
@@ -66,6 +68,42 @@ export default function WorkspacesPage() {
   });
   const deletion = useMutation({
     mutationFn: deleteWorkspace,
+    onMutate: async (workspaceIdToArchive) => {
+      await Promise.all([
+        client.cancelQueries({ queryKey: ["workspaces"] }),
+        client.cancelQueries({ queryKey: ["archived-workspaces"] }),
+      ]);
+      const previousWorkspaces = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["workspaces"]);
+      const previousArchived = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["archived-workspaces"]);
+      const archivedWorkspace = previousWorkspaces?.workspaces.find((workspace) => workspace.id === workspaceIdToArchive);
+      setPendingWorkspaceIds((current) => new Set(current).add(workspaceIdToArchive));
+      client.setQueryData<{ workspaces: WorkspaceSummary[] }>(["workspaces"], (old) => old ? {
+        ...old,
+        workspaces: old.workspaces.filter((workspace) => workspace.id !== workspaceIdToArchive),
+      } : old);
+      if (archivedWorkspace) {
+        client.setQueryData<{ workspaces: WorkspaceSummary[] }>(["archived-workspaces"], (old) => ({
+          workspaces: [{ ...archivedWorkspace, status: "archived" }, ...(old?.workspaces ?? []).filter((workspace) => workspace.id !== workspaceIdToArchive)],
+        }));
+      }
+      return { previousWorkspaces, previousArchived };
+    },
+    onError: (_error, _workspaceIdToArchive, context) => {
+      if (context?.previousWorkspaces !== undefined) client.setQueryData(["workspaces"], context.previousWorkspaces);
+      if (context?.previousArchived !== undefined) client.setQueryData(["archived-workspaces"], context.previousArchived);
+    },
+    onSettled: async (_data, _error, workspaceIdToArchive) => {
+      workspaceMutationActive.current = false;
+      setPendingWorkspaceIds((current) => {
+        const next = new Set(current);
+        next.delete(workspaceIdToArchive);
+        return next;
+      });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["workspaces"] }),
+        client.invalidateQueries({ queryKey: ["archived-workspaces"] }),
+      ]);
+    },
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: ["workspaces"] });
       await client.invalidateQueries({ queryKey: ["archived-workspaces"] });
@@ -82,6 +120,42 @@ export default function WorkspacesPage() {
   });
   const restoration = useMutation({
     mutationFn: restoreWorkspace,
+    onMutate: async (workspaceIdToRestore) => {
+      await Promise.all([
+        client.cancelQueries({ queryKey: ["workspaces"] }),
+        client.cancelQueries({ queryKey: ["archived-workspaces"] }),
+      ]);
+      const previousWorkspaces = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["workspaces"]);
+      const previousArchived = client.getQueryData<{ workspaces: WorkspaceSummary[] }>(["archived-workspaces"]);
+      const restoredWorkspace = previousArchived?.workspaces.find((workspace) => workspace.id === workspaceIdToRestore);
+      setPendingWorkspaceIds((current) => new Set(current).add(workspaceIdToRestore));
+      client.setQueryData<{ workspaces: WorkspaceSummary[] }>(["archived-workspaces"], (old) => old ? {
+        ...old,
+        workspaces: old.workspaces.filter((workspace) => workspace.id !== workspaceIdToRestore),
+      } : old);
+      if (restoredWorkspace) {
+        client.setQueryData<{ workspaces: WorkspaceSummary[] }>(["workspaces"], (old) => ({
+          workspaces: [{ ...restoredWorkspace, status: "active" }, ...(old?.workspaces ?? []).filter((workspace) => workspace.id !== workspaceIdToRestore)],
+        }));
+      }
+      return { previousWorkspaces, previousArchived };
+    },
+    onError: (_error, _workspaceIdToRestore, context) => {
+      if (context?.previousWorkspaces !== undefined) client.setQueryData(["workspaces"], context.previousWorkspaces);
+      if (context?.previousArchived !== undefined) client.setQueryData(["archived-workspaces"], context.previousArchived);
+    },
+    onSettled: async (_data, _error, workspaceIdToRestore) => {
+      workspaceMutationActive.current = false;
+      setPendingWorkspaceIds((current) => {
+        const next = new Set(current);
+        next.delete(workspaceIdToRestore);
+        return next;
+      });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["workspaces"] }),
+        client.invalidateQueries({ queryKey: ["archived-workspaces"] }),
+      ]);
+    },
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: ["workspaces"] }),
@@ -92,8 +166,12 @@ export default function WorkspacesPage() {
   });
 
   const canCreate = can(me?.effective_permissions, PERMISSIONS.workspaceCreate);
+  const canManageMembers = can(me?.effective_permissions, PERMISSIONS.workspaceMembersManage);
   const canDelete = can(me?.effective_permissions, PERMISSIONS.workspaceDelete);
   const workspaceActionBusy = deletion.isPending || purging.isPending || restoration.isPending;
+  const workspacePending = (id: string) => pendingWorkspaceIds.has(id) || (purging.isPending && purging.variables === id);
+  const archivingWorkspace = (id: string) => deletion.isPending && deletion.variables === id;
+  const restoringWorkspace = (id: string) => restoration.isPending && restoration.variables === id;
   const items = workspaces.data?.workspaces ?? [];
   const archivedItems = archivedWorkspaces.data?.workspaces ?? [];
 
@@ -129,6 +207,8 @@ export default function WorkspacesPage() {
       tone: "warning",
     });
     if (!confirmed) return;
+    if (workspaceMutationActive.current) return;
+    workspaceMutationActive.current = true;
     deletion.mutate(workspace.id, {
       onSuccess: async () => {
         if (workspace.id === workspaceId) {
@@ -163,6 +243,8 @@ export default function WorkspacesPage() {
   }
 
   function restoreArchivedWorkspace(workspace: WorkspaceSummary) {
+    if (workspaceMutationActive.current) return;
+    workspaceMutationActive.current = true;
     restoration.mutate(workspace.id);
   }
 
@@ -174,7 +256,7 @@ export default function WorkspacesPage() {
   return <main className="page workspace-page">
     <header className="workspace-page-header">
       <div><p className="eyebrow">WORKSPACE HUB</p><h1>Quản lý Workspace</h1><p className="page-description">Mỗi workspace là một không gian chứa dataset, profile, report và kết quả làm việc của Analyst.</p></div>
-      <span className="workspace-count">{items.length} workspace</span>
+      <div className="workspace-page-header-actions">{canManageMembers && <Link className="button secondary" href="/workspaces/manage">Quản lý thành viên</Link>}<span className="workspace-count">{items.length} workspace</span></div>
     </header>
 
     {workspaces.isPending && <LoadingBlock label="Đang tải danh sách workspace…" />}
@@ -239,7 +321,7 @@ export default function WorkspacesPage() {
         <h2>{workspace.name}</h2>
         <p className="workspace-card-capabilities">{roleDescription}</p>
         <p className="workspace-card-slug">/{workspace.slug}</p>
-        <div className="workspace-card-actions"><LoadingButton className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} busy={current && workspaceActionBusy} disabled={workspaceActionBusy}>{current ? "Đang mở" : "Mở workspace"}</LoadingButton>{removable && <><LoadingButton className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} busy={deletion.isPending && deletion.variables === workspace.id} disabled={workspaceActionBusy}>{deletion.isPending && deletion.variables === workspace.id ? "Đang lưu trữ…" : "Lưu trữ"}</LoadingButton><LoadingButton className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa workspace"}</LoadingButton></>}</div>
+        <div className="workspace-card-actions"><LoadingButton className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} busy={current && workspaceActionBusy} disabled={workspaceActionBusy || workspacePending(workspace.id)}>{current ? "Đang mở" : "Mở workspace"}</LoadingButton>{removable && <><LoadingButton className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} busy={archivingWorkspace(workspace.id) || restoringWorkspace(workspace.id)} disabled={workspacePending(workspace.id) || workspaceActionBusy}>{archivingWorkspace(workspace.id) ? "Đang lưu trữ…" : restoringWorkspace(workspace.id) ? "Đang khôi phục…" : "Lưu trữ"}</LoadingButton><LoadingButton className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspacePending(workspace.id) || workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa workspace"}</LoadingButton></>}</div>
       </article>;
     })}</section>}
 
@@ -248,7 +330,7 @@ export default function WorkspacesPage() {
       <div className="workspace-grid">{archivedItems.map((workspace) => <article className="workspace-card archived" key={workspace.id}>
         <div className="workspace-card-top"><span className="workspace-card-icon" aria-hidden="true">□</span><span className="workspace-role">Đã lưu trữ</span></div>
         <h2>{workspace.name}</h2><p className="workspace-card-capabilities">Workspace tạm ngừng hoạt động; dataset và báo cáo chưa bị xóa.</p><p className="workspace-card-slug">/{workspace.slug}</p>
-        <div className="workspace-card-actions"><LoadingButton className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} busy={restoration.isPending && restoration.variables === workspace.id} disabled={workspaceActionBusy}>{restoration.isPending && restoration.variables === workspace.id ? "Đang khôi phục…" : "Khôi phục"}</LoadingButton><LoadingButton className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa vĩnh viễn"}</LoadingButton></div>
+        <div className="workspace-card-actions"><LoadingButton className="button secondary" type="button" onClick={() => restoreArchivedWorkspace(workspace)} busy={archivingWorkspace(workspace.id) || restoringWorkspace(workspace.id)} disabled={workspacePending(workspace.id) || workspaceActionBusy}>{archivingWorkspace(workspace.id) ? "Đang lưu trữ…" : restoringWorkspace(workspace.id) ? "Đang khôi phục…" : "Khôi phục"}</LoadingButton><LoadingButton className="button danger" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspacePending(workspace.id) || workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa vĩnh viễn"}</LoadingButton></div>
       </article>)}</div>
     </section>}
 

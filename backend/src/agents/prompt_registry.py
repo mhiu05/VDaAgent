@@ -22,6 +22,7 @@ _TEMPLATES = {
     "qa_clarify": prompts.CLARIFY_PROMPT,
     "qa_structured": prompts.QA_STRUCTURED_PROMPT,
     "qa_vector": prompts.QA_VECTOR_PROMPT,
+    "chart_insight": prompts.CHART_INSIGHT_PROMPT,
     "profile_summary": prompts.SUMMARIZE_PROMPT,
     "profile_metadata": prompts.SEMANTIC_TYPE_REFINE_PROMPT,
 }

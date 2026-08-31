@@ -93,7 +93,7 @@ def _connector_from_datasource(row: dict[str, Any], context: RequestContext) -> 
         dataset_count=int(row.get("dataset_count") or 0),
         can_test=DATASET_UPLOAD in context.workspace.effective_permissions,
         can_edit=DATASET_UPLOAD in context.workspace.effective_permissions,
-        can_disconnect=DATASET_UPLOAD in context.workspace.effective_permissions,
+        can_disconnect=bool(row) and DATASET_UPLOAD in context.workspace.effective_permissions,
     )
 
 
@@ -129,7 +129,9 @@ async def list_connectors(
     get_rate_limiter().check(context.user_id)
     repo = get_repository()
     connectors = [_connector_from_datasource(row, context) for row in repo.list_datasource_connections(workspace_id=context.workspace_id)]
-    connectors.append(_connector_from_drive(repo.get_google_drive_connection(context.workspace_id), context))
+    drive_connection = repo.get_google_drive_connection(context.workspace_id)
+    if drive_connection:
+        connectors.append(_connector_from_drive(drive_connection, context))
     available = []
     if include_available:
         available = [
@@ -262,7 +264,13 @@ async def test_new_datasource(
 ) -> ConnectorTestResponse:
     get_rate_limiter().check(context.user_id)
     try:
-        normalized = normalize_config(request.kind, request.config)
+        # Collection is selected from the metadata returned by this probe;
+        # require it only when saving or using the datasource.
+        normalized = normalize_config(
+            request.kind,
+            request.config,
+            require_collection=request.kind != "mongodb",
+        )
         objects = await asyncio.to_thread(probe, request.kind, normalized)
     except DatasourceError as exc:
         return ConnectorTestResponse(provider=request.kind, ok=False, status=ConnectorStatus.attention_required, error_code="INVALID_CONFIGURATION", detail=str(exc))
@@ -300,7 +308,7 @@ async def test_saved_datasource(
 
 
 @router.delete("/{connection_id}")
-async def disconnect_datasource(
+async def delete_datasource(
     connection_id: str,
     context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
 ) -> dict[str, Any]:
@@ -311,12 +319,9 @@ async def disconnect_datasource(
     row = repo.get_datasource_connection(raw_id, workspace_id=context.workspace_id)
     if not row or row.get("deleted_at"):
         raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
-    count = repo.count_datasets_for_datasource(raw_id, workspace_id=context.workspace_id)
-    if count:
-        raise HTTPException(status_code=409, detail={"code": "connection_in_use", "dataset_count": count, "message": "Connector đang được dataset sử dụng."})
     deleted = repo.soft_delete_datasource_connection(raw_id, workspace_id=context.workspace_id)
     if deleted:
-        get_audit().log("connector.disconnected", workspace_id=context.workspace_id, actor_user_id=context.user_id, resource_type="connector", resource_id=raw_id, provider=str(row.get("kind")), outcome="success")
+        get_audit().log("connector.deleted", workspace_id=context.workspace_id, actor_user_id=context.user_id, resource_type="connector", resource_id=raw_id, provider=str(row.get("kind")), outcome="success")
     return {"id": connection_id, "deleted": deleted}
 
 

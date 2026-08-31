@@ -21,6 +21,7 @@ from src.models.auth_schemas import (
     ReportDraftItemCreate,
     ReportDraftItemUpdate,
     ReportDraftReorder,
+    ReportDraftTitleUpdate,
     ReportPublishInput,
     ReportReviewInput,
     SelfSignupProvision,
@@ -42,7 +43,6 @@ from src.services.permissions import (
     WORKSPACE_SETTINGS_MANAGE,
     canonical_role,
     canonical_workspace_role,
-    permissions_for_role,
     system_permissions_for_role,
     workspace_permissions_for_role,
     role_can_manage_target,
@@ -723,6 +723,30 @@ async def reorder_report_items(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     _audit(
         context, "report_item_reordered", resource_type="report", resource_id=report_id
+    )
+    return draft
+
+
+@router.patch("/reports/{report_id}/draft-title")
+async def update_report_draft_title(
+    report_id: str,
+    payload: ReportDraftTitleUpdate,
+    context: RequestContext = Depends(require_permission(REPORT_DRAFT_WRITE)),
+) -> dict[str, Any]:
+    _require_command_center()
+    try:
+        draft = get_report_draft_repository().update_title(
+            report_id, context.workspace_id, context.user_id, payload.title
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _audit(
+        context,
+        "report_draft_title_updated",
+        resource_type="report",
+        resource_id=report_id,
     )
     return draft
 

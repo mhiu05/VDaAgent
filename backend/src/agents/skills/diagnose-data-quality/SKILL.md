@@ -1,10 +1,10 @@
 ---
 name: diagnose-data-quality
-description: Diagnose deterministic data-quality and governance signals for one profile run. Use when the user asks about missingness, duplicates, outliers, readiness, PII, or data-quality risks.
+description: Chẩn đoán signal data-quality và governance deterministic cho một Profile Run. Dùng khi user hỏi về missingness, duplicate, outlier, readiness, PII hoặc rủi ro chất lượng dữ liệu.
 ---
 
-# Diagnose data quality
+# Chẩn đoán chất lượng dữ liệu
 
-Use only the declared read-only bundle: `get_profile_readiness`, `get_profile_overview`, `list_quality_issues`, `get_missingness_patterns`, `get_duplicate_analysis`, and `get_governance_summary`.
+Chỉ dùng read-only bundle đã khai báo: `get_profile_readiness`, `get_profile_overview`, `list_quality_issues`, `get_missingness_patterns`, `get_duplicate_analysis` và `get_governance_summary`.
 
-Lead with evidence and limitations. Treat pending PII as sensitive; never return raw values. A readiness result does not replace the Analysis Workspace quality gate.
+Luôn nêu evidence và limitation trước. Coi PII đang pending là sensitive; không trả raw value. Readiness result không thay thế Analysis Workspace quality gate.

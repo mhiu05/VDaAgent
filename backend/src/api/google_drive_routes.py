@@ -29,6 +29,7 @@ from src.services.permissions import (
     WORKSPACE_STORAGE_CONNECT,
 )
 from src.services.repository import get_repository
+from src.services.security import get_audit
 
 router = APIRouter(prefix="/google-drive", tags=["google-drive"])
 
@@ -123,10 +124,21 @@ async def google_drive_callback(
 
 
 @router.delete("/connection")
-async def google_drive_disconnect(
+async def delete_google_drive_connection(
     context: RequestContext = Depends(require_permission(WORKSPACE_SETTINGS_MANAGE)),
 ) -> dict[str, bool]:
-    return {"deleted": get_repository().delete_google_drive_connection(context.workspace_id)}
+    deleted = get_repository().delete_google_drive_connection(context.workspace_id)
+    if deleted:
+        get_audit().log(
+            "connector.deleted",
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            resource_type="connector",
+            resource_id=f"google-drive:{context.workspace_id}",
+            provider="google_drive",
+            outcome="success",
+        )
+    return {"deleted": deleted}
 
 
 __all__ = ["router"]

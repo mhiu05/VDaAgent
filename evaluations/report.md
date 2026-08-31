@@ -1,6 +1,9 @@
-# Legacy report entry point
+# Điểm bắt đầu của evaluation report
 
-Use [latest_scorecard.md](latest_scorecard.md) for the generated evaluation
-scorecard and [ai_evaluation_report.md](ai_evaluation_report.md) for its
-truthful status summary. The previous placeholder metrics and unverified targets
-were removed to avoid presenting them as measured product results.
+Xem [`results/latest_scorecard.md`](results/latest_scorecard.md) để biết artifact mới nhất.
+
+Nếu runtime là `offline_harness_contract`, report chỉ xác nhận fixture và scorer
+hoạt động. Đây không phải benchmark model và không đưa ra release decision.
+
+Baseline và judge v1 được giữ lại để truy xuất lịch sử, nhưng không so sánh
+trực tiếp với benchmark v2.

@@ -17,7 +17,7 @@ import {
 import type { Profile } from "@/lib/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChartEvidenceView } from "./chart-evidence-view";
 
 type ProblemType = "compare" | "trend" | "ranking" | "summary" | "distribution" | "relationship" | "quality" | "forecast" | "composition" | "geographic" | "multi_dimensional";
@@ -48,6 +48,7 @@ type ChartDraft = {
   insight_reviewed: boolean;
   insight_busy?: boolean;
   pin_idempotency_key: string;
+  pin_busy?: boolean;
   pinned?: boolean;
   error?: string;
   rationale?: string;
@@ -325,6 +326,7 @@ function generatedReady(chart: ChartDraft): boolean {
     && chart.renderer
     && chart.generated
     && chart.insight
+    && !chart.pin_busy
     && !chart.pinned
   );
 }
@@ -361,13 +363,15 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
         <h3>{displayTitle}</h3>
       </div>
       <div className="inline-actions" style={{ alignItems: "center", gap: "8px" }}>
-        {chart.pinned ? (
-          <span className="chip success" style={{ fontWeight: 700 }}>✓ Đã ghim Báo cáo</span>
+        {chart.pin_busy || chart.pinned ? (
+          <span className={`chip chart-pin-status ${chart.pin_busy ? "pending" : "confirmed"}`} role="status" aria-live="polite">
+            {chart.pin_busy ? <><span className="button-spinner small" aria-hidden="true" /> Đang ghim…</> : <><span aria-hidden="true">✓</span> Đã ghim vào Báo cáo</>}
+          </span>
         ) : (
           generatedReady(chart) && onPin && (
             <button
               type="button"
-              className="button primary"
+              className="button primary chart-pin-button"
               style={{ padding: "4px 10px", fontSize: "0.78rem", fontWeight: 700 }}
               onClick={onPin}
             >
@@ -420,7 +424,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
             <line x1="6" y1="20" x2="6" y2="14" />
           </svg>
         </span>
-        <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent chỉ diễn giải Official evidence.</p></div>
+        <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent đọc toàn bộ Official evidence để viết phân tích sâu gồm kết luận, bằng chứng, diễn giải, điểm cần chú ý và hành động.</p></div>
         <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
       </div>
       {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
@@ -467,6 +471,9 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     return [draftChart()];
   });
   const [message, setMessage] = useState("");
+  const [pinningAll, setPinningAll] = useState(false);
+  const bulkPinning = useRef(false);
+  const activeSinglePins = useRef(new Set<string>());
   const [businessQuestion, setBusinessQuestion] = useState(() => {
     if (typeof window === "undefined") return "";
     try { return localStorage.getItem(`p170_charts_question_${runId}`) || ""; } catch { return ""; }
@@ -481,7 +488,13 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
   useEffect(() => {
     if (typeof window === "undefined" || !runId) return;
     try {
-      localStorage.setItem(`p170_charts_state_${runId}`, JSON.stringify(charts));
+      // Do not persist the transient optimistic state. A reload during an
+      // in-flight request should not leave a chart stuck in "Đang ghim…".
+      localStorage.setItem(`p170_charts_state_${runId}`, JSON.stringify(charts.map((chart) => ({
+        ...chart,
+        pin_busy: undefined,
+        ...(chart.pin_busy ? { pinned: false } : {}),
+      }))));
     } catch { }
   }, [charts, runId]);
 
@@ -687,10 +700,11 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     }
     let insight = ""; let agentRunId: string | null = null; let evidenceStatus = "unverified";
     await streamQuestion({
-      question: `Hãy viết insight ngắn cho biểu đồ "${chartDisplayTitle(chart)}". Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Trình bày theo format Markdown bắt buộc in đậm các mục sau: **1. Xu hướng chính**, **2. Con số đáng chú ý**, **3. Giới hạn**, **4. Khuyến nghị**. Chỉ dùng Official execution đã bind.`,
+      question: `Hãy viết insight chuyên sâu cho biểu đồ "${chartDisplayTitle(chart)}". Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Phân tích toàn bộ các dòng trong Official evidence, nêu kết luận điều hành, bằng chứng định lượng, diễn giải ý nghĩa kinh doanh, điểm cần chú ý, khuyến nghị hành động và phạm vi/độ tin cậy. Trình bày bằng Markdown, không bịa số hoặc suy đoán ngoài Official execution.`,
       profile_run_id: runId,
       analysis_execution_id: chart.execution.id,
       workspace_context_version_id: chart.execution.context_version_id,
+      response_mode: "chart_insight",
     }, (event) => {
       if (event.event === "token" && event.data && typeof event.data === "object") insight += String((event.data as { text?: unknown }).text || "");
       if (event.event === "done" && event.data && typeof event.data === "object") { const done = event.data as { agent_run_id?: unknown; evidence_status?: unknown }; agentRunId = String(done.agent_run_id || "") || null; evidenceStatus = String(done.evidence_status || evidenceStatus); }
@@ -710,15 +724,34 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     }
   }
 
-  const pin = useMutation({
-    mutationFn: async () => {
-      const ready = charts.filter(generatedReady);
-      if (!ready.length) throw new Error("Chưa có chart kèm insight để ghim.");
-      const draft = await getProfileReportDraft(runId);
-      const successfulIds: string[] = [];
-      const errors: string[] = [];
+  async function pinEligibleCharts() {
+    if (bulkPinning.current) return;
+    const ready = charts.filter((chart) => generatedReady(chart) && !activeSinglePins.current.has(chart.id));
+    if (!ready.length) return;
 
-      for (const chart of ready) {
+    bulkPinning.current = true;
+    setPinningAll(true);
+    const previousReviewState = new Map(ready.map((chart) => [chart.id, chart.insight_reviewed]));
+    const pinKeys = new Map(ready.map((chart) => [chart.id, chart.pin_idempotency_key || crypto.randomUUID()]));
+
+    // This is deliberately only local progress state: a report item is not
+    // added to the query cache until FastAPI has persisted its real ID and
+    // evidence binding. Each chart can still complete or roll back on its own.
+    setCharts((current) => current.map((chart) => pinKeys.has(chart.id) ? {
+      ...chart,
+      pinned: true,
+      pin_busy: true,
+      insight_reviewed: true,
+      pin_idempotency_key: pinKeys.get(chart.id)!,
+      error: undefined,
+    } : chart));
+
+    try {
+      const draft = await getProfileReportDraft(runId);
+      let successful = 0;
+      let failed = 0;
+      await Promise.all(ready.map(async (chart) => {
+        const key = pinKeys.get(chart.id)!;
         try {
           await pinChartToReport(
             draft.id,
@@ -726,43 +759,95 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
             chartDisplayTitle(chart),
             chartSpec(chart),
             { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
-            chart.pin_idempotency_key || crypto.randomUUID(),
+            key,
           );
-          successfulIds.push(chart.id);
+          successful += 1;
+          setCharts((current) => current.map((item) => item.id === chart.id && item.pin_idempotency_key === key ? {
+            ...item,
+            pinned: true,
+            pin_busy: false,
+            insight_reviewed: true,
+          } : item));
         } catch (reason) {
-          errors.push(reason instanceof Error ? reason.message : "Lỗi khi ghim biểu đồ");
+          failed += 1;
+          setCharts((current) => current.map((item) => item.id === chart.id && item.pin_idempotency_key === key ? {
+            ...item,
+            pinned: false,
+            pin_busy: false,
+            insight_reviewed: previousReviewState.get(chart.id) ?? false,
+            error: reason instanceof Error ? reason.message : "Không thể ghim biểu đồ.",
+          } : item));
         }
-      }
-
-      if (!successfulIds.length && errors.length) throw new Error(errors[0]);
-      return { ids: successfulIds, errors };
-    },
-    onSuccess: ({ ids, errors }) => {
-      setCharts((current) => current.map((chart) => ids.includes(chart.id) ? { ...chart, pinned: true, insight_reviewed: true } : chart));
-      setMessage(errors.length ? `Đã ghim ${ids.length} biểu đồ; ${errors.length} biểu đồ lỗi.` : `Đã ghim thành công toàn bộ ${ids.length} biểu đồ kèm insight vào Report Draft.`);
-      queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
-      queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
-    },
-  });
+      }));
+      setMessage(failed ? `Đã ghim ${successful} biểu đồ; ${failed} biểu đồ đã được hoàn tác do lỗi.` : `Đã ghim ${successful} biểu đồ vào Báo cáo.`);
+    } catch (reason) {
+      setCharts((current) => current.map((chart) => {
+        const key = pinKeys.get(chart.id);
+        return key && chart.pin_idempotency_key === key ? {
+          ...chart,
+          pinned: false,
+          pin_busy: false,
+          insight_reviewed: previousReviewState.get(chart.id) ?? false,
+        } : chart;
+      }));
+      setMessage(reason instanceof Error ? `Không thể bắt đầu ghim biểu đồ: ${reason.message}` : "Không thể bắt đầu ghim biểu đồ.");
+    } finally {
+      bulkPinning.current = false;
+      setPinningAll(false);
+      void queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
+      void queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
+    }
+  }
 
   async function pinSingleChart(chart: ChartDraft) {
-    if (!generatedReady(chart)) return;
+    if (bulkPinning.current || activeSinglePins.current.has(chart.id) || !generatedReady(chart) || chart.pin_busy) return;
+    activeSinglePins.current.add(chart.id);
+    const pinIdempotencyKey = chart.pin_idempotency_key || crypto.randomUUID();
+    const title = chartDisplayTitle(chart);
+    const previousInsightReviewed = chart.insight_reviewed;
+
+    // Mark the chart as pinned before awaiting either network request so the
+    // action feels immediate. The request key lets stale responses avoid
+    // overwriting a chart that the user edited while it was being saved.
+    setCharts((current) => current.map((item) => item.id === chart.id ? {
+      ...item,
+      pinned: true,
+      pin_busy: true,
+      insight_reviewed: true,
+      pin_idempotency_key: pinIdempotencyKey,
+      error: undefined,
+    } : item));
+    setMessage(`Đang ghim "${title}" vào Báo cáo…`);
+
     try {
       const draft = await getProfileReportDraft(runId);
       await pinChartToReport(
         draft.id,
         chart.execution!.id,
-        chartDisplayTitle(chart),
+        title,
         chartSpec(chart),
         { text: chart.insight!, reviewed: true, agentRunId: chart.insight_agent_run_id || "" },
-        chart.pin_idempotency_key || crypto.randomUUID(),
+        pinIdempotencyKey,
       );
-      setCharts((current) => current.map((item) => item.id === chart.id ? { ...item, pinned: true, insight_reviewed: true } : item));
-      setMessage(`Đã ghim "${chartDisplayTitle(chart)}" vào Báo cáo thành công!`);
+      setCharts((current) => current.map((item) => item.id === chart.id && item.pin_idempotency_key === pinIdempotencyKey ? {
+        ...item,
+        pinned: true,
+        pin_busy: false,
+        insight_reviewed: true,
+      } : item));
+      setMessage(`Đã ghim "${title}" vào Báo cáo.`);
       queryClient.invalidateQueries({ queryKey: ["command-center", runId, "report-draft"] });
       queryClient.invalidateQueries({ queryKey: ["report-draft", runId] });
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Không thể ghim biểu đồ.");
+      setCharts((current) => current.map((item) => item.id === chart.id && item.pin_idempotency_key === pinIdempotencyKey ? {
+        ...item,
+        pinned: false,
+        pin_busy: false,
+        insight_reviewed: previousInsightReviewed,
+      } : item));
+      setMessage(reason instanceof Error ? `Không thể ghim biểu đồ: ${reason.message}` : "Không thể ghim biểu đồ.");
+    } finally {
+      activeSinglePins.current.delete(chart.id);
     }
   }
 
@@ -786,7 +871,8 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
   if (explorer.isError) return <ErrorNotice error={explorer.error} retry={() => explorer.refetch()} />;
   if (!explorer.isPending && !context) return <EmptyState title="Biểu đồ chưa có context" detail="Hãy hoàn tất Profile và review metadata trước khi tạo biểu đồ." />;
   const contextIsPreparing = explorer.isPending;
-  const busy = autoProfile.isPending || automate.isPending || understand.isPending || preview.isPending || promote.isPending || pin.isPending;
+  const busy = autoProfile.isPending || automate.isPending || understand.isPending || preview.isPending || promote.isPending || pinningAll;
+  const readyToPin = charts.filter(generatedReady);
   const forecastGroups = Object.entries((forecastCatalog.data?.algorithms ?? []).reduce<Record<string, ForecastAlgorithmCapability[]>>((groups, item) => {
     (groups[item.family] ||= []).push(item);
     return groups;
@@ -970,7 +1056,12 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       </div>
     </header>
     {message && <Notice tone="info">{message}</Notice>}
-    {[autoProfile, automate, understand, preview, promote, pin].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
+    {readyToPin.length > 1 && <div className="inline-actions" style={{ justifyContent: "flex-end", marginBottom: "1rem" }}>
+      <button type="button" className="button primary" disabled={pinningAll} onClick={() => void pinEligibleCharts()}>
+        {pinningAll ? "Đang ghim biểu đồ…" : `📌 Ghim ${readyToPin.length} biểu đồ sẵn sàng`}
+      </button>
+    </div>}
+    {[autoProfile, automate, understand, preview, promote].map((mutation, index) => mutation.isError ? <ErrorNotice key={index} error={mutation.error} retry={() => mutation.reset()} /> : null)}
     <details className="panel chart-model-catalog"><summary>Danh sách thuật toán được sử dụng · {forecastCatalog.data?.algorithms.filter((item) => item.available).length ?? 0}/{forecastCatalog.data?.algorithms.length ?? FORECAST_IDS.length} khả dụng</summary><p className="muted">Agent chỉ chọn model khả dụng và phù hợp với time column, độ dài lịch sử, mùa vụ và horizon. Model thiếu dependency hoặc cần biến ngoại sinh tương lai sẽ bị chặn.</p><div className="chart-model-groups">{forecastGroups.map(([family, items]) => <section key={family}><h4>{FORECAST_FAMILY_LABELS[family] || family}</h4><div>{(items ?? []).map((item) => <span className={`chart-model-chip ${item.available ? "available" : "unavailable"}`} title={item.unavailable_reason || `Tối thiểu ${item.min_history} kỳ`} key={item.id}>{item.label}<small>{item.available ? `≥ ${item.min_history} kỳ` : "Chưa khả dụng"}</small></span>)}</div></section>)}</div></details>
 
     <div className="chart-builder-list">{charts.filter((chart) => chart.question).map((chart) => <ChartWorkflowCard key={chart.id} chart={chart} dimensions={dimensions} measures={measures} forecastAlgorithms={forecastCatalog.data?.algorithms ?? []} enabled={!contextIsPreparing} onChange={(next) => updateChart(chart.id, next)} onRemove={() => setCharts((current) => current.length === 1 ? [draftChart()] : current.filter((item) => item.id !== chart.id))} onGenerate={() => void generateAndWriteInsight(chart)} onExplain={onExplain} onPin={() => void pinSingleChart(chart)} />)}</div>

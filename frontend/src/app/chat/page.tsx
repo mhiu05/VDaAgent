@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
+import React, { ChangeEvent, FormEvent, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, createProfile, getProfile, listDatasets, listRuns, streamQuestion, uploadDataset, waitForProfilingJob, type QAHistoryMessage } from "@/lib/api";
 import type { AnswerSource, Profile } from "@/lib/types";
@@ -20,8 +20,15 @@ const starters = [
 ];
 const ACTIVE_PROFILE_JOB_KEY = "p170_active_profile_job";
 
-function makeMessage(role: ChatMessage["role"], text: string, label?: string, sources?: AnswerSource[]): ChatMessage {
-  return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources };
+function makeMessage(
+  role: ChatMessage["role"],
+  text: string,
+  label?: string,
+  sources?: AnswerSource[],
+  status?: ChatMessage["status"],
+  statusDetail?: string,
+): ChatMessage {
+  return { id: `${Date.now()}-${Math.random()}`, role, text, label, sources, status, statusDetail };
 }
 
 function ChatStatsPreview({ profile }: { profile: Profile }) {
@@ -117,7 +124,7 @@ function MarkdownMessage({ text, profile }: { text: string; profile: Profile | n
     blocks.push(<p key={`paragraph-${index}`}>{renderInlineMarkdown(line)}</p>);
     index += 1;
   }
-  return <div className="markdown-message">{blocks}</div>;
+  return <div className="markdown-message chat-markdown-message">{blocks}</div>;
 }
 
 const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
@@ -144,12 +151,39 @@ export default function ChatPage() {
   const controller = useRef<AbortController | null>(null);
   const draftRef = useRef("");
   const responseSourcesRef = useRef<AnswerSource[]>([]);
+  const assistantMessageId = useRef<string | null>(null);
+  const streamSequence = useRef(0);
   const hydrated = useRef(false);
   const activeConversationRef = useRef<string | null>(null);
+  const pendingSnapshotRef = useRef<{
+    conversationId: string;
+    snapshot: {
+      messages: ChatMessage[];
+      profile: Profile | null;
+      datasetId: string | null;
+      profileRunId: string | null;
+      sources: AnswerSource[];
+    };
+  } | null>(null);
+  const snapshotTimerRef = useRef<number | null>(null);
   const profileSubmission = useRef<{ signature: string; key: string } | null>(null);
   const datasets = useQuery({ queryKey: ["chat-datasets"], queryFn: ({ signal }) => listDatasets(signal) });
   const runs = useQuery({ queryKey: ["chat-runs", selectedDatasetId], queryFn: () => listRuns(selectedDatasetId), enabled: Boolean(selectedDatasetId) });
   const completedRuns = runs.data?.filter((run) => run.status === "completed") || [];
+
+  function flushPendingSnapshot() {
+    const pendingSnapshot = pendingSnapshotRef.current;
+    if (!pendingSnapshot) return;
+    updateConversationSnapshot(pendingSnapshot.conversationId, pendingSnapshot.snapshot);
+    pendingSnapshotRef.current = null;
+  }
+
+  useEffect(() => () => {
+    streamSequence.current += 1;
+    controller.current?.abort();
+    if (snapshotTimerRef.current !== null) window.clearTimeout(snapshotTimerRef.current);
+    flushPendingSnapshot();
+  }, []);
 
   function refreshConversationProfile(targetConversationId: string, savedProfile: Profile | null, savedProfileRunId?: string | null) {
     const profileRunId = savedProfile?.profile_run_id || savedProfileRunId;
@@ -223,12 +257,31 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!hydrated.current || !conversationId) return;
-    updateConversationSnapshot(conversationId, {
-      messages,
-      profile,
-      datasetId: selectedDatasetId || profile?.dataset_id || null,
-      profileRunId: selectedRunId || profile?.profile_run_id || null,
-    });
+    pendingSnapshotRef.current = {
+      conversationId,
+      snapshot: {
+        messages,
+        profile,
+        datasetId: selectedDatasetId || profile?.dataset_id || null,
+        profileRunId: selectedRunId || profile?.profile_run_id || null,
+        sources,
+      },
+    };
+
+    if (!messages.some((message) => message.status === "streaming")) {
+      if (snapshotTimerRef.current !== null) {
+        window.clearTimeout(snapshotTimerRef.current);
+        snapshotTimerRef.current = null;
+      }
+      flushPendingSnapshot();
+      return;
+    }
+
+    if (snapshotTimerRef.current !== null) return;
+    snapshotTimerRef.current = window.setTimeout(() => {
+      snapshotTimerRef.current = null;
+      flushPendingSnapshot();
+    }, 450);
   }, [conversationId, messages, profile, selectedDatasetId, selectedRunId, sources]);
 
   useEffect(() => {
@@ -247,6 +300,10 @@ export default function ChatPage() {
         : null;
       const nextId = eventConversationId || new URLSearchParams(window.location.search).get("conversation");
       if (!nextId || nextId === conversationId || !getConversation(nextId)) return;
+      streamSequence.current += 1;
+      controller.current?.abort();
+      controller.current = null;
+      flushPendingSnapshot();
       const saved = getConversationSnapshot(nextId);
       activeConversationRef.current = nextId;
       setConversationId(nextId);
@@ -367,43 +424,63 @@ export default function ChatPage() {
       return;
     }
     controller.current?.abort();
+    const requestId = ++streamSequence.current;
     controller.current = new AbortController();
     setQuestion(""); setError(null); setSources([]); setState("thinking"); draftRef.current = ""; responseSourcesRef.current = [];
-    addMessage("user", prompt, "Bạn");
+    const assistantPlaceholder = makeMessage("agent", "", "VDaAgent", [], "streaming");
+    assistantMessageId.current = assistantPlaceholder.id;
+    setMessages((current) => [...current, makeMessage("user", prompt, "Bạn"), assistantPlaceholder]);
     try {
       const history: QAHistoryMessage[] = messages.slice(-12).map((message) => ({
         role: message.role,
         text: message.text.slice(0, 2000),
       }));
       await streamQuestion({ question: prompt, history, ...(profile ? { profile_run_id: profile.profile_run_id } : {}) }, (event) => {
+        if (requestId !== streamSequence.current || assistantMessageId.current !== assistantPlaceholder.id) return;
         if (event.event === "token" && typeof event.data === "object" && event.data) {
           draftRef.current += String((event.data as { text?: unknown }).text || "");
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, text: draftRef.current, status: "streaming", statusDetail: undefined } : message));
         }
-        if (event.event === "source" && typeof event.data === "object" && event.data) responseSourcesRef.current = (event.data as { sources?: AnswerSource[] }).sources || [];
+        if (event.event === "status" && typeof event.data === "object" && event.data) {
+          const status = event.data as { detail?: unknown };
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id
+            ? { ...message, status: "streaming", statusDetail: typeof status.detail === "string" ? status.detail : undefined }
+            : message));
+        }
+        if (event.event === "source" && typeof event.data === "object" && event.data) {
+          const data = event.data as { source?: AnswerSource; sources?: AnswerSource[] };
+          responseSourcesRef.current = data.source
+            ? [...responseSourcesRef.current, data.source]
+            : data.sources || responseSourcesRef.current;
+          setSources(responseSourcesRef.current);
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, sources: responseSourcesRef.current } : message));
+        }
         if (event.event === "done") {
-          setMessages((current) => [...current, makeMessage("agent", draftRef.current, "VDaAgent", responseSourcesRef.current)]);
+          setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, status: draftRef.current ? undefined : "error", statusDetail: undefined, sources: responseSourcesRef.current } : message));
           setState("ready");
         }
         if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent response failed."));
       }, controller.current.signal);
-      setState("ready");
+      if (requestId === streamSequence.current) setState("ready");
     } catch (reason) {
+      if (requestId !== streamSequence.current) return;
       if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+        setMessages((current) => current.map((message) => message.id === assistantPlaceholder.id ? { ...message, status: "error" } : message));
         if (reason instanceof ApiError && reason.status === 409 && profile?.pending_proposals) {
-          addMessage("agent", `Bạn cần review ${profile.pending_proposals} đề xuất metadata trước khi tiếp tục hỏi về dataset.`, "VDaAgent");
           setState("ready");
         } else if (reason instanceof ApiError && reason.status === 404 && profile) {
           setProfile(null);
           setSources([]);
           setError(null);
-          addMessage("agent", "Profile này không còn tồn tại trong backend hiện tại. Hãy upload lại dataset để tiếp tục.", "VDaAgent");
           setState("ready");
         } else {
           setError(reason instanceof Error ? reason.message : "Agent không thể trả lời.");
           setState("error");
         }
       }
-    } finally { controller.current = null; }
+    } finally {
+      if (requestId === streamSequence.current) controller.current = null;
+    }
   }
 
   function submit(event: FormEvent) {
@@ -425,8 +502,7 @@ export default function ChatPage() {
         <div className="agent-panel-header"><div className="agent-identity"><span className="context-icon">✦</span><div><b>VDaAgent</b><small>{profile ? `Nguồn đang dùng · ${profile.dataset_name || "Dataset"}` : "Data Profiling Agent"}</small></div></div>{profile && <span className="agent-profile-name">{profile.run_name?.trim() || `Phiên bản v${profile.version ?? "—"}`}</span>}</div>
         <section className="agent-context-selector" aria-label="Chọn dataset và profile cho Agent"><div className="agent-context-field"><label htmlFor="agent-dataset">Dataset trong workspace</label><select id="agent-dataset" value={selectedDatasetId} onChange={(event) => selectDataset(event.target.value)} disabled={busy || datasets.isPending}><option value="">Chọn dataset…</option>{datasets.data?.map((dataset) => <option value={dataset.id} key={dataset.id}>{dataset.name}</option>)}</select></div><div className="agent-context-field"><label htmlFor="agent-profile">Phiên profiling đã hoàn tất</label><select id="agent-profile" value={selectedRunId} onChange={(event) => void selectProfileRun(event.target.value)} disabled={!selectedDatasetId || !completedRuns.length || runs.isPending || busy}><option value="">Chọn theo tên phiên…</option>{completedRuns.map((run) => <option value={run.id} key={run.id}>{profileRunOptionLabel(run)}</option>)}</select></div><div className="agent-context-hint">{!datasets.data?.length && !datasets.isPending ? <span>Chưa có dataset. <Link href="/datasets/new">Upload trong Bộ dữ liệu →</Link></span> : selectedDatasetId && !runs.isPending && !completedRuns.length ? "Dataset này chưa có profile run hoàn tất để hỏi Agent." : "Agent chỉ trả lời theo phiên profiling bạn đã chọn; ID được hệ thống xử lý ngầm."}</div>{selectedRunId && process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED === "true" && <Link className="button secondary agent-open-charts" href={`/charts?runId=${encodeURIComponent(selectedRunId)}`}>Mở Biểu đồ →</Link>}</section>
         <div ref={messageListRef} className="agent-message-list" aria-live="polite">
-          {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p>{message.text}</p>}</div></article>)}
-          {busy && state === "thinking" && <article className="agent-message agent"><div className="message-avatar">✦</div><div className="message-body"><span className="message-label">VDaAgent</span><p className="thinking-dots">Đang phân tích<span>.</span><span>.</span><span>.</span></p></div></article>}
+          {messages.map((message) => <article className={`agent-message ${message.role}`} key={message.id}><div className="message-avatar">{message.role === "agent" ? "✦" : "Bạn"}</div><div className="message-body"><span className="message-label">{message.label}</span>{message.role === "agent" ? message.text ? <><MarkdownMessage text={message.text} profile={profile} /><AnswerSources sources={message.sources} /></> : <p className={message.status === "error" ? "muted" : "thinking-dots"}>{message.status === "error" ? "Không thể nhận phản hồi từ Agent. Hãy thử lại." : <>Đang tìm evidence<span>.</span><span>.</span><span>.</span></>}</p> : <p>{message.text}</p>}</div></article>)}
         </div>
         {selectedFile && <section className="agent-intake-card" aria-label="Tùy chọn profiling">
           <div className="intake-file"><span className="file-icon">▤</span><div><b>{selectedFile.name}</b><small>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB · Sẵn sàng để profiling</small></div></div>

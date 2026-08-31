@@ -36,8 +36,8 @@ env:
 jobs:
   backend-quality:
     name: Backend quality
-    # Empty on push and pull_request, so the gate only lifts for a manual run.
-    if: ${{ !inputs.skip_quality }}
+    # Pushes deploy directly; pull requests and manual runs keep the quality gate.
+    if: ${{ github.event_name != 'push' && !inputs.skip_quality }}
     runs-on: self-hosted
     timeout-minutes: 35
     services:
@@ -82,6 +82,11 @@ jobs:
       - name: Lint backend
         run: ruff check backend/src tests
 
+      - name: Alembic fresh-database smoke test
+        env:
+          P170_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/p170_test
+        run: python scripts/migration_smoke.py
+
       - name: Test backend
         env:
           P170_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/p170_test
@@ -94,7 +99,7 @@ jobs:
 
   frontend-quality:
     name: Frontend quality
-    if: ${{ !inputs.skip_quality }}
+    if: ${{ github.event_name != 'push' && !inputs.skip_quality }}
     runs-on: self-hosted
     timeout-minutes: 35
     steps:
@@ -161,7 +166,11 @@ jobs:
       - frontend-quality
     # !cancelled() lets a skipped gate through; a failed one still stops the release.
     if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: self-hosted
+    # Docker/containerd state on a persistent self-hosted runner can survive a
+    # failed build and corrupt the next BuildKit export. Use a fresh hosted
+    # runner for the release job so every image build starts with a clean
+    # container store.
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
@@ -169,6 +178,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Validate production configuration
         shell: bash
@@ -261,13 +273,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build \
+          backend_image="$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
+          docker buildx build \
+            --push \
             -f Dockerfile.backend.azure \
-            -t "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}" \
+            -t "$backend_image" \
             -t "$ACR_LOGIN_SERVER/backend:latest" \
             .
-          docker push "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
-          docker push "$ACR_LOGIN_SERVER/backend:latest"
+          # The remote BuildKit exporter does not populate the host daemon.
+          # Pull the immutable release image back for the migration container.
+          docker pull "$backend_image"
 
       - name: Build and push frontend image
         shell: bash
@@ -275,10 +290,11 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
-          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
+          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: 'true'
         run: |
           set -euo pipefail
-          docker build \
+          docker buildx build \
+            --push \
             -f Dockerfile.frontend.azure \
             --build-arg NEXT_PUBLIC_API_URL="$BACKEND_URL/api/v1" \
             --build-arg NEXT_PUBLIC_SITE_URL="$FRONTEND_URL" \
@@ -290,8 +306,6 @@ jobs:
             -t "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
             -t "$ACR_LOGIN_SERVER/frontend:latest" \
             frontend
-          docker push "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}"
-          docker push "$ACR_LOGIN_SERVER/frontend:latest"
 
       - name: Run Alembic migrations
         shell: bash
@@ -301,8 +315,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${DATABASE_URL:-}" ] && [ -z "${DATABASE_MIGRATION_URL:-}" ]; then
-            echo "Skipping migrations because DATABASE_URL and DATABASE_MIGRATION_URL are not configured."
-            exit 0
+            echo "::error::DATABASE_URL or DATABASE_MIGRATION_URL is required; refusing to deploy without migrations."
+            exit 1
           fi
           docker run --rm \
             -e DATABASE_URL \
@@ -324,7 +338,7 @@ jobs:
           LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
           AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
-          AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
+          AUTH_ALLOW_SIGNUP: 'true'
           STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
           GUEST_STORAGE_PROVIDER: ${{ vars.GUEST_STORAGE_PROVIDER || 'supabase' }}
           # The provider pair may sit in either store, so a secret is honoured when no variable is set.

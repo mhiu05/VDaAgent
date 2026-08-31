@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { getProfile } from "@/lib/api";
+import { profileQueryKey } from "@/lib/profile-query-keys";
 import { formatNumber, formatPercent, toTitle } from "@/lib/format";
 import { MarkdownContent } from "@/components/markdown";
 import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, Metric, Notice, PageHeader, StatusBadge } from "@/components/ui";
 import { CommandCenterShell } from "@/components/command-center/command-center-shell";
+import { useAuth } from "@/components/auth-provider";
 import { TopValues, Distribution, MetricChart, CorrelationPanel } from "@/components/report-components";
 
 
@@ -26,9 +28,9 @@ function provenanceScanCopy(scanMode?: string | null, approximate?: boolean) {
 
 function ProfileOverview() {
   const { runId } = useParams<{ runId: string }>();
+  const { workspaceId } = useAuth();
   const profile = useQuery({
-    queryKey: ["profile", runId], queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId),
-    refetchInterval: (query) => ["created", "queued", "running", "resuming"].includes(query.state.data?.status || "") ? 3_000 : false,
+    queryKey: profileQueryKey(workspaceId, runId), queryFn: ({ signal }) => getProfile(runId, signal), enabled: Boolean(runId && workspaceId),
   });
   if (profile.isLoading) return <LoadingBlock label="Đang tải báo cáo profile…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
@@ -50,9 +52,9 @@ function ProfileOverview() {
   ];
 
   return <>
-    <div style={{ marginBottom: "1rem" }}>
-      <Link href="/datasets" className="button secondary">← Quay lại Datasets</Link>
-    </div>
+    {process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED !== "true" && <div style={{ marginBottom: "1rem" }}>
+      <Link href={`/datasets/${encodeURIComponent(data.dataset_id)}/runs`} className="button secondary">Quay lại</Link>
+    </div>}
     <PageHeader eyebrow={`Phiên chạy (Profile run) · ${data.run_name || `Phiên bản v${data.version ?? "—"}`}`} title={data.dataset_name || "Báo cáo profile"} description="Các số liệu được lấy trực tiếp từ engine xử lý. Các đề xuất (proposal) được giữ riêng để chuyên viên phân tích review." />
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}
     <section className="panel compact" style={{ marginBottom: 18 }}><div className="inline-actions"><StatusBadge status={data.status} /><span className="chip">{data.scan_mode || "—"} scan {data.is_approximate && "· sampled"}</span>{data.is_approximate && <span className="chip">≈ Có uncertainty (độ bất định)</span>}</div></section>

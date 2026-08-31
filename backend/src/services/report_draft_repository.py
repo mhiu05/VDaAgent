@@ -432,6 +432,26 @@ class ReportDraftRepository:
             raise ValueError("Report has no editable draft version.")
         return dict(report), dict(version)
 
+    @staticmethod
+    def _advance_draft_version(conn: Any, version: dict[str, Any]) -> None:
+        """Advance a mutable draft revision after a non-reorder write.
+
+        The database expression keeps simultaneous independent pin requests
+        monotonic. Reorder uses an expected revision as a compare-and-swap.
+        """
+        conn.execute(
+            report_versions.update()
+            .where(report_versions.c.id == version["id"])
+            .values(version=report_versions.c.version + 1)
+        )
+        version["version"] = int(
+            conn.execute(
+                select(report_versions.c.version).where(
+                    report_versions.c.id == version["id"]
+                )
+            ).scalar_one()
+        )
+
     def pin_item(
         self,
         report_id: str,
@@ -552,6 +572,7 @@ class ReportDraftRepository:
                     )
                 )
                 return self._payload(conn, report, version)
+            self._advance_draft_version(conn, version)
             position = (
                 int(
                     conn.execute(
@@ -631,6 +652,19 @@ class ReportDraftRepository:
                 raise ValueError(
                     "Reorder must contain every current report item exactly once."
                 )
+            next_version = int(version["version"]) + 1
+            version_update = conn.execute(
+                report_versions.update()
+                .where(
+                    report_versions.c.id == version["id"],
+                    report_versions.c.version == expected_version,
+                )
+                .values(version=next_version)
+            )
+            if version_update.rowcount != 1:
+                raise IdempotencyConflictError(
+                    "draft_stale: reload the report before reordering"
+                )
             for position, item_id in enumerate(item_ids):
                 conn.execute(
                     report_items.update()
@@ -642,6 +676,21 @@ class ReportDraftRepository:
                 .where(reports.c.id == report_id)
                 .values(updated_at=_now())
             )
+            version["version"] = next_version
+            return self._payload(conn, report, version)
+
+    def update_title(
+        self, report_id: str, workspace_id: str, actor: str, title: str
+    ) -> dict[str, Any]:
+        with self.engine.begin() as conn:
+            report, version = self._current(conn, report_id, workspace_id, actor)
+            self._advance_draft_version(conn, version)
+            conn.execute(
+                reports.update()
+                .where(reports.c.id == report_id)
+                .values(title=title, updated_at=_now())
+            )
+            report["title"] = title
             return self._payload(conn, report, version)
 
     def update_item(
@@ -664,6 +713,7 @@ class ReportDraftRepository:
                 raise LookupError("Report item was not found.")
             values = {key: value for key, value in payload.items() if value is not None}
             if values:
+                self._advance_draft_version(conn, version)
                 conn.execute(
                     report_items.update()
                     .where(report_items.c.id == item_id)
@@ -684,6 +734,7 @@ class ReportDraftRepository:
             ).first()
             if not item:
                 raise LookupError("Report item was not found.")
+            self._advance_draft_version(conn, version)
             conn.execute(report_items.delete().where(report_items.c.id == item_id))
             conn.execute(
                 report_items.update()

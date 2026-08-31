@@ -1,87 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
-import { PublicNavbar } from "@/components/public-navbar";
+import Link from "next/link";
+import { useRef } from "react";
 import { PublicFooter } from "@/components/public-footer";
+import { PublicMotion } from "@/components/public-motion";
+import { PublicNavbar } from "@/components/public-navbar";
+import { ProblemSolutionToggle } from "@/components/problem-solution-toggle";
 
-const features = [
-  { icon: "01", title: "Khám phá cấu trúc", description: "Tự động phân tích kiểu dữ liệu, mức độ đa dạng (cardinality) và nhận diện ý nghĩa của từng cột." },
-  { icon: "02", title: "Kiểm tra chất lượng", description: "Quét toàn bộ dataset để phát hiện các giá trị khuyết thiếu (missing), dữ liệu trùng lặp hoặc định dạng sai." },
-  { icon: "03", title: "Phân phối thống kê", description: "Tính toán tự động các giá trị trung bình, trung vị, độ lệch chuẩn và phân phối tần suất của dữ liệu." },
-  { icon: "04", title: "Trực quan hóa", description: "Gợi ý và tạo các biểu đồ Histogram, Bar chart trực quan dựa trên đặc tính ngữ nghĩa của biến số." },
-];
-
-
+const lifecycle = ["Kết nối / tải lên", "Profile", "Review", "Khám phá & trực quan hóa", "Insight", "Compare", "Report"];
 
 export default function Home() {
-  return (
-    <div className="public-page">
-      <PublicNavbar />
-      
-      <main style={{ flex: 1 }}>
-        <section className="pub-section">
-          <div className="pub-container pub-hero" style={{ paddingTop: 0 }}>
-            <div className="pub-hero-copy">
-              <span className="pub-eyebrow">DATA PROFILING · VDaAgent</span>
-              <h1>Biến một tệp dữ liệu thành<br /><span>hồ sơ có thể kiểm tra.</span></h1>
-              <p>VDaAgent giúp nhà phân tích thấu hiểu cấu trúc, chất lượng và các vấn đề tiềm ẩn của tập dữ liệu trước khi đi sâu vào phân tích.</p>
-              <div className="pub-hero-actions">
-                <Link href="/workspaces" className="pub-btn pub-btn-primary">Bắt đầu ngay <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
-                <Link href="/guide" className="pub-btn pub-btn-ghost">Xem quy trình <span aria-hidden="true" style={{ marginLeft: 4 }}>↗</span></Link>
-              </div>
-              <div style={{ marginTop: "40px", fontSize: "14px", color: "var(--pub-muted)", display: "flex", gap: "24px", fontWeight: 500 }}>
-                <span>Profiling</span>
-                <span>Data Quality</span>
-                <span>Statistics</span>
-                <span>Visualization</span>
-              </div>
-            </div>
-            
-            <div style={{ position: "relative" }}>
-              <Image src="/img/home/home1.png" alt="VDaAgent Preview" width={800} height={600} style={{ width: '100%', height: 'auto', borderRadius: '16px', boxShadow: '0 24px 64px rgba(0,0,0,0.1)' }} priority />
-            </div>
-          </div>
-        </section>
-
-        <section className="pub-section bg-surface">
-          <div className="pub-container">
-            <div className="pub-section-header">
-              <span className="pub-eyebrow">TẠI SAO DATA PROFILING?</span>
-              <h2>Hiểu dữ liệu trước khi tin vào dữ liệu.</h2>
-              <p>Mỗi báo cáo phân tích chỉ có giá trị khi dữ liệu đầu vào đã được kiểm chứng và làm sạch.</p>
-            </div>
-            
-            <div className="pub-feature-grid">
-              {features.map(f => (
-                <div key={f.icon} className="pub-feature-card">
-                  <span className="pub-feature-number">{f.icon}</span>
-                  <h3>{f.title}</h3>
-                  <p>{f.description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-
-
-        <section className="pub-section" style={{ textAlign: "center", paddingBottom: "120px" }}>
-          <div className="pub-container">
-            <span className="pub-eyebrow">HÀNH ĐỘNG</span>
-            <h2 style={{ fontSize: "40px", fontWeight: 700, margin: "16px 0 24px", color: "var(--pub-ink)" }}>Sẵn sàng hiểu dữ liệu của bạn?</h2>
-            <p style={{ fontSize: "18px", color: "var(--pub-muted)", maxWidth: "600px", margin: "0 auto 48px" }}>
-              Bắt đầu từ một dataset và để VDaAgent giúp bạn nhìn thấy cấu trúc và các vấn đề cần chú ý trước khi đưa ra quyết định.
-            </p>
-            <div style={{ display: "flex", justifyContent: "center", gap: "24px" }}>
-              <Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true" style={{ marginLeft: 8 }}>→</span></Link>
-              <Link href="/guide" className="pub-btn pub-btn-secondary">Xem hướng dẫn</Link>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <PublicFooter />
-    </div>
-  );
+  const motionRoot = useRef<HTMLElement>(null);
+  return <div className="public-page"><PublicNavbar /><main ref={motionRoot} className="pub-home-main"><PublicMotion rootRef={motionRoot} />
+    <section className="pub-section pub-hero-section"><div className="pub-container pub-hero"><div className="pub-hero-copy"><div className="pub-hero-kicker"><span className="pub-kicker-mark" aria-hidden="true">✦</span><span>DATA PROFILING / VDaAgent</span><span className="pub-kicker-code">EVIDENCE FIRST</span></div><h1>Hiểu dữ liệu.<br /><span>Phân tích có căn cứ.</span></h1><p className="pub-hero-lead">VDaAgent là workspace profiling và phân tích evidence-first dành cho Data Analyst: bắt đầu từ dataset chưa rõ, kiểm tra chất lượng, khám phá, trực quan hóa và đi đến insight có thể xem lại.</p><div className="pub-hero-actions"><Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true">→</span></Link><Link href="/guide" className="pub-btn pub-btn-ghost">Xem hướng dẫn <span aria-hidden="true">↗</span></Link></div><div className="pub-hero-proof"><span className="pub-proof-dot" aria-hidden="true" /><span>deterministic compute</span><span className="pub-proof-divider" aria-hidden="true" /><span>analyst review</span></div></div><div className="pub-hero-visual"><span className="pub-hero-orbit pub-hero-orbit-one" aria-hidden="true" /><span className="pub-hero-orbit pub-hero-orbit-two" aria-hidden="true" /><div className="pub-hero-panel"><div className="pub-hero-panel-bar"><span className="pub-panel-dot" aria-hidden="true" /><span>PROFILE RUN / CONTEXT</span><span className="pub-panel-status">READY TO REVIEW</span></div><Image className="pub-hero-dashboard-image" src="/img/home/home1.png" alt="Giao diện phân tích của VDaAgent" width={800} height={600} priority /></div><div className="pub-hero-sticker pub-hero-sticker-top"><span>WORKFLOW</span><strong>TRACEABLE</strong><small>from dataset to report</small></div><div className="pub-hero-sticker pub-hero-sticker-bottom"><span className="pub-sticker-spark" aria-hidden="true">✦</span><span>find the signal<br /><b>before the story</b></span></div><div className="pub-hero-mascot" aria-hidden="true"><div className="pub-mascot-crop"><Image src="/img/logo.png" alt="" width={110} height={110} unoptimized /></div></div></div></div></section>
+    <section className="pub-section pub-features-section bg-surface"><div className="pub-container"><div className="pub-section-header"><div className="pub-section-index"><span>02</span><span>PROBLEM → SOLUTION</span></div><h2>Ít bước rời rạc hơn.<br /><em>Nhiều ngữ cảnh hơn.</em></h2><p>VDaAgent tập trung vào những kiểm tra và bằng chứng cần thiết để một Analyst có thể tiếp tục công việc một cách tự tin.</p></div><ProblemSolutionToggle /></div></section>
+    <section className="pub-section"><div className="pub-container"><div className="pub-section-header"><div className="pub-section-index"><span>03</span><span>FULL LIFECYCLE</span></div><h2>Từ nguồn dữ liệu<br /><em>đến báo cáo.</em></h2><p>Mỗi bước đều có vai trò riêng trong workflow; Guide mô tả thao tác chi tiết theo UI hiện có.</p></div><ol className="pub-lifecycle">{lifecycle.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, "0")}</span><strong>{step}</strong>{index < lifecycle.length - 1 && <i aria-hidden="true">→</i>}</li>)}</ol><div className="pub-inline-actions"><Link href="/guide" className="pub-btn pub-btn-secondary">Mở hướng dẫn đầy đủ</Link><Link href="/about" className="pub-btn pub-btn-ghost">Tìm hiểu cách hệ thống hoạt động →</Link></div></div></section>
+    <section className="pub-section bg-surface"><div className="pub-container"><div className="pub-section-header"><div className="pub-section-index"><span>04</span><span>PRINCIPLES</span></div><h2>Thiết kế để<br /><em>có thể kiểm chứng.</em></h2></div><div className="pub-principles-grid"><article><b>Evidence-first</b><p>Kết quả chính thức được lưu cùng ngữ cảnh và provenance.</p></article><article><b>Human-in-the-loop</b><p>Analyst review là một phần của workflow, không phải bước bị bỏ qua.</p></article><article><b>Deterministic compute</b><p>Số liệu phân tích đến từ engine tính toán có giới hạn rõ ràng.</p></article><article><b>Workspace-scoped</b><p>Dataset, Profile Run và kết quả được tổ chức trong Workspace.</p></article></div></div></section>
+    <section className="pub-section pub-cta-section"><div className="pub-container"><div className="pub-cta-panel"><span className="pub-cta-sun" aria-hidden="true">✦</span><span className="pub-eyebrow">NEXT STEP</span><h2>Bắt đầu từ<br /><em>một dataset.</em></h2><p>Đi từ dữ liệu chưa rõ đến kết quả phân tích có ngữ cảnh, evidence và bước review của Analyst.</p><div className="pub-cta-actions"><Link href="/workspaces" className="pub-btn pub-btn-primary">Mở Workspace <span aria-hidden="true">→</span></Link><Link href="/docs" className="pub-btn pub-btn-secondary">Tra cứu thuật ngữ</Link></div></div></div></section>
+  </main><PublicFooter /></div>;
 }

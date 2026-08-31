@@ -1,10 +1,10 @@
 ---
 name: answer-business-question
-description: Answer a business question from bounded profile evidence and approved retrieval. Use when a user asks for an interpretation, metric, risk explanation, or decision support about a profiled dataset.
+description: Trả lời câu hỏi nghiệp vụ từ profile evidence có giới hạn và retrieval đã approve. Dùng khi user hỏi diễn giải, metric, giải thích rủi ro hoặc hỗ trợ quyết định trên dataset đã profile.
 ---
 
-# Answer business question
+# Trả lời câu hỏi nghiệp vụ
 
-Use `POST /api/v1/qa`. For quantitative claims, use the read-only tool catalog and cite the returned evidence; do not invent numbers. For qualitative claims, use scoped retrieval and cite sources.
+Dùng `POST /api/v1/qa`. Với claim quantitative, dùng read-only tool catalog và trích dẫn evidence trả về; không tự tạo số. Với claim qualitative, dùng retrieval có scope và trích dẫn source.
 
-Respect guardrails, profile status, PII masking, tool budgets, and the active workspace. Ask for clarification rather than guessing an unnamed column.
+Tuân thủ guardrail, profile status, PII masking, tool budget và workspace active. Hãy yêu cầu clarification thay vì đoán column không được nêu tên.

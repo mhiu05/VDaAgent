@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
+from itertools import combinations_with_replacement
 from typing import Any, Literal
 
 import duckdb
@@ -98,6 +99,9 @@ class ProfileComputation:
     executed_query: str
     random_seed: int | None
     truncated_columns: list[str] = field(default_factory=list)
+    candidate_keys: list[dict[str, Any]] = field(default_factory=list)
+    duplicate_row_count: int = 0
+    duplicate_row_rate: float = 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -116,6 +120,77 @@ def _quote(ref: str) -> str:
     return "'" + ref.replace("'", "''") + "'"
 
 
+def _quote_identifier(identifier: str) -> str:
+    """Quote a DuckDB identifier originating from the source schema."""
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _describe_source(
+    connection: duckdb.DuckDBPyConnection, source: str
+) -> list[tuple[str, str]]:
+    """Read only source metadata; it does not materialize rows into pandas."""
+    rows = connection.execute(f"DESCRIBE {source}").fetchall()
+    return [(str(name), str(dtype)) for name, dtype, *_ in rows]
+
+
+def _selected_schema(
+    schema: list[tuple[str, str]],
+    *,
+    max_columns: int,
+    columns: list[str] | None = None,
+) -> tuple[list[tuple[str, str]], list[str]]:
+    by_name = {name: dtype for name, dtype in schema}
+    if columns is not None:
+        requested = list(dict.fromkeys(str(column) for column in columns))
+        missing = [column for column in requested if column not in by_name]
+        if missing:
+            raise ValueError(f"Không tìm thấy cột trong dataset: {', '.join(missing[:5])}.")
+        selected = [(column, by_name[column]) for column in requested[:max_columns]]
+        return selected, requested[max_columns:]
+    return schema[:max_columns], [name for name, _ in schema[max_columns:]]
+
+
+def _is_numeric_duckdb_type(dtype: str) -> bool:
+    normalized = dtype.upper()
+    return any(
+        token in normalized
+        for token in (
+            "TINYINT",
+            "SMALLINT",
+            "INTEGER",
+            "BIGINT",
+            "HUGEINT",
+            "UTINYINT",
+            "USMALLINT",
+            "UINTEGER",
+            "UBIGINT",
+            "FLOAT",
+            "DOUBLE",
+            "REAL",
+            "DECIMAL",
+        )
+    ) and "BOOLEAN" not in normalized
+
+
+def _is_datetime_duckdb_type(dtype: str) -> bool:
+    normalized = dtype.upper()
+    return "DATE" in normalized or "TIME" in normalized
+
+
+def _pandas_dtype_name(dtype: str, *, nullable: bool = False) -> str:
+    """Map the DuckDB schema to the dtype labels used by the profile contract."""
+    normalized = dtype.upper()
+    if "BOOLEAN" in normalized:
+        return "boolean" if nullable else "bool"
+    if _is_datetime_duckdb_type(normalized):
+        return "datetime64[us]"
+    if _is_numeric_duckdb_type(normalized):
+        if any(token in normalized for token in ("FLOAT", "DOUBLE", "REAL", "DECIMAL")):
+            return "float64"
+        return "Int64" if nullable else "int64"
+    return "object"
+
+
 def load_dataset(
     dataset_ref: str,
     scan_mode: ScanMode = "sample",
@@ -123,6 +198,7 @@ def load_dataset(
     sample_strategy: str = "reservoir",
     random_seed: int | None = 42,
     max_columns: int = 200,
+    columns: list[str] | None = None,
 ) -> tuple[pd.DataFrame, str, list[str]]:
     """Nạp dataset vào DataFrame theo `scan_mode`.
 
@@ -136,13 +212,20 @@ def load_dataset(
             if random_seed is not None:
                 con.execute(f"SELECT setseed({(random_seed % 1000) / 1000.0})")
 
+            selected, truncated = _selected_schema(
+                _describe_source(con, src), max_columns=max_columns, columns=columns
+            )
+            if not selected:
+                raise ValueError("Dataset không có cột để profiling.")
+            projection = ", ".join(_quote_identifier(name) for name, _ in selected)
+
             if scan_mode == "full":
-                query = f"SELECT * FROM {src}"
+                query = f"SELECT {projection} FROM {src}"
             elif sample_strategy == "tablesample":
                 # TABLESAMPLE nhanh hơn nhưng phân phối kém đều hơn reservoir.
-                query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (system)"
+                query = f"SELECT {projection} FROM {src} USING SAMPLE {int(sample_size)} ROWS (system)"
             else:
-                query = f"SELECT * FROM {src} USING SAMPLE {int(sample_size)} ROWS (reservoir)"
+                query = f"SELECT {projection} FROM {src} USING SAMPLE {int(sample_size)} ROWS (reservoir)"
 
             df = con.execute(query).df()
         except duckdb.Error as exc:
@@ -155,11 +238,6 @@ def load_dataset(
     # Không lưu temporary path vào evidence. Dataset reference ổn định của
     # Supabase vẫn đủ để truy vết; lần đọc sau sẽ materialize file tạm mới.
     query = query.replace(str(path), dataset_ref)
-
-    truncated: list[str] = []
-    if len(df.columns) > max_columns:
-        truncated = list(df.columns[max_columns:])
-        df = df.iloc[:, :max_columns]
 
     return df, query, truncated
 
@@ -322,6 +400,63 @@ def compute_correlation_matrix(df: pd.DataFrame) -> dict[str, dict[str, float]]:
 # --------------------------------------------------------------------------- #
 # PII
 # --------------------------------------------------------------------------- #
+def _detect_pii_values(
+    column: str, values: list[str], *, is_textual: bool
+) -> dict[str, Any] | None:
+    """Apply the established PII rules to a bounded value sample."""
+    name = column.lower()
+    name_hit: str | None = None
+    for pii_type, pattern in PII_NAME_PATTERNS.items():
+        if re.search(pattern, name):
+            name_hit = pii_type
+            break
+
+    value_hit: str | None = None
+    match_ratio = 0.0
+    if values:
+        for pii_type, pattern in PII_VALUE_PATTERNS.items():
+            if pii_type in _STRING_ONLY_PII and not is_textual:
+                continue
+            ratio = sum(bool(re.match(pattern, value)) for value in values) / len(values)
+            if ratio > match_ratio and ratio >= 0.5:
+                match_ratio, value_hit = ratio, pii_type
+
+    if name_hit and value_hit and name_hit != value_hit:
+        name_pattern = PII_VALUE_PATTERNS.get(name_hit)
+        name_ratio = (
+            sum(bool(re.match(name_pattern, value)) for value in values) / len(values)
+            if name_pattern and values
+            else 0.0
+        )
+        if name_pattern is None or name_ratio < 0.5:
+            value_hit = None
+            match_ratio = 0.0
+
+    if not name_hit and not value_hit:
+        return None
+    if name_hit and value_hit:
+        method, pii_type = "heuristic+regex", value_hit
+        confidence = round(min(0.99, 0.75 + 0.25 * match_ratio), 4)
+        evidence = (
+            f"Tên cột khớp mẫu '{name_hit}'; {match_ratio:.0%} giá trị mẫu khớp regex {value_hit}."
+        )
+    elif value_hit:
+        method, pii_type = "regex", value_hit
+        confidence = round(min(0.95, 0.55 + 0.4 * match_ratio), 4)
+        evidence = f"{match_ratio:.0%} giá trị mẫu khớp regex {value_hit} (tên cột không gợi ý)."
+    else:
+        method, pii_type = "heuristic", name_hit or "unknown"
+        confidence = 0.6
+        evidence = f"Tên cột khớp mẫu '{name_hit}' nhưng giá trị không khớp regex nào."
+    return {
+        "column_name": column,
+        "pii_type": pii_type,
+        "detection_method": method,
+        "confidence": confidence,
+        "evidence": evidence,
+    }
+
+
 def detect_pii(df: pd.DataFrame, sample_rows: int = 500) -> list[dict[str, Any]]:
     """Phát hiện PII bằng heuristic tên cột + regex trên giá trị mẫu.
 
@@ -641,6 +776,379 @@ def infer_semantic_type(column: str, st: dict[str, Any]) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# File-backed profiling
+# --------------------------------------------------------------------------- #
+def _source_pii_flags(
+    connection: duckdb.DuckDBPyConnection,
+    relation: str,
+    schema: list[tuple[str, str]],
+    *,
+    sample_rows: int = 500,
+) -> list[dict[str, Any]]:
+    """Run PII rules against at most ``sample_rows`` values per column."""
+    flags: list[dict[str, Any]] = []
+    for name, dtype in schema:
+        identifier = _quote_identifier(name)
+        rows = connection.execute(
+            f"SELECT CAST({identifier} AS VARCHAR) FROM {relation} "
+            f"WHERE {identifier} IS NOT NULL LIMIT ?",
+            [sample_rows],
+        ).fetchall()
+        result = _detect_pii_values(
+            name,
+            [str(value) for value, in rows],
+            is_textual=not (_is_numeric_duckdb_type(dtype) or _is_datetime_duckdb_type(dtype)),
+        )
+        if result is not None:
+            flags.append(result)
+    return flags
+
+
+def _source_column_stats(
+    connection: duckdb.DuckDBPyConnection,
+    relation: str,
+    schema: list[tuple[str, str]],
+    *,
+    scan_mode: ScanMode,
+    top_k: int,
+    outlier_method: str,
+    pii_columns: set[str],
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    """Compute exact descriptive statistics in DuckDB without a pandas frame."""
+    expressions = ["COUNT(*)"]
+    numeric_columns: list[tuple[str, str]] = []
+    datetime_columns: list[tuple[str, str]] = []
+    text_columns: list[tuple[str, str]] = []
+    for name, dtype in schema:
+        identifier = _quote_identifier(name)
+        expressions.extend(
+            [
+                f"SUM(CASE WHEN {identifier} IS NULL THEN 1 ELSE 0 END)",
+                f"COUNT(DISTINCT {identifier})",
+            ]
+        )
+        if _is_numeric_duckdb_type(dtype):
+            numeric_columns.append((name, dtype))
+            expressions.extend(
+                [
+                    f"MIN({identifier})",
+                    f"MAX({identifier})",
+                    f"AVG({identifier})",
+                    f"quantile_cont({identifier}, 0.5)",
+                    f"STDDEV_SAMP({identifier})",
+                    f"quantile_cont({identifier}, 0.25)",
+                    f"quantile_cont({identifier}, 0.75)",
+                ]
+            )
+        elif _is_datetime_duckdb_type(dtype):
+            datetime_columns.append((name, dtype))
+            expressions.extend([f"MIN({identifier})", f"MAX({identifier})"])
+        else:
+            text_columns.append((name, dtype))
+            expressions.extend(
+                [
+                    f"MIN(LENGTH(CAST({identifier} AS VARCHAR)))",
+                    f"MAX(LENGTH(CAST({identifier} AS VARCHAR)))",
+                ]
+            )
+
+    values = iter(connection.execute(f"SELECT {', '.join(expressions)} FROM {relation}").fetchone())
+    row_count = int(next(values) or 0)
+    stats: dict[str, dict[str, Any]] = {}
+    for name, dtype in schema:
+        null_count = int(next(values) or 0)
+        cardinality = int(next(values) or 0)
+        non_null = row_count - null_count
+        item = ColumnStats(
+            column_name=name,
+            dtype=_pandas_dtype_name(dtype, nullable=null_count > 0),
+            row_count=row_count,
+            null_count=null_count,
+            null_pct=round(null_count / row_count * 100, 4) if row_count else 0.0,
+            cardinality=cardinality,
+            uniqueness_ratio=round(cardinality / non_null, 6) if non_null else 0.0,
+        )
+        if _is_numeric_duckdb_type(dtype):
+            item.min_value = _float_or_none(next(values))
+            item.max_value = _float_or_none(next(values))
+            item.mean = _float_or_none(next(values))
+            item.median = _float_or_none(next(values))
+            item.std = _float_or_none(next(values))
+            item.q1 = _float_or_none(next(values))
+            item.q3 = _float_or_none(next(values))
+        elif _is_datetime_duckdb_type(dtype):
+            minimum, maximum = next(values), next(values)
+            if minimum is not None:
+                item.top_k_values = [
+                    {"value": str(minimum), "label": "min"},
+                    {"value": str(maximum), "label": "max"},
+                ]
+        else:
+            minimum, maximum = next(values), next(values)
+            item.min_length = int(minimum) if minimum is not None else None
+            item.max_length = int(maximum) if maximum is not None else None
+        stats[name] = item.to_dict()
+
+    # IQR/z-score counts are a second aggregate pass, not a full Python series.
+    outlier_expressions: list[str] = []
+    outlier_parameters: list[float] = []
+    outlier_order: list[tuple[str, str]] = []
+    for name, _dtype in numeric_columns:
+        item = stats[name]
+        non_null = row_count - int(item["null_count"])
+        if non_null < 4:
+            continue
+        identifier = _quote_identifier(name)
+        q1, q3 = item["q1"], item["q3"]
+        if outlier_method in {"iqr", "both"} and q1 is not None and q3 is not None:
+            iqr = q3 - q1
+            if iqr > 0:
+                outlier_expressions.append(
+                    f"SUM(CASE WHEN {identifier} < ? OR {identifier} > ? THEN 1 ELSE 0 END)"
+                )
+                outlier_parameters.extend([q1 - 1.5 * iqr, q3 + 1.5 * iqr])
+                outlier_order.append((name, "iqr"))
+        if outlier_method in {"zscore", "both"} and item["std"] and item["std"] > 0:
+            outlier_expressions.append(
+                f"SUM(CASE WHEN ABS(({identifier} - ?) / ?) > 3 THEN 1 ELSE 0 END)"
+            )
+            outlier_parameters.extend([item["mean"], item["std"]])
+            outlier_order.append((name, "zscore"))
+    outlier_counts: dict[str, dict[str, int]] = {}
+    if outlier_expressions:
+        for (name, method), value in zip(
+            outlier_order,
+            connection.execute(
+                f"SELECT {', '.join(outlier_expressions)} FROM {relation}", outlier_parameters
+            ).fetchone(),
+            strict=True,
+        ):
+            outlier_counts.setdefault(name, {})[method] = int(value or 0)
+    for name, counts in outlier_counts.items():
+        if len(counts) == 1:
+            method, count = next(iter(counts.items()))
+            stats[name]["outlier_count"] = count
+            stats[name]["outlier_method"] = method
+        else:
+            stats[name]["outlier_count"] = max(counts.values())
+            stats[name]["outlier_method"] = "iqr+zscore"
+
+    # Frequency values are exact, but return only the persisted top-k rows.
+    for name, _dtype in schema:
+        item = stats[name]
+        if name in pii_columns or item["top_k_values"]:
+            continue
+        identifier = _quote_identifier(name)
+        rows = connection.execute(
+            f"SELECT CAST(p1_08_value AS VARCHAR), COUNT(*) "
+            f"FROM (SELECT {identifier} AS p1_08_value, ROW_NUMBER() OVER () AS p1_08_position "
+            f"FROM {relation}) AS p1_08_values "
+            "WHERE p1_08_value IS NOT NULL GROUP BY p1_08_value "
+            "ORDER BY COUNT(*) DESC, MIN(p1_08_position) ASC LIMIT ?",
+            [top_k],
+        ).fetchall()
+        item["top_k_values"] = [
+            {"value": str(value), "count": int(count)} for value, count in rows
+        ]
+
+    if scan_mode == "sample":
+        for item in stats.values():
+            item["is_approximate"] = True
+            item["margin_of_error"] = _margin_of_error(
+                row_count, int(item["null_count"]) / row_count if row_count else 0.0
+            )
+            item["cardinality_margin_of_error"] = _cardinality_margin(
+                row_count, int(item["cardinality"])
+            )
+    return row_count, stats
+
+
+def _source_correlation_matrix(
+    connection: duckdb.DuckDBPyConnection,
+    relation: str,
+    schema: list[tuple[str, str]],
+) -> dict[str, dict[str, float]]:
+    numeric = [name for name, dtype in schema if _is_numeric_duckdb_type(dtype)]
+    if len(numeric) < 2:
+        return {}
+    matrix: dict[str, dict[str, float]] = {name: {} for name in numeric}
+    pairs = list(combinations_with_replacement(numeric, 2))
+    # Bound result objects and SQL width while still keeping data aggregation in DuckDB.
+    for offset in range(0, len(pairs), 500):
+        batch = pairs[offset : offset + 500]
+        row = connection.execute(
+            "SELECT "
+            + ", ".join(
+                f"corr({_quote_identifier(left)}, {_quote_identifier(right)})"
+                for left, right in batch
+            )
+            + f" FROM {relation}"
+        ).fetchone()
+        for (left, right), value in zip(batch, row, strict=True):
+            number = _float_or_none(value)
+            if number is None:
+                continue
+            rounded = round(number, 6)
+            matrix[left][right] = rounded
+            if left != right:
+                matrix[right][left] = rounded
+    return matrix
+
+
+def _source_candidate_keys(
+    connection: duckdb.DuckDBPyConnection,
+    relation: str,
+    stats: dict[str, dict[str, Any]],
+    row_count: int,
+) -> list[dict[str, Any]]:
+    if row_count == 0:
+        return []
+    proposals: list[dict[str, Any]] = []
+    single_keys: list[str] = []
+    for col, item in stats.items():
+        uniqueness = item.get("uniqueness_ratio", 0.0)
+        null_pct = item.get("null_pct", 100.0)
+        if uniqueness >= 1.0 and null_pct == 0.0:
+            single_keys.append(col)
+            proposals.append(
+                {
+                    "columns": [col],
+                    "confidence": 0.99,
+                    "evidence": (
+                        f"uniqueness = 100% ({item['cardinality']}/{row_count} giá trị phân biệt), null% = 0%."
+                    ),
+                }
+            )
+        elif uniqueness >= 0.98 and null_pct < 1.0:
+            proposals.append(
+                {
+                    "columns": [col],
+                    "confidence": round(0.5 + 0.4 * uniqueness, 4),
+                    "evidence": (
+                        f"uniqueness = {uniqueness:.2%}, null% = {null_pct:.2f}% — gần unique nhưng chưa tuyệt đối."
+                    ),
+                }
+            )
+    if not single_keys:
+        candidates = [
+            col
+            for col, item in sorted(
+                stats.items(), key=lambda pair: pair[1].get("uniqueness_ratio", 0.0), reverse=True
+            )
+            if item.get("null_pct", 100.0) == 0.0
+        ][:6]
+        for left_index, left in enumerate(candidates):
+            for right in candidates[left_index + 1 :]:
+                projection = f"{_quote_identifier(left)}, {_quote_identifier(right)}"
+                distinct = int(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM (SELECT DISTINCT {projection} FROM {relation})"
+                    ).fetchone()[0]
+                    or 0
+                )
+                ratio = distinct / row_count
+                if ratio >= 0.999:
+                    proposals.append(
+                        {
+                            "columns": [left, right],
+                            "confidence": round(min(0.95, ratio), 4),
+                            "evidence": (
+                                f"Tổ hợp ({left}, {right}) có {distinct}/{row_count} = {ratio:.4%} giá trị phân biệt, không null."
+                            ),
+                        }
+                    )
+    proposals.sort(key=lambda proposal: proposal["confidence"], reverse=True)
+    return proposals[:10]
+
+
+def profile_source(
+    dataset_ref: str,
+    scan_mode: ScanMode = "sample",
+    sample_size: int = 10_000,
+    sample_strategy: str = "reservoir",
+    random_seed: int | None = 42,
+    top_k: int = 10,
+    outlier_method: str = "iqr",
+    max_columns: int = 200,
+) -> ProfileComputation:
+    """Profile a file-backed source in DuckDB without materializing a pandas frame."""
+    with materialize_source(dataset_ref) as path:
+        source = _quote(str(path))
+        connection = duckdb.connect(database=":memory:")
+        try:
+            if random_seed is not None:
+                connection.execute(f"SELECT setseed({(random_seed % 1000) / 1000.0})")
+            selected, truncated = _selected_schema(
+                _describe_source(connection, source), max_columns=max_columns
+            )
+            if not selected:
+                raise ValueError("Dataset không có cột để profiling.")
+            projection = ", ".join(_quote_identifier(name) for name, _ in selected)
+            if scan_mode == "sample":
+                strategy = "system" if sample_strategy == "tablesample" else "reservoir"
+                relation = _quote_identifier("p1_08_profile_input")
+                connection.execute(
+                    f"CREATE TEMP TABLE {relation} AS SELECT {projection} FROM {source} "
+                    f"USING SAMPLE {int(sample_size)} ROWS ({strategy})"
+                )
+                query = (
+                    f"SELECT {projection} FROM {source} USING SAMPLE "
+                    f"{int(sample_size)} ROWS ({strategy})"
+                )
+            else:
+                relation = source
+                query = f"SELECT {projection} FROM {source}"
+            pii_flags = _source_pii_flags(connection, relation, selected)
+            pii_columns = {item["column_name"] for item in pii_flags}
+            row_count, stats = _source_column_stats(
+                connection,
+                relation,
+                selected,
+                scan_mode=scan_mode,
+                top_k=top_k,
+                outlier_method=outlier_method,
+                pii_columns=pii_columns,
+            )
+            duplicate_row_count = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM (SELECT DISTINCT {projection} FROM {relation})"
+                ).fetchone()[0]
+                or 0
+            )
+            duplicate_row_count = row_count - duplicate_row_count
+            candidate_keys = _source_candidate_keys(connection, relation, stats, row_count)
+            result = ProfileComputation(
+                row_count=row_count,
+                column_names=[name for name, _ in selected],
+                stats=stats,
+                correlation_matrix=_source_correlation_matrix(connection, relation, selected),
+                pii_flags=pii_flags,
+                quasi_identifiers=[
+                    name
+                    for name, _ in selected
+                    if name not in pii_columns
+                    and re.search(QUASI_IDENTIFIER_PATTERNS, name.lower())
+                ],
+                is_approximate=scan_mode == "sample",
+                executed_query=query,
+                random_seed=random_seed,
+                truncated_columns=truncated,
+                candidate_keys=candidate_keys,
+                duplicate_row_count=duplicate_row_count,
+                duplicate_row_rate=duplicate_row_count / row_count if row_count else 0.0,
+            )
+        except duckdb.Error as exc:
+            raise ValueError(
+                "Không thể đọc dữ liệu bảng. Với CSV/TSV, hãy kiểm tra dấu phân cách, header và encoding của file."
+            ) from exc
+        finally:
+            connection.close()
+
+    result.executed_query = result.executed_query.replace(str(path), dataset_ref)
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
 def profile_dataset(
@@ -700,4 +1208,5 @@ __all__ = [
     "infer_semantic_type",
     "load_dataset",
     "profile_dataset",
+    "profile_source",
 ]

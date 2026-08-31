@@ -162,6 +162,10 @@ class ReportDraftItemUpdate(BaseModel):
     note: str | None = Field(default=None, max_length=20_000)
 
 
+class ReportDraftTitleUpdate(BaseModel):
+    title: str = Field(min_length=3, max_length=255)
+
+
 class ReportDraftReorder(BaseModel):
     item_ids: list[str] = Field(min_length=1, max_length=100)
     expected_draft_version: int = Field(ge=1)

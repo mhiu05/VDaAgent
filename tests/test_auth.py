@@ -12,7 +12,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from src.api import authz_routes, dependencies
 from src.config import Settings
+from src.services import auth as auth_service
 from src.services.auth import AuthContext, JWTVerificationError, SupabaseJWTVerifier
+from src.services import perf_telemetry
 
 
 def _user(*, user_id: str = "00000000-0000-0000-0000-000000000123") -> AuthContext:
@@ -118,6 +120,121 @@ def test_email_confirmation_fails_closed_on_auth_request_error(
         _verifier()._email_is_confirmed("access-token")
 
 
+def test_email_confirmation_async_uses_bounded_async_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, str]:
+            return {"email_confirmed_at": "2026-08-13T08:00:00Z"}
+
+    captured: dict[str, object] = {}
+
+    class AsyncClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured["client_kwargs"] = kwargs
+
+        async def __aenter__(self) -> "AsyncClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs: object) -> Response:
+            captured["url"] = url
+            captured["kwargs"] = kwargs
+            return Response()
+
+    monkeypatch.setattr(httpx, "AsyncClient", AsyncClient)
+
+    token = perf_telemetry.begin("/auth", "corr-auth", "GET")
+    try:
+        assert asyncio.run(_verifier()._email_is_confirmed_async("access-token")) is True
+        context = perf_telemetry.current()
+        assert context is not None
+        assert context.external_http_calls == 1
+    finally:
+        perf_telemetry.reset(token)
+    assert captured["client_kwargs"] == {"timeout": 3.0}
+    assert captured["url"] == "https://example.supabase.co/auth/v1/user"
+    assert captured["kwargs"]["headers"] == {
+        "apikey": "publishable-test-key",
+        "Authorization": "Bearer access-token",
+    }
+
+
+def test_async_bearer_accepts_a_valid_local_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Verifier:
+        async def verify_async(self, _token: str) -> AuthContext:
+            return _user()
+
+    monkeypatch.setattr(auth_service, "get_jwt_verifier", lambda _settings: Verifier())
+    context = asyncio.run(
+        auth_service.authenticate_bearer(
+            "Bearer signed-token",
+            _verifier().settings,
+        )
+    )
+    assert context.user_id == _user().user_id
+
+
+def test_async_bearer_rejects_an_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Verifier:
+        async def verify_async(self, _token: str) -> AuthContext:
+            raise JWTVerificationError("invalid", allow_remote_fallback=False)
+
+    monkeypatch.setattr(auth_service, "get_jwt_verifier", lambda _settings: Verifier())
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            auth_service.authenticate_bearer(
+                "Bearer invalid-token",
+                _verifier().settings,
+            )
+        )
+    assert exc_info.value.status_code == 401
+
+
+def test_auth_api_fallback_async_preserves_authoritative_user_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, str]:
+            return {
+                "id": "00000000-0000-0000-0000-000000000123",
+                "email": "analyst@example.com",
+                "email_confirmed_at": "2026-08-13T08:00:00Z",
+            }
+
+    class AsyncClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "AsyncClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, _url: str, **_kwargs: object) -> Response:
+            return Response()
+
+    monkeypatch.setattr(httpx, "AsyncClient", AsyncClient)
+    context = asyncio.run(_verifier().verify_with_auth_api_async("access-token"))
+
+    assert context.user_id == _user().user_id
+    assert context.email == "analyst@example.com"
+    assert context.raw_claims["role"] == "authenticated"
+
+
 def test_active_user_guard_rejects_a_locked_or_deleted_profile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -190,6 +307,13 @@ def test_locked_user_is_rejected_before_workspace_or_invitation_handlers(
         def get_user_profile(_user_id: str) -> dict[str, str]:
             return {"role": "analyst", "status": "locked"}
 
+        @staticmethod
+        def resolve_request_principal(_user_id: str) -> dict[str, object]:
+            return {
+                "profile": {"role": "analyst", "status": "locked"},
+                "memberships": [],
+            }
+
     monkeypatch.setattr(dependencies, "get_repository", lambda: Repository())
     client = TestClient(_auth_api())
     assert client.get("/workspaces").status_code == 403
@@ -206,6 +330,13 @@ def test_system_admin_is_rejected_by_an_analyst_resource_route(
         @staticmethod
         def get_user_profile(_user_id: str) -> dict[str, str]:
             return {"role": "admin", "status": "active"}
+
+        @staticmethod
+        def resolve_request_principal(_user_id: str) -> dict[str, object]:
+            return {
+                "profile": {"role": "admin", "status": "active"},
+                "memberships": [],
+            }
 
     monkeypatch.setattr(dependencies, "get_repository", lambda: Repository())
     response = TestClient(_auth_api()).get("/me")

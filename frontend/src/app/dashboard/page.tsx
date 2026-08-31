@@ -53,7 +53,17 @@ export default function DashboardPage() {
 
   return <main className="dashboard-page">
     <header className="dashboard-header">
-      <div><p className="eyebrow">{roleCopy.eyebrow}</p><h1>{roleCopy.title}</h1><p>{roleCopy.description}</p></div>
+      <div className="dashboard-header-copy">
+        <div className="dashboard-title-lockup">
+          <span className="dashboard-title-mark" aria-hidden="true">✦</span>
+          <div><p className="eyebrow">{roleCopy.eyebrow} / ARC 01</p><h1>{roleCopy.title}</h1></div>
+        </div>
+        <p>{roleCopy.description}</p>
+      </div>
+      <div className="dashboard-header-note" aria-label="Workspace status">
+        <span className="dashboard-header-note-dot" aria-hidden="true" />
+        <span><b>SCAN READY</b><small>evidence pipeline online</small></span>
+      </div>
       {can(me.effective_permissions, PERMISSIONS.datasetUpload) && <Link href="/datasets/new" className="button primary">{"T\u1ea3i d\u1eef li\u1ec7u l\u00ean"} <span aria-hidden="true">→</span></Link>}
     </header>
 

@@ -8,16 +8,10 @@ import { formatDate, formatNumber } from "@/lib/format";
 import type { DriftFinding, DriftResponse, ProfileRunSummary } from "@/lib/types";
 import { useAuth } from "@/components/auth-provider";
 import { EmptyState, ErrorNotice, InfoTip, LoadingBlock, LoadingButton, Notice, PageHeader, useToast } from "@/components/ui";
+import { driftDisplayValue, driftEvidenceLabel, driftSeverityLabel, driftTypeLabel, groupDriftFindingRecords } from "@/lib/drift-evidence";
 
 type CompletedRun = ProfileRunSummary & { datasetName: string };
 type Severity = DriftFinding["severity"];
-type ColumnDrift = { name: string; findings: DriftFinding[]; severity: Severity };
-
-const severityCopy: Record<Severity, string> = { major: "Nghiêm trọng", minor: "Cần theo dõi" };
-const driftTypeCopy: Record<string, string> = {
-  column_added: "Cột mới", column_removed: "Cột bị thiếu", dtype_changed: "Thay đổi kiểu dữ liệu",
-  null_rate_shift: "Thay đổi tỷ lệ thiếu", numeric_shift: "Thay đổi chỉ số số", distribution_shift: "Thay đổi phân phối",
-};
 
 function runLabel(run: CompletedRun) {
   return run.run_name?.trim() || `Phiên bản v${run.version ?? "—"}`;
@@ -27,33 +21,6 @@ function runMeta(run: CompletedRun) {
   const scan = run.scan_mode === "full" ? "Full scan" : run.scan_mode === "sample" ? "Sample scan" : null;
   const rows = run.row_count === null || run.row_count === undefined ? null : `${formatNumber(run.row_count)} dòng`;
   return [scan, rows, run.created_at ? formatDate(run.created_at) : null].filter(Boolean).join(" · ");
-}
-
-function displayValue(value: unknown) {
-  if (typeof value === "number") return formatNumber(value, 3);
-  if (typeof value === "string") return value;
-  return "—";
-}
-
-function findingMetric(finding: DriftFinding) {
-  if (typeof finding.psi === "number") return `PSI ${formatNumber(finding.psi, 3)}`;
-  if (finding.metric) return finding.metric === "null_pct" ? "Tỷ lệ thiếu" : finding.metric;
-  return driftTypeCopy[finding.drift_type] ?? finding.drift_type;
-}
-
-function groupFindings(findings: DriftFinding[]): ColumnDrift[] {
-  const groups = new Map<string, DriftFinding[]>();
-  for (const finding of findings) {
-    const key = finding.column_name || "Dataset";
-    groups.set(key, [...(groups.get(key) ?? []), finding]);
-  }
-  return [...groups.entries()]
-    .map(([name, columnFindings]) => ({
-      name,
-      findings: columnFindings,
-      severity: (columnFindings.some((finding) => finding.severity === "major") ? "major" : "minor") as Severity,
-    }))
-    .sort((a, b) => Number(b.severity === "major") - Number(a.severity === "major") || a.name.localeCompare(b.name, "vi"));
 }
 
 function RunSelector({ id, role, description, value, runs, excludeRunId, disabled, onChange }: {
@@ -79,10 +46,10 @@ function MethodologyTip() {
 
 function FindingDetail({ finding }: { finding: DriftFinding }) {
   return <article className="compare-evidence-item">
-    <div><b>{driftTypeCopy[finding.drift_type] ?? finding.drift_type}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{severityCopy[finding.severity]}</span></div>
+    <div><b>{driftTypeLabel(finding.drift_type)}</b><span className={`compare-severity compare-severity-${finding.severity}`}>{driftSeverityLabel(finding.severity)}</span></div>
     <p>{finding.detail}</p>
-    <dl><div><dt>Evidence</dt><dd>{findingMetric(finding)}</dd></div>
-      {(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{displayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{displayValue(finding.current_value)}</dd></div></>}
+    <dl><div><dt>Evidence</dt><dd>{driftEvidenceLabel(finding)}</dd></div>
+      {(finding.baseline_value !== undefined || finding.current_value !== undefined) && <><div><dt>Baseline</dt><dd>{driftDisplayValue(finding.baseline_value)}</dd></div><div><dt>Current</dt><dd>{driftDisplayValue(finding.current_value)}</dd></div></>}
     </dl>
   </article>;
 }
@@ -127,19 +94,18 @@ export function CompareWorkspace() {
   const comparison = useMutation({
     mutationFn: () => detectDrift(currentId, baselineId),
     onSuccess: (nextResult) => {
-      const firstColumn = groupFindings(nextResult.findings)[0]?.name ?? null;
+      const firstColumn = groupDriftFindingRecords(nextResult.findings)[0]?.name ?? null;
       setResult(nextResult); setSelectedColumn(firstColumn); setSearch(""); setSeverity("all");
       toast.success(nextResult.findings.length ? "Đã hoàn tất so sánh và tổng hợp evidence." : "Đã hoàn tất: không phát hiện drift đáng chú ý.");
     },
   });
-  const columns = useMemo(() => groupFindings(result?.findings ?? []), [result]);
+  const columns = useMemo(() => groupDriftFindingRecords(result?.findings ?? []), [result]);
   const visibleColumns = useMemo(() => columns.filter((column) => {
     const normalizedSearch = search.trim().toLocaleLowerCase("vi");
     return column.name.toLocaleLowerCase("vi").includes(normalizedSearch) && (severity === "all" || column.severity === severity);
   }), [columns, search, severity]);
-  const selected = columns.find((column) => column.name === selectedColumn) ?? null;
-  const majorCount = columns.filter((column) => column.severity === "major").length;
-  const minorCount = columns.filter((column) => column.severity === "minor").length;
+  const majorCount = result?.findings.filter((finding) => finding.severity === "major").length ?? 0;
+  const minorCount = result?.findings.filter((finding) => finding.severity === "minor").length ?? 0;
   const canCompare = Boolean(baselineId && currentId && baselineId !== currentId);
   const baselineRun = completedRuns.find((run) => run.id === result?.baseline_run_id);
   const currentRun = completedRuns.find((run) => run.id === result?.current_run_id);
@@ -169,11 +135,11 @@ export function CompareWorkspace() {
     {result && <section className="compare-results" aria-labelledby="compare-results-title">
       <header className="compare-results-heading"><div><p className="eyebrow">KẾT QUẢ EVIDENCE</p><h2 id="compare-results-title">Tổng quan drift</h2><p>{result.summary}</p></div><div className="compare-result-context"><span>Baseline → Current</span><b>{baselineRun ? runLabel(baselineRun) : "Profile Run đã chọn"}</b><small>→ {currentRun ? runLabel(currentRun) : "Profile Run đã chọn"}</small></div></header>
       {result.findings.length === 0 ? <Notice tone="success"><b>Không phát hiện drift đáng chú ý.</b><p>Kết quả deterministic từ backend không ghi nhận signal drift cho cặp Profile Run này.</p></Notice> : <>
-        <div className="compare-summary-grid"><article><span>Nghiêm trọng</span><b>{formatNumber(majorCount)}</b><small>Cột có ít nhất một signal major</small></article><article><span>Cần theo dõi</span><b>{formatNumber(minorCount)}</b><small>Cột chỉ có signal minor</small></article><article><span>Cột có evidence</span><b>{formatNumber(columns.length)}</b><small>{formatNumber(result.findings.length)} signal backend trả về</small></article></div>
-        <section className="panel compare-table-panel" aria-labelledby="compare-column-title"><div className="compare-table-heading"><div><h2 id="compare-column-title">Chi tiết theo cột</h2><p>Ưu tiên các cột có signal nghiêm trọng. Chọn một cột để xem evidence.</p></div><span>{formatNumber(visibleColumns.length)} / {formatNumber(columns.length)} cột</span></div><div className="compare-table-controls"><label><span>Tìm cột</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên cột…" /></label><label><span>Severity</span><select value={severity} onChange={(event) => setSeverity(event.target.value as "all" | Severity)}><option value="all">Tất cả severity</option><option value="major">Nghiêm trọng</option><option value="minor">Cần theo dõi</option></select></label></div>
-          {visibleColumns.length ? <div className="table-wrap"><table className="compare-table"><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>{visibleColumns.map((column) => <tr key={column.name} className={selectedColumn === column.name ? "is-selected" : ""}><td><button type="button" className="compare-column-trigger" onClick={() => setSelectedColumn(column.name)} aria-pressed={selectedColumn === column.name}>{column.name}<small>Xem evidence →</small></button></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{severityCopy[column.severity]}</span></td><td>{findingMetric(column.findings[0])}</td><td>{formatNumber(column.findings.length)} signal</td></tr>)}</tbody></table></div> : <div className="compare-no-results"><b>Không có cột phù hợp với bộ lọc.</b><button type="button" className="button secondary" onClick={() => { setSearch(""); setSeverity("all"); }}>Xóa bộ lọc</button></div>}
+        <div className="compare-summary-grid"><article><span>Nghiêm trọng</span><b>{formatNumber(majorCount)}</b><small>Signal major</small></article><article><span>Cần theo dõi</span><b>{formatNumber(minorCount)}</b><small>Signal minor</small></article><article><span>Cột có evidence</span><b>{formatNumber(columns.length)}</b><small>{formatNumber(result.findings.length)} signal backend trả về</small></article></div>
+        <section className="panel compare-table-panel" aria-labelledby="compare-column-title"><div className="compare-table-heading"><div><h2 id="compare-column-title">Chi tiết theo cột</h2><p>Ưu tiên các cột có signal nghiêm trọng. Toàn bộ evidence được hiển thị bên dưới.</p></div><span>{formatNumber(visibleColumns.length)} / {formatNumber(columns.length)} cột</span></div><div className="compare-table-controls"><label><span>Tìm cột</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên cột…" /></label><label><span>Severity</span><select value={severity} onChange={(event) => setSeverity(event.target.value as "all" | Severity)}><option value="all">Tất cả severity</option><option value="major">Nghiêm trọng</option><option value="minor">Cần theo dõi</option></select></label></div>
+          {visibleColumns.length ? <div className="table-wrap"><table className="compare-table"><thead><tr><th>Cột</th><th>Severity</th><th>Evidence</th><th>Signal</th></tr></thead><tbody>{visibleColumns.map((column) => <tr key={column.name} className={selectedColumn === column.name ? "is-selected" : ""}><td><button type="button" className="compare-column-trigger" onClick={() => setSelectedColumn(column.name)} aria-pressed={selectedColumn === column.name} aria-controls={`compare-detail-${encodeURIComponent(column.name)}`}>{column.name}<small>Đánh dấu evidence →</small></button></td><td><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabel(column.severity)}</span></td><td>{driftEvidenceLabel(column.findings[0])}</td><td>{formatNumber(column.findings.length)} signal</td></tr>)}</tbody></table></div> : <div className="compare-no-results"><b>Không có cột phù hợp với bộ lọc.</b><button type="button" className="button secondary" onClick={() => { setSearch(""); setSeverity("all"); }}>Xóa bộ lọc</button></div>}
         </section>
-        {selected && <section className="panel compare-detail-panel" aria-labelledby="compare-detail-title"><div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h2 id="compare-detail-title">{selected.name}</h2><p>{selected.findings.length} signal được backend trả về cho cột này.</p></div><span className={`compare-severity compare-severity-${selected.severity}`}>{severityCopy[selected.severity]}</span></div><div className="compare-evidence-list">{selected.findings.map((finding, index) => <FindingDetail key={`${finding.drift_type}-${index}`} finding={finding} />)}</div><p className="compare-evidence-note">Phân phối chi tiết theo bins/categories chưa có trong contract drift hiện tại; trang chỉ hiển thị aggregate evidence mà backend trả về.</p><Link href={baselineId ? `/profiles/${encodeURIComponent(baselineId)}` : "/datasets"} className="button secondary">Xem Profile Run baseline</Link></section>}
+        <div className="compare-detail-list">{visibleColumns.map((column) => <section className="panel compare-detail-panel" id={`compare-detail-${encodeURIComponent(column.name)}`} aria-labelledby={`compare-detail-title-${encodeURIComponent(column.name)}`} key={column.name}><div className="compare-detail-heading"><div><p className="eyebrow">EVIDENCE CỘT</p><h2 id={`compare-detail-title-${encodeURIComponent(column.name)}`}>{column.name}</h2><p>{column.findings.length} signal được backend trả về cho cột này.</p></div><span className={`compare-severity compare-severity-${column.severity}`}>{driftSeverityLabel(column.severity)}</span></div><div className="compare-evidence-list">{column.findings.map((finding, index) => <FindingDetail key={`${finding.drift_type}-${index}`} finding={finding as DriftFinding} />)}</div></section>)}</div><p className="compare-evidence-note">Phân phối chi tiết theo bins/categories chưa có trong contract drift hiện tại; trang chỉ hiển thị aggregate evidence mà backend trả về.</p><Link href={baselineId ? `/profiles/${encodeURIComponent(baselineId)}` : "/datasets"} className="button secondary">Xem Profile Run baseline</Link>
       </>}
     </section>}
   </div>;

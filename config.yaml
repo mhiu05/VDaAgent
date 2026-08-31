@@ -75,7 +75,7 @@ security:
 auth:
   # dual is a short rollout bridge; production must set supabase.
   mode: dual
-  allow_signup: false
+  allow_signup: true
   require_email_confirmed: true
   audience: authenticated
   jwks_cache_ttl_seconds: 300

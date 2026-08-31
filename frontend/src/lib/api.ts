@@ -1,8 +1,10 @@
 import { parseSseChunk, type SseEvent } from "@/lib/sse";
 import type {
   Dataset,
+  DatasetProfileResult,
   DriftResponse,
   Profile,
+  ProfileSummary,
   ProfilingJob,
   ProfileRunSummary,
   ProposalDecisionType,
@@ -206,7 +208,7 @@ export function testSavedConnector(id: string): Promise<{ id: string; provider: 
   return request(`/connectors/${encodeURIComponent(id)}/test`, { method: "POST" });
 }
 
-export function disconnectConnector(id: string): Promise<{ id: string; deleted: boolean }> {
+export function deleteConnector(id: string): Promise<{ id: string; deleted: boolean }> {
   return request(`/connectors/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
@@ -222,7 +224,7 @@ export function getGoogleDriveStatus(): Promise<GoogleDriveStatus> {
   return request<GoogleDriveStatus>("/google-drive/status");
 }
 
-export function disconnectGoogleDrive(): Promise<{ deleted: boolean }> {
+export function deleteGoogleDriveConnection(): Promise<{ deleted: boolean }> {
   return request<{ deleted: boolean }>("/google-drive/connection", { method: "DELETE" });
 }
 
@@ -510,6 +512,73 @@ export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<Pr
   return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal, cache: "no-store" });
 }
 
+export function getProfileSummary(runId: string, signal?: AbortSignal): Promise<ProfileSummary> {
+  return request<ProfileSummary>(`/profile/${encodeURIComponent(runId)}/summary`, { signal, cache: "no-store" });
+}
+
+export async function streamProfileEvents(
+  jobId: string,
+  onEvent: (event: SseEvent<ProfileSummary>) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await apiFetch(`/profiling-jobs/${encodeURIComponent(jobId)}/events`, {
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  if (!response.ok) throw await readError(response);
+  if (!response.body) throw new ApiError("Trình duyệt không hỗ trợ streaming response.", 0);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let remainder = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const parsed = parseSseChunk(decoder.decode(value, { stream: true }), remainder);
+      remainder = parsed.remainder;
+      parsed.events.forEach((event) => onEvent(event as SseEvent<ProfileSummary>));
+    }
+    const final = parseSseChunk(decoder.decode(), remainder);
+    final.events.forEach((event) => onEvent(event as SseEvent<ProfileSummary>));
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/** Wait until the profile resume has persisted its final report. */
+export async function waitForProfileReady(
+  runId: string,
+  signal?: AbortSignal,
+  options: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<Profile> {
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const intervalMs = options.intervalMs ?? 2_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() <= deadline) {
+    let profile: Profile;
+    try {
+      profile = await getProfile(runId, signal);
+    } catch (error) {
+      // A brief API/database hiccup must not send the user away from the
+      // review flow while the worker is still running.
+      if (!(error instanceof ApiError) || error.status < 500) throw error;
+      await pollingDelay(intervalMs, signal);
+      continue;
+    }
+    if (profile.status === "failed") {
+      throw new ApiError(profile.error || "Profile không thể hoàn tất.", 409);
+    }
+    if (profile.status === "completed" && profile.narrative_report?.trim()) {
+      return profile;
+    }
+    await pollingDelay(intervalMs, signal);
+  }
+
+  throw new ApiError("Profile vẫn đang được hoàn thiện. Bạn có thể mở lại báo cáo để tiếp tục theo dõi.", 408);
+}
+
 function pollingDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -654,7 +723,7 @@ export async function downloadCombinedJson(runId: string, sections?: CombinedRep
   return response.blob();
 }
 
-export function askQuestion(payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[] }): Promise<QAResponse> {
+export function askQuestion(payload: { question: string; profile_run_id?: string; history?: QAHistoryMessage[]; analysis_execution_id?: string; workspace_context_version_id?: string; response_mode?: "default" | "chart_insight" }): Promise<QAResponse> {
   return request<QAResponse>("/qa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -669,6 +738,7 @@ export async function streamQuestion(
     history?: QAHistoryMessage[];
     analysis_execution_id?: string;
     workspace_context_version_id?: string;
+    response_mode?: "default" | "chart_insight";
   },
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
@@ -817,6 +887,31 @@ export type ReportDraft = { id: string; title: string; profile_run_id: string; s
 
 export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);
+}
+
+export function startDatasetProfile(datasetId: string, payload: { dataset_name?: string; collection_name?: string; run_name?: string; scan_mode: "full" | "sample"; sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number } }, idempotencyKey = crypto.randomUUID()): Promise<DatasetProfileResult> {
+  return request<DatasetProfileResult>(`/datasets/${encodeURIComponent(datasetId)}/profile`, {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(payload),
+  });
+}
+
+export function startDatasetProfiles(payload: { dataset_ids: string[]; dataset_name?: string; collection_name?: string; run_name?: string; scan_mode?: "full" | "sample"; sampling?: { strategy: "reservoir" | "tablesample"; sample_size?: number; random_seed?: number } }, idempotencyKey = crypto.randomUUID()): Promise<DatasetProfileResult[]> {
+  return request<DatasetProfileResult[]>("/datasets/profile", {
+    method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey }, body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * A draft title is ordinary, user-authored report metadata.  The server still
+ * owns permissions and the canonical value; callers may safely mirror the
+ * title locally while this request is in flight.
+ */
+export function updateReportDraftTitle(reportId: string, title: string): Promise<ReportDraft> {
+  return request<ReportDraft>(`/reports/${encodeURIComponent(reportId)}/draft-title`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
 }
 
 export function pinChartToReport(

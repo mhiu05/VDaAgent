@@ -2631,6 +2631,115 @@ class Repository:
             )
             return [dict(row) for row in rows]
 
+    def resolve_request_principal(self, user_id: str) -> dict[str, Any] | None:
+        """Read a user's authoritative profile and active workspace scope at once.
+
+        Authorization deliberately stays database-backed: role, account status,
+        membership status, and workspace status are never trusted from JWT
+        metadata.  The outer join retains a valid profile with no active
+        memberships so callers can preserve the existing 403/404 distinctions.
+        """
+        active_memberships = (
+            select(
+                workspace_memberships.c.user_id.label("membership_user_id"),
+                workspace_memberships.c.workspace_id.label("workspace_id"),
+                workspace_memberships.c.role.label("membership_role"),
+                workspace_memberships.c.created_at.label("membership_created_at"),
+                workspaces.c.name.label("workspace_name"),
+                workspaces.c.slug.label("workspace_slug"),
+                workspaces.c.created_by_user_id.label("workspace_created_by_user_id"),
+                workspaces.c.settings.label("workspace_settings"),
+            )
+            .select_from(
+                workspace_memberships.join(
+                    workspaces,
+                    workspaces.c.id == workspace_memberships.c.workspace_id,
+                )
+            )
+            .where(
+                workspace_memberships.c.user_id == user_id,
+                workspace_memberships.c.status == "active",
+                workspaces.c.status == "active",
+            )
+            .subquery()
+        )
+        with self.engine.begin() as conn:
+            rows = (
+                conn.execute(
+                    select(
+                        user_profiles.c.user_id.label("profile_user_id"),
+                        user_profiles.c.email.label("profile_email"),
+                        user_profiles.c.display_name.label("profile_display_name"),
+                        user_profiles.c.role.label("profile_role"),
+                        user_profiles.c.status.label("profile_status"),
+                        user_profiles.c.locked_reason.label("profile_locked_reason"),
+                        user_profiles.c.locked_at.label("profile_locked_at"),
+                        user_profiles.c.locked_by_user_id.label("profile_locked_by_user_id"),
+                        user_profiles.c.created_at.label("profile_created_at"),
+                        user_profiles.c.updated_at.label("profile_updated_at"),
+                        active_memberships.c.workspace_id,
+                        active_memberships.c.membership_role,
+                        active_memberships.c.workspace_name,
+                        active_memberships.c.workspace_slug,
+                        active_memberships.c.workspace_created_by_user_id,
+                        active_memberships.c.workspace_settings,
+                        active_memberships.c.membership_created_at,
+                    )
+                    .select_from(
+                        user_profiles.outerjoin(
+                            active_memberships,
+                            user_profiles.c.user_id
+                            == active_memberships.c.membership_user_id,
+                        )
+                    )
+                    .where(user_profiles.c.user_id == user_id)
+                    .order_by(active_memberships.c.membership_created_at)
+                )
+                .mappings()
+                .all()
+            )
+        if not rows:
+            return None
+
+        first = dict(rows[0])
+        profile = {
+            "user_id": first["profile_user_id"],
+            "email": first.get("profile_email"),
+            "display_name": first.get("profile_display_name"),
+            "role": first.get("profile_role") or "analyst",
+            "status": first.get("profile_status") or "active",
+            "locked_reason": first.get("profile_locked_reason"),
+            "locked_at": (
+                first["profile_locked_at"].isoformat()
+                if first.get("profile_locked_at")
+                else None
+            ),
+            "locked_by_user_id": first.get("profile_locked_by_user_id"),
+            "created_at": (
+                first["profile_created_at"].isoformat()
+                if first.get("profile_created_at")
+                else None
+            ),
+            "updated_at": (
+                first["profile_updated_at"].isoformat()
+                if first.get("profile_updated_at")
+                else None
+            ),
+        }
+        memberships = [
+            {
+                "workspace_id": row["workspace_id"],
+                "role": row["membership_role"],
+                "name": row["workspace_name"],
+                "slug": row["workspace_slug"],
+                "created_by_user_id": row["workspace_created_by_user_id"],
+                "settings": row["workspace_settings"],
+            }
+            for row in rows
+            if row.get("workspace_id") is not None
+        ]
+        return {"profile": profile, "memberships": memberships}
+
     def dashboard_summary(
         self, workspace_id: str, *, report_limit: int = 12
     ) -> dict[str, Any]:
@@ -3880,6 +3989,24 @@ class Repository:
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
 
+    def profile_job_request_hashes_for_prefix(
+        self,
+        *,
+        workspace_id: str,
+        created_by_user_id: str,
+        idempotency_key_prefix: str,
+    ) -> set[str]:
+        """Return persisted batch request hashes without reading job payloads."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                select(profile_runs.c.job_request_hash).where(
+                    profile_runs.c.workspace_id == workspace_id,
+                    profile_runs.c.created_by_user_id == created_by_user_id,
+                    profile_runs.c.job_idempotency_key.startswith(idempotency_key_prefix),
+                )
+            ).scalars()
+            return {str(value) for value in rows if value}
+
     def claim_profile_job(
         self, *, worker_id: str, lease_seconds: int
     ) -> dict[str, Any] | None:
@@ -4438,6 +4565,66 @@ class Repository:
                 query = query.where(profile_runs.c.workspace_id == workspace_id)
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
+
+    def get_profile_summary(
+        self, run_id: str, *, workspace_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Project only the fields needed to render Command Center progress."""
+        column_count = (
+            select(func.count())
+            .select_from(column_stats)
+            .where(column_stats.c.profile_run_id == profile_runs.c.id)
+            .scalar_subquery()
+        )
+        pending_proposals = sum(
+            (
+                select(func.count())
+                .select_from(table)
+                .where(
+                    table.c.profile_run_id == profile_runs.c.id,
+                    table.c.status == "pending",
+                )
+                .scalar_subquery()
+            )
+            for table in PROPOSAL_TABLES.values()
+        )
+        query = select(
+            profile_runs.c.id,
+            profile_runs.c.dataset_id,
+            profile_runs.c.status,
+            profile_runs.c.job_status,
+            profile_runs.c.scan_mode,
+            profile_runs.c.row_count,
+            profile_runs.c.risk_warnings,
+            datasets.c.name.label("dataset_name"),
+            column_count.label("column_count"),
+            pending_proposals.label("pending_proposals"),
+        ).select_from(
+            profile_runs.join(datasets, datasets.c.id == profile_runs.c.dataset_id)
+        ).where(profile_runs.c.id == run_id)
+        if workspace_id is not None:
+            query = query.where(profile_runs.c.workspace_id == workspace_id)
+        # The SSE endpoint calls this projection repeatedly. Keep its three
+        # counters in the same short, read-only connection instead of opening
+        # a transaction per counter or retaining one for the stream lifetime.
+        with self.engine.connect() as conn:
+            run = conn.execute(query).mappings().first()
+        if not run:
+            return None
+        warnings = run.get("risk_warnings") or []
+        return {
+            "profile_run_id": str(run["id"]),
+            "dataset_id": str(run["dataset_id"]),
+            "dataset_name": run.get("dataset_name"),
+            "status": str(run.get("status") or "created"),
+            "job_status": run.get("job_status"),
+            "scan_mode": run.get("scan_mode"),
+            "row_count": run.get("row_count"),
+            "column_count": int(run.get("column_count") or 0),
+            "warning_count": len(warnings) if isinstance(warnings, list) else 0,
+            "pending_proposals": int(run.get("pending_proposals") or 0),
+            "context_version_id": None,
+        }
 
     def list_profile_runs(
         self,
@@ -5573,11 +5760,22 @@ def build_engine(settings: Settings | None = None) -> Engine:
     # lived connection which is returned immediately at transaction end.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
     if is_supabase_pooler:
+        # Supabase's 5432 endpoint is session mode and has a small per-project
+        # client cap. API/worker metadata traffic is safe on transaction mode;
+        # transparently use it when a local .env still contains the session
+        # endpoint so `make dev` does not exhaust the project pool.
+        if url.port == 5432:
+            url = url.set(port=6543)
         engine = create_engine(
             url,
             future=True,
             poolclass=NullPool,
             pool_pre_ping=True,
+            # Supavisor transaction pooling can hand the next query to a
+            # different backend connection, where psycopg's generated named
+            # prepared statement already exists. Disable client prepares just
+            # as the LangGraph checkpointer does for this pooler mode.
+            connect_args={"prepare_threshold": None},
         )
     else:
         # Local PostgreSQL benefits from a small bounded pool. Never use

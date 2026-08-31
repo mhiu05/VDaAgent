@@ -206,7 +206,7 @@ class Settings(BaseSettings):
     # ``dual`` exists only for the migration window.  It maps the old shared
     # token to a bootstrap workspace; production should move to ``supabase``.
     auth_mode: Literal["dual", "supabase"] = "dual"
-    auth_allow_signup: bool = False
+    auth_allow_signup: bool = True
     auth_allow_guest: bool = False
     # Guest trials use a bounded, shared demo storage backend. Authenticated
     # workspaces keep using the provider configured by STORAGE_PROVIDER.
@@ -447,6 +447,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL hoặc DATABASE_CHECKPOINTER_URL bắt buộc cho PostgreSQL checkpointer."
             )
+        # The session-mode Supabase pooler (5432) has a small client cap. The
+        # checkpointer uses short autocommit transactions and is compatible
+        # with transaction mode, so prefer 6543 for local dev as well.
+        if "pooler.supabase.com" in value.lower() and ":5432/" in value:
+            value = value.replace(":5432/", ":6543/", 1)
         if not value.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_CHECKPOINTER_URL phải là PostgreSQL.")
         return value

@@ -1,4 +1,10 @@
-from src.services.llm import LLM_RUNTIME_NOTICE, report_text, response_text, safe_llm_warning
+from src.services.llm import (
+    LLM_RUNTIME_NOTICE,
+    normalize_profile_action_numbering,
+    report_text,
+    response_text,
+    safe_llm_warning,
+)
 
 
 def test_response_text_discards_provider_metadata_blocks() -> None:
@@ -36,3 +42,21 @@ def test_report_text_removes_legacy_provider_error() -> None:
     assert "Không sinh được báo cáo bằng LLM" not in clean
     assert clean == "## Tóm tắt từ Agent\n\n- Số liệu deterministic vẫn hợp lệ."
     assert safe_llm_warning(legacy) == LLM_RUNTIME_NOTICE
+
+
+def test_profile_action_items_use_section_subnumbering() -> None:
+    report = (
+        "## 5. \u01afu ti\u00ean h\u00e0nh \u0111\u1ed9ng\n"
+        "1. **First**\n"
+        "2) **Second**\n"
+        "5.3. **Already numbered**\n"
+        "\n## 6. Next\n"
+    )
+
+    assert normalize_profile_action_numbering(report) == (
+        "## 5. \u01afu ti\u00ean h\u00e0nh \u0111\u1ed9ng\n"
+        "5.1. **First**\n"
+        "5.2. **Second**\n"
+        "5.3. **Already numbered**\n"
+        "\n## 6. Next\n"
+    )

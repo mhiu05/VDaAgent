@@ -25,13 +25,26 @@ function statusClass(status: string): string {
 }
 
 export default function ReportsPage() {
-  const { me } = useAuth();
+  const { me, workspaceId } = useAuth();
   const client = useQueryClient();
   const dialog = useDialog();
-  const reports = useQuery({ queryKey: ["published-reports"], queryFn: () => listPublishedReports<{ reports: Report[] }>() });
+  const reportsKey = ["published-reports", workspaceId] as const;
+  const reports = useQuery({ queryKey: reportsKey, queryFn: () => listPublishedReports<{ reports: Report[] }>() });
   const deletion = useMutation({
     mutationFn: deleteReport,
-    onSuccess: async () => { await client.invalidateQueries({ queryKey: ["published-reports"] }); },
+    onMutate: async (reportId) => {
+      await client.cancelQueries({ queryKey: reportsKey });
+      const previous = client.getQueryData<{ reports: Report[] }>(reportsKey);
+      client.setQueryData<{ reports: Report[] }>(reportsKey, (old) => old ? {
+        ...old,
+        reports: old.reports.filter((report) => report.id !== reportId),
+      } : old);
+      return { previous };
+    },
+    onError: (_error, _reportId, context) => {
+      if (context?.previous !== undefined) client.setQueryData(reportsKey, context.previous);
+    },
+    onSettled: async () => { await client.invalidateQueries({ queryKey: reportsKey }); },
   });
   const items = reports.data?.reports ?? [];
   const canDeleteReport = can(me?.effective_permissions, PERMISSIONS.reportDraftWrite);

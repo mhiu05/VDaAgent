@@ -105,12 +105,14 @@ def _mysql_config(config: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _mongo_config(config: dict[str, Any]) -> dict[str, Any]:
+def _mongo_config(config: dict[str, Any], *, require_collection: bool = True) -> dict[str, Any]:
     uri = str(config.get("uri", "")).strip()
     database = str(config.get("database", "")).strip()
     collection = str(config.get("collection", "")).strip()
-    if not uri or not database or not collection:
-        raise DatasourceError("MongoDB cần URI, database và collection.")
+    if not uri or not database:
+        raise DatasourceError("MongoDB cần URI và database.")
+    if require_collection and not collection:
+        raise DatasourceError("MongoDB cần collection sau khi kiểm tra kết nối.")
     if not uri.startswith(("mongodb://", "mongodb+srv://")):
         raise DatasourceError("MongoDB URI không hợp lệ.")
     try:
@@ -121,7 +123,10 @@ def _mongo_config(config: dict[str, Any]) -> dict[str, Any]:
             raise ValueError
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         raise DatasourceError("MongoDB filter phải là JSON object.") from exc
-    return {"uri": uri, "database": database, "collection": collection, "filter": query_filter}
+    result = {"uri": uri, "database": database, "filter": query_filter}
+    if collection:
+        result["collection"] = collection
+    return result
 
 
 def _duckdb_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -139,11 +144,16 @@ def _duckdb_config(config: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def normalize_config(kind: DatasourceKind, config: dict[str, Any]) -> dict[str, Any]:
+def normalize_config(
+    kind: DatasourceKind,
+    config: dict[str, Any],
+    *,
+    require_collection: bool = True,
+) -> dict[str, Any]:
     if kind == "mysql":
         return _mysql_config(config)
     if kind == "mongodb":
-        return _mongo_config(config)
+        return _mongo_config(config, require_collection=require_collection)
     if kind == "duckdb":
         return _duckdb_config(config)
     raise DatasourceError("Datasource chưa được hỗ trợ.")
@@ -245,7 +255,10 @@ def _materialize_duckdb(config: dict[str, Any], target: Path) -> None:
 
 
 def probe(kind: DatasourceKind, config: dict[str, Any]) -> list[str]:
-    normalized = normalize_config(kind, config)
+    # MongoDB probes only need the URI and database to enumerate collections.
+    # Persisting or materializing data still normalizes with the default,
+    # collection-required contract.
+    normalized = normalize_config(kind, config, require_collection=kind != "mongodb")
     if kind == "mysql":
         engine = _mysql_engine(normalized)
         try:

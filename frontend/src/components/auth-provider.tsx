@@ -521,6 +521,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (nextWorkspaceId === workspaceId) return;
     await queryClient.cancelQueries();
     queryClient.clear();
+    // Stop workspace-scoped streams and queries before the bootstrap request
+    // chooses the next workspace. Otherwise an old long-lived stream can
+    // repopulate a cleared cache during the switch hand-off.
+    workspaceIdRef.current = null;
+    setWorkspaceId(null);
     await load(nextWorkspaceId, true);
   }, [load, queryClient, workspaceId]);
 

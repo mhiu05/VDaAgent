@@ -2,19 +2,22 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import type { GuestRole } from "@/lib/auth/guest-session";
 import { guestEnabled } from "@/lib/auth/guest-session";
+import { PublicPageMotion } from "@/components/public-motion";
 
 const trialRole: { value: GuestRole; label: string } = { value: "analyst", label: "Analyst" };
 
 export function PublicNavbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { authenticated, isGuest, guestRole, me, enterGuestRole, signOut, loading } = useAuth();
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
   const currentRole = me?.workspace?.role;
   const isOverviewPage = pathname === "/" || pathname.startsWith("/guide") || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/forgot-password") || pathname.startsWith("/auth/") || pathname.startsWith("/account/update-password");
@@ -22,6 +25,44 @@ export function PublicNavbar() {
   const showTrialRoles = guestEnabled() && !loading && !authenticated;
   const showRoleGroup = showTrialRoles;
   const useGuestNavbar = isGuest && !isOverviewPage && !isAuthPage;
+
+  useEffect(() => {
+    setPendingPath(null);
+  }, [pathname]);
+
+  useEffect(() => {
+    const publicPaths = ["/", "/about", "/guide", "/docs", "/login", "/signup"];
+    publicPaths.forEach((path) => router.prefetch(path));
+  }, [router]);
+
+  useEffect(() => {
+    if (!pendingPath) return;
+    const timeout = window.setTimeout(() => setPendingPath(null), 10000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingPath]);
+
+  function handleNavigationClick(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || href === pathname) return;
+    setPendingPath(href);
+  }
+
+  function navState(href: string) {
+    const activePath = pendingPath ?? pathname;
+    const active = href === "/" ? activePath === "/" : activePath.startsWith(href);
+    const pending = pendingPath === href;
+    return {
+      className: `pub-nav-link${active ? " active" : ""}${pending ? " pending" : ""}`,
+      "aria-current": active ? "page" as const : undefined,
+    };
+  }
+
+  function actionState(href: string, variant: "primary" | "ghost") {
+    const pending = pendingPath === href;
+    return {
+      className: "pub-btn pub-btn-" + variant + " pub-nav-action" + (pending ? " pending" : ""),
+      "aria-busy": pending || undefined,
+    };
+  }
 
   useEffect(() => {
     const rootTheme = document.documentElement.dataset.theme;
@@ -53,18 +94,22 @@ export function PublicNavbar() {
   }
 
   return (
-    <div className="pub-navbar-wrapper">
+    <div className="pub-navbar-wrapper" data-nav-pending={pendingPath ? "true" : undefined} aria-busy={pendingPath ? "true" : undefined}>
+      <PublicPageMotion />
+      {pendingPath && <span className="pub-nav-status" role="status" aria-live="polite">Đang mở trang…</span>}
       <header className={`pub-navbar${useGuestNavbar ? " guest-navbar" : ""}`}>
         <Link href="/" className="pub-nav-brand" aria-label="VDaAgent Trang chủ">
-          <Image src="/img/logo.png" alt="Logo" width={32} height={32} unoptimized style={{ objectFit: "contain", background: "transparent" }} priority />
+          <span className="pub-brand-mascot" aria-hidden="true">
+            <Image src="/img/logo.png" alt="" width={110} height={110} unoptimized priority />
+          </span>
           <span>VDaAgent</span>
         </Link>
 
         <nav className="pub-nav-links">
-          <Link className={pathname === "/" ? "active" : ""} href="/">Trang chủ</Link>
-          <Link className={pathname.startsWith("/about") ? "active" : ""} href="/about">Giới thiệu</Link>
-          <Link className={pathname.startsWith("/guide") ? "active" : ""} href="/guide">Hướng dẫn</Link>
-          <Link className={pathname.startsWith("/docs") ? "active" : ""} href="/docs">Tài liệu</Link>
+          <Link {...navState("/")} href="/" onClick={(event) => handleNavigationClick(event, "/")}>Trang chủ</Link>
+          <Link {...navState("/about")} href="/about" onClick={(event) => handleNavigationClick(event, "/about")}>Giới thiệu</Link>
+          <Link {...navState("/guide")} href="/guide" onClick={(event) => handleNavigationClick(event, "/guide")}>Hướng dẫn</Link>
+          <Link {...navState("/docs")} href="/docs" onClick={(event) => handleNavigationClick(event, "/docs")}>Tài liệu</Link>
           <Link className={pathname.startsWith("/contact") ? "active" : ""} href="/contact">Liên hệ</Link>
 
           {showRoleGroup && (
@@ -111,14 +156,14 @@ export function PublicNavbar() {
           ) : isGuest ? (
             <>
               <button type="button" className="pub-btn pub-btn-secondary" onClick={() => void signOut()}>Kết thúc</button>
-              <Link className="pub-btn pub-btn-primary" href="/signup">Đăng ký</Link>
+              <Link {...actionState("/signup", "primary")} href="/signup" onClick={(event) => handleNavigationClick(event, "/signup")}>Đăng ký</Link>
             </>
           ) : loading ? (
             <span className="pub-nav-auth-pending" role="status" aria-label="Đang xác định phiên đăng nhập" />
           ) : (
             <>
-              <Link className="pub-btn pub-btn-ghost" href="/login">Đăng nhập</Link>
-              <Link className="pub-btn pub-btn-primary" href="/signup">Đăng ký</Link>
+              <Link {...actionState("/login", "ghost")} href="/login" onClick={(event) => handleNavigationClick(event, "/login")}>Đăng nhập</Link>
+              <Link {...actionState("/signup", "primary")} href="/signup" onClick={(event) => handleNavigationClick(event, "/signup")}>Đăng ký</Link>
             </>
           )}
         </nav>

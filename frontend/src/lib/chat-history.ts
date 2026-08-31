@@ -6,6 +6,10 @@ export type ChatMessage = {
   text: string;
   label?: string;
   sources?: AnswerSource[];
+  /** Local streaming status; never represents an Agent answer. */
+  status?: "streaming" | "error";
+  /** Short progress text received before the complete answer is available. */
+  statusDetail?: string;
 };
 
 export type ChatSnapshot = {

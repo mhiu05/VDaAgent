@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy.pool import NullPool
@@ -18,6 +19,26 @@ def test_supabase_pooler_metadata_engine_does_not_reserve_idle_sessions() -> Non
         assert isinstance(engine.pool, NullPool)
     finally:
         engine.dispose()
+
+
+def test_supabase_transaction_pooler_disables_psycopg_prepared_statements(monkeypatch) -> None:
+    """Prepared statements are unsafe when Supavisor swaps backend sessions."""
+    from src.services import repository
+
+    create_engine = Mock(return_value=Mock())
+    monkeypatch.setattr(repository, "create_engine", create_engine)
+    settings = SimpleNamespace(
+        database_url=(
+            "postgresql+psycopg://user:password@"
+            "aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
+        ),
+        perf_telemetry_enabled=False,
+    )
+
+    build_engine(settings)  # type: ignore[arg-type]
+
+    _, kwargs = create_engine.call_args
+    assert kwargs["connect_args"] == {"prepare_threshold": None}
 
 
 def test_local_metadata_engine_remains_small_and_bounded() -> None:

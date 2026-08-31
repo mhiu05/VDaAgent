@@ -3,8 +3,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { CHAT_HISTORY_EVENT, clearChatHistory, createConversation, deleteConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { CHAT_HISTORY_EVENT, clearChatHistory, deleteConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 import { requiredPermissionForPath } from "@/lib/auth/route-access";
@@ -37,6 +37,8 @@ function accountInitials(email: string | null) {
   const value = (email || "AN").split("@")[0].replace(/[^a-zA-Z0-9]/g, "");
   return value.slice(0, 2).toUpperCase() || "AN";
 }
+
+const OPTIMISTIC_PROGRESS_TIMEOUT_MS = 2_400;
 
 const adminNavigation = [
   { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
@@ -85,10 +87,14 @@ const analystNavigation = [
 function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsValue = searchParams.toString();
   const router = useRouter();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [openNavigationGroup, setOpenNavigationGroup] = useState<string | null>(null);
+  const [pendingWorkspacePath, setPendingWorkspacePath] = useState<string | null>(null);
+  const [pendingInteraction, setPendingInteraction] = useState(false);
+  const pendingInteractionTimeout = useRef<number | null>(null);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
   const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
   const dialog = useDialog();
@@ -98,6 +104,79 @@ function AppShellContent({ children }: { children: ReactNode }) {
   const isPublicPage = isHome || isGuide || pathname.startsWith("/about") || pathname.startsWith("/docs") || pathname.startsWith("/contact") || pathname.startsWith("/privacy") || pathname.startsWith("/terms");
   const isAdmin = Boolean(me?.user && can(me?.effective_permissions, PERMISSIONS.userAccountsRead));
   const roleNavigation = isAdmin ? adminNavigation : analystNavigation;
+  const workspaceNavigationPath = pendingWorkspacePath ?? pathname;
+
+  useEffect(() => {
+    setPendingWorkspacePath(null);
+    setPendingInteraction(false);
+  }, [pathname, searchParamsValue]);
+
+  useEffect(() => {
+    if (!pendingWorkspacePath) return;
+    const timeout = window.setTimeout(() => setPendingWorkspacePath(null), 10000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingWorkspacePath]);
+
+  useEffect(() => () => {
+    if (pendingInteractionTimeout.current !== null) {
+      window.clearTimeout(pendingInteractionTimeout.current);
+    }
+  }, []);
+
+  function isWorkspaceNavigationActive(href: string) {
+    return href === "/"
+      ? workspaceNavigationPath === "/"
+      : workspaceNavigationPath === href || workspaceNavigationPath.startsWith(href + "/");
+  }
+
+  const beginOptimisticInteraction = useCallback(() => {
+    setPendingInteraction(true);
+    if (pendingInteractionTimeout.current !== null) {
+      window.clearTimeout(pendingInteractionTimeout.current);
+    }
+    pendingInteractionTimeout.current = window.setTimeout(() => {
+      pendingInteractionTimeout.current = null;
+      setPendingInteraction(false);
+    }, OPTIMISTIC_PROGRESS_TIMEOUT_MS);
+  }, []);
+
+  useEffect(() => {
+    if (isPublicPage || isAuthPage) return;
+
+    const handleClick = (event: globalThis.MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (!(event.target instanceof Element)) return;
+
+      const button = event.target.closest<HTMLButtonElement>("button");
+      const link = event.target.closest<HTMLAnchorElement>("a[href]");
+      if (!button && !link) return;
+      if (button?.disabled || button?.getAttribute("aria-disabled") === "true") return;
+
+      if (link) {
+        const destination = new URL(link.href, window.location.href);
+        const current = new URL(window.location.href);
+        const changesRoute = destination.origin === current.origin
+          && (destination.pathname !== current.pathname || destination.search !== current.search || destination.hash !== current.hash);
+        if (!changesRoute && !button) return;
+        if (changesRoute) setPendingWorkspacePath(destination.pathname);
+      }
+
+      beginOptimisticInteraction();
+    };
+
+    const handleSubmit = (event: SubmitEvent) => {
+      const submitter = event.submitter;
+      if (submitter instanceof HTMLButtonElement && (submitter.disabled || submitter.getAttribute("aria-disabled") === "true")) return;
+      beginOptimisticInteraction();
+    };
+
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("submit", handleSubmit, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("submit", handleSubmit, true);
+    };
+  }, [beginOptimisticInteraction, isAuthPage, isPublicPage]);
 
   useEffect(() => {
     if (isAdmin) return;
@@ -246,12 +325,6 @@ function AppShellContent({ children }: { children: ReactNode }) {
     };
   }, [isAdmin, isAuthPage, isPublicPage]);
 
-  function startNewChat() {
-    const conversation = createConversation();
-    router.push(`/chat?conversation=${conversation.id}`);
-    window.setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0);
-  }
-
   async function changeWorkspace(nextWorkspaceId: string) {
     await switchWorkspace(nextWorkspaceId);
     // A chat is bound to the selected workspace. Return to the dashboard so
@@ -297,16 +370,31 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   if (isPublicPage || isAuthPage) return <main className="main-content home-only-content">{children}</main>;
 
+  const progressActive = Boolean(pendingWorkspacePath || pendingInteraction);
   const workspaceShell = (
-    <div className="app-shell">
+    <div className="app-shell" aria-busy={progressActive ? "true" : undefined}>
+      {progressActive && <span className="workspace-action-progress" aria-hidden="true" />}
       <aside className="sidebar"
+        aria-busy={pendingWorkspacePath ? "true" : undefined}
         aria-label="Điều hướng chính"
       >
+        <div className="workspace-rail-brand">
+          <Link href="/" className="workspace-rail-brand-link" aria-label="VDaAgent - Trang chủ">
+            <span className="workspace-rail-brand-mark" aria-hidden="true">
+              <Image src="/img/logo.png" alt="" width={52} height={52} unoptimized />
+            </span>
+            <span className="workspace-rail-brand-copy">
+              <b>VDaAgent</b>
+              <small>DATA PROFILING</small>
+            </span>
+          </Link>
+          <span className="workspace-rail-brand-arc">ARC 01</span>
+        </div>
         {isAdmin ? (
           <div className="sidebar-top">
             <Link
               href="/admin"
-              className={pathname === "/admin" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"}
+              className={isWorkspaceNavigationActive("/admin") ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"}
               aria-label="Quản trị hệ thống"
             >
               <span className="sidebar-icon" aria-hidden="true">
@@ -318,7 +406,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
         ) : (
           <div className="sidebar-top">
             {/* Nút Trang chủ Analyst thay thế brand mascot */}
-            <Link href="/" className={pathname === "/" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ Analyst">
+            <Link href="/" className={isWorkspaceNavigationActive("/") ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} aria-label="Trang chủ Analyst">
               <span className="sidebar-icon" aria-hidden="true">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="m3 10 9-7 9 7" /><path d="M5 9v11h14V9" /><path d="M9 20v-6h6v6" />
@@ -326,7 +414,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
               </span>
               <span className="sidebar-link-label">Trang chủ Analyst</span>
             </Link>
-            <Link className={pathname === "/datasets" ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/datasets">
+            <Link className={isWorkspaceNavigationActive("/datasets") ? "nav-link sidebar-home-link active" : "nav-link sidebar-home-link"} href="/datasets">
               <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name="home" /></span>
               <span className="sidebar-link-label">Trang chủ workspace</span>
             </Link>
@@ -345,7 +433,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
             <nav className="nav-list sidebar-navigation" aria-label="Điều hướng quản trị hệ thống">
               <span className="sidebar-section-label sidebar-text">Hệ thống</span>
               {adminNavigation.filter((item) => can(me?.effective_permissions, item.permission)).map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const active = isWorkspaceNavigationActive(item.href);
                 return <div className="sidebar-nav-item" key={item.href}><Link className={active ? "nav-link active" : "nav-link"} href={item.href}><span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.href} /></span><span className="sidebar-link-label">{item.label}</span></Link><InfoTip label={`${item.label} dùng để làm gì`}>{item.description}</InfoTip></div>;
               })}
             </nav>
@@ -354,7 +442,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
               {analystNavigation.map((group) => {
                 const items = group.children.filter((item) => can(me?.effective_permissions, item.permission));
                 if (items.length === 0) return null;
-                const groupActive = items.some((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+                const groupActive = items.some((item) => isWorkspaceNavigationActive(item.href));
                 const expanded = openNavigationGroup === group.id;
                 return <div className="sidebar-nav-group" key={group.id}>
                   <button
@@ -371,7 +459,7 @@ function AppShellContent({ children }: { children: ReactNode }) {
                   </button>
                   {expanded && <div className="sidebar-sub-menu" id={`sidebar-submenu-${group.id}`}>
                     {items.map((item) => {
-                      const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                      const active = isWorkspaceNavigationActive(item.href);
                       return <div className="sidebar-nav-item sidebar-sub-item" key={item.href}>
                         <Link className={active ? "nav-link active" : "nav-link"} href={item.href} aria-current={active ? "page" : undefined}>
                           <span className="sidebar-icon" aria-hidden="true"><SidebarIcon name={item.icon} /></span>
@@ -392,12 +480,17 @@ function AppShellContent({ children }: { children: ReactNode }) {
       {!isAdmin && can(me?.effective_permissions, PERMISSIONS.qaProfileAsk) && (
         <DraggableChatWidget
           conversations={conversations}
-          onNewChat={startNewChat}
           onRemoveConversation={removeConversation}
         />
       )}
       {showAllHistory && <div className="history-modal-backdrop" role="presentation" onClick={() => setShowAllHistory(false)}><section className="history-modal" role="dialog" aria-modal="true" aria-labelledby="history-modal-title" onClick={(event) => event.stopPropagation()}><div className="history-modal-header"><div><p className="eyebrow">Lưu trong 30 ngày</p><h2 id="history-modal-title">Lịch sử chat</h2></div><div className="history-modal-header-actions"><button type="button" className="history-clear-button" onClick={removeAllConversations}>Xóa tất cả</button><button type="button" className="history-modal-close" aria-label="Đóng lịch sử chat" onClick={() => setShowAllHistory(false)}>×</button></div></div><div className="history-modal-list">{conversations.map((conversation) => <div className="history-modal-row" key={conversation.id}><Link className="chat-history-item" href={`/chat?conversation=${conversation.id}`} onClick={() => { setShowAllHistory(false); setTimeout(() => window.dispatchEvent(new CustomEvent("p170-chat-navigation", { detail: { conversationId: conversation.id } })), 0); }}>{conversation.title}<small>{new Date(conversation.updatedAt).toLocaleDateString("vi-VN")}</small></Link><button type="button" className="chat-history-delete" aria-label={`Xóa đoạn chat ${conversation.title}`} onClick={() => removeConversation(conversation)}>×</button></div>)}</div></section></div>}
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        <div className="workspace-canvas-ribbon" aria-hidden="true">
+          <span>VDaAgent / EVIDENCE-FIRST</span>
+          <span>WORKSPACE ARC 01</span>
+        </div>
+        {children}
+      </main>
     </div>
   );
 

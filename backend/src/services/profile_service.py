@@ -58,6 +58,7 @@ class ProfileService:
         user_id: str,
         idempotency_key: str,
         correlation_id: str | None = None,
+        request_hash_override: str | None = None,
     ) -> dict[str, Any]:
         """Validate and transactionally persist a queued profiling run."""
         if request.dataset_id:
@@ -105,7 +106,7 @@ class ProfileService:
 
         scan_mode = request.scan_mode or self.settings.profiling_default_scan_mode
         sampling_config = request.sampling.model_dump() if request.sampling else None
-        request_hash = hashlib.sha256(
+        request_hash = request_hash_override or hashlib.sha256(
             json.dumps(
                 request.model_dump(mode="json"),
                 sort_keys=True,
