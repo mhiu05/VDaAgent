@@ -290,7 +290,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
-          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
+          NEXT_PUBLIC_AUTH_ALLOW_SIGNUP: 'true'
         run: |
           set -euo pipefail
           docker buildx build \
@@ -338,7 +338,7 @@ jobs:
           LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
           AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
-          AUTH_ALLOW_SIGNUP: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_SIGNUP || 'false' }}
+          AUTH_ALLOW_SIGNUP: 'true'
           STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
           GUEST_STORAGE_PROVIDER: ${{ vars.GUEST_STORAGE_PROVIDER || 'supabase' }}
           # The provider pair may sit in either store, so a secret is honoured when no variable is set.

@@ -206,7 +206,7 @@ class Settings(BaseSettings):
     # ``dual`` exists only for the migration window.  It maps the old shared
     # token to a bootstrap workspace; production should move to ``supabase``.
     auth_mode: Literal["dual", "supabase"] = "dual"
-    auth_allow_signup: bool = False
+    auth_allow_signup: bool = True
     auth_allow_guest: bool = False
     # Guest trials use a bounded, shared demo storage backend. Authenticated
     # workspaces keep using the provider configured by STORAGE_PROVIDER.
