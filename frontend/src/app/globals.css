@@ -4171,8 +4171,8 @@ td { border-color: var(--vda-line); }
 }
 
 
-/* Optimistic route feedback for navigation within the authenticated workspace. */
-.workspace-nav-progress {
+/* Optimistic feedback for buttons and navigation within the authenticated workspace. */
+.workspace-action-progress {
   position: fixed;
   z-index: 1200;
   top: 0;
@@ -4183,16 +4183,16 @@ td { border-color: var(--vda-line); }
   background: linear-gradient(90deg, var(--vda-coral), var(--vda-violet), var(--vda-mint));
   box-shadow: 0 1px 8px color-mix(in srgb, var(--vda-violet) 45%, transparent);
   pointer-events: none;
-  animation: workspace-nav-progress 1.05s cubic-bezier(.22, .61, .36, 1) infinite;
+  animation: workspace-action-progress 1.05s cubic-bezier(.22, .61, .36, 1) infinite;
 }
 .sidebar[aria-busy="true"] .nav-link {
   cursor: progress;
 }
-@keyframes workspace-nav-progress {
+@keyframes workspace-action-progress {
   0% { transform: translateX(-120%); opacity: .2; }
   25% { opacity: 1; }
   100% { transform: translateX(330%); opacity: .8; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .workspace-nav-progress { animation: none; }
+  .workspace-action-progress { animation: none; }
 }
