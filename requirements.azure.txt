@@ -38,5 +38,9 @@ PyJWT[crypto]>=2.10.0
 
 rank-bm25>=0.2.2
 # config.yaml enables Voyage with a local sentence-transformers fallback.
+# The Azure API container does not use a GPU. Pin the CPU wheel so pip does not
+# pull the multi-gigabyte CUDA runtime packages from the default PyPI wheel.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.7.1+cpu
 sentence-transformers>=3.0.0
 voyageai>=0.3.0
