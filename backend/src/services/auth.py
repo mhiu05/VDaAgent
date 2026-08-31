@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 # pyrefly: ignore [missing-import]
 from fastapi import HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from src.config import Settings, get_settings
 
 
@@ -116,7 +117,39 @@ class SupabaseJWTVerifier:
             raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.") from exc
         return bool(isinstance(user, dict) and user.get("email_confirmed_at"))
 
-    def verify(self, token: str) -> AuthContext:
+    async def _email_is_confirmed_async(self, access_token: str) -> bool:
+        """Read confirmation state without blocking an async request worker."""
+        if not self.settings.supabase_url:
+            raise JWTVerificationError("Thiếu SUPABASE_URL để kiểm tra email xác nhận.")
+        api_key = self.settings.supabase_publishable_key or self.settings.supabase_backend_key
+        if not api_key:
+            raise JWTVerificationError("Thiếu Supabase API key để kiểm tra email xác nhận.")
+        from src.services import perf_telemetry
+
+        try:
+            perf_telemetry.record_external_http_call()
+            async with httpx.AsyncClient(
+                timeout=self.settings.auth_jwks_timeout_seconds
+            ) as client:
+                response = await client.get(
+                    f"{self.settings.supabase_url.rstrip('/')}/auth/v1/user",
+                    headers={
+                        "apikey": api_key,
+                        "Authorization": f"Bearer {access_token}",
+                    },
+                )
+        except httpx.RequestError as exc:
+            raise JWTVerificationError("Không thể kiểm tra trạng thái xác nhận email.") from exc
+        if response.status_code != 200:
+            raise JWTVerificationError("JWT không hợp lệ hoặc email của tài khoản chưa được xác nhận.")
+        try:
+            user = response.json()
+        except ValueError as exc:
+            raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.") from exc
+        return bool(isinstance(user, dict) and user.get("email_confirmed_at"))
+
+    def _verify_local(self, token: str) -> AuthContext:
+        """Verify signature and required claims without an Auth API request."""
         try:
             # pyrefly: ignore [missing-import]
             import jwt
@@ -173,12 +206,6 @@ class SupabaseJWTVerifier:
 
         if claims.get("role") != "authenticated":
             raise JWTVerificationError("JWT không phải phiên authenticated.")
-        if self.settings.auth_require_email_confirmed:
-            # Older/local JWTs may carry this claim directly. Newer Supabase
-            # asymmetric tokens can omit it, so consult the Auth user endpoint
-            # instead of rejecting an already-confirmed callback session.
-            if not claims.get("email_confirmed_at") and not self._email_is_confirmed(token):
-                raise JWTVerificationError("Email của phiên đăng nhập chưa được xác nhận.")
         subject = claims.get("sub")
         try:
             user_id = str(uuid.UUID(str(subject)))
@@ -193,6 +220,39 @@ class SupabaseJWTVerifier:
             aal=claims.get("aal") if isinstance(claims.get("aal"), str) else None,
             raw_claims=dict(claims),
         )
+
+    def verify(self, token: str) -> AuthContext:
+        """Synchronous compatibility wrapper for non-request callers."""
+        context = self._verify_local(token)
+        if (
+            self.settings.auth_require_email_confirmed
+            and not context.raw_claims.get("email_confirmed_at")
+            and not self._email_is_confirmed(token)
+        ):
+            raise JWTVerificationError("Email của phiên đăng nhập chưa được xác nhận.")
+        return context
+
+    async def verify_async(self, token: str) -> AuthContext:
+        """Use local verification first without blocking the event loop."""
+        context = await run_in_threadpool(self._verify_local, token)
+        if self.settings.auth_require_email_confirmed and not context.raw_claims.get(
+            "email_confirmed_at"
+        ):
+            # The authoritative Auth response was already consulted. Do not
+            # retry the same endpoint through the legacy-token fallback when
+            # it explicitly says the account is unconfirmed.
+            try:
+                confirmed = await self._email_is_confirmed_async(token)
+            except JWTVerificationError as exc:
+                raise JWTVerificationError(
+                    str(exc), allow_remote_fallback=False
+                ) from exc
+            if not confirmed:
+                raise JWTVerificationError(
+                    "Email của phiên đăng nhập chưa được xác nhận.",
+                    allow_remote_fallback=False,
+                )
+        return context
 
     def verify_with_auth_api(self, access_token: str) -> AuthContext:
         """Verify a Supabase token through Auth when local JWKS cannot.
@@ -248,6 +308,58 @@ class SupabaseJWTVerifier:
             authentication_method="supabase",
         )
 
+    async def verify_with_auth_api_async(self, access_token: str) -> AuthContext:
+        """Verify an unsupported local token through Supabase without blocking."""
+        if not self.settings.supabase_url:
+            raise JWTVerificationError("Thiếu SUPABASE_URL để xác thực phiên.")
+        api_key = self.settings.supabase_publishable_key or self.settings.supabase_backend_key
+        if not api_key:
+            raise JWTVerificationError("Thiếu Supabase API key để xác thực phiên.")
+        from src.services import perf_telemetry
+
+        try:
+            perf_telemetry.record_external_http_call()
+            async with httpx.AsyncClient(
+                timeout=self.settings.auth_jwks_timeout_seconds
+            ) as client:
+                response = await client.get(
+                    f"{self.settings.supabase_url.rstrip('/')}/auth/v1/user",
+                    headers={
+                        "apikey": api_key,
+                        "Authorization": f"Bearer {access_token}",
+                    },
+                )
+        except httpx.RequestError as exc:
+            raise JWTVerificationError("Không thể kiểm tra phiên với Supabase Auth.") from exc
+        if response.status_code != 200:
+            raise JWTVerificationError("Access token Supabase không hợp lệ hoặc đã hết hạn.")
+        try:
+            user = response.json()
+        except ValueError as exc:
+            raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.") from exc
+        if not isinstance(user, dict):
+            raise JWTVerificationError("Supabase trả về dữ liệu user không hợp lệ.")
+        try:
+            user_id = str(uuid.UUID(str(user.get("id"))))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise JWTVerificationError("Supabase user id không phải UUID hợp lệ.") from exc
+        if self.settings.auth_require_email_confirmed and not user.get("email_confirmed_at"):
+            raise JWTVerificationError("Email của phiên đăng nhập chưa được xác nhận.")
+        email = user.get("email")
+        return AuthContext(
+            user_id=user_id,
+            email=email if isinstance(email, str) else None,
+            session_id=None,
+            aal=None,
+            raw_claims={
+                "sub": user_id,
+                "role": "authenticated",
+                "email": email,
+                "email_confirmed_at": user.get("email_confirmed_at"),
+            },
+            authentication_method="supabase",
+        )
+
 
 _verifier: SupabaseJWTVerifier | None = None
 _verifier_lock = threading.Lock()
@@ -269,7 +381,9 @@ def reset_jwt_verifier() -> None:
         _verifier = None
 
 
-def authenticate_bearer(authorization: str | None, settings: Settings | None = None) -> AuthContext:
+async def authenticate_bearer(
+    authorization: str | None, settings: Settings | None = None
+) -> AuthContext:
     """Authenticate a request without ever logging its bearer value."""
     current = settings or get_settings()
     prefix = "bearer "
@@ -314,7 +428,7 @@ def authenticate_bearer(authorization: str | None, settings: Settings | None = N
 
         try:
             with perf_telemetry.timed("auth_local_ms"):
-                return get_jwt_verifier(current).verify(token)
+                return await get_jwt_verifier(current).verify_async(token)
         except JWTVerificationError as exc:
             if not exc.allow_remote_fallback:
                 raise _unauthorized(str(exc)) from exc
@@ -323,7 +437,7 @@ def authenticate_bearer(authorization: str | None, settings: Settings | None = N
             # legacy or otherwise different signing-key configuration.
             try:
                 with perf_telemetry.timed("auth_remote_ms"):
-                    return get_jwt_verifier(current).verify_with_auth_api(token)
+                    return await get_jwt_verifier(current).verify_with_auth_api_async(token)
             except JWTVerificationError as remote_exc:
                 raise _unauthorized(str(remote_exc)) from exc
 

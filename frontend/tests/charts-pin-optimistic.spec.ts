@@ -118,6 +118,7 @@ test("shows optimistic pin progress before the report request finishes", async (
   await pinButton.click();
 
   await expect.poll(() => pinRequestStarted).toBe(true);
+  await expect(page.locator(".workspace-action-progress")).toBeVisible();
   await expect(page.locator(".chart-pin-status.pending")).toHaveText(/Đang ghim/);
   await expect(page.locator(".chart-pin-button")).toHaveCount(0);
 

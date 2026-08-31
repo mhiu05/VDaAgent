@@ -134,7 +134,7 @@ export function CommandCenterShell({ overview }: Props) {
   }, [queryClient, runId, state, workspaceId]);
 
   return <main className="page command-center" aria-labelledby="command-center-title">
-    <div style={{ marginBottom: "1rem" }}><Link href="/datasets" className="button secondary">← Quay lại Datasets</Link></div>
+    <div style={{ marginBottom: "1rem" }}><Link href={data?.dataset_id ? `/datasets/${encodeURIComponent(data.dataset_id)}/runs` : "/datasets"} className="button secondary">Quay lại</Link></div>
     <header className="command-center-header">
       <div><p className="eyebrow">PROFILE RUN COMMAND CENTER</p><h1 id="command-center-title">{data?.dataset_name || (summary.isLoading ? "Dataset đang tải…" : "Dataset")}</h1><p className="muted">{data ? `Profile run · ${data.profile_run_id}` : runId ? `Profile run · ${runId}` : "Profile run"}</p></div>
       <div className="command-center-status" aria-label="Thông tin profile run">

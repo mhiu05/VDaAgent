@@ -47,6 +47,7 @@ from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_a
 from src.agents.state import initial_qa_state
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
+from src.services import ai_latency
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
@@ -130,6 +131,13 @@ from src.services.storage import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Profiling summaries are small, but every active SSE connection reads one from
+# PostgreSQL.  Keep the first follow-up responsive, then bound the per-client
+# query rate while the durable projection has not changed.
+_PROFILE_SSE_POLL_INTERVALS = (1.0, 2.0, 3.0, 5.0)
+_PROFILE_SSE_KEEPALIVE_SECONDS = 10.0
+_PROFILE_SSE_TERMINAL_EVENTS = frozenset({"ready", "failed"})
 
 
 # --------------------------------------------------------------------------- #
@@ -505,7 +513,9 @@ async def get_profile_summary(
 
 @router.get("/profiling-jobs/{job_id}/events")
 async def profiling_job_events(
-    job_id: str, context: RequestContext = Depends(require_permission(PROFILE_READ))
+    job_id: str,
+    http_request: Request,
+    context: RequestContext = Depends(require_permission(PROFILE_READ)),
 ) -> StreamingResponse:
     """Stream durable profiling-summary milestones for one workspace job.
 
@@ -522,8 +532,14 @@ async def profiling_job_events(
     async def generator() -> Any:
         last_key: str | None = None
         first = True
-        ticks = 0
+        backoff_index = 0
+        next_keepalive_at = time.monotonic() + _PROFILE_SSE_KEEPALIVE_SECONDS
         while True:
+            # StreamingResponse normally cancels this generator on a dropped
+            # connection. This explicit check also avoids a fresh repository
+            # read when a disconnect is already observable at a poll boundary.
+            if await http_request.is_disconnected():
+                return
             summary = initial if first else repository.get_profile_summary(
                 job_id, workspace_id=context.workspace_id
             )
@@ -538,12 +554,35 @@ async def profiling_job_events(
             if key != last_key:
                 yield _profiling_sse(event, summary, event_id)
                 last_key = key
-            if event in {"ready", "failed"}:
+                # A durable progress change deserves the fastest next poll.
+                backoff_index = 0
+            else:
+                backoff_index = min(
+                    backoff_index + 1, len(_PROFILE_SSE_POLL_INTERVALS) - 1
+                )
+            if event in _PROFILE_SSE_TERMINAL_EVENTS:
                 return
-            ticks += 1
-            if ticks % 5 == 0:
-                yield ": keep-alive\n\n"
-            await asyncio.sleep(2)
+
+            # Keepalive comments are scheduled independently of polling. They
+            # let intermediaries see traffic during a long unchanged state,
+            # without performing an additional database query.
+            remaining = _PROFILE_SSE_POLL_INTERVALS[backoff_index]
+            while remaining > 0:
+                if await http_request.is_disconnected():
+                    return
+                now = time.monotonic()
+                until_keepalive = next_keepalive_at - now
+                if until_keepalive <= 0:
+                    yield ": keep-alive\n\n"
+                    next_keepalive_at = now + _PROFILE_SSE_KEEPALIVE_SECONDS
+                    continue
+                sleep_seconds = min(remaining, until_keepalive)
+                await asyncio.sleep(sleep_seconds)
+                remaining -= sleep_seconds
+                # Do not start a repository read after the connection dropped
+                # during this wait.
+                if await http_request.is_disconnected():
+                    return
 
     return StreamingResponse(
         generator(),
@@ -955,21 +994,29 @@ async def run_statistical_tests(
             detail=f"Kiểm định không hỗ trợ: {', '.join(unknown)}. Có sẵn: {', '.join(sorted(TESTS))}.",
         )
 
-    df = await asyncio.to_thread(get_dataframe, run_id)
+    requested_columns = list(
+        dict.fromkeys(
+            column for test in request.tests for column in test.columns
+        )
+    )
+    df = await asyncio.to_thread(get_dataframe, run_id, requested_columns)
     if df is None:
         raise HTTPException(
             status_code=409,
             detail="Không nạp lại được dữ liệu của run này (file gốc có thể đã bị xoá/di chuyển).",
         )
 
-    results = await asyncio.to_thread(
-        run_tests,
-        df,
-        [t.model_dump() for t in request.tests],
-        request.alpha or settings.stats_alpha,
-        request.fdr_method or settings.stats_fdr_method,
-        settings.stats_max_tests_per_request,
-    )
+    try:
+        results = await asyncio.to_thread(
+            run_tests,
+            df,
+            [t.model_dump() for t in request.tests],
+            request.alpha or settings.stats_alpha,
+            request.fdr_method or settings.stats_fdr_method,
+            settings.stats_max_tests_per_request,
+        )
+    finally:
+        del df
     repo.save_test_results(run_id, results, requested_by=context.user_id)
     _audit(
         context,
@@ -1185,8 +1232,22 @@ def _qa_state(
 
 
 def _qa_evidence_metadata(
-    request: QARequest, *, agent_run_id: str | None, workspace_id: str
+    request: QARequest,
+    *,
+    agent_run_id: str | None,
+    workspace_id: str,
+    validated_status: str | None = None,
 ) -> dict[str, Any]:
+    # Nodes perform the final evidence decision.  Preserve an explicit
+    # fail-closed abstention instead of inferring ``verified`` from an older
+    # trace row or from the mere presence of a Profile Run.
+    if validated_status in {"verified", "no_evidence"}:
+        return {
+            "evidence_status": validated_status,
+            "profile_run_id": request.profile_run_id,
+            "context_version_id": request.workspace_context_version_id,
+            "analysis_execution_id": request.analysis_execution_id,
+        }
     evidence_exists = False
     if agent_run_id and request.profile_run_id:
         try:
@@ -1259,8 +1320,7 @@ def _guard_qa_answer(
     return guarded.text
 
 
-@router.post("/qa", response_model=QAResponse)
-async def ask_question(
+async def _ask_question_impl(
     request: QARequest,
     context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
 ) -> QAResponse:
@@ -1326,11 +1386,29 @@ async def ask_question(
         is_approximate=is_approximate,
         agent_run_id=agent_run_id,
         **_qa_evidence_metadata(
-            request, agent_run_id=agent_run_id, workspace_id=context.workspace_id
+            request,
+            agent_run_id=agent_run_id,
+            workspace_id=context.workspace_id,
+            validated_status=result.get("evidence_status"),
         ),
         verification={"status": "not_run", "mode": get_settings().agent_verifier_mode},
         trace_summary=trace_summary,
     )
+
+
+@router.post("/qa", response_model=QAResponse)
+async def ask_question(
+    request: QARequest,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> QAResponse:
+    """Run QA while emitting one PII-safe critical-path latency record."""
+
+    latency_token = ai_latency.begin("qa")
+    try:
+        return await _ask_question_impl(request, context)
+    finally:
+        ai_latency.emit()
+        ai_latency.reset(latency_token)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -1357,6 +1435,7 @@ async def ask_question_stream(
     state = _qa_state(request, context)
     async def generator() -> Any:
         agent_run_id: str | None = None
+        latency_token = ai_latency.begin("qa_stream")
         try:
             yield _sse("status", {"stage": "starting", "detail": "Đang chuẩn bị yêu cầu…"})
             agent_run_id = start_agent_run(
@@ -1404,12 +1483,15 @@ async def ask_question_stream(
                 for char in answer:
                     buffer += char
                     if char in ".!?\n" and len(buffer) > 40:
+                        ai_latency.mark_first_validated_output()
                         yield _sse("token", {"text": buffer})
                         buffer = ""
                         await asyncio.sleep(0)
                 if buffer:
+                    ai_latency.mark_first_validated_output()
                     yield _sse("token", {"text": buffer})
             else:
+                ai_latency.mark_first_validated_output()
                 yield _sse("token", {"text": answer})
 
             if sources:
@@ -1433,6 +1515,7 @@ async def ask_question_stream(
                         request,
                         agent_run_id=agent_run_id,
                         workspace_id=context.workspace_id,
+                        validated_status=routed.get("evidence_status"),
                     ),
                 },
             )
@@ -1466,6 +1549,10 @@ async def ask_question_stream(
                 "error",
                 {"detail": "Agent không thể hoàn tất câu trả lời. Vui lòng thử lại."},
             )
+
+        finally:
+            ai_latency.emit()
+            ai_latency.reset(latency_token)
 
     return StreamingResponse(
         generator(),

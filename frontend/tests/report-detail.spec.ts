@@ -50,9 +50,14 @@ test("report preview renders drift evidence values consistently", async ({ page 
 
   await page.goto("/reports/report-drift-test", { waitUntil: "networkidle" });
 
+  const partThree = page.locator("#part-3");
+  await expect(partThree).not.toHaveAttribute("open");
+  await partThree.locator(".report-accordion-summary").click();
   const driftSection = page.locator("#sec-drift");
   await expect(driftSection).toBeVisible();
   await expect(page.getByRole("heading", { name: "PHẦN 3: SO SÁNH DỮ LIỆU", exact: true })).toBeVisible();
+  await expect(page.getByText("baseline-run", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("current-run", { exact: true })).toHaveCount(0);
   const driftColumns = driftSection.locator(".report-drift-column");
   await expect(driftColumns).toHaveCount(1);
   await expect(driftColumns.first()).not.toHaveAttribute("open");
@@ -84,6 +89,7 @@ test("report preview does not show an empty drift evidence table", async ({ page
 
   await page.goto("/reports/report-empty-drift-test", { waitUntil: "networkidle" });
 
+  await page.locator("#part-3 > .report-accordion-summary").click();
   const driftSection = page.locator("#sec-drift");
   await expect(driftSection).toBeVisible();
   await expect(driftSection.locator(".report-drift-details .compare-table")).toHaveCount(0);

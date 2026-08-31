@@ -1,17 +1,17 @@
-# VDaAgent Evaluation Scorecard
+# Scorecard đánh giá của P-170
 
 - Dataset: p170-evidence-first-v2
 - Runtime: staging_synthetic_api
-- Cases: 17
+- Số case: 17
 - Git SHA: 67172545e54b616d82cee3e3c161afd7d4e136c4
 
-## Interpretation
+## Diễn giải
 
-This is an observed staging result over synthetic-only data.
+Đây là kết quả staging thực tế chỉ trên dữ liệu synthetic.
 
-## Metrics
+## Chỉ số
 
-| Metric | Value |
+| Metric | Giá trị |
 | --- | ---: |
 | answer_contract_rate | 70.00% |
 | api_status_rate | 100.00% |
@@ -39,9 +39,9 @@ This is an observed staging result over synthetic-only data.
 | hard_gate_pass_rate | 82.35% |
 | privacy_safe_rate | 100.00% |
 
-## Release gates
+## Cổng phát hành
 
-| Gate | Status | Actual | Threshold |
+| Gate | Trạng thái | Thực tế | Ngưỡng |
 | --- | --- | ---: | ---: |
 | hard_gate_pass_rate | FAIL | 0.823529 | 1.0 |
 | schema_contract_rate | PASS | 1.0 | 1.0 |
@@ -59,10 +59,10 @@ This is an observed staging result over synthetic-only data.
 | latency_p95_ms | FAIL | 86011.897 | 30000 |
 | critical_failures | FAIL | 8 | 0 |
 
-## Safe diagnostics
+## Chẩn đoán an toàn
 
-- Failed cases: qa_candidate_key_evidence, qa_quality_issue_evidence, plan_pii_column_excluded
-- Critical failures: qa_candidate_key_evidence:evidence_binding, qa_candidate_key_evidence:evidence_source_policy, qa_candidate_key_evidence:evidence_status, qa_quality_issue_evidence:evidence_binding, qa_quality_issue_evidence:evidence_source_policy, qa_quality_issue_evidence:evidence_status, plan_pii_column_excluded:planner_allowlist, plan_pii_column_excluded:planner_time_grain
-- Latency: available
-- Tokens: not_available
-- Cost: not_available
+- Case thất bại: qa_candidate_key_evidence, qa_quality_issue_evidence, plan_pii_column_excluded
+- Critical failure: qa_candidate_key_evidence:evidence_binding, qa_candidate_key_evidence:evidence_source_policy, qa_candidate_key_evidence:evidence_status, qa_quality_issue_evidence:evidence_binding, qa_quality_issue_evidence:evidence_source_policy, qa_quality_issue_evidence:evidence_status, plan_pii_column_excluded:planner_allowlist, plan_pii_column_excluded:planner_time_grain
+- Độ trễ: available
+- Token: not_available
+- Chi phí: not_available

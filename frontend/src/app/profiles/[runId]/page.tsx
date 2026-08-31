@@ -53,7 +53,7 @@ function ProfileOverview() {
 
   return <>
     {process.env.NEXT_PUBLIC_UX_COMMAND_CENTER_ENABLED !== "true" && <div style={{ marginBottom: "1rem" }}>
-      <Link href="/datasets" className="button secondary">← Quay lại Datasets</Link>
+      <Link href={`/datasets/${encodeURIComponent(data.dataset_id)}/runs`} className="button secondary">Quay lại</Link>
     </div>}
     <PageHeader eyebrow={`Phiên chạy (Profile run) · ${data.run_name || `Phiên bản v${data.version ?? "—"}`}`} title={data.dataset_name || "Báo cáo profile"} description="Các số liệu được lấy trực tiếp từ engine xử lý. Các đề xuất (proposal) được giữ riêng để chuyên viên phân tích review." />
     {data.error && <Notice tone="warning"><b>Pipeline báo lỗi.</b><p>{data.error}</p></Notice>}

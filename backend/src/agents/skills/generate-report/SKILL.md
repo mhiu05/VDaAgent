@@ -1,10 +1,10 @@
 ---
 name: generate-report
-description: Generate a privacy-safe report from verified profile and analysis evidence. Use when the user asks to create, export, publish, or scope a report for a completed profile run.
+description: Tạo report an toàn với privacy từ profile và analysis evidence đã xác minh. Dùng khi user yêu cầu tạo, export, publish hoặc scope report cho Profile Run đã hoàn tất.
 ---
 
-# Generate report
+# Tạo report
 
-Use the report workflow API with explicit section keys. Build only from persisted profile, test, drift, agent-summary, and analysis evidence; preserve each execution ID and limitation.
+Dùng report workflow API với section key rõ ràng. Chỉ xây dựng từ profile, test, drift, agent-summary và analysis evidence đã lưu; giữ lại từng execution ID và limitation.
 
-Do not include raw rows, PII values, unreviewed proposals, or unsupported narrative claims. Keep report creation and publication under their existing permission and review flow.
+Không đưa raw row, PII value, proposal chưa review hoặc narrative claim không có hỗ trợ vào report. Tuân thủ permission và lifecycle check hiện có; không giả định `submit` tạo bước review thủ công vì endpoint này hiện publish trực tiếp.

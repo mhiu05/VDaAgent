@@ -1,297 +1,125 @@
-# VDaAgent Architecture
+# Kiến trúc VDaAgent (P-170)
 
-VDaAgent is a workspace-scoped, evidence-first data profiling application.
-Profile Run is the principal analytical context: every chart, agent answer,
-comparison, report, audit event and trace belongs to a workspace and a Profile
-Run. The application deliberately separates deterministic computation from LLM
-planning and narrative generation.
+Tài liệu này mô tả các ranh giới kiến trúc ổn định của hệ thống hiện tại. Hợp đồng chi tiết theo từng chức năng nằm trong [docs/](docs/README.md); route, model, migration, test và workflow triển khai vẫn là nguồn sự thật cuối cùng.
 
-## Architectural decisions
+## Topology
 
-| Decision | Rationale |
+```mermaid
+flowchart LR
+  U[Browser] --> N[Next.js 15]
+  N -->|Bearer + X-Workspace-Id<br/>REST/SSE /api/v1| A[FastAPI]
+  N -->|Supabase session| SA[Supabase Auth]
+  N -->|server-side PDF| PDF[Chromium]
+  A --> SA
+  A --> DB[(PostgreSQL)]
+  A --> ST[Supabase Storage<br/>Google Drive<br/>local development]
+  A --> LLM[LLM / embedding provider]
+  W[Profiling Worker] --> DB
+  W --> ST
+  W --> D[DuckDB file-backed compute]
+  D --> DB
+  MCP[Local MCP stdio] --> DB
+  MCP --> D
+```
+
+Production chạy ba container độc lập: Next.js frontend, FastAPI API và Profiling Worker. PostgreSQL là dependency bắt buộc cho metadata, queue, evidence, report, audit, retrieval và LangGraph checkpoint. Raw object nằm ở storage provider; file remote chỉ được stream xuống file tạm có byte limit, sau đó được xóa.
+
+Browser chỉ dùng Supabase cho Auth và public/publishable configuration. Các bảng ứng dụng trong schema `public` không phải browser API: migration bật RLS, không tạo policy, thu hồi quyền của `anon`/`authenticated` và thu hồi default privilege cho bảng/sequence tương lai. Mọi domain read/write đi qua FastAPI.
+
+## Các ranh giới bắt buộc
+
+| Ranh giới | Quy tắc hiện tại |
 | --- | --- |
-| PostgreSQL is the metadata authority | It owns users, workspace membership, dataset metadata, runs, evidence, reports, audit and redacted traces. |
-| File bytes live outside metadata DB | Supabase Storage, Google Drive, or local development storage persists uploaded data; compute materializes a temporary local file only when required. |
-| Profiling is durable and asynchronous | FastAPI enqueues a job and returns 202; a separate worker claims it with a PostgreSQL lease. |
-| Evidence is promoted, not inferred | Preview is ephemeral and bounded. Official execution is revalidated, persisted with context/result hash and is eligible for reporting. |
-| LLM is bounded | It can plan charts and explain approved evidence, but cannot run arbitrary code or substitute for the compute engine. |
-| FastAPI is the security boundary | It verifies identity, workspace membership and capability on protected requests. Frontend checks are UX only. |
+| Identity | Production chỉ nhận Supabase JWT bất đối xứng; `dual` và guest là compatibility path được cấu hình cho development/test hoặc trial. |
+| Tenant | API resolve `X-Workspace-Id` từ membership active, sau đó kiểm tra capability và lặp lại workspace predicate ở repository. |
+| System Admin | Admin dùng system context riêng và không phải workspace superuser. |
+| Compute | DuckDB đọc source file-backed; QuerySpec và tool catalog là allow-list. Browser/model không có arbitrary SQL/Python. |
+| Async | HTTP chỉ enqueue Profile Run. Worker claim lease, heartbeat, retry và recover stale job với ngữ nghĩa at-least-once. |
+| Evidence | Claim định lượng phải gắn với profile artifact, tool result hoặc Official execution đã xác minh; thiếu evidence thì QA abstain. |
+| Privacy | PII pending cũng bị coi là sensitive. Raw row, credential, prompt đầy đủ và đường dẫn tạm không đi vào answer/trace/telemetry. |
+| Report | Draft mutable tách khỏi snapshot đã hash; chart/answer phải giữ provenance. Note thủ công không trở thành quantitative evidence. |
+| Production schema | Alembic sở hữu schema. Runtime production không gọi `create_all()` hoặc tự alter table. |
 
-## Runtime topology
+## Luồng dữ liệu chính
 
-~~~mermaid
-flowchart TB
-  Browser[Browser]
+### Dataset và profiling
 
-  subgraph Web[Next.js frontend]
-    UI[Workspace UI]
-    PDF[Server-side PDF route]
-    UI --> PDF
-  end
+```text
+Upload/connector
+  → dataset metadata + stable source_ref
+  → durable Profile Run (queued)
+  → worker materialize source có giới hạn
+  → DuckDB sample/full profiling
+  → metadata proposals + HITL review
+  → resume job nếu cần
+  → completed Profile Run + retrieval document
+```
 
-  subgraph Application[FastAPI API]
-    AuthGuard[JWT + workspace + capability guard]
-    Domain[Dataset, profile, chart, agent, report and admin routes]
-    Repo[Repositories]
-    Planner[Chart planner and Agent runtime]
-    Engine[AnalysisEngine]
-    AuthGuard --> Domain
-    Domain --> Repo
-    Domain --> Planner
-    Domain --> Engine
-  end
+Profiling chính tính aggregate trực tiếp trong DuckDB mà không tạo full pandas DataFrame. Pandas chỉ được nạp lại với projection cột cụ thể cho statistical test. Sample run luôn giữ provenance và `is_approximate`.
 
-  subgraph WorkerProcess[Profiling worker]
-    Claim[Claim job / renew lease]
-    Graph[LangGraph profiling flow]
-    Compute[DuckDB / pandas / statistics]
-    Claim --> Graph --> Compute
-  end
+### Command Center và QA
 
-  subgraph Persistence[Persisted state]
-    DB[(PostgreSQL / Supabase DB)]
-    Storage[(Supabase Storage / Google Drive / local dev)]
-  end
+```text
+Completed Profile Run
+  → Analysis Session + semantic context
+  → chart plan đã sanitize
+  → Preview (approximate, có expiry)
+  → approve context + quality gate
+  → Official execution (hash + limitations)
+  → QA insight / Report Draft
+```
 
-  subgraph Integrations[External integrations]
-    Supabase[Supabase Auth]
-    LLM[LLM provider]
-    LangSmith[LangSmith optional]
-    Sources[MySQL / MongoDB / DuckDB source]
-  end
+Chart planner có deterministic fast path cho intent an toàn và model path cho intent còn mơ hồ, nhưng cả hai đều bị normalize qua cùng allow-list. QA tách guardrail, clarification, structured tool và retrieval; validator cuối cùng kiểm tra run/workspace binding, artifact, citation và numeric value trước khi gắn `verified`.
 
-  Browser --> UI
-  UI -->|Bearer token, X-Workspace-Id| AuthGuard
-  UI --> Supabase
-  PDF -->|authorized export source| Domain
-  Repo --> DB
-  Claim --> DB
-  Graph --> DB
-  Compute <-->|temporary materialization| Storage
-  Domain --> Storage
-  Domain --> Sources
-  Planner --> LLM
-  Planner -. sanitized metadata, fail-open .-> LangSmith
-~~~
+### Report
 
-The frontend has no access to server credentials. Its public configuration is
-embedded at build time through an allow-listed NEXT_PUBLIC_* set. The API
-receives the Supabase access token and workspace context, then resolves the
-effective permission before performing any protected action.
+```text
+Verified profile/tool/Official evidence
+  → mutable Report Draft
+  → immutable snapshot + SHA-256
+  → lifecycle endpoint
+  → PII-safe export source
+  → Next.js server render PDF
+```
 
-## Deployment topology
+## Miền dữ liệu PostgreSQL
 
-Production is split into three Azure App Service processes:
+```text
+Identity:      user_profiles, workspaces, memberships, invitations
+Profiling:     datasets, profile_runs, column_stats, proposals, tests, drift
+Analysis:      sessions, context versions, quality gates/issues, executions
+Reporting:     reports, versions, draft items, sections, charts, reviews
+Agent:         runs, plans, steps, invocations, evidence, trace, verification
+Integration:   datasource/Drive connections, idempotency, audit, retrieval
+Runtime:       LangGraph checkpoint tables
+```
 
-1. Frontend: Next.js standalone image on port 8080.
-2. API: FastAPI image on port 8000.
-3. Profiling worker: the API image with the profiling-worker startup command
-   and a worker health endpoint.
+Inventory truy cập bảng được khai báo trong [`database_access_policy.py`](backend/src/services/database_access_policy.py) và được CI so sánh với SQLAlchemy metadata để bắt buộc mọi bảng mới có quyết định Data API rõ ràng.
 
-GitHub Actions validates backend and frontend quality, builds immutable images,
-runs Alembic migration, updates App Service settings, restarts the three
-processes and polls their health endpoints. Database secrets, provider keys,
-storage credentials and OAuth secrets remain in GitHub/Azure secret stores.
+## Bản đồ implementation
 
-## Identity, authorization and tenancy
-
-Supabase Auth owns browser identity and session. The backend verifies bearer
-tokens against Supabase JWT/JWKS, synchronizes the user profile, checks account
-status and resolves a workspace.
-
-There are two independent role concepts:
-
-| Scope | Role / authority |
+| Mối quan tâm | Source sở hữu |
 | --- | --- |
-| System | user_profiles.role: analyst or admin. Admin grants user-account/system management capabilities. |
-| Workspace | Membership is normalized to analyst and grants workspace analytical capabilities. |
+| App, middleware, CORS, error/health | [`backend/src/main.py`](backend/src/main.py) |
+| REST/SSE contract | [`backend/src/api/`](backend/src/api/) và [`backend/src/models/`](backend/src/models/) |
+| Auth, workspace, capability | [`backend/src/services/auth.py`](backend/src/services/auth.py), [`dependencies.py`](backend/src/api/dependencies.py), [`permissions.py`](backend/src/services/permissions.py) |
+| Profiling/analysis/QA/report | [`backend/src/services/`](backend/src/services/) và [`backend/src/agents/`](backend/src/agents/) |
+| Worker | [`backend/src/workers/profiling_worker.py`](backend/src/workers/profiling_worker.py) |
+| PostgreSQL schema | [`backend/src/services/repository.py`](backend/src/services/repository.py) và [`backend/migrations/`](backend/migrations/) |
+| Local MCP server | [`backend/src/mcp_server.py`](backend/src/mcp_server.py) |
+| Browser/PDF | [`frontend/src/app/`](frontend/src/app/), [`frontend/src/components/`](frontend/src/components/), [`frontend/src/lib/`](frontend/src/lib/) |
+| Cấu hình/release | [`config.yaml`](config.yaml), [`backend/src/config.py`](backend/src/config.py), [workflow Azure](.github/workflows/azure-container-deploy.yml) |
 
-A system admin does not inherit Analyst workspace capabilities. A workspace
-invitation never grants system admin. A locked or deleted permanent account is
-rejected by the backend even when its JWT has not expired.
+## Tài liệu thiết kế chi tiết
 
-Protected API requests carry a Bearer token and, where relevant, an
-X-Workspace-Id. The ID itself is never authorization: the backend checks that
-the current user has an eligible membership and required capability. Audit
-events are persisted for sensitive operations.
+- [Tổng quan hệ thống](docs/architecture/system-overview.md)
+- [Profiling Job bất đồng bộ](docs/architecture/async-profiling-jobs.md)
+- [Phân tích có giới hạn](docs/architecture/bounded-execution.md)
+- [Agent, QA, retrieval và evidence](docs/architecture/agent-system.md)
+- [Report Draft và snapshot](docs/architecture/report-draft-snapshots.md)
+- [Authentication/authorization](docs/security/authentication-and-authorization.md)
+- [Cô lập workspace và privacy](docs/security/workspace-isolation-and-privacy.md)
 
-## Data ownership and handling
+## Kỷ luật thay đổi
 
-| Data | System of record | Handling |
-| --- | --- | --- |
-| Identity/session | Supabase Auth | Supabase SSR/PKCE in browser; token validated by API. |
-| User/system role | PostgreSQL user_profiles | Email projection, role, status and lock metadata. |
-| Workspace/membership | PostgreSQL | All protected resource lookups are workspace-scoped. |
-| Dataset binary | Configured storage provider | Metadata stores source reference and SHA-256; compute receives a temporary materialization. |
-| Datasource credentials | PostgreSQL metadata | Fernet-encrypted with DATASOURCE_ENCRYPTION_KEY; never returned to browser. |
-| Profile statistics/review | PostgreSQL | Bound to dataset, workspace and Profile Run. |
-| Explorer execution | PostgreSQL | Stores query specification, context version, result hash, limitations and provenance. |
-| Agent trace | PostgreSQL | Redacted provenance only; never chain-of-thought, raw rows, raw prompts or secrets. |
-| Report draft/snapshot | PostgreSQL | Draft is editable; snapshot is immutable and preferred for export. |
-
-External datasources are intentionally narrow. MySQL and DuckDB accept a table
-or validated read-only SELECT/WITH source; MongoDB accepts a collection and JSON
-filter. Materialization is capped at 1,000,000 rows. BigQuery, Snowflake and a
-general vector database are not runtime compute backends.
-
-## Core flows
-
-### 1. Sign-in and workspace bootstrap
-
-~~~mermaid
-sequenceDiagram
-  autonumber
-  actor U as User
-  participant UI as Next.js
-  participant SA as Supabase Auth
-  participant API as FastAPI
-  participant DB as PostgreSQL
-
-  U->>UI: Sign in with email/password
-  UI->>SA: Authenticate using Supabase client
-  SA-->>UI: Session and access token
-  UI->>API: GET /workspace-bootstrap with Bearer token
-  API->>SA: Verify JWT/JWKS
-  API->>DB: Sync user, check account status and membership
-  API-->>UI: User, selected workspace, permissions and dashboard summary
-~~~
-
-Signup, email confirmation and password reset use Supabase callback routes.
-Production requires AUTH_MODE=supabase and confirmed email. Guest mode is
-enforced twice: AUTH_ALLOW_GUEST controls backend behavior and
-NEXT_PUBLIC_AUTH_ALLOW_GUEST controls UI/middleware at frontend build time.
-
-### 2. Dataset upload and profiling job
-
-~~~mermaid
-sequenceDiagram
-  autonumber
-  actor A as Analyst
-  participant UI as Next.js
-  participant API as FastAPI
-  participant Store as Storage
-  participant DB as PostgreSQL
-  participant Worker as Profiling worker
-  participant Graph as Profiling graph
-
-  A->>UI: Upload dataset or select validated connector
-  UI->>API: POST /datasets/upload or datasource endpoint
-  API->>Store: Persist binary or source reference
-  API->>DB: Save workspace-scoped dataset metadata and audit
-  A->>UI: Start Profile Run
-  UI->>API: POST /profile with Idempotency-Key
-  API->>DB: Create queued run/job
-  API-->>UI: 202 Accepted and job id
-  Worker->>DB: Claim with SKIP LOCKED and lease
-  Worker->>Graph: Run deterministic profiling
-  Graph->>DB: Persist stats, proposals and provenance
-  Worker->>DB: Mark succeeded or pending review
-  A->>API: PATCH /profile/{runId}/confirm
-  API->>DB: Save decisions and enqueue continuation
-  Worker->>Graph: Resume from checkpoint and complete run
-~~~
-
-Job state (queued, running, succeeded, failed) is separate from Profile Run
-state. The API never executes the profiling graph inside an HTTP request.
-Worker lease renewal and bounded retry protect against a process restart or a
-transient database error. Cancellation is not exposed because the compute stack
-has no common cooperative cancellation boundary.
-
-### 3. Chart planning and Official evidence
-
-~~~mermaid
-sequenceDiagram
-  autonumber
-  actor A as Analyst
-  participant UI as Command Center
-  participant API as FastAPI
-  participant Plan as Chart planner
-  participant Engine as AnalysisEngine
-  participant DB as PostgreSQL
-  participant Agent as Insight runtime
-
-  A->>UI: Select completed Profile Run and ask a chart question
-  UI->>API: Create/get Explorer session
-  UI->>API: Request auto-plan or profile pack
-  API->>Plan: Safe profile metadata only
-  Plan-->>API: Structured plan or deterministic fallback
-  UI->>API: Run Preview
-  API->>Engine: Validate QuerySpec and execute bounded analysis
-  Engine-->>UI: Preview result and limitations
-  A->>UI: Promote Preview
-  UI->>API: Promote request
-  API->>Engine: Revalidate context/quality gate and rerun Official
-  Engine->>DB: Persist result hash and provenance
-  UI->>Agent: Generate evidence-bound insight
-  A->>API: Review/edit and pin to report draft
-~~~
-
-AnalysisEngine validates columns, analysis kind, aggregation, time grain,
-filters, PII policy, budgets, timeout, context version and idempotency.
-Preview may be approximate or expire; Official evidence is the only durable
-chart result. The current release renders 15 native chart types and exposes a
-28-model forecast registry, with models disabled when dependency or data
-contracts are not available.
-
-### 4. Report and export
-
-~~~mermaid
-sequenceDiagram
-  autonumber
-  actor A as Analyst
-  participant UI as Next.js
-  participant API as FastAPI
-  participant DB as PostgreSQL
-  participant PDF as Server PDF route
-
-  A->>UI: Pin reviewed Official evidence or note
-  UI->>API: Add report draft item with idempotency key
-  A->>UI: Create snapshot
-  UI->>API: Create immutable snapshot
-  API->>DB: Persist report version and snapshot hash
-  A->>PDF: Request profile report PDF
-  PDF->>API: Get authorized export source
-  API-->>PDF: Snapshot or read-only draft fallback
-  PDF-->>A: Rendered PDF
-~~~
-
-A pre-snapshot draft may be shown for convenience but is not an official,
-shareable report. Report lifecycle endpoints support submit, review, publish
-and archive once a snapshot exists.
-
-## Agent, trace and MCP boundaries
-
-Agent Q&A is bound to an authorized Profile Run. The backend caps short-term
-conversation history and applies output guardrails. Missing evidence must remain
-a stated limitation rather than be presented as a verified conclusion.
-
-AGENT_TRACE_MODE=shadow records redacted provenance without becoming the source
-of analytical results. LangSmith projection is optional, metadata-only and
-fail-open. PostgreSQL remains authoritative. The FastMCP server is a stdio
-adapter for trusted local processes; it is not a public API surface and follows
-the same bounded profile/chart contracts.
-
-## Operational safeguards
-
-- DATASOURCE_ENCRYPTION_KEY is required in production before connector
-  credentials are persisted.
-- SUPABASE_SECRET_KEY/service role key, database credentials, OAuth secrets,
-  LLM keys and encryption keys are server-only.
-- Performance telemetry records only route templates, timings, query counts,
-  payload sizes and sampled coarse SQL fingerprints. It excludes tokens,
-  request bodies, SQL parameters, prompts, model output and raw rows.
-- Server-Timing is disabled by default; it can be enabled deliberately for
-  browser-side performance inspection.
-- Supabase pooler session endpoint port 5432 is normalized to transaction
-  endpoint port 6543 for API/worker connection pressure. Checkpointer and
-  migration URLs can be configured separately.
-
-## Deliberate product limits
-
-- No arbitrary SQL, arbitrary code execution, raw-row explorer, multi-table
-  join or data-cleaning recipe is available through UI, Agent, Explorer or MCP.
-- PII masking and output guardrails are enforced before returning content to
-  UI, reports or MCP callers.
-- Forecasts are estimates with intervals and limitations, not facts.
-- Planner autonomy, verifier enforcement and long-term personal/workspace
-  memory are feature-gated, not default released workflows.
+Thay đổi API phải cập nhật Pydantic/type client và test; thay đổi schema phải có Alembic migration; thay đổi quyền phải đi qua capability registry và cross-workspace tests; thay đổi evidence phải giữ source binding, approximation và limitation. Các behavior còn bất nhất nhưng chưa được sửa được ghi tại [docs/summary.md](docs/summary.md), không được mô tả như guarantee.

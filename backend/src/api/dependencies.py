@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Callable
 
 from fastapi import Depends, Header, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 from src.services import perf_telemetry
 from src.services.auth import AuthContext, authenticate_bearer
 from src.services.permissions import (
@@ -50,7 +51,7 @@ class RequestContext:
 async def get_current_user(
     authorization: Annotated[str | None, Header()] = None,
 ) -> AuthContext:
-    return authenticate_bearer(authorization)
+    return await authenticate_bearer(authorization)
 
 
 def require_active_profile(
@@ -79,11 +80,12 @@ async def get_active_user(
     user: Annotated[AuthContext, Depends(get_current_user)],
 ) -> AuthContext:
     """Authenticate and fail closed against the current account record."""
+    repository = get_repository()
     if not user.is_guest and not user.is_legacy:
         # This refreshes only the identity projection. Stored role/status stay
         # authoritative inside ``sync_user_profile``.
-        get_repository().sync_user_profile(user.user_id, user.email)
-    require_active_profile(user)
+        await run_in_threadpool(repository.sync_user_profile, user.user_id, user.email)
+    await run_in_threadpool(require_active_profile, user, repository)
     return user
 
 
@@ -91,7 +93,7 @@ async def get_active_analyst_user(
     user: Annotated[AuthContext, Depends(get_active_user)],
 ) -> AuthContext:
     """Require an active Analyst for workspace-entry operations."""
-    profile = require_active_profile(user)
+    profile = await run_in_threadpool(require_active_profile, user, get_repository())
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -106,14 +108,12 @@ async def get_active_analyst_user(
 
 
 async def get_current_workspace(
-    user: Annotated[AuthContext, Depends(get_active_user)],
+    user: Annotated[AuthContext, Depends(get_current_user)],
     workspace_header: Annotated[str | None, Header(alias="X-Workspace-Id")] = None,
 ) -> WorkspaceContext:
-    # PERF-001: time the whole workspace-resolution phase. SQL run inside is
-    # also attributed to db_ms/query_count by the engine hooks; workspace_ms is
-    # the wall-clock cost of guard resolution including that SQL.
-    with perf_telemetry.timed("workspace_ms"):
-        return _resolve_workspace(user, workspace_header)
+    # PERF-001: _build_request_context times the whole resolution phase and
+    # attributes its SQL to the request-local query counter.
+    return (await _build_request_context(user, workspace_header)).workspace
 
 
 def _resolve_workspace(
@@ -182,11 +182,121 @@ def _resolve_workspace(
     )
 
 
-async def get_request_context(
-    actor: Annotated[AuthContext, Depends(get_active_user)],
-    workspace: Annotated[WorkspaceContext, Depends(get_current_workspace)],
+def _resolve_authenticated_workspace(
+    user: AuthContext, workspace_header: str | None
+) -> WorkspaceContext:
+    """Resolve the normal principal in two SQL round trips.
+
+    The first preserves the existing authoritative profile sync.  The second
+    returns the authoritative profile together with every active membership in
+    an active workspace, eliminating repeated profile and lock lookups.
+    """
+    repo = get_repository()
+    repo.sync_user_profile(user.user_id, user.email)
+    principal = repo.resolve_request_principal(user.user_id)
+    profile = principal["profile"] if principal else None
+    memberships = principal["memberships"] if principal else []
+
+    return _workspace_context_from_principal(profile, memberships, workspace_header)
+
+
+def _workspace_context_from_principal(
+    profile: dict[str, Any] | None,
+    memberships: list[dict[str, Any]],
+    workspace_header: str | None,
+) -> WorkspaceContext:
+    """Apply the existing fail-closed workspace and capability semantics."""
+
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản không còn hoạt động.",
+        )
+    if str(profile.get("status", "active")) != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản đã bị khóa hoặc vô hiệu hóa.",
+        )
+    # A system administrator remains a separate authorization context; a
+    # client-provided workspace header cannot turn it into a workspace user.
+    if canonical_role(str(profile.get("role", "analyst"))) == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="System Admin không có quyền truy cập Analyst workspace.",
+        )
+
+    if workspace_header:
+        membership = next(
+            (item for item in memberships if item["workspace_id"] == workspace_header),
+            None,
+        )
+        if not membership:
+            # Do not reveal an unrelated workspace's existence.
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy workspace.",
+            )
+    elif len(memberships) == 1:
+        membership = memberships[0]
+    elif len(memberships) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "workspace_required",
+                "message": "Cần chọn workspace qua X-Workspace-Id.",
+            },
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có membership workspace đang hoạt động.",
+        )
+
+    role = canonical_workspace_role(str(membership["role"]))
+    return WorkspaceContext(
+        workspace_id=str(membership["workspace_id"]),
+        role=role,
+        effective_permissions=workspace_permissions_for_role(role),
+    )
+
+
+def _resolve_bootstrapped_workspace(
+    user: AuthContext, workspace_header: str | None
+) -> WorkspaceContext:
+    """Resolve legacy/guest principals after their required idempotent setup."""
+    repo = get_repository()
+    if user.is_guest:
+        role = str(user.raw_claims.get("role", "analyst"))
+        repo.ensure_guest_workspace(user.user_id, role)
+    else:
+        repo.ensure_bootstrap_workspace(user.user_id)
+    principal = repo.resolve_request_principal(user.user_id)
+    profile = principal["profile"] if principal else None
+    memberships = principal["memberships"] if principal else []
+    return _workspace_context_from_principal(profile, memberships, workspace_header)
+
+
+async def _build_request_context(
+    actor: AuthContext, workspace_header: str | None
 ) -> RequestContext:
+    """Build and reuse one principal for a workspace request."""
+    with perf_telemetry.timed("workspace_ms"):
+        if actor.is_guest or actor.is_legacy:
+            workspace = await run_in_threadpool(
+                _resolve_bootstrapped_workspace, actor, workspace_header
+            )
+        else:
+            workspace = await run_in_threadpool(
+                _resolve_authenticated_workspace, actor, workspace_header
+            )
     return RequestContext(actor=actor, workspace=workspace)
+
+
+async def get_request_context(
+    actor: Annotated[AuthContext, Depends(get_current_user)],
+    workspace_header: Annotated[str | None, Header(alias="X-Workspace-Id")] = None,
+) -> RequestContext:
+    return await _build_request_context(actor, workspace_header)
 
 
 def require_permission(permission: str) -> Callable[..., RequestContext]:
@@ -210,13 +320,13 @@ async def get_system_context(
 ) -> SystemContext:
     repo = get_repository()
     
-    if repo.is_user_locked(user.user_id):
+    if await run_in_threadpool(repo.is_user_locked, user.user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tài khoản của bạn đã bị khóa bởi Quản trị viên hệ thống. Vui lòng liên hệ quản trị để được hỗ trợ mở khóa.",
         )
 
-    profile = repo.get_user_profile(user.user_id)
+    profile = await run_in_threadpool(repo.get_user_profile, user.user_id)
     if not profile:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tài khoản không còn hoạt động.")
     role = canonical_role(str(profile.get("role", "analyst")))

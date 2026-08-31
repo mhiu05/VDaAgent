@@ -581,6 +581,7 @@ export function DraggableChatWidget({
       >
         <button
           type="button"
+          className={isOpen ? "draggable-chat-widget-button is-open" : "draggable-chat-widget-button"}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

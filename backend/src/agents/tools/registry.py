@@ -15,6 +15,7 @@ from src.agents.tools.governance_tools import GOVERNANCE_TOOLS
 from src.agents.tools.statistics_tools import STATISTICS_TOOLS
 from src.agents.tools.test_tools import TEST_TOOLS
 from src.config import get_settings
+from src.services import ai_latency
 from src.services.security import get_audit
 
 logger = logging.getLogger(__name__)
@@ -90,13 +91,14 @@ def run_tool(
         }
     finally:
         _current_run_id.reset(token)
+    tool_duration_ms = (time.perf_counter() - started) * 1000
     if get_settings().security_audit_log:
         get_audit().log(
             "tool_call",
             tool=name,
             arg_names=sorted(args),
             profile_run_id=profile_run_id,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            duration_ms=round(tool_duration_ms, 2),
             error_code=result.get("error_code"),
             result_size=len(str(result)),
         )
@@ -107,8 +109,9 @@ def run_tool(
         tool_name=name,
         args=args,
         result=result,
-        duration_ms=round((time.perf_counter() - started) * 1000),
+        duration_ms=round(tool_duration_ms),
     )
+    ai_latency.record_tool(tool_duration_ms)
     return result
 
 

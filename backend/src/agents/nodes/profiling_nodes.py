@@ -53,12 +53,8 @@ def cache_dataframe(run_id: str, df: pd.DataFrame) -> None:
     _dataframes[run_id] = df
 
 
-def get_dataframe(run_id: str) -> pd.DataFrame | None:
-    """Lấy dataframe từ cache; cache trống thì load lại đúng query đã chạy (L5)."""
-    df = _dataframes.get(run_id)
-    if df is not None:
-        return df
-
+def get_dataframe(run_id: str, columns: list[str] | None = None) -> pd.DataFrame | None:
+    """Load only requested columns for an explicit statistical-test operation."""
     run = get_repository().get_profile_run(run_id)
     if not run:
         return None
@@ -74,11 +70,12 @@ def get_dataframe(run_id: str) -> pd.DataFrame | None:
             sample_size=run.get("sample_size") or 10_000,
             sample_strategy=run.get("sampling_strategy") or "reservoir",
             random_seed=run.get("random_seed"),
+            max_columns=get_settings().profiling_max_columns,
+            columns=columns,
         )
     except (FileNotFoundError, ValueError):
         return None
 
-    cache_dataframe(run_id, df)
     return df
 
 
@@ -113,12 +110,14 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
     seed = int(seed) if seed is not None else None
 
     try:
-        df, query, truncated = compute.load_dataset(
+        computation = compute.profile_source(
             dataset_ref,
             scan_mode=scan_mode,
             sample_size=sample_size,
             sample_strategy=strategy,
             random_seed=seed,
+            top_k=settings.profiling_top_k_values,
+            outlier_method=settings.profiling_outlier_method,
             max_columns=settings.profiling_max_columns,
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -129,13 +128,14 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
             "error": f"Không nạp được dataset: {exc}",
         }
 
-    if df.empty or len(df.columns) == 0:
+    if computation.row_count == 0 or not computation.column_names:
         detail = "Dataset has no rows or columns. Check that the file has a header and at least one data row."
         repo.update_profile_run(run_id, status="failed", error=detail)
         return {"dataset_id": dataset_id, "profile_run_id": run_id, "error": detail}
 
-    cache_dataframe(run_id, df)
-    repo.update_profile_run(run_id, row_count=len(df), executed_query=query)
+    repo.update_profile_run(
+        run_id, row_count=computation.row_count, executed_query=computation.executed_query
+    )
     get_audit().log(
         "ingest",
         workspace_id=state.get("workspace_id"),
@@ -143,7 +143,7 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
         profile_run_id=run_id,
         dataset_ref=dataset_ref,
         scan_mode=scan_mode,
-        row_count=len(df),
+        row_count=computation.row_count,
         requested_by=state.get("requested_by"),
     )
 
@@ -151,10 +151,17 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
         "dataset_id": dataset_id,
         "profile_run_id": run_id,
         "scan_mode": scan_mode,
-        "row_count": len(df),
-        "column_names": [str(c) for c in df.columns],
-        "executed_query": query,
-        "truncated_columns": truncated,
+        "row_count": computation.row_count,
+        "column_names": computation.column_names,
+        "executed_query": computation.executed_query,
+        "truncated_columns": computation.truncated_columns,
+        "stats_json": computation.stats,
+        "correlation_matrix": computation.correlation_matrix,
+        "pii_flags": computation.pii_flags,
+        "quasi_identifiers": computation.quasi_identifiers,
+        "candidate_keys_raw": computation.candidate_keys,
+        "duplicate_row_count": computation.duplicate_row_count,
+        "duplicate_row_rate": computation.duplicate_row_rate,
         "is_approximate": scan_mode == "sample",
         "sampling_config": {
             "strategy": strategy,
@@ -165,11 +172,11 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
         else None,
         "tool_calls": state.get("tool_calls", 0) + 1,
     }
-    if truncated:
+    if computation.truncated_columns:
         update["risk_warnings"] = [
             (
                 f"Dataset có nhiều hơn {settings.profiling_max_columns} cột; "
-                f"{len(truncated)} cột cuối bị bỏ qua trong lần profiling này."
+                f"{len(computation.truncated_columns)} cột cuối bị bỏ qua trong lần profiling này."
             )
         ]
     return update
@@ -180,31 +187,18 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 def compute_stats_node(state: ProfilingState) -> dict[str, Any]:
     """Tính thống kê mô tả + tương quan + PII bằng compute engine (ADR-005)."""
-    settings = get_settings()
     repo = get_repository()
     run_id = state["profile_run_id"]
 
-    df = get_dataframe(run_id)
-    if df is None:
-        return {"error": "Không tìm thấy dữ liệu đã nạp để tính thống kê."}
-
-    if df.empty or len(df.columns) == 0:
-        return {"error": "Dataset has no rows or columns for statistics. Upload a file with a header and at least one data row."}
-
+    stats = state.get("stats_json") or {}
+    if not stats:
+        return {"error": "Không có thống kê DuckDB để lưu."}
     scan_mode = state.get("scan_mode", "sample")
-    pii_flags = compute.detect_pii(df)
-    pii_columns = {f["column_name"] for f in pii_flags}
-
-    stats = compute.compute_column_stats(
-        df,
-        scan_mode=scan_mode,
-        top_k=settings.profiling_top_k_values,
-        outlier_method=settings.profiling_outlier_method,
-        pii_columns=pii_columns,
-    )
-    correlation = compute.compute_correlation_matrix(df)
-    quasi = compute.detect_quasi_identifiers(df, pii_columns)
-    duplicate_row_count = int(len(df) - len(df.drop_duplicates()))
+    correlation = state.get("correlation_matrix") or {}
+    quasi = state.get("quasi_identifiers") or []
+    pii_flags = state.get("pii_flags") or []
+    duplicate_row_count = int(state.get("duplicate_row_count") or 0)
+    duplicate_row_rate = float(state.get("duplicate_row_rate") or 0.0)
 
     repo.save_column_stats(run_id, stats)
     repo.update_profile_run(
@@ -212,7 +206,7 @@ def compute_stats_node(state: ProfilingState) -> dict[str, Any]:
         correlation_matrix=correlation,
         quasi_identifiers=quasi,
         duplicate_row_count=duplicate_row_count,
-        duplicate_row_rate=(duplicate_row_count / len(df)) if len(df) else 0.0,
+        duplicate_row_rate=duplicate_row_rate,
         is_approximate=scan_mode == "sample",
     )
     get_audit().log("compute_stats", profile_run_id=run_id, columns=len(stats))
@@ -222,6 +216,8 @@ def compute_stats_node(state: ProfilingState) -> dict[str, Any]:
         "correlation_matrix": correlation,
         "pii_flags": pii_flags,
         "quasi_identifiers": quasi,
+        "duplicate_row_count": duplicate_row_count,
+        "duplicate_row_rate": duplicate_row_rate,
         "is_approximate": scan_mode == "sample",
         "tool_calls": state.get("tool_calls", 0) + 1,
     }
@@ -326,22 +322,17 @@ def propose_metadata_node(state: ProfilingState) -> dict[str, Any]:
     if not stats:
         return {"error": "Chưa có thống kê để đề xuất metadata."}
 
-    df = get_dataframe(run_id)
-
-    # 1. Candidate key — tính từ uniqueness/null thật, không qua LLM.
-    ck_raw = (
-        compute.find_candidate_keys(df, stats)
-        if df is not None
-        else [
-            {
-                "columns": [col],
-                "confidence": 0.99,
-                "evidence": "uniqueness = 100%, null% = 0% (từ column_stats).",
-            }
-            for col, st in stats.items()
-            if st.get("uniqueness_ratio", 0) >= 1.0 and st.get("null_pct", 100) == 0.0
-        ]
-    )
+    # 1. Candidate keys were calculated exactly in DuckDB with the source still
+    # file-backed, so this node does not need to rehydrate a full DataFrame.
+    ck_raw = state.get("candidate_keys_raw") or [
+        {
+            "columns": [col],
+            "confidence": 0.99,
+            "evidence": "uniqueness = 100%, null% = 0% (từ column_stats).",
+        }
+        for col, st in stats.items()
+        if st.get("uniqueness_ratio", 0) >= 1.0 and st.get("null_pct", 100) == 0.0
+    ]
     candidate_keys = [
         {
             "columns": item["columns"],
@@ -541,17 +532,39 @@ def deep_analysis_node(state: ProfilingState) -> dict[str, Any]:
     if not requests:
         return {"tool_calls": state.get("tool_calls", 0) + 1}
 
-    df = get_dataframe(run_id)
+    requested_columns = list(
+        dict.fromkeys(
+            str(column)
+            for request in requests
+            for column in request.get("columns", [])
+        )
+    )
+    config = dict(state.get("sampling_config") or {})
+    try:
+        df, _query, _truncated = compute.load_dataset(
+            state["dataset_ref"],
+            scan_mode=state.get("scan_mode", settings.profiling_default_scan_mode),
+            sample_size=int(config.get("sample_size", settings.profiling_sample_size)),
+            sample_strategy=str(config.get("strategy", settings.profiling_sample_strategy)),
+            random_seed=config.get("random_seed", settings.profiling_random_seed),
+            max_columns=settings.profiling_max_columns,
+            columns=requested_columns,
+        )
+    except (FileNotFoundError, ValueError):
+        df = None
     if df is None:
         return {"error": "Không tìm thấy dữ liệu để chạy kiểm định."}
 
-    results = run_tests(
-        df,
-        requests,
-        alpha=settings.stats_alpha,
-        fdr_method=settings.stats_fdr_method,
-        max_tests=settings.stats_max_tests_per_request,
-    )
+    try:
+        results = run_tests(
+            df,
+            requests,
+            alpha=settings.stats_alpha,
+            fdr_method=settings.stats_fdr_method,
+            max_tests=settings.stats_max_tests_per_request,
+        )
+    finally:
+        del df
     repo.save_test_results(run_id, results, requested_by=state.get("requested_by"))
     get_audit().log(
         "deep_analysis",

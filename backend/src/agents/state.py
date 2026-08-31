@@ -50,6 +50,9 @@ class ProfilingState(TypedDict, total=False):
     pii_flags: list[dict[str, Any]]
     quasi_identifiers: list[str]
     is_approximate: bool
+    candidate_keys_raw: list[dict[str, Any]]
+    duplicate_row_count: int
+    duplicate_row_rate: float
 
     # --- Proposals ------------------------------------------------------ #
     candidate_key_proposals: list[dict[str, Any]]
@@ -120,6 +123,9 @@ def initial_profiling_state(
         pii_flags=[],
         quasi_identifiers=[],
         is_approximate=scan_mode == "sample",
+        candidate_keys_raw=[],
+        duplicate_row_count=0,
+        duplicate_row_rate=0.0,
         candidate_key_proposals=[],
         semantic_type_proposals=[],
         pii_proposals=[],

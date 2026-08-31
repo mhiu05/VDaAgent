@@ -69,6 +69,7 @@ class PerfContext:
     workspace_ms: float = 0.0
     db_ms: float = 0.0
     query_count: int = 0
+    external_http_calls: int = 0
     serialization_ms: float = 0.0
     payload_bytes: int = 0
     payload_streaming: bool = False
@@ -105,6 +106,13 @@ def add_phase(field_name: str, duration_ms: float) -> None:
     if ctx is None:
         return
     setattr(ctx, field_name, getattr(ctx, field_name, 0.0) + duration_ms)
+
+
+def record_external_http_call() -> None:
+    """Count an outbound request without capturing its URL or payload."""
+    ctx = _perf_context.get()
+    if ctx is not None:
+        ctx.external_http_calls += 1
 
 
 @contextmanager
@@ -174,7 +182,7 @@ def emit_log(
     """Emit one PII-safe structured line summarizing the request phases."""
     logger.info(
         "perf route=%s method=%s status=%d total_ms=%d auth_local_ms=%d "
-        "auth_remote_ms=%d workspace_ms=%d db_ms=%d query_count=%d "
+        "auth_remote_ms=%d workspace_ms=%d db_ms=%d query_count=%d external_http_calls=%d "
         "serialization_ms=%d payload_bytes=%d streaming=%s slow_query=%s "
         "slow_query_ms=%d correlation_id=%s",
         ctx.route,
@@ -186,6 +194,7 @@ def emit_log(
         round(ctx.workspace_ms),
         round(ctx.db_ms),
         ctx.query_count,
+        ctx.external_http_calls,
         round(ctx.serialization_ms),
         ctx.payload_bytes,
         "1" if ctx.payload_streaming else "0",
@@ -223,6 +232,7 @@ __all__ = [
     "emit_log",
     "install_sql_instrumentation",
     "maybe_log_slow_query",
+    "record_external_http_call",
     "record_serialization",
     "reset",
     "timed",

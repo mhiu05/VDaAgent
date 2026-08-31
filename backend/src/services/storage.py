@@ -19,7 +19,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 # pyrefly: ignore [missing-import]
 import httpx
@@ -43,6 +43,10 @@ class StorageUploadError(RuntimeError):
     def __init__(self, message: str, *, status: int | str | None = None) -> None:
         super().__init__(message)
         self.status = status
+
+
+class StorageDownloadError(RuntimeError):
+    """Raised when a remote source cannot be streamed safely to local disk."""
 
 
 def is_supabase_ref(value: str) -> bool:
@@ -258,6 +262,69 @@ class SupabaseStorage:
     def download(self, bucket: str, object_path: str) -> bytes:
         return self.client.storage.from_(bucket).download(object_path)
 
+    def _download_url(self, bucket: str, object_path: str) -> str:
+        """Return the authenticated Storage object endpoint without SDK buffering."""
+        return (
+            f"{self.settings.supabase_url.rstrip('/')}/storage/v1/object/"
+            f"{quote(bucket, safe='')}/{quote(object_path, safe='/')}"
+        )
+
+    def download_to_file(
+        self,
+        bucket: str,
+        object_path: str,
+        destination: Path,
+        *,
+        max_bytes: int,
+    ) -> int:
+        """Stream a Storage object into ``destination`` with a hard byte limit.
+
+        The Supabase Python SDK's ``download`` API returns one large ``bytes``
+        object.  Profiling must not use that API: a 500 MB source otherwise
+        temporarily exists both as a Python payload and as the local file.
+        """
+        if max_bytes <= 0:
+            raise ValueError("max_bytes phải lớn hơn 0.")
+
+        written = 0
+        key = self.settings.supabase_backend_key
+        try:
+            with httpx.Client(timeout=self.settings.supabase_storage_timeout_seconds) as client:
+                with client.stream(
+                    "GET",
+                    self._download_url(bucket, object_path),
+                    headers={"Authorization": f"Bearer {key}", "apikey": key},
+                ) as response:
+                    if response.status_code >= 400:
+                        detail = response.text.strip()[:300]
+                        raise StorageDownloadError(
+                            "Supabase Storage từ chối tải source"
+                            f" ({response.status_code}): {detail or 'không có nội dung.'}"
+                        )
+                    with destination.open("wb") as target:
+                        for chunk in response.iter_bytes(chunk_size=self.chunk_bytes):
+                            if not chunk:
+                                continue
+                            next_size = written + len(chunk)
+                            if next_size > max_bytes:
+                                raise StorageDownloadError(
+                                    "Dataset vượt giới hạn dung lượng cho profiling."
+                                )
+                            target.write(chunk)
+                            written = next_size
+        except StorageDownloadError:
+            destination.unlink(missing_ok=True)
+            raise
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
+            destination.unlink(missing_ok=True)
+            raise StorageDownloadError(
+                "Kết nối tới Supabase Storage bị gián đoạn khi tải source."
+            ) from exc
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
+        return written
+
     def remove(self, bucket: str, object_path: str) -> None:
         self.client.storage.from_(bucket).remove([object_path])
 
@@ -281,8 +348,17 @@ def reset_storage() -> None:
 
 
 @contextmanager
-def materialize_source(source_ref: str, settings: Settings | None = None) -> Iterator[Path]:
+def materialize_source(
+    source_ref: str,
+    settings: Settings | None = None,
+    *,
+    max_bytes: int | None = None,
+) -> Iterator[Path]:
     """Yield a readable local path for a local or Supabase source reference."""
+    current_settings = settings or get_settings()
+    source_limit = max_bytes or (current_settings.security_max_upload_mb * 1024 * 1024)
+    if source_limit <= 0:
+        raise ValueError("Giới hạn source cho profiling phải lớn hơn 0.")
     if source_ref.lower().startswith("datasource://"):
         from src.services.datasource import DatasourceError, connection_id_from_ref, materialize_connection
         from src.services.repository import get_repository
@@ -293,7 +369,7 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         connection = get_repository(settings).get_datasource_connection_any(connection_id)
         if connection is None:
             raise DatasourceError("Không tìm thấy datasource connection.")
-        with materialize_connection(connection, settings) as readable_path:
+        with materialize_connection(connection, current_settings) as readable_path:
             yield readable_path
         return
     if source_ref.lower().startswith("gdrive://"):
@@ -305,7 +381,9 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         temp_path = Path(temp_name)
         try:
             try:
-                GoogleDriveStorage(settings).download(workspace_id, file_id, temp_path)
+                GoogleDriveStorage(current_settings).download(
+                    workspace_id, file_id, temp_path, max_bytes=source_limit
+                )
             except Exception as exc:
                 raise OSError(f"Lỗi tải dữ liệu từ Google Drive: {exc}") from exc
             with utf8_tabular_source(temp_path) as readable_path:
@@ -319,6 +397,8 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
         path = Path(source_ref)
         if not path.is_file():
             raise FileNotFoundError(f"Không tìm thấy dataset: {source_ref}")
+        if path.stat().st_size > source_limit:
+            raise StorageDownloadError("Dataset vượt giới hạn dung lượng cho profiling.")
         with utf8_tabular_source(path) as readable_path:
             yield readable_path
         return
@@ -329,8 +409,9 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
     os.close(fd)
     temp_path = Path(temp_name)
     try:
-        payload = get_storage(settings).download(bucket, object_path)
-        temp_path.write_bytes(payload)
+        get_storage(current_settings).download_to_file(
+            bucket, object_path, temp_path, max_bytes=source_limit
+        )
         with utf8_tabular_source(temp_path) as readable_path:
             yield readable_path
     finally:
@@ -340,6 +421,7 @@ def materialize_source(source_ref: str, settings: Settings | None = None) -> Ite
 __all__ = [
     "StorageNotConfiguredError",
     "StorageReferenceError",
+    "StorageDownloadError",
     "StorageUploadError",
     "SupabaseStorage",
     "get_storage",

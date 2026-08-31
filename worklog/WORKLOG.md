@@ -1,8 +1,8 @@
-# Worklog — Team T170
+# Nhật ký công việc — Nhóm T170
 
-## Team
+## Thành viên nhóm
 
-| Member | Role | Student ID |
+| Thành viên | Vai trò | Mã sinh viên |
 |--------|------|-----------|
 | Vũ Nguyễn Bảo Sơn | Product Manager - Lead Team | 2A202601116 |
 | Phạm Thế Đăng | Web Developer | 2A202601766 |

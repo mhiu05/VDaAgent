@@ -6,6 +6,7 @@ LLM chỉ diễn đạt lại. Sai ở đây là sai vào mặt người dùng.
 
 from __future__ import annotations
 
+import duckdb
 import pandas as pd
 from src.services.compute import (
     compute_column_stats,
@@ -14,6 +15,7 @@ from src.services.compute import (
     detect_quasi_identifiers,
     find_candidate_keys,
     load_dataset,
+    profile_source,
 )
 
 
@@ -171,3 +173,96 @@ def test_load_dataset_normalizes_windows_1258_csv(tmp_path) -> None:
     dataframe, _, _ = load_dataset(str(source), scan_mode="full")
 
     assert dataframe["product"].tolist() == ["Cà phê", "Trà"]
+
+
+def test_load_dataset_projects_columns_before_dataframe_materialization(tmp_path) -> None:
+    columns = [f"column_{index}" for index in range(205)]
+    source = tmp_path / "wide.csv"
+    source.write_text(",".join(columns) + "\n" + ",".join("1" for _ in columns) + "\n", encoding="utf-8")
+
+    dataframe, query, truncated = load_dataset(str(source), scan_mode="full", max_columns=200)
+
+    assert dataframe.shape == (1, 200)
+    assert truncated == columns[200:]
+    assert "SELECT *" not in query.upper()
+    assert list(dataframe.columns) == columns[:200]
+
+
+def test_file_backed_profile_matches_dataframe_metrics_without_dataframe(monkeypatch, tmp_path) -> None:
+    source = tmp_path / "parity.csv"
+    source.write_text(
+        "id,score,code,city,email\n"
+        "1,10,C0,Hanoi,user0@example.com\n"
+        "2,10,C1,Hue,user1@example.com\n"
+        "3,11,C2,Hanoi,user2@example.com\n"
+        "4,11,C3,Hue,user3@example.com\n"
+        "5,12,C4,Hanoi,user4@example.com\n"
+        "6,12,C5,Hue,user5@example.com\n"
+        "7,12,C6,Hanoi,user6@example.com\n"
+        "8,13,C7,Hue,user7@example.com\n"
+        "9,,C8,Hanoi,user8@example.com\n"
+        "10,1000,C9,Hue,user9@example.com\n",
+        encoding="utf-8",
+    )
+    dataframe, _, _ = load_dataset(str(source), scan_mode="full")
+    pii = detect_pii(dataframe)
+    expected_stats = compute_column_stats(
+        dataframe, scan_mode="full", pii_columns={item["column_name"] for item in pii}
+    )
+    expected_correlation = compute_correlation_matrix(dataframe)
+
+    def _forbid_dataframe(*_: object, **__: object) -> None:
+        raise AssertionError("initial file-backed profile must not construct a pandas DataFrame")
+
+    monkeypatch.setattr("src.services.compute.pd.DataFrame", _forbid_dataframe)
+    result = profile_source(str(source), scan_mode="full")
+
+    assert result.row_count == len(dataframe)
+    assert result.stats == expected_stats
+    assert result.correlation_matrix == expected_correlation
+    assert result.pii_flags == pii
+    assert result.duplicate_row_count == 0
+    assert "SELECT *" not in result.executed_query.upper()
+
+
+def test_file_backed_profile_supports_parquet(tmp_path) -> None:
+    source = tmp_path / "orders.parquet"
+    connection = duckdb.connect(database=":memory:")
+    try:
+        connection.execute(
+            "COPY (SELECT 1 AS order_id, 12.5 AS amount UNION ALL SELECT 2, 18.0) "
+            "TO ? (FORMAT PARQUET)",
+            [str(source)],
+        )
+    finally:
+        connection.close()
+
+    result = profile_source(str(source), scan_mode="full")
+
+    assert result.row_count == 2
+    assert result.stats["amount"]["mean"] == 15.25
+    assert result.candidate_keys[0]["columns"] == ["order_id"]
+
+
+def test_file_backed_sample_profile_matches_seeded_dataframe_sample(tmp_path) -> None:
+    source = tmp_path / "sample.csv"
+    source.write_text(
+        "id,amount,city\n"
+        + "".join(f"{index},{index * 1.5},{'Hanoi' if index % 2 else 'Hue'}\n" for index in range(1, 51)),
+        encoding="utf-8",
+    )
+    dataframe, _, _ = load_dataset(
+        str(source), scan_mode="sample", sample_size=12, random_seed=42
+    )
+    pii = detect_pii(dataframe)
+    expected_stats = compute_column_stats(
+        dataframe, scan_mode="sample", pii_columns={item["column_name"] for item in pii}
+    )
+
+    result = profile_source(
+        str(source), scan_mode="sample", sample_size=12, random_seed=42
+    )
+
+    assert result.row_count == len(dataframe)
+    assert result.stats == expected_stats
+    assert result.correlation_matrix == compute_correlation_matrix(dataframe)

@@ -22,6 +22,7 @@ from src.agents.runtime.context import (
 from src.agents.runtime.langsmith_observability import get_langsmith_observability
 from src.agents.runtime.versioning import build_version_snapshot, stable_hash
 from src.config import get_settings
+from src.services import ai_latency
 from src.services.repository import get_repository
 
 _SENSITIVE_KEYS = {
@@ -320,6 +321,7 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
             },
         ) as langsmith_span:
             response = llm.invoke(messages)
+            model_duration_ms = (time.perf_counter() - started) * 1000
             if langsmith_span is not None:
                 input_tokens, output_tokens, usage_status = _usage(response)
                 langsmith_span.metadata.update(
@@ -327,10 +329,11 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
                         "usage_status": usage_status,
-                        "duration_ms": round((time.perf_counter() - started) * 1000),
+                        "duration_ms": round(model_duration_ms),
                     }
                 )
     except Exception as exc:
+        ai_latency.record_model(prompt_id, (time.perf_counter() - started) * 1000)
         if context and trace_enabled():
             try:
                 spec = get_prompt_spec(prompt_id)
@@ -398,6 +401,13 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
             )
         except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
             _trace_failure(exc)
+    input_tokens, output_tokens, _usage_status = _usage(response)
+    ai_latency.record_model(
+        prompt_id,
+        model_duration_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
     return response
 
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CHAT_HISTORY_EVENT, clearChatHistory, deleteConversation, listConversations, type ChatConversation } from "@/lib/chat-history";
 import { useAuth } from "@/components/auth-provider";
 import { can, PERMISSIONS, type Permission } from "@/lib/auth/permissions";
@@ -37,6 +37,8 @@ function accountInitials(email: string | null) {
   const value = (email || "AN").split("@")[0].replace(/[^a-zA-Z0-9]/g, "");
   return value.slice(0, 2).toUpperCase() || "AN";
 }
+
+const OPTIMISTIC_PROGRESS_TIMEOUT_MS = 2_400;
 
 const adminNavigation = [
   { href: "/admin", label: "Quản trị tài khoản", icon: "🛡", description: "Xem toàn bộ tài khoản, khóa / mở khóa và xóa tài khoản người dùng.", permission: PERMISSIONS.userAccountsRead },
@@ -85,11 +87,14 @@ const analystNavigation = [
 function AppShellContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsValue = searchParams.toString();
   const router = useRouter();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
   const [openNavigationGroup, setOpenNavigationGroup] = useState<string | null>(null);
   const [pendingWorkspacePath, setPendingWorkspacePath] = useState<string | null>(null);
+  const [pendingInteraction, setPendingInteraction] = useState(false);
+  const pendingInteractionTimeout = useRef<number | null>(null);
   const [userProfile, setUserProfile] = useState<{ fullName?: string; avatarUrl?: string } | null>(null);
   const { me, authenticated, isGuest, guestRole, ready, loading, error, workspaceId, switchWorkspace, signOut } = useAuth();
   const dialog = useDialog();
@@ -103,7 +108,8 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setPendingWorkspacePath(null);
-  }, [pathname]);
+    setPendingInteraction(false);
+  }, [pathname, searchParamsValue]);
 
   useEffect(() => {
     if (!pendingWorkspacePath) return;
@@ -111,21 +117,66 @@ function AppShellContent({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout);
   }, [pendingWorkspacePath]);
 
+  useEffect(() => () => {
+    if (pendingInteractionTimeout.current !== null) {
+      window.clearTimeout(pendingInteractionTimeout.current);
+    }
+  }, []);
+
   function isWorkspaceNavigationActive(href: string) {
     return href === "/"
       ? workspaceNavigationPath === "/"
       : workspaceNavigationPath === href || workspaceNavigationPath.startsWith(href + "/");
   }
 
-  function handleWorkspaceNavigation(event: MouseEvent<HTMLElement>) {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const target = event.target as Element;
-    const link = target.closest<HTMLAnchorElement>("a[href]");
-    if (!link || !event.currentTarget.contains(link)) return;
-    const destination = new URL(link.href, window.location.href);
-    if (destination.origin !== window.location.origin || destination.pathname === pathname) return;
-    setPendingWorkspacePath(destination.pathname);
-  }
+  const beginOptimisticInteraction = useCallback(() => {
+    setPendingInteraction(true);
+    if (pendingInteractionTimeout.current !== null) {
+      window.clearTimeout(pendingInteractionTimeout.current);
+    }
+    pendingInteractionTimeout.current = window.setTimeout(() => {
+      pendingInteractionTimeout.current = null;
+      setPendingInteraction(false);
+    }, OPTIMISTIC_PROGRESS_TIMEOUT_MS);
+  }, []);
+
+  useEffect(() => {
+    if (isPublicPage || isAuthPage) return;
+
+    const handleClick = (event: globalThis.MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (!(event.target instanceof Element)) return;
+
+      const button = event.target.closest<HTMLButtonElement>("button");
+      const link = event.target.closest<HTMLAnchorElement>("a[href]");
+      if (!button && !link) return;
+      if (button?.disabled || button?.getAttribute("aria-disabled") === "true") return;
+
+      if (link) {
+        const destination = new URL(link.href, window.location.href);
+        const current = new URL(window.location.href);
+        const changesRoute = destination.origin === current.origin
+          && (destination.pathname !== current.pathname || destination.search !== current.search || destination.hash !== current.hash);
+        if (!changesRoute && !button) return;
+        if (changesRoute) setPendingWorkspacePath(destination.pathname);
+      }
+
+      beginOptimisticInteraction();
+    };
+
+    const handleSubmit = (event: SubmitEvent) => {
+      const submitter = event.submitter;
+      if (submitter instanceof HTMLButtonElement && (submitter.disabled || submitter.getAttribute("aria-disabled") === "true")) return;
+      beginOptimisticInteraction();
+    };
+
+    document.addEventListener("click", handleClick, true);
+    document.addEventListener("submit", handleSubmit, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+      document.removeEventListener("submit", handleSubmit, true);
+    };
+  }, [beginOptimisticInteraction, isAuthPage, isPublicPage]);
 
   useEffect(() => {
     if (isAdmin) return;
@@ -319,12 +370,12 @@ function AppShellContent({ children }: { children: ReactNode }) {
 
   if (isPublicPage || isAuthPage) return <main className="main-content home-only-content">{children}</main>;
 
+  const progressActive = Boolean(pendingWorkspacePath || pendingInteraction);
   const workspaceShell = (
-    <div className="app-shell">
-      {pendingWorkspacePath && <span className="workspace-nav-progress" aria-hidden="true" />}
+    <div className="app-shell" aria-busy={progressActive ? "true" : undefined}>
+      {progressActive && <span className="workspace-action-progress" aria-hidden="true" />}
       <aside className="sidebar"
         aria-busy={pendingWorkspacePath ? "true" : undefined}
-        onClickCapture={handleWorkspaceNavigation}
         aria-label="Điều hướng chính"
       >
         <div className="workspace-rail-brand">
