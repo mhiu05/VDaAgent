@@ -100,8 +100,13 @@ def _backfill_legacy_workspaces() -> None:
             bind.execute(
                 sa.text(
                     """
-                    INSERT INTO workspaces (id, name, slug, created_by_user_id, status)
-                    VALUES (:id, :name, :slug, :created_by_user_id, 'active')
+                    INSERT INTO workspaces (
+                        id, name, slug, created_by_user_id, status, created_at, updated_at
+                    )
+                    VALUES (
+                        :id, :name, :slug, :created_by_user_id, 'active',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
                     ON CONFLICT (id) DO NOTHING
                     """
                 ),
