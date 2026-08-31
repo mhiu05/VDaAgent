@@ -68,6 +68,52 @@ def _rename_index(table: str, old: str, new: str) -> None:
         op.execute(sa.text(f'ALTER INDEX "{old}" RENAME TO "{new}"'))
 
 
+def _backfill_legacy_workspaces() -> None:
+    """Preserve legacy tenant rows before enforcing workspace foreign keys."""
+    bind = op.get_bind()
+    workspace_tables = (
+        "analysis_sessions",
+        "audit_events",
+        "datasets",
+        "datasource_connections",
+        "profile_runs",
+        "reports",
+        "retrieval_documents",
+        "workspace_invitations",
+        "workspace_memberships",
+    )
+    for table in workspace_tables:
+        if not _has_column(table, "workspace_id"):
+            continue
+        orphan_ids = bind.execute(
+            sa.text(
+                f"""
+                SELECT DISTINCT child.workspace_id
+                FROM {table} AS child
+                LEFT JOIN workspaces AS workspace ON workspace.id = child.workspace_id
+                WHERE child.workspace_id IS NOT NULL AND workspace.id IS NULL
+                """
+            )
+        ).scalars()
+        for workspace_id in orphan_ids:
+            digest = hashlib.sha1(workspace_id.encode()).hexdigest()[:16]
+            bind.execute(
+                sa.text(
+                    """
+                    INSERT INTO workspaces (id, name, slug, created_by_user_id, status)
+                    VALUES (:id, :name, :slug, :created_by_user_id, 'active')
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                ),
+                {
+                    "id": workspace_id,
+                    "name": f"Legacy workspace {workspace_id}",
+                    "slug": f"legacy-{digest}",
+                    "created_by_user_id": "legacy-system",
+                },
+            )
+
+
 def upgrade() -> None:
     user_columns = {c["name"] for c in _inspector().get_columns("user_profiles")}
     if "role" not in user_columns:
@@ -95,6 +141,8 @@ def upgrade() -> None:
     bind.execute(sa.text("UPDATE user_profiles SET status = 'active' WHERE status IS NULL"))
     op.alter_column("user_profiles", "role", nullable=False)
     op.alter_column("user_profiles", "status", nullable=False)
+
+    _backfill_legacy_workspaces()
 
     # Preserve existing rollout-era indexes by renaming them to the model's
     # canonical names rather than building duplicate physical indexes.
