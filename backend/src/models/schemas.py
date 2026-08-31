@@ -390,6 +390,7 @@ class ExternalKnowledgeSource(BaseModel):
 
 class ToolSource(BaseModel):
     type: Literal["tool"]
+    citation_id: str | None = None
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)
     status: str

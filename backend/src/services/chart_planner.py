@@ -185,6 +185,102 @@ def _time_columns(context: dict[str, Any], column_stats: dict[str, Any]) -> list
     return result
 
 
+def sanitize_chart_context(
+    context: dict[str, Any], column_stats: dict[str, Any]
+) -> dict[str, Any]:
+    """Remove restricted columns before any model proposal is normalized.
+
+    Context is user/analyst supplied state and therefore a proposal, not a
+    privacy boundary.  PII markers from persisted stats and explicit
+    ``ignored_columns`` are both fail-closed; all executable planner fields
+    are subsequently derived from this sanitized copy.
+    """
+
+    restricted = {
+        str(item)
+        for item in (context.get("ignored_columns") or [])
+        if item
+    }
+    for name, stat in column_stats.items():
+        if not isinstance(stat, dict):
+            continue
+        if any(
+            bool(stat.get(marker))
+            for marker in ("is_pii", "pii", "pii_masked", "restricted")
+        ):
+            restricted.add(str(name))
+    restricted_fold = {item.casefold() for item in restricted}
+
+    result = dict(context)
+    for field in ("dimensions", "measures", "keys"):
+        result[field] = [
+            str(item)
+            for item in (context.get(field) or [])
+            if str(item).casefold() not in restricted_fold
+        ]
+    time_column = context.get("time_column")
+    result["time_column"] = (
+        str(time_column)
+        if time_column and str(time_column).casefold() not in restricted_fold
+        else None
+    )
+    result["ignored_columns"] = sorted(
+        {*(context.get("ignored_columns") or []), *restricted}
+    )
+    return result
+
+
+def can_plan_deterministically(
+    question: str, context: dict[str, Any], column_stats: dict[str, Any]
+) -> bool:
+    """Whether a bounded rules planner fully covers an explicit chart intent.
+
+    This is deliberately conservative. It does not infer an ambiguous business
+    objective; it only skips the model when the question selects an existing
+    safe planner family and the profile provides the fields that family needs.
+    ``build_chart_plan`` remains the executable allow-list boundary either way.
+    """
+
+    safe_context = sanitize_chart_context(context, column_stats)
+    text = _plain(question)
+    if not text:
+        return False
+    dimensions = [str(item) for item in safe_context.get("dimensions") or []]
+    measures = [str(item) for item in safe_context.get("measures") or []]
+    time_columns = _time_columns(safe_context, column_stats)
+    restricted = [str(item) for item in safe_context.get("ignored_columns") or []]
+    # A request for a prohibited column must use the deterministic safe
+    # fallback, never give that column another opportunity to influence a
+    # semantic model proposal.
+    if any(_plain(column) and _plain(column) in text for column in restricted):
+        return True
+
+    named_measures = [column for column in measures if _plain(column) in text]
+    named_dimensions = [column for column in dimensions if _plain(column) in text]
+    has_time_intent = bool(
+        time_columns
+        and _mentions(
+            text,
+            ("trend", "xu huong", "theo thang", "theo nam", "monthly", "yearly", "over time"),
+        )
+    )
+    if _mentions(text, ("forecast", "du bao")):
+        return bool(time_columns and measures)
+    if _mentions(text, ("missing", "null", "cardinality", "outlier")):
+        return bool(dimensions or measures)
+    if _mentions(text, ("histogram", "box plot", "boxplot", "violin", "phan phoi")):
+        return bool(measures)
+    if _mentions(text, ("correlation", "tuong quan", "moi quan he", "scatter")):
+        return len(measures) >= 2 and len(named_measures) >= 2
+    if has_time_intent:
+        return bool(measures)
+    if _mentions(text, ("ranking", "cao nhat", "thap nhat", "top ", "so sanh", "compare")):
+        return bool(dimensions and measures and (named_dimensions or named_measures))
+    if _mentions(text, ("donut", "pie", "ty trong", "phan tram", "breakdown")):
+        return bool(dimensions)
+    return False
+
+
 def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
     absolute = year * 12 + (month - 1) + offset
     return absolute // 12, absolute % 12 + 1
@@ -389,14 +485,31 @@ def build_chart_plan(
 ) -> dict[str, Any]:
     """Normalize an agent proposal into a bounded executable chart plan."""
 
-    fallback = _fallback_candidate(question, context, column_stats)
+    context = sanitize_chart_context(context, column_stats)
+    normalized_question = _plain(question)
+    restricted_requested = any(
+        _plain(str(column)) and _plain(str(column)) in normalized_question
+        for column in (context.get("ignored_columns") or [])
+    )
+    # A request targeting a restricted column is not allowed to influence the
+    # fallback dimension.  Prefer the safe time-series/measure default when
+    # available, so the plan remains useful without leaking or selecting PII.
+    fallback_question = question
+    if restricted_requested:
+        safe_measure = next(iter(context.get("measures") or []), None)
+        safe_time = context.get("time_column") or next(
+            iter(_time_columns(context, column_stats)), None
+        )
+        if safe_measure and safe_time:
+            fallback_question = f"{safe_measure} theo thang {safe_time}"
+    fallback = _fallback_candidate(fallback_question, context, column_stats)
     dimensions = list(context.get("dimensions") or [])
     measures = list(context.get("measures") or [])
     profile_columns = list(
         dict.fromkeys([*dimensions, *measures, *(context.get("keys") or [])])
     )
     times = _time_columns(context, column_stats)
-    candidate_accepted = candidate is not None
+    candidate_accepted = candidate is not None and not restricted_requested
     if candidate and (
         candidate.algorithm not in PROBLEM_ALGORITHMS[candidate.problem]
         or any(
@@ -410,6 +523,8 @@ def build_chart_plan(
     ):
         proposed = fallback
         candidate_accepted = False
+    elif restricted_requested:
+        proposed = fallback
     else:
         proposed = candidate or fallback
 
@@ -661,6 +776,7 @@ def build_auto_profile_pack(
 ) -> list[dict[str, Any]]:
     """Create a rich, visually diverse profiling pack without a user question."""
 
+    context = sanitize_chart_context(context, column_stats)
     dimensions = [str(item) for item in context.get("dimensions") or []]
     measures = [str(item) for item in context.get("measures") or []]
     times = _time_columns(context, column_stats)
@@ -746,4 +862,10 @@ def build_auto_profile_pack(
     return plans
 
 
-__all__ = ["ChartPlanCandidate", "build_auto_profile_pack", "build_chart_plan"]
+__all__ = [
+    "can_plan_deterministically",
+    "ChartPlanCandidate",
+    "build_auto_profile_pack",
+    "build_chart_plan",
+    "sanitize_chart_context",
+]

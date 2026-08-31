@@ -20,6 +20,7 @@ from src.agents.runtime.trace import (
 )
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
+from src.services import ai_latency
 from src.models.analysis_schemas import (
     AnalysisSessionCreate,
     AutoChartPlanRequest,
@@ -40,6 +41,8 @@ from src.services.chart_planner import (
     ChartPlanCandidate,
     build_auto_profile_pack,
     build_chart_plan,
+    can_plan_deterministically,
+    sanitize_chart_context,
 )
 from src.services.forecasting import forecast_algorithm_catalog
 from src.services.llm import get_llm
@@ -211,8 +214,7 @@ async def ensure_explorer_session(
     return session
 
 
-@profile_router.post("/{run_id}/charts/auto-plan")
-async def auto_plan_chart(
+async def _auto_plan_chart_impl(
     run_id: str,
     payload: AutoChartPlanRequest,
     context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
@@ -225,26 +227,37 @@ async def auto_plan_chart(
     semantic = session.get("context") or {}
     approved_context = semantic.get("context") or {}
     stats = get_repository().get_column_stats(run_id)
-    allowed_columns = set(approved_context.get("dimensions") or []) | set(
-        approved_context.get("measures") or []
-    )
-    safe_stats = {
+    # Semantic context is a proposal and may be stale or overly broad.  Apply
+    # the persisted PII policy again at the planner boundary before exposing
+    # metadata to the model or deriving executable fields.
+    approved_context = sanitize_chart_context(approved_context, {
         name: {
-            "dtype": str((stats.get(name) or {}).get("dtype", "unknown")),
-            "cardinality": (stats.get(name) or {}).get("cardinality"),
+            **(stats.get(name) or {}),
+            "is_pii": name in get_repository().confirmed_pii_columns(run_id),
         }
-        for name in sorted(allowed_columns)
-    }
-    planning_input = {
-        "business_question": payload.question,
-        "profile_metadata": {
+        for name in stats
+    })
+    deterministic_plan = can_plan_deterministically(
+        payload.question, approved_context, stats
+    )
+    planning_input: dict[str, Any] = {"business_question": payload.question}
+    if not deterministic_plan:
+        allowed_columns = set(approved_context.get("dimensions") or []) | set(
+            approved_context.get("measures") or []
+        )
+        planning_input["profile_metadata"] = {
             "dimensions": approved_context.get("dimensions") or [],
             "measures": approved_context.get("measures") or [],
             "time_column": approved_context.get("time_column"),
-            "column_dtypes": safe_stats,
+            "column_dtypes": {
+                name: {
+                    "dtype": str((stats.get(name) or {}).get("dtype", "unknown")),
+                    "cardinality": (stats.get(name) or {}).get("cardinality"),
+                }
+                for name in sorted(allowed_columns)
+            },
             "limitations": approved_context.get("limitations") or [],
-        },
-    }
+        }
     agent_run_id = start_agent_run(
         workspace_id=context.workspace_id,
         actor_user_id=context.user_id,
@@ -257,49 +270,53 @@ async def auto_plan_chart(
         request_for_hash=planning_input,
     )
     candidate: ChartPlanCandidate | None = None
-    planning_mode = "agent"
-    try:
-        planner = get_llm().with_structured_output(ChartPlanCandidate)
-
-        def _invoke() -> ChartPlanCandidate:
-            messages = [
-                ("system", CHART_PLANNER_PROMPT),
-                ("human", json.dumps(planning_input, ensure_ascii=False)),
-            ]
-            if not agent_run_id:
-                return invoke_model(planner, messages, prompt_id="chart_planner")
-            with execution_scope(
-                ExecutionContext(
-                    agent_run_id=agent_run_id,
-                    workspace_id=context.workspace_id,
-                    actor_user_id=context.user_id,
-                    effective_permissions=context.workspace.effective_permissions,
-                    resource_bindings={
-                        "profile_run_id": run_id,
-                        "analysis_session_id": str(session["id"]),
-                    },
-                )
-            ):
-                return invoke_model(planner, messages, prompt_id="chart_planner")
-
-        candidate = await asyncio.to_thread(_invoke)
+    planning_mode = "rules_fallback" if deterministic_plan else "agent"
+    if deterministic_plan:
         complete_agent_run(agent_run_id, workspace_id=context.workspace_id)
-    except Exception as exc:  # noqa: BLE001 - deterministic fallback is intentional
-        planning_mode = "rules_fallback"
-        fail_agent_run(
-            agent_run_id,
-            workspace_id=context.workspace_id,
-            error=exc,
-            error_code="chart_planner_fallback",
-        )
+    else:
+        try:
+            planner = get_llm().with_structured_output(ChartPlanCandidate)
 
-    plan = build_chart_plan(
-        payload.question,
-        approved_context,
-        stats,
-        candidate,
-        planning_mode=planning_mode,
-    )
+            def _invoke() -> ChartPlanCandidate:
+                messages = [
+                    ("system", CHART_PLANNER_PROMPT),
+                    ("human", json.dumps(planning_input, ensure_ascii=False)),
+                ]
+                if not agent_run_id:
+                    return invoke_model(planner, messages, prompt_id="chart_planner")
+                with execution_scope(
+                    ExecutionContext(
+                        agent_run_id=agent_run_id,
+                        workspace_id=context.workspace_id,
+                        actor_user_id=context.user_id,
+                        effective_permissions=context.workspace.effective_permissions,
+                        resource_bindings={
+                            "profile_run_id": run_id,
+                            "analysis_session_id": str(session["id"]),
+                        },
+                    )
+                ):
+                    return invoke_model(planner, messages, prompt_id="chart_planner")
+
+            candidate = await asyncio.to_thread(_invoke)
+            complete_agent_run(agent_run_id, workspace_id=context.workspace_id)
+        except Exception as exc:  # noqa: BLE001 - deterministic fallback is intentional
+            planning_mode = "rules_fallback"
+            fail_agent_run(
+                agent_run_id,
+                workspace_id=context.workspace_id,
+                error=exc,
+                error_code="chart_planner_fallback",
+            )
+
+    with ai_latency.timed("validation"):
+        plan = build_chart_plan(
+            payload.question,
+            approved_context,
+            stats,
+            candidate,
+            planning_mode=planning_mode,
+        )
     _audit(
         context,
         "chart_auto_planned",
@@ -320,6 +337,22 @@ async def auto_plan_chart(
     }
 
 
+@profile_router.post("/{run_id}/charts/auto-plan")
+async def auto_plan_chart(
+    run_id: str,
+    payload: AutoChartPlanRequest,
+    context: RequestContext = Depends(require_permission(ANALYSIS_RUN)),
+) -> dict[str, Any]:
+    """Create a chart plan while emitting one safe planner-latency record."""
+
+    latency_token = ai_latency.begin("chart_planner")
+    try:
+        return await _auto_plan_chart_impl(run_id, payload, context)
+    finally:
+        ai_latency.emit()
+        ai_latency.reset(latency_token)
+
+
 @profile_router.post("/{run_id}/charts/auto-profile-pack")
 async def auto_profile_pack(
     run_id: str,
@@ -337,7 +370,18 @@ async def auto_profile_pack(
     session = await ensure_explorer_session(run_id, context)
     semantic = session.get("context") or {}
     approved_context = semantic.get("context") or {}
-    stats = get_repository().get_column_stats(run_id)
+    repo = get_repository()
+    stats = repo.get_column_stats(run_id)
+    approved_context = sanitize_chart_context(
+        approved_context,
+        {
+            name: {
+                **(values or {}),
+                "is_pii": name in repo.confirmed_pii_columns(run_id),
+            }
+            for name, values in stats.items()
+        },
+    )
     plans = build_auto_profile_pack(approved_context, stats)
     planning_input = {
         "profile_run_id": run_id,

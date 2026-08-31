@@ -103,6 +103,24 @@ def test_agent_plan_is_kept_only_when_columns_and_method_are_allowed() -> None:
     assert plan["query"]["dimensions"] == ["region"]
 
 
+def test_restricted_context_columns_are_removed_before_planning() -> None:
+    context = {
+        **CONTEXT,
+        "dimensions": ["order_date", "email", "region"],
+        "ignored_columns": ["email"],
+    }
+    stats = {**STATS, "email": {"dtype": "string", "pii_masked": True}}
+
+    plan = build_chart_plan("Vẽ doanh số theo email", context, stats)
+
+    assert "email" not in plan["source_columns"]
+    assert "email" not in str(plan["query"])
+    assert set(plan["query"]["dimensions"]) <= {"order_date", "region"}
+    assert plan["query"]["analysis_kind"] == "aggregate"
+    assert plan["query"]["aggregate"] == "sum"
+    assert plan["query"]["time_grain"] == "month"
+
+
 def test_business_forecast_selects_bounded_model_and_horizon() -> None:
     plan = build_chart_plan(
         "Dự báo sales cho 6 tháng tới bằng seasonal naive",

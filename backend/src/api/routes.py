@@ -46,6 +46,7 @@ from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_a
 from src.agents.state import initial_qa_state
 from src.api.dependencies import RequestContext, require_permission
 from src.config import get_settings
+from src.services import ai_latency
 from src.models.schemas import (
     ConfirmRequest,
     ConfirmResponse,
@@ -954,21 +955,29 @@ async def run_statistical_tests(
             detail=f"Kiểm định không hỗ trợ: {', '.join(unknown)}. Có sẵn: {', '.join(sorted(TESTS))}.",
         )
 
-    df = await asyncio.to_thread(get_dataframe, run_id)
+    requested_columns = list(
+        dict.fromkeys(
+            column for test in request.tests for column in test.columns
+        )
+    )
+    df = await asyncio.to_thread(get_dataframe, run_id, requested_columns)
     if df is None:
         raise HTTPException(
             status_code=409,
             detail="Không nạp lại được dữ liệu của run này (file gốc có thể đã bị xoá/di chuyển).",
         )
 
-    results = await asyncio.to_thread(
-        run_tests,
-        df,
-        [t.model_dump() for t in request.tests],
-        request.alpha or settings.stats_alpha,
-        request.fdr_method or settings.stats_fdr_method,
-        settings.stats_max_tests_per_request,
-    )
+    try:
+        results = await asyncio.to_thread(
+            run_tests,
+            df,
+            [t.model_dump() for t in request.tests],
+            request.alpha or settings.stats_alpha,
+            request.fdr_method or settings.stats_fdr_method,
+            settings.stats_max_tests_per_request,
+        )
+    finally:
+        del df
     repo.save_test_results(run_id, results, requested_by=context.user_id)
     _audit(
         context,
@@ -1184,8 +1193,22 @@ def _qa_state(
 
 
 def _qa_evidence_metadata(
-    request: QARequest, *, agent_run_id: str | None, workspace_id: str
+    request: QARequest,
+    *,
+    agent_run_id: str | None,
+    workspace_id: str,
+    validated_status: str | None = None,
 ) -> dict[str, Any]:
+    # Nodes perform the final evidence decision.  Preserve an explicit
+    # fail-closed abstention instead of inferring ``verified`` from an older
+    # trace row or from the mere presence of a Profile Run.
+    if validated_status in {"verified", "no_evidence"}:
+        return {
+            "evidence_status": validated_status,
+            "profile_run_id": request.profile_run_id,
+            "context_version_id": request.workspace_context_version_id,
+            "analysis_execution_id": request.analysis_execution_id,
+        }
     evidence_exists = False
     if agent_run_id and request.profile_run_id:
         try:
@@ -1258,8 +1281,7 @@ def _guard_qa_answer(
     return guarded.text
 
 
-@router.post("/qa", response_model=QAResponse)
-async def ask_question(
+async def _ask_question_impl(
     request: QARequest,
     context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
 ) -> QAResponse:
@@ -1325,11 +1347,29 @@ async def ask_question(
         is_approximate=is_approximate,
         agent_run_id=agent_run_id,
         **_qa_evidence_metadata(
-            request, agent_run_id=agent_run_id, workspace_id=context.workspace_id
+            request,
+            agent_run_id=agent_run_id,
+            workspace_id=context.workspace_id,
+            validated_status=result.get("evidence_status"),
         ),
         verification={"status": "not_run", "mode": get_settings().agent_verifier_mode},
         trace_summary=trace_summary,
     )
+
+
+@router.post("/qa", response_model=QAResponse)
+async def ask_question(
+    request: QARequest,
+    context: RequestContext = Depends(require_permission(QA_PROFILE_ASK)),
+) -> QAResponse:
+    """Run QA while emitting one PII-safe critical-path latency record."""
+
+    latency_token = ai_latency.begin("qa")
+    try:
+        return await _ask_question_impl(request, context)
+    finally:
+        ai_latency.emit()
+        ai_latency.reset(latency_token)
 
 
 def _sse(event: str, data: Any) -> str:
@@ -1356,6 +1396,7 @@ async def ask_question_stream(
     state = _qa_state(request, context)
     async def generator() -> Any:
         agent_run_id: str | None = None
+        latency_token = ai_latency.begin("qa_stream")
         try:
             yield _sse("status", {"stage": "starting", "detail": "Đang chuẩn bị yêu cầu…"})
             agent_run_id = start_agent_run(
@@ -1403,12 +1444,15 @@ async def ask_question_stream(
                 for char in answer:
                     buffer += char
                     if char in ".!?\n" and len(buffer) > 40:
+                        ai_latency.mark_first_validated_output()
                         yield _sse("token", {"text": buffer})
                         buffer = ""
                         await asyncio.sleep(0)
                 if buffer:
+                    ai_latency.mark_first_validated_output()
                     yield _sse("token", {"text": buffer})
             else:
+                ai_latency.mark_first_validated_output()
                 yield _sse("token", {"text": answer})
 
             if sources:
@@ -1432,6 +1476,7 @@ async def ask_question_stream(
                         request,
                         agent_run_id=agent_run_id,
                         workspace_id=context.workspace_id,
+                        validated_status=routed.get("evidence_status"),
                     ),
                 },
             )
@@ -1465,6 +1510,10 @@ async def ask_question_stream(
                 "error",
                 {"detail": "Agent không thể hoàn tất câu trả lời. Vui lòng thử lại."},
             )
+
+        finally:
+            ai_latency.emit()
+            ai_latency.reset(latency_token)
 
     return StreamingResponse(
         generator(),
