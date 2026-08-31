@@ -2631,6 +2631,115 @@ class Repository:
             )
             return [dict(row) for row in rows]
 
+    def resolve_request_principal(self, user_id: str) -> dict[str, Any] | None:
+        """Read a user's authoritative profile and active workspace scope at once.
+
+        Authorization deliberately stays database-backed: role, account status,
+        membership status, and workspace status are never trusted from JWT
+        metadata.  The outer join retains a valid profile with no active
+        memberships so callers can preserve the existing 403/404 distinctions.
+        """
+        active_memberships = (
+            select(
+                workspace_memberships.c.user_id.label("membership_user_id"),
+                workspace_memberships.c.workspace_id.label("workspace_id"),
+                workspace_memberships.c.role.label("membership_role"),
+                workspace_memberships.c.created_at.label("membership_created_at"),
+                workspaces.c.name.label("workspace_name"),
+                workspaces.c.slug.label("workspace_slug"),
+                workspaces.c.created_by_user_id.label("workspace_created_by_user_id"),
+                workspaces.c.settings.label("workspace_settings"),
+            )
+            .select_from(
+                workspace_memberships.join(
+                    workspaces,
+                    workspaces.c.id == workspace_memberships.c.workspace_id,
+                )
+            )
+            .where(
+                workspace_memberships.c.user_id == user_id,
+                workspace_memberships.c.status == "active",
+                workspaces.c.status == "active",
+            )
+            .subquery()
+        )
+        with self.engine.begin() as conn:
+            rows = (
+                conn.execute(
+                    select(
+                        user_profiles.c.user_id.label("profile_user_id"),
+                        user_profiles.c.email.label("profile_email"),
+                        user_profiles.c.display_name.label("profile_display_name"),
+                        user_profiles.c.role.label("profile_role"),
+                        user_profiles.c.status.label("profile_status"),
+                        user_profiles.c.locked_reason.label("profile_locked_reason"),
+                        user_profiles.c.locked_at.label("profile_locked_at"),
+                        user_profiles.c.locked_by_user_id.label("profile_locked_by_user_id"),
+                        user_profiles.c.created_at.label("profile_created_at"),
+                        user_profiles.c.updated_at.label("profile_updated_at"),
+                        active_memberships.c.workspace_id,
+                        active_memberships.c.membership_role,
+                        active_memberships.c.workspace_name,
+                        active_memberships.c.workspace_slug,
+                        active_memberships.c.workspace_created_by_user_id,
+                        active_memberships.c.workspace_settings,
+                        active_memberships.c.membership_created_at,
+                    )
+                    .select_from(
+                        user_profiles.outerjoin(
+                            active_memberships,
+                            user_profiles.c.user_id
+                            == active_memberships.c.membership_user_id,
+                        )
+                    )
+                    .where(user_profiles.c.user_id == user_id)
+                    .order_by(active_memberships.c.membership_created_at)
+                )
+                .mappings()
+                .all()
+            )
+        if not rows:
+            return None
+
+        first = dict(rows[0])
+        profile = {
+            "user_id": first["profile_user_id"],
+            "email": first.get("profile_email"),
+            "display_name": first.get("profile_display_name"),
+            "role": first.get("profile_role") or "analyst",
+            "status": first.get("profile_status") or "active",
+            "locked_reason": first.get("profile_locked_reason"),
+            "locked_at": (
+                first["profile_locked_at"].isoformat()
+                if first.get("profile_locked_at")
+                else None
+            ),
+            "locked_by_user_id": first.get("profile_locked_by_user_id"),
+            "created_at": (
+                first["profile_created_at"].isoformat()
+                if first.get("profile_created_at")
+                else None
+            ),
+            "updated_at": (
+                first["profile_updated_at"].isoformat()
+                if first.get("profile_updated_at")
+                else None
+            ),
+        }
+        memberships = [
+            {
+                "workspace_id": row["workspace_id"],
+                "role": row["membership_role"],
+                "name": row["workspace_name"],
+                "slug": row["workspace_slug"],
+                "created_by_user_id": row["workspace_created_by_user_id"],
+                "settings": row["workspace_settings"],
+            }
+            for row in rows
+            if row.get("workspace_id") is not None
+        ]
+        return {"profile": profile, "memberships": memberships}
+
     def dashboard_summary(
         self, workspace_id: str, *, report_limit: int = 12
     ) -> dict[str, Any]:
