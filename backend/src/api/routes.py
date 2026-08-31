@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
@@ -130,6 +131,13 @@ from src.services.storage import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Profiling summaries are small, but every active SSE connection reads one from
+# PostgreSQL.  Keep the first follow-up responsive, then bound the per-client
+# query rate while the durable projection has not changed.
+_PROFILE_SSE_POLL_INTERVALS = (1.0, 2.0, 3.0, 5.0)
+_PROFILE_SSE_KEEPALIVE_SECONDS = 10.0
+_PROFILE_SSE_TERMINAL_EVENTS = frozenset({"ready", "failed"})
 
 
 # --------------------------------------------------------------------------- #
@@ -505,7 +513,9 @@ async def get_profile_summary(
 
 @router.get("/profiling-jobs/{job_id}/events")
 async def profiling_job_events(
-    job_id: str, context: RequestContext = Depends(require_permission(PROFILE_READ))
+    job_id: str,
+    http_request: Request,
+    context: RequestContext = Depends(require_permission(PROFILE_READ)),
 ) -> StreamingResponse:
     """Stream durable profiling-summary milestones for one workspace job.
 
@@ -522,8 +532,14 @@ async def profiling_job_events(
     async def generator() -> Any:
         last_key: str | None = None
         first = True
-        ticks = 0
+        backoff_index = 0
+        next_keepalive_at = time.monotonic() + _PROFILE_SSE_KEEPALIVE_SECONDS
         while True:
+            # StreamingResponse normally cancels this generator on a dropped
+            # connection. This explicit check also avoids a fresh repository
+            # read when a disconnect is already observable at a poll boundary.
+            if await http_request.is_disconnected():
+                return
             summary = initial if first else repository.get_profile_summary(
                 job_id, workspace_id=context.workspace_id
             )
@@ -538,12 +554,35 @@ async def profiling_job_events(
             if key != last_key:
                 yield _profiling_sse(event, summary, event_id)
                 last_key = key
-            if event in {"ready", "failed"}:
+                # A durable progress change deserves the fastest next poll.
+                backoff_index = 0
+            else:
+                backoff_index = min(
+                    backoff_index + 1, len(_PROFILE_SSE_POLL_INTERVALS) - 1
+                )
+            if event in _PROFILE_SSE_TERMINAL_EVENTS:
                 return
-            ticks += 1
-            if ticks % 5 == 0:
-                yield ": keep-alive\n\n"
-            await asyncio.sleep(2)
+
+            # Keepalive comments are scheduled independently of polling. They
+            # let intermediaries see traffic during a long unchanged state,
+            # without performing an additional database query.
+            remaining = _PROFILE_SSE_POLL_INTERVALS[backoff_index]
+            while remaining > 0:
+                if await http_request.is_disconnected():
+                    return
+                now = time.monotonic()
+                until_keepalive = next_keepalive_at - now
+                if until_keepalive <= 0:
+                    yield ": keep-alive\n\n"
+                    next_keepalive_at = now + _PROFILE_SSE_KEEPALIVE_SECONDS
+                    continue
+                sleep_seconds = min(remaining, until_keepalive)
+                await asyncio.sleep(sleep_seconds)
+                remaining -= sleep_seconds
+                # Do not start a repository read after the connection dropped
+                # during this wait.
+                if await http_request.is_disconnected():
+                    return
 
     return StreamingResponse(
         generator(),
