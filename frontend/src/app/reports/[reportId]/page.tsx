@@ -31,7 +31,7 @@ function ReportAccordion({
   return (
     <details id={id} className={`report-accordion ${className}`.trim()} open={forceOpen || undefined}>
       <summary className="report-accordion-summary">
-        <span className="report-accordion-chevron" aria-hidden="true">⌄</span>
+        <span className="report-accordion-chevron" aria-hidden="true" />
         <span className="report-accordion-copy">
           <span className="report-accordion-eyebrow">{eyebrow}</span>
           <span className="report-accordion-title" role="heading" aria-level={2}>{title}</span>
@@ -60,7 +60,7 @@ function DriftEvidenceDetails({ reports }: { reports: any[] }) {
     </tbody></table></div>}
       <div className="report-drift-column-list">{columns.map((column) => <details key={column.name} className="report-drift-column">
         <summary className="report-drift-column-summary">
-          <span className="report-accordion-chevron" aria-hidden="true">⌄</span>
+          <span className="report-accordion-chevron" aria-hidden="true" />
           <span className="report-drift-column-copy">
             <span className="eyebrow">EVIDENCE CỘT</span>
             <span className="report-drift-column-name" role="heading" aria-level={3}>{column.name}</span>
@@ -825,35 +825,18 @@ export default function ReportPage() {
 
         {/* PHẦN 3: SO SÁNH DỮ LIỆU */}
         {driftReports.length > 0 && (
-          <>
-            <div id="part-3" style={{ marginTop: "4rem", marginBottom: "1.5rem", borderBottom: "3px solid #10b981", paddingBottom: "0.5rem" }}>
-              <h2 style={{ fontSize: "1.5rem", fontWeight: 900, color: "#1e293b", textTransform: "uppercase", margin: 0 }}>{DRIFT_PART_TITLE}</h2>
-            </div>
+          <ReportAccordion
+            id="part-3"
+            eyebrow="PHẦN 3 · DATA DRIFT"
+            title={DRIFT_PART_TITLE}
+            description="Mở để xem các thay đổi đáng chú ý giữa những phiên dữ liệu."
+            className="report-part-accordion report-part-3-accordion"
+          >
             <section id="sec-drift" className="panel report-detail-section" style={{ padding: "2rem", marginTop: "1rem", marginBottom: "1.5rem" }}>
-            <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>{tocItems.find(t => t.id === 'sec-drift')?.title}</h2>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "left" }}>
-                <thead>
-                  <tr style={{ background: "#f1f5f9", borderBottom: "2px solid #cbd5e1" }}>
-                    <th style={{ padding: "0.75rem" }}>Profile A</th>
-                    <th style={{ padding: "0.75rem" }}>Profile B</th>
-                    <th style={{ padding: "0.75rem" }}>Tóm tắt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {driftReports.map((drift: any, idx: number) => (
-                    <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-                      <td style={{ padding: "0.75rem", color: "#475569" }}>{driftDetailText(drift.profile_run_id_a)}</td>
-                      <td style={{ padding: "0.75rem", color: "#475569" }}>{driftDetailText(drift.profile_run_id_b)}</td>
-                      <td style={{ padding: "0.75rem", color: "#1e293b" }}>{driftDetailText(drift.summary)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <DriftEvidenceDetails reports={driftReports} />
-          </section>
-          </>
+              <h2 style={{ fontSize: "1.35rem", marginBottom: "1rem", color: "#0f172a", borderBottom: "2px solid #e2e8f0", paddingBottom: "0.5rem" }}>{tocItems.find(t => t.id === 'sec-drift')?.title}</h2>
+              <DriftEvidenceDetails reports={driftReports} />
+            </section>
+          </ReportAccordion>
         )}
       </main>
 

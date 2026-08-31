@@ -154,13 +154,19 @@ describe("Final report item mutations", () => {
     await waitFor(() => expect((editButtons[0] as HTMLButtonElement).disabled).toBe(false));
     const partOne = document.querySelector("#part-1") as HTMLDetailsElement;
     const partTwo = document.querySelector("#part-2") as HTMLDetailsElement;
+    const partThree = document.querySelector("#part-3") as HTMLDetailsElement;
     expect(partOne.open).toBe(false);
     expect(partTwo.open).toBe(false);
+    expect(partThree.open).toBe(false);
 
     fireEvent.click(partOne.querySelector("summary")!);
     fireEvent.click(partTwo.querySelector("summary")!);
+    fireEvent.click(partThree.querySelector(".report-accordion-summary")!);
     expect(partOne.open).toBe(true);
     expect(partTwo.open).toBe(true);
+    expect(partThree.open).toBe(true);
+    expect(screen.queryByText("baseline-run", { exact: true })).toBeNull();
+    expect(screen.queryByText("current-run", { exact: true })).toBeNull();
 
     const driftColumns = document.querySelectorAll("#sec-drift .report-drift-column");
     expect(driftColumns).toHaveLength(2);
