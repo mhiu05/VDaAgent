@@ -82,6 +82,11 @@ jobs:
       - name: Lint backend
         run: ruff check backend/src tests
 
+      - name: Alembic fresh-database smoke test
+        env:
+          P170_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/p170_test
+        run: python scripts/migration_smoke.py
+
       - name: Test backend
         env:
           P170_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/p170_test
@@ -161,7 +166,11 @@ jobs:
       - frontend-quality
     # !cancelled() lets a skipped gate through; a failed one still stops the release.
     if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: self-hosted
+    # Docker/containerd state on a persistent self-hosted runner can survive a
+    # failed build and corrupt the next BuildKit export. Use a fresh hosted
+    # runner for the release job so every image build starts with a clean
+    # container store.
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
@@ -306,8 +315,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${DATABASE_URL:-}" ] && [ -z "${DATABASE_MIGRATION_URL:-}" ]; then
-            echo "Skipping migrations because DATABASE_URL and DATABASE_MIGRATION_URL are not configured."
-            exit 0
+            echo "::error::DATABASE_URL or DATABASE_MIGRATION_URL is required; refusing to deploy without migrations."
+            exit 1
           fi
           docker run --rm \
             -e DATABASE_URL \
