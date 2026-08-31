@@ -227,14 +227,36 @@ class GoogleDriveStorage:
             raise GoogleDriveError("Google Drive không trả file ID sau upload.")
         return file_id
 
-    def download(self, workspace_id: str, file_id: str, target: Path) -> None:
+    def download(
+        self,
+        workspace_id: str,
+        file_id: str,
+        target: Path,
+        *,
+        max_bytes: int | None = None,
+    ) -> None:
         try:
             from googleapiclient.http import MediaIoBaseDownload
         except ImportError as exc:  # pragma: no cover
             raise GoogleDriveNotConfiguredError("Thiếu google-api-python-client.") from exc
         service, _ = self._service(workspace_id)
         request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-        with target.open("wb") as handle:
+
+        class _LimitedWriter:
+            def __init__(self, handle: Any, limit: int | None) -> None:
+                self.handle = handle
+                self.limit = limit
+                self.written = 0
+
+            def write(self, chunk: bytes) -> int:
+                next_size = self.written + len(chunk)
+                if self.limit is not None and next_size > self.limit:
+                    raise GoogleDriveError("Dataset vượt giới hạn dung lượng cho profiling.")
+                self.written = next_size
+                return self.handle.write(chunk)
+
+        with target.open("wb") as raw_handle:
+            handle = _LimitedWriter(raw_handle, max_bytes)
             downloader = MediaIoBaseDownload(
                 handle,
                 request,
