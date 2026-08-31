@@ -1,76 +1,80 @@
-# Tài liệu kỹ thuật P-170
+# Tài liệu kỹ thuật VDaAgent (P-170)
 
-Đây là cổng tài liệu do implementation sở hữu của P-170. Nội dung mô tả hệ thống đang có trong repository, không phải roadmap. Nếu nội dung tài liệu khác với code, migration, test hoặc cấu hình triển khai, implementation là nguồn sự thật và cần ghi nhận chênh lệch trong [Điểm còn thiếu và ghi chú source of truth](./summary.md).
+Bộ tài liệu này mô tả implementation đang có trong repository, không phải roadmap. Nếu tài liệu khác code, hãy ưu tiên route/model, service, migration, test và workflow triển khai, sau đó cập nhật lại trang gần implementation nhất.
 
-## Bắt đầu từ đây
+## Lộ trình đọc
 
-| Câu hỏi | Tài liệu |
+| Nhu cầu | Bắt đầu tại |
 | --- | --- |
-| Hiểu runtime và các ranh giới chính | [Tổng quan hệ thống](./architecture/system-overview.md) |
-| Theo dõi một Profiling Job bất đồng bộ | [Profiling Job bất đồng bộ](./architecture/async-profiling-jobs.md) |
-| Hiểu chart và execution an toàn | [Phân tích có giới hạn](./architecture/bounded-execution.md) |
-| Hiểu LangGraph, QA và evidence | [Agent system](./architecture/agent-system.md) |
-| Tạo hoặc review report | [Report Draft và snapshot](./architecture/report-draft-snapshots.md) và [Tính năng reports](./features/reports.md) |
-| Chạy stack ở local | [Phát triển và kiểm thử local](./development/local-development-and-testing.md) |
-| Cấu hình một môi trường | [Tham chiếu configuration](./operations/configuration.md) |
-| Triển khai hoặc vận hành production | [Triển khai](./operations/deployment.md) và [Quan sát và phục hồi lỗi](./operations/observability-and-failure-recovery.md) |
+| Hiểu hệ thống và data flow | [Tổng quan hệ thống](./architecture/system-overview.md) |
+| Chạy dự án local | [Phát triển và kiểm thử local](./development/local-development-and-testing.md) |
+| Hiểu queue/worker profiling | [Profiling Job bất đồng bộ](./architecture/async-profiling-jobs.md) |
+| Hiểu chart Preview/Official | [Phân tích có giới hạn](./architecture/bounded-execution.md) |
+| Hiểu QA, tool, retrieval và trace | [Agent system](./architecture/agent-system.md) |
+| Vận hành database | [Database migrations](./operations/database-migrations.md) |
+| Triển khai Azure | [Deployment](./operations/deployment.md) |
+| Xem giới hạn/known gaps hiện tại | [Tóm tắt bàn giao](./summary.md) |
 
 ## Kiến trúc
 
-- [Tổng quan hệ thống](./architecture/system-overview.md) — process, dependency, request boundary và source map.
-- [Profiling Job bất đồng bộ](./architecture/async-profiling-jobs.md) — PostgreSQL queue, lease, retry, recovery và SSE.
-- [Phân tích có giới hạn](./architecture/bounded-execution.md) — QuerySpec, Preview/Official, limit, timeout và quality gate.
-- [Agent system](./architecture/agent-system.md) — profiling graph, QA, retrieval, trace và evidence.
-- [Report Draft và snapshot](./architecture/report-draft-snapshots.md) — draft có thể sửa, snapshot bất biến và lifecycle.
+- [Tổng quan hệ thống](./architecture/system-overview.md) — process, dependency, trust boundary và mô hình dữ liệu.
+- [Profiling Job bất đồng bộ](./architecture/async-profiling-jobs.md) — enqueue, lease, retry, resume và SSE projection.
+- [Phân tích có giới hạn](./architecture/bounded-execution.md) — QuerySpec, planner, Preview, Official và quality gate.
+- [Agent system](./architecture/agent-system.md) — LangGraph, native skills, QA routing, deterministic evidence validation, retrieval và trace.
+- [Report Draft và snapshot](./architecture/report-draft-snapshots.md) — optimistic edit, snapshot hash và export source.
 
-## Tính năng sản phẩm
+## Chức năng
 
 - [Dataset và profiling](./features/datasets-and-profiling.md)
+- [Connector và storage](./features/connectors-and-storage.md)
 - [Command Center](./features/command-center.md)
 - [QA và evidence](./features/qa-and-evidence.md)
 - [So sánh drift](./features/drift-comparison.md)
-- [Reports](./features/reports.md)
-- [Connector và storage](./features/connectors-and-storage.md)
+- [Report](./features/reports.md)
 - [Workspace và quản trị](./features/workspaces-and-admin.md)
 
 ## Bảo mật
 
 - [Authentication và authorization](./security/authentication-and-authorization.md)
-- [Cô lập workspace và bảo vệ dữ liệu](./security/workspace-isolation-and-privacy.md)
+- [Cô lập workspace, Data API và privacy](./security/workspace-isolation-and-privacy.md)
 
 ## Vận hành
 
 - [Cấu hình](./operations/configuration.md)
+- [Database migrations](./operations/database-migrations.md)
 - [Quan sát và phục hồi lỗi](./operations/observability-and-failure-recovery.md)
 - [Triển khai Azure](./operations/deployment.md)
 
 ## Phát triển và đánh giá
 
 - [Phát triển và kiểm thử local](./development/local-development-and-testing.md)
-- [Đánh giá](./development/evaluation.md)
+- [Evaluation và release evidence](./development/evaluation.md)
 
-## Tóm tắt API
+## Bề mặt runtime
 
-Các router nghiệp vụ đều được mount dưới `/api/v1`. Hợp đồng đầy đủ do các route module sở hữu; các nhóm và entry point hiện tại là:
+Tất cả router nghiệp vụ được mount dưới `/api/v1`. Backend health là `/health` ngoài prefix; OpenAPI/Redoc bị tắt ở production.
 
-| Nhóm | Route module | Path tiêu biểu |
+| Nhóm | Module | Entry point tiêu biểu |
 | --- | --- | --- |
-| Dataset/profile/QA/drift | `backend/src/api/routes.py` | `/datasets`, `/profile`, `/profiling-jobs`, `/qa`, `/profile/{run_id}/drift` |
-| Agent runtime | `backend/src/api/agent_routes.py` | `/agent-runs/{run_id}/trace`, `/evidence`, `/plan`, `/trace-summary` |
-| Command Center | `backend/src/api/analysis_routes.py` | `/analysis-sessions`, `/profile/{run_id}/explorer/session`, `/profile/{run_id}/charts/auto-plan`, `/profile/{run_id}/charts/auto-profile-pack`, `/profile/{run_id}/explorer/previews` |
-| Auth/workspace/report | `backend/src/api/authz_routes.py` | `/session`, `/workspace-bootstrap`, `/workspaces`, `/reports`, `/reports/{id}/snapshots`, các lifecycle endpoint |
-| Connector | `backend/src/api/connector_routes.py` | `/connectors`, `/connectors/datasource`, các endpoint test connector |
-| Google Drive | `backend/src/api/google_drive_routes.py` | `/google-drive/status`, `/connect`, `/callback`, `/connection` |
-| System Admin | `backend/src/api/admin_routes.py` | `/admin/users`, đổi status/role/delete user |
+| Dataset, profile, QA, drift | `api/routes.py` | `/datasets`, `/profile`, `/profiling-jobs`, `/qa`, `/profile/{run_id}/drift` |
+| Command Center | `api/analysis_routes.py` | `/analysis-sessions`, `/profile/{run_id}/explorer/*`, `/profile/{run_id}/charts/*` |
+| Workspace, report | `api/authz_routes.py` | `/session`, `/workspace-bootstrap`, `/workspaces`, `/reports`, `/dashboard` |
+| Connector | `api/connector_routes.py` | `/connectors`, datasource create/test/update/delete |
+| Google Drive | `api/google_drive_routes.py` | status, connect, callback và disconnect |
+| Agent runtime | `api/agent_routes.py` | run, trace, evidence, plan và trace summary |
+| Native agent skills | `api/skill_routes.py` | catalog, detail và inspect tool bundle |
+| System Admin | `api/admin_routes.py` | list/create/lock/role/delete user |
+| Local MCP | `mcp_server.py` | stdio tools cho profile, chart plan, Preview và Official |
 
-Health check của backend là `/health` và nằm ngoài prefix `/api/v1`. Xem các trang tính năng để biết limit request, state transition và permission; không sao chép hành vi route vào bảng thứ hai.
+Không dùng bảng này làm OpenAPI thay thế. Limit field, status transition, permission và error chi tiết nằm trong schema/route và các trang feature tương ứng.
 
-## Quy ước sở hữu
+## Quy ước nguồn sự thật
 
-- API contract do `backend/src/api/` và `backend/src/models/` sở hữu.
-- Hình dạng persistence và lịch sử migration do `backend/src/services/repository.py` và `backend/migrations/` sở hữu.
-- Agent state, tool, trace và evidence do `backend/src/agents/` sở hữu.
-- Route và hành vi browser do `frontend/src/app/`, `frontend/src/components/` và `frontend/src/lib/` sở hữu.
-- Default vận hành và validation do `config.yaml`, `backend/src/config.py`, `.env.example`, Dockerfile và `.github/workflows/` sở hữu.
+- REST/SSE: `backend/src/api/`, `backend/src/models/`.
+- Persistence: `backend/src/services/repository.py`, `backend/migrations/`.
+- Agent/tool/evidence: `backend/src/agents/`, `backend/src/services/qa_validation.py`.
+- Frontend: `frontend/src/app/`, `frontend/src/components/`, `frontend/src/lib/`.
+- Runtime/release: `config.yaml`, `backend/src/config.py`, `.env.example`, Dockerfile và `.github/workflows/`.
+- Evaluation: `tests/evaluations/` là source harness; `evaluations/` chỉ là artifact đã sinh.
 
-[README](../README.md) ở root là entry point cho người mới. [ARCHITECTURE.md](../ARCHITECTURE.md) là chỉ mục kiến trúc ngắn. [summary.md](./summary.md) là handover snapshot và sổ đăng ký điểm còn thiếu.
+[README root](../README.md) dành cho onboarding; [ARCHITECTURE.md](../ARCHITECTURE.md) là bản đồ cấp cao; [summary.md](./summary.md) là snapshot bàn giao và known-gap register.

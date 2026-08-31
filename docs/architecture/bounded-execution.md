@@ -1,37 +1,85 @@
 # Phân tích và execution có giới hạn
 
-## Vì sao có hai chế độ execution
+## Mục đích
 
-Command Center tách intent, preview và execution mang evidence. Preview dùng để khám phá và được đánh dấu approximate; Official execution là kết quả có giới hạn có thể được QA hoặc report trích dẫn. Preview không tự động trở thành Official.
+Command Center tách ba khái niệm:
 
-## Hợp đồng QuerySpec
+- **Plan:** intent đã normalize thành QuerySpec allow-list.
+- **Preview:** kết quả khám phá approximate, có expiry và không dùng làm evidence chính thức.
+- **Official:** execution riêng trên source đầy đủ trong giới hạn, có context/gate/hash/limitation để QA hoặc report trích dẫn.
 
-[`backend/src/models/analysis_schemas.py`](../../backend/src/models/analysis_schemas.py) định nghĩa `QuerySpec`. Các analysis kind là aggregate, histogram, scatter, box, heatmap, forecast, missingness, correlation, cardinality, violin, donut và outlier. Aggregation gồm count, count-distinct, sum, mean và median. Column tối đa 12, dimension tối đa 3, filter tối đa 20, bin 5–30, forecast horizon 1–60 và result limit 1–500. Filter operator là allowlist (`eq`, `ne`, so sánh, `in`, `not_in`, `is_null`, `not_null`). Forecast algorithm là catalog, không phải arbitrary Python.
+Preview không tự trở thành Official và Official không reuse result bytes của Preview.
 
-Engine validate từng column với profile statistic đã lưu. Column có PII proposal ở trạng thái `pending`, `confirmed`, `edited` hoặc `auto_confirmed` đều bị mask theo hướng fail-closed và không được select, group hoặc filter. Khi semantic context có allow-list column, query phải nằm trong allow-list đó; Preview có thể dùng context `draft`, còn Official tuân theo quy tắc approval mô tả bên dưới. Identifier được validate trước khi interpolate; filter value dùng bound parameter. Không có raw-SQL endpoint.
+## QuerySpec
+
+[`analysis_schemas.py`](../../backend/src/models/analysis_schemas.py) cho phép các kind:
+
+`aggregate`, `histogram`, `scatter`, `box`, `heatmap`, `forecast`, `missing_bar`, `missing_heatmap`, `correlation_heatmap`, `cardinality`, `violin`, `donut`, `outlier`.
+
+Aggregate là `count`, `count_distinct`, `sum`, `mean` hoặc `median`. Hard limit:
+
+| Field | Limit |
+| --- | --- |
+| `columns` | tối đa 12 |
+| `dimensions` | tối đa 3 |
+| `filters` | tối đa 20 |
+| `bins` | 5–30 |
+| `forecast_horizon` | 1–60 |
+| `season_length` | 2–365 |
+| `history_limit` | 12–2.000 |
+| `limit` | 1–500 |
+
+Filter operator là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `is_null`, `not_null`. Time grain là day/week/month/quarter/year. Forecast dùng catalog 28 thuật toán và chỉ chạy item có dependency/input requirement khả dụng.
+
+Engine validate identifier với profile stats/context; filter value dùng bound parameter. Column có PII proposal `pending`, `confirmed`, `edited` hoặc `auto_confirmed` bị loại khỏi selection, grouping và filter. Không có raw-SQL endpoint.
+
+## Planner boundary
+
+Auto-plan nhận business question tối đa 2.000 ký tự. Trước khi gọi model, context được sanitize lần nữa từ persisted PII policy. Những intent an toàn có family/field rõ ràng dùng deterministic planner fast path; intent còn mơ hồ mới gọi structured-output model. Cả hai đi qua `build_chart_plan`, nơi:
+
+- kiểm tra problem/algorithm allow-list;
+- loại column không thuộc safe context;
+- fallback khi model proposal không hợp lệ;
+- chọn renderer cố định theo chart type;
+- tạo QuerySpec bounded;
+- ghi `planning_mode` là `agent`, `rules_fallback` hoặc `auto_profile`.
+
+Request nhắm trực tiếp vào restricted column không được đưa tên đó lại vào model proposal; planner dùng safe fallback. Auto-profile pack tạo tối đa 12 chart và mỗi chart vẫn phải chạy Preview/Official.
 
 ## Preview và Official
 
 | Thuộc tính | Preview | Official |
 | --- | --- | --- |
-| Read path | reservoir sample có giới hạn | full-source execution có giới hạn |
-| Approximation flag | `is_approximate=true` | `false` khi thành công |
-| Timeout default | 60 giây | 60 giây; hiện dùng cùng `ux_preview_timeout_seconds` |
-| Row budget | 50.000 row sample | không dùng preview row budget; result vẫn bị giới hạn |
-| Result limit | 50 | 500 |
-| Persistence | execution có expiry và limitation | execution có evidence và quality-gate reference |
-| Next action | promote | pin, explain hoặc report |
+| Source | sample bounded | full source, bounded result |
+| `is_approximate` | `true` | `false` khi thành công |
+| Row budget | mặc định 50.000 | không dùng preview row budget |
+| Result limit | mặc định 50 | tối đa 500 |
+| Timeout | 60 giây | hiện dùng cùng setting 60 giây |
+| Persistence | execution có expiry 1 giờ | execution có quality-gate reference |
+| Evidence | không đủ để pin/insight chính thức | được phép trích dẫn |
+| Idempotency | request/header key | promotion key |
 
-Preview hết hạn sau một giờ. Promotion kiểm tra preview, expiry, profile/session/context identity và quality gate; nếu context hiện tại còn ở `draft`, route promotion tự approve context đó bằng actor hiện tại trước khi chạy Official và lưu execution riêng. Generic execution endpoint không auto-approve: nó yêu cầu expected context version đã `approved` và quality gate không bị block.
+Promotion kiểm tra Preview cùng workspace/session/profile, chưa expired, đúng latest context và `expected_context_version_id`. Route hiện tự approve context draft bằng actor; sau đó tạo/chạy quality gate và execute Official. Generic session execution không auto-approve, yêu cầu context đã approved.
 
 ## Quality gate
 
-[`backend/src/services/quality_gate.py`](../../backend/src/services/quality_gate.py) là deterministic. Critical issue gồm profile chưa hoàn tất, proposal còn pending hoặc thiếu row count và sẽ block Official execution. Warning gồm input sample/approximate, thiếu row grain, timezone ambiguity, null ratio cao, outlier ratio cao và identifier constant. Issue có thể acknowledge bằng note 3–1000 ký tự, nhưng acknowledge không biến critical gate thành pass.
+Gate deterministic block khi profile chưa completed, còn proposal pending hoặc thiếu row count. Warning có thể gồm sampled input, thiếu row grain, timezone mơ hồ, null/outlier cao và identifier constant. Acknowledge yêu cầu note 3–1.000 ký tự; acknowledge warning không biến critical issue thành pass.
 
-## Vị trí source code và kiểm chứng
+Execution lưu canonical query, result, SHA-256 hash, duration, approximation và limitation. Forecast output giữ confidence/calibration fields theo adapter; availability endpoint phản ánh dependency thực tế thay vì giả định mọi model đều dùng được.
+
+## Error contract
+
+- QuerySpec/model plan không hợp lệ: 422.
+- PII/context/preview/gate conflict: 409 hoặc scoped 404 tùy boundary.
+- Bounded timeout: `explorer_timeout`.
+- Source unavailable: safe 422, không trả local path.
+- Idempotency key dùng cho query khác: 409.
+
+## Source và test
 
 - Engine: [`backend/src/services/analysis_engine.py`](../../backend/src/services/analysis_engine.py).
-- Route và promotion: [`backend/src/api/analysis_routes.py`](../../backend/src/api/analysis_routes.py).
-- Schema và hard limit: [`backend/src/models/analysis_schemas.py`](../../backend/src/models/analysis_schemas.py).
-- UI: [`frontend/src/app/charts/page.tsx`](../../frontend/src/app/charts/page.tsx) và chart component.
-- Evidence cho QA: [QA và evidence](../features/qa-and-evidence.md).
+- Planner: [`backend/src/services/chart_planner.py`](../../backend/src/services/chart_planner.py).
+- Quality gate: [`backend/src/services/quality_gate.py`](../../backend/src/services/quality_gate.py).
+- API/schema: [`backend/src/api/analysis_routes.py`](../../backend/src/api/analysis_routes.py), [`analysis_schemas.py`](../../backend/src/models/analysis_schemas.py).
+- UI: [`frontend/src/app/charts/page.tsx`](../../frontend/src/app/charts/page.tsx), command-center components.
+- Test: `tests/test_services/test_analysis_engine.py`, `tests/test_services/test_chart_planner.py`, `tests/test_services/test_quality_gate.py`.

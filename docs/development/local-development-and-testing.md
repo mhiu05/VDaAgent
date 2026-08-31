@@ -1,51 +1,87 @@
 # Phát triển và kiểm thử local
 
-## Điều kiện cần
+## Yêu cầu
 
-Sử dụng Python 3.11, Node.js 22, pnpm 11.0.8 và PostgreSQL. PostgreSQL bắt buộc cả ở local; backend không có SQLite fallback. Provider key là tùy chọn nếu muốn chạy LLM, embedding hoặc Google Drive.
+- Python 3.11;
+- Node.js 22;
+- pnpm 11.0.8;
+- PostgreSQL;
+- Chromium cho Playwright/PDF khi chạy các test tương ứng.
 
-## Cài đặt và cấu hình
+## Cài đặt
+
+Từ repository root trên PowerShell:
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-# Sửa DATABASE_URL trong .env để trỏ tới PostgreSQL local trước bước migration.
-cd frontend
-pnpm install
-cd ..
-alembic upgrade head
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+Set-Location frontend
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+Set-Location ..
 ```
 
-Đặt ít nhất `DATABASE_URL` trong `.env`. Với file local, dùng `APP_ENV=development`, `AUTH_MODE=dual`, `STORAGE_PROVIDER=local` và frontend API URL phù hợp. Chỉ thêm LLM key khi cần test path dùng model.
+Sửa `.env` cho local:
+
+```dotenv
+APP_ENV=development
+AUTH_MODE=dual
+AUTH_ALLOW_GUEST=true
+AUTH_REQUIRE_EMAIL_CONFIRMED=false
+STORAGE_PROVIDER=local
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
+```
+
+Không dùng nguyên các placeholder production trong `.env.example`.
+
+## Chuẩn bị database
+
+```powershell
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
+```
+
+Production schema phải đi qua Alembic. Local/test có compatibility bootstrap trong repository, nhưng không nên dựa vào nó để thay migration.
 
 ## Chạy ba process
 
+Terminal API:
+
 ```powershell
-# API
 Set-Location backend
 ..\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-
-# Profiling Worker (từ repository root)
-Set-Location <repo-root>
-$env:PYTHONPATH = "backend"
-.\.venv\Scripts\python.exe -m src.workers.profiling_worker
-
-# Frontend
-Set-Location frontend
-pnpm dev --port 3000
 ```
 
-Nếu đã cài GNU Make, Makefile có shortcut `backend`, `worker`, `frontend`, `dev`, `health`, `frontend-check` và `frontend-build`. Kiểm tra `http://localhost:8000/health` và `http://localhost:3000/health` trước khi debug job queued.
-
-## Lệnh kiểm chứng
-
-Backend command phụ thuộc môi trường repository; chạy focused pytest trước rồi chạy toàn bộ suite khi phù hợp. Frontend script nằm trong `frontend/package.json`:
+Terminal worker:
 
 ```powershell
-cd frontend
+Set-Location backend
+..\.venv\Scripts\python.exe -m src.workers.profiling_worker
+```
+
+Terminal frontend:
+
+```powershell
+Set-Location frontend
+pnpm dev
+```
+
+Frontend mặc định ở `http://localhost:3000`, API ở `http://localhost:8000`. Kiểm tra `/health` trước khi thử upload/profile. Worker là process bắt buộc cho profiling bất đồng bộ.
+
+## Kiểm thử
+
+Backend từ repository root:
+
+```powershell
+ruff check backend/src tests
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Frontend:
+
+```powershell
+Set-Location frontend
 pnpm test
 pnpm typecheck
 pnpm lint
@@ -53,14 +89,36 @@ pnpm build
 pnpm test:e2e
 ```
 
-CI còn chạy Ruff, backend pytest, Playwright browser setup, offline/dry-run evaluation và production-style frontend build với Command Center bật. Khi đổi contract, tìm test theo feature (`profile`, `analysis`, `qa`, `report`, `workspace`, `connector`, `drift`).
+Playwright config có thể khởi động frontend test server ở port 3010; backend test target vẫn phải sẵn sàng theo cấu hình E2E.
 
-## Quy tắc phát triển an toàn
+## Kiểm tra mục tiêu
 
-- Giữ `.env` và mọi provider/database credential ngoài commit.
-- Dùng fixture có workspace scope và assert behavior 401/403/404 cho cross-tenant access.
-- Giữ `is_approximate`, source hash, context version id và evidence status trong API/UI code mới.
-- Thay đổi PostgreSQL schema phải có migration; không tạo path chỉ chạy trên SQLite.
-- Coi test và tài liệu là consumer của contract trong `backend/src/` và `frontend/src/`.
+Migration và database boundary:
 
-Xem [configuration](../operations/configuration.md), [evaluation](./evaluation.md) và [deployment](../operations/deployment.md).
+```powershell
+.\.venv\Scripts\python.exe scripts/migration_smoke.py
+.\.venv\Scripts\python.exe scripts/assert_database_security.py
+```
+
+Evaluation contract:
+
+```powershell
+.\.venv\Scripts\python.exe tests/evaluations/run_evaluation.py --dry-run
+.\.venv\Scripts\python.exe tests/evaluations/run_evaluation.py --offline
+```
+
+AI latency synthetic local:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/benchmark_ai_latency.py
+```
+
+Dry-run/offline chỉ kiểm tra fixture và evaluator wiring; benchmark local không phải production SLO.
+
+## Trước khi gửi thay đổi
+
+1. xem `git status`, `git diff`, `git diff --staged`;
+2. không ghi đè thay đổi không liên quan;
+3. chạy test phù hợp với phạm vi;
+4. kiểm tra secret, file sinh tự động và artifact lớn;
+5. chia commit theo một chức năng logic, gồm cả frontend/backend/test cần thiết cho chức năng đó.

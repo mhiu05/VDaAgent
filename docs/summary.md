@@ -1,72 +1,99 @@
-# Tóm tắt bàn giao P-170
+# Tóm tắt bàn giao VDaAgent (P-170)
 
-Đây là snapshot implementation ngắn cho maintainer. Cổng tài liệu là [docs/README.md](README.md); entry point root là [../README.md](../README.md); chỉ mục kiến trúc là [../ARCHITECTURE.md](../ARCHITECTURE.md).
+Trang này chụp trạng thái implementation tại ngày 2026-08-31 để maintainer biết hệ thống thực sự làm gì và điểm nào chưa phải product guarantee. Cổng tài liệu là [docs/README.md](README.md), còn kiến trúc cấp cao ở [../ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## Luồng sản phẩm hiện tại
 
-1. Authenticate và chọn workspace.
-2. Upload file được hỗ trợ hoặc materialize datasource MySQL/MongoDB/DuckDB.
-3. Enqueue Profiling Job và theo dõi status đã lưu/SSE.
-4. Review proposal và risk warning, sau đó resume profiling graph nếu cần.
-5. Tạo chart Preview hoặc auto plan trong Command Center; context được approve và quality gate không bị block trước Official execution. Luồng promotion hiện có thể tự approve context draft.
-6. Hỏi QA có evidence, so sánh các run đã hoàn tất và pin evidence vào Report Draft.
-7. Tạo snapshot/export report; dùng lifecycle endpoint theo state và permission hiện tại.
+1. Người dùng xác thực, backend đồng bộ account projection và resolve một workspace active.
+2. Analyst upload file hoặc tạo dataset từ connector MySQL/MongoDB/DuckDB.
+3. API tạo Profile Run/queue record và trả HTTP 202; worker riêng xử lý source.
+4. DuckDB profile source file-backed, lưu aggregate/proposal và dừng ở HITL khi còn review.
+5. Analyst confirm/reject/edit/request test; resume cũng được đưa lại vào durable queue.
+6. Profile completed có thể mở Command Center, tạo chart plan, Preview và Official execution.
+7. QA chỉ kết luận khi có evidence phù hợp; chart insight phải bind Official execution.
+8. Drift so sánh các thống kê đã lưu; report pin evidence vào draft, snapshot rồi export PDF.
 
-## Trạng thái runtime
+## Stack và trạng thái kỹ thuật
 
-- Frontend: Next.js 15/React 19/TypeScript, Node 22, pnpm 11.
-- Backend: FastAPI/Python 3.11, Pydantic, SQLAlchemy/Alembic, PostgreSQL, LangGraph checkpointer.
-- Compute: DuckDB in-memory cùng pandas/NumPy/SciPy/statsmodels/scikit-learn.
-- Triển khai: Azure App Service container qua GitHub Actions workflow trong repository.
+- Frontend: Next.js 15, React 19, TypeScript, TanStack Query, Vitest và Playwright.
+- Backend: Python 3.11, FastAPI, Pydantic, SQLAlchemy/Alembic và LangGraph.
+- Compute: DuckDB file-backed; pandas/NumPy/SciPy/statsmodels/scikit-learn và các forecast backend tùy deployment.
+- Persistence: PostgreSQL bắt buộc; LangGraph checkpointer cũng dùng PostgreSQL.
 - Storage: Supabase Storage, Google Drive hoặc local development storage.
-- Datasource: MySQL, MongoDB, DuckDB. Google Calendar chưa được runtime/migration hiện tại hỗ trợ.
+- Authentication: Supabase JWT ở production; `dual`/guest là compatibility hoặc trial path.
+- Deployment: Azure App Service containers + ACR qua workflow GitHub Actions.
+- Migration head: `20260831_0022`, gồm schema parity và backend-only Supabase Data API boundary.
 
-## Giới hạn quan trọng
+## Giới hạn mặc định đáng nhớ
 
-Profile question tối đa 2.000 ký tự; QA nhận tối đa 20 history message nhưng chỉ chuyển 12 message cuối vào graph; batch profiling tối đa 20 dataset. Default trong YAML là sample 10.000 row bằng reservoir, seed 42 và tối đa 200 column. Command Center dùng timeout 60 giây cho cả Preview lẫn Official qua cùng setting, preview row budget 50.000, preview result limit 50 và Official result limit 500. Tool call và deep-analysis loop của agent đều bị giới hạn. Giá trị hiệu lực được lấy từ configuration sau khi environment override.
+| Phạm vi | Giá trị mặc định/contract |
+| --- | --- |
+| Profiling sample | 10.000 row, reservoir, seed 42 |
+| Số cột profile | tối đa 200; cột dư được ghi vào warning |
+| Batch profiling | 1–20 dataset ID duy nhất |
+| Profile/QA question | tối đa 2.000 ký tự |
+| QA history | nhận tối đa 20 message, graph dùng 12 message cuối |
+| Tool/deep analysis | 10 tool call/request; tối đa 5 vòng deep analysis |
+| Preview | row budget 50.000, result 50, timeout 60 giây, expiry 1 giờ |
+| Official | result tối đa 500, hiện dùng cùng timeout 60 giây |
+| QuerySpec | 12 columns, 3 dimensions, 20 filters, limit tối đa 500 |
+| Worker | concurrency 1, poll 1 giây, lease 300 giây, 3 attempt |
+| Profiling SSE | polling backoff 1 → 2 → 3 → 5 giây; keepalive 10 giây |
+| Upload | authenticated 500 MB; guest 25 MB theo default |
 
-## Điểm còn thiếu và ghi chú nguồn sự thật
+Giá trị hiệu lực luôn là environment override → `config.yaml` → code default. Không coi bảng này là invariant nếu deployment đã override.
 
-### Gửi report và review
+## Những thay đổi mới đã phản ánh
 
-Public `POST /api/v1/reports/{report_id}/submit` hiện gọi `ReportService.submit_report`, method này gọi thẳng `Repository.publish_report` nên report được publish ngay. Repository vẫn có method `submit_report` riêng và API có `/review`, nhưng service không gọi method submit cấp thấp đó. Không mô tả một chuỗi bắt buộc Analyst-submit → Admin-review như behavior hiện tại. Ownership: [`backend/src/services/report_service.py`](../backend/src/services/report_service.py), [`backend/src/services/repository.py`](../backend/src/services/repository.py), [`backend/src/api/authz_routes.py`](../backend/src/api/authz_routes.py). Xem [reports](features/reports.md).
+- Profiling CSV/TSV/Parquet/JSON chạy aggregate trực tiếp trong DuckDB trên file tạm; full DataFrame không còn được giữ cho pipeline chính.
+- Remote source được stream với byte limit và cleanup; statistical test chỉ reload các cột được yêu cầu.
+- Candidate-key và data-quality QA có deterministic prefetch/render path; validator fail-closed kiểm tra workspace/run, artifact, citation và số trong answer.
+- Retrieval profile/external có thể chạy song song; chart planner bỏ qua model khi intent an toàn có thể lập kế hoạch deterministic.
+- AI latency log tách router/planner/retrieval/tool/evidence/model/validation và TTFT.
+- Profiling SSE giảm query nền bằng adaptive backoff, reset khi state đổi và ngừng đọc khi client disconnect.
+- Supabase Data API không cấp direct table access cho browser roles; migration/test bảo vệ inventory này.
 
-Canonical workspace role `analyst` đồng thời có `report.submit`, `report.review` và `report.publish`; review repository không chặn creator tự làm reviewer. Flag workspace `report_separation_of_duties` được ghi khi tạo workspace nhưng không được dùng ở report lifecycle. Approval separation vì vậy chưa được enforce.
+## Known gaps cần giữ nguyên trong tài liệu
 
-### Tên handler của report list
+### Report submit không tạo review step
 
-Handler `list_published_reports` và `get_published_report` đều dùng `published_only=False`. List loại report có latest version `rejected`; get và export-source không áp dụng filter rejected đó. Report library vì vậy có thể chứa draft/in-review, còn lookup trực tiếp có thể trả report bị rejected. Xem [reports](features/reports.md).
+`POST /api/v1/reports/{report_id}/submit` gọi `ReportService.submit_report`, nhưng service gọi thẳng `Repository.publish_report`. Public submit vì vậy publish ngay. Repository vẫn có `submit_report` và API vẫn có `/review`, song hai path chưa tạo thành chuỗi Analyst submit → reviewer approve.
 
-### Drift không ràng buộc cùng dataset
+Role workspace duy nhất `analyst` đồng thời có `report.submit`, `report.review` và `report.publish`. Flag `report_separation_of_duties` được lưu trong workspace configuration nhưng chưa được lifecycle service enforce.
 
-Route drift kiểm tra hai Profile Run tồn tại trong cùng workspace, đã `completed` và có id khác nhau, nhưng không kiểm tra `dataset_id` giống nhau. UI/test hiện còn có thể so sánh run từ hai dataset. Xem [drift comparison](features/drift-comparison.md).
+### Report list/get không chỉ trả published
+
+Handler có tên `list_published_reports` và `get_published_report` dùng `published_only=False`. List loại latest version `rejected`, trong khi get/export-source không áp dụng filter tương đương. UI/library có thể thấy draft hoặc in-review; lookup trực tiếp có thể đọc report rejected nếu caller có permission.
+
+### Drift không bắt buộc cùng dataset
+
+Route drift chỉ yêu cầu hai run khác nhau, cùng workspace và đều `completed`; chưa kiểm tra `dataset_id` giống nhau. UI hiện cũng có thể chọn run từ hai dataset. Kết quả như vậy là behavior được phép hiện tại, không phải guarantee về comparability.
 
 ### Promotion tự approve context draft
 
-Luồng promote Preview tự gọi `approve_context` khi context hiện tại chưa `approved`, rồi mới chạy quality gate và Official execution. Generic execution endpoint lại yêu cầu approval đã có. Đây là khác biệt governance cần được quyết định rõ trong contract; tài liệu mô tả đúng behavior hiện tại tại [Command Center](features/command-center.md).
+Promote Preview tự approve context hiện tại bằng actor nếu context còn `draft`, rồi mới chạy quality gate/Official. Generic `POST /analysis-sessions/{id}/executions` lại yêu cầu context đã approved. Governance giữa hai path chưa đồng nhất.
 
-### HITL low-risk chưa được khóa bằng schema
+### HITL low-risk chưa có allow-list ở Settings
 
-`config.yaml` chỉ đặt `semantic_type` trong `HITL_LOW_RISK_TYPES`, nhưng Settings nhận list string không có allow-list. Node auto-confirm lặp qua cả `candidate_key`, `semantic_type` và `pii`, rồi tin cấu hình này. Misconfiguration vì vậy có thể auto-confirm candidate key hoặc PII trái với comment “luôn cần Analyst”.
+Default chỉ chứa `semantic_type`, nhưng `HITL_LOW_RISK_TYPES` nhận list string tự do. Node auto-confirm duyệt cả candidate key, semantic type và PII rồi tin cấu hình; misconfiguration có thể nới policy ngoài ý định.
 
-### Tham chiếu tài liệu cũ trong workflow
+### Evaluation staging hiện có đã cũ so với các fix mới
 
-Thông báo lỗi của bước validate production configuration trong workflow vẫn trỏ tới `docs/azure-deploy-cicd.md`, trong khi file này đã được hợp nhất vào [deployment](operations/deployment.md). Đây là stale source reference trong YAML workflow; audit tài liệu không sửa source ngoài Markdown.
+`evaluations/results/latest_scorecard.md` là staging run tại commit `6717254...`, đạt 17/17 HTTP 200 nhưng FAIL evidence/planner/latency gates. Các commit hiện tại đã sửa candidate-key/quality evidence và PII-safe planning, nhưng repository chưa có staging scorecard mới chứng minh các gate đã pass. Không dùng unit test hoặc local latency benchmark thay thế một rerun staging authenticated.
 
-### Các trang legacy đã bị xóa
+### Workflow còn tham chiếu đường dẫn tài liệu cũ
 
-Các file `docs/azure-deploy-cicd.md`, `docs/connectors-redesign-plan.md`, `docs/eval_v1.md`, `docs/latency-options.md`, `docs/mongodb-atlas-setup.md` và `docs/production-supabase.md` không còn là source tài liệu trong working tree. Nội dung còn đúng đã được gom vào [deployment](operations/deployment.md), [connector/storage](features/connectors-and-storage.md), [evaluation](development/evaluation.md), [configuration](operations/configuration.md) và [local development](development/local-development-and-testing.md). Không khôi phục claim setup không có trong code/configuration.
+Thông báo lỗi trong bước validate production configuration vẫn trỏ tới `docs/azure-deploy-cicd.md`, file đã được hợp nhất vào [deployment](operations/deployment.md). Đây là stale reference trong YAML, không phải link còn tồn tại trong bộ Markdown.
 
-### Cấu hình và giá trị mặc định trong code
+### Cấu hình có default ở nhiều lớp
 
-`config.yaml` là lớp default không chứa secret khi environment variable vắng mặt. Một số code default khác YAML, đặc biệt embedding provider và external knowledge. Khi debug deployment, cần kiểm tra effective setting thay vì chỉ đọc YAML hoặc Python default.
+`config.yaml` chọn Gemini/Voyage và bật external knowledge; code default riêng lại dùng local embedding và tắt external knowledge nếu không nhận YAML. `LANGSMITH_DATA_MODE` nhận `sanitized_content`, nhưng adapter hiện vẫn ẩn input/output và chỉ gửi metadata allow-list. Luôn kiểm tra effective settings thay vì suy luận từ một file.
 
-`LANGSMITH_DATA_MODE` nhận `metadata_only` hoặc `sanitized_content`, nhưng adapter hiện vẫn tạo client với `hide_inputs=true`, `hide_outputs=true` và chỉ gửi metadata allow-list. Giá trị `sanitized_content` chưa làm thay đổi payload export thực tế.
+## Checklist bàn giao
 
-## Checklist kiểm chứng
-
-- Chạy test backend tập trung cho route/service thay đổi, sau đó chạy toàn bộ pytest khi phù hợp.
-- Chạy `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build` và Playwright test liên quan cho thay đổi frontend.
-- Chạy evaluation dry-run/offline theo [evaluation](development/evaluation.md).
-- Kiểm tra `/health` của API, worker và frontend; chỉ đọc `/api/v1/status` trong context có authorization.
-- Khi đổi data flow, kiểm tra lại workspace isolation, PII redaction, approximation flag, idempotency và migration compatibility.
+- Chạy migration smoke và database security assertion khi đổi schema/access boundary.
+- Chạy focused pytest, sau đó full pytest phù hợp với phạm vi thay đổi.
+- Chạy `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build` và Playwright cho frontend.
+- Chạy evaluation dry-run/offline để kiểm tra harness; rerun staging synthetic sau thay đổi QA/planner.
+- Kiểm tra health của API, worker và frontend; dùng correlation ID/telemetry thay vì log raw payload.
+- Khi đổi data flow, kiểm tra lại workspace predicate, PII masking, approximation, evidence binding, idempotency và cleanup file tạm.

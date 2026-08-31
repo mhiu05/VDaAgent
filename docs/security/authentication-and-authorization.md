@@ -1,29 +1,64 @@
-# Mô hình xác thực và phân quyền
+# Xác thực và phân quyền
 
-## Phương thức xác thực
+Production dùng Supabase Auth để phát JWT, nhưng mọi quyết định truy cập domain được thực thi trong FastAPI/PostgreSQL.
 
-`AUTH_MODE` quyết định principal flow được chấp nhận và hiện chỉ nhận `dual` hoặc `supabase`. Production validator yêu cầu mode `supabase` và email đã confirm. Trong development/test, mode `dual` có thể nhận legacy API token đã cấu hình hoặc bootstrap identity khi tắt token enforcement. Guest session dùng token dạng `guest.<uuid>.analyst` khi được bật. Không dùng các compatibility path này trong production.
+## Xác thực production
 
-`SupabaseJWTVerifier` nhận asymmetric JWT algorithm đã cấu hình (`ES256`/`RS256`), validate issuer, audience, expiry, subject và `role=authenticated`, cache JWKS với một lần retry khi rotation, đồng thời dùng narrow authoritative Supabase user fallback khi local verification fail. Identity invalid, expired, chưa confirm (khi bắt buộc) hoặc không thể truy cập đều fail closed.
+`AUTH_MODE=supabase` yêu cầu bearer token. Backend:
 
-## Chuỗi phân quyền
+1. đọc JWT header và chỉ chấp nhận thuật toán bất đối xứng ES256/RS256;
+2. lấy signing key từ Supabase JWKS với cache có giới hạn;
+3. retry một lần khi key rotation làm `kid` chưa có trong cache;
+4. kiểm tra signature, issuer, audience, `sub`, `exp` và role `authenticated`;
+5. nếu policy yêu cầu, kiểm tra email đã xác nhận;
+6. chỉ gọi Supabase Auth như fallback hẹp khi token hợp lệ không thể xác minh cục bộ.
 
-1. `get_current_user` authenticate bearer.
-2. `get_active_user` đồng bộ/kiểm tra account projection và status.
-3. `get_current_workspace` resolve `X-Workspace-Id` với active membership và reject workspace mơ hồ/ngoài tenant.
-4. `require_permission(name)` kiểm tra capability của canonical workspace role.
-5. Service/repository giữ workspace scope và kiểm tra resource ownership.
+Các lỗi không được phép fallback (sai claim, thuật toán, role hoặc token hỏng) phải fail closed. Network auth/JWKS dùng I/O async có timeout; thao tác DB/JWKS blocking được đưa khỏi event loop.
 
-System Admin route dùng `require_system_permission`, không dùng workspace context. Admin không thể vào Analyst workspace bằng membership hoặc header cũ. Account bị lock/inactive bị từ chối sau khi token đã cấp.
+## Đường request đã xác thực
 
-## Hành vi của API
+Sau token verification, backend resolve profile và memberships trong một truy vấn hợp nhất, chọn workspace hợp lệ, canonicalize role và tính capability. Account bị khóa, workspace archived, membership thiếu hoặc workspace khác đều bị từ chối trước khi gọi service domain.
 
-Request chưa authenticate trả 401; thiếu membership/capability hoặc account bị lock trả 403; nhiều lookup workspace/resource ngoài scope trả 404 có chủ ý không tiết lộ; nhiều membership mà thiếu header trả 409 với `workspace_required`. Route map trong `frontend/src/lib/auth/route-access.ts` chỉ giúp điều hướng, không phải security control.
+Frontend route guard, cookie và `X-Workspace-Id` chỉ giúp UX/chọn ngữ cảnh; chúng không phải authorization proof.
 
-## Vị trí source code và kiểm chứng
+## Chế độ local
 
-- JWT/principal: [`backend/src/services/auth.py`](../../backend/src/services/auth.py).
-- Dependency pipeline: [`backend/src/api/dependencies.py`](../../backend/src/api/dependencies.py).
-- Capability registry: [`backend/src/services/permissions.py`](../../backend/src/services/permissions.py).
-- Production validation: [`backend/src/config.py`](../../backend/src/config.py).
-- Test: tìm trong `tests/` với `auth`, `jwt`, `workspace`, `permission`, `locked` và `guest`.
+`AUTH_MODE=dual` cùng `AUTH_ALLOW_GUEST=true` hỗ trợ bootstrap/guest cho phát triển. Không dùng cấu hình này trong production. API token compatibility chỉ là đường chuyển tiếp; không mở rộng nó thành một cơ chế tenant auth song song.
+
+## Role và capability
+
+- Workspace role chuẩn hiện là `analyst`.
+- System role `admin` tách khỏi workspace membership.
+- Endpoint kiểm capability cụ thể thay vì chỉ so sánh chuỗi role.
+- System admin không tự động sở hữu dữ liệu của mọi workspace.
+- Thay đổi membership/admin phải ghi audit.
+
+Các route report hiện cho analyst submit/review/publish và chưa enforce separation-of-duties; xem [Báo cáo](../features/reports.md).
+
+## Mã lỗi và chống lộ thông tin
+
+- 401: thiếu/không hợp lệ token;
+- 403: principal hợp lệ nhưng thiếu capability;
+- 404 có thể được dùng để không lộ tài nguyên workspace khác;
+- 409: xung đột version/lifecycle;
+- 422: request vi phạm contract.
+
+Không trả chi tiết JWT, membership của tenant khác hoặc secret trong error body/log.
+
+## Cấu hình chính
+
+- `AUTH_MODE`, `AUTH_ALLOW_GUEST`, `AUTH_ALLOW_SIGNUP`;
+- `AUTH_REQUIRE_EMAIL_CONFIRMED`;
+- `SUPABASE_URL`, `SUPABASE_AUTH_ISSUER`, `SUPABASE_AUTH_AUDIENCE`;
+- `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`;
+- JWKS timeout/cache và danh sách thuật toán.
+
+`SUPABASE_SERVICE_ROLE_KEY` chỉ còn fallback tương thích một release; cấu hình mới nên dùng secret key backend. Không đưa bất kỳ backend key nào vào biến `NEXT_PUBLIC_*`.
+
+## Nguồn triển khai
+
+- `backend/src/services/auth.py`
+- `backend/src/api/dependencies.py`
+- `backend/src/services/permissions.py`
+- `backend/src/api/authz_routes.py`
+- `backend/src/api/admin_routes.py`

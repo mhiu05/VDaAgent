@@ -1,69 +1,122 @@
-# P-170 — Nền tảng profiling và phân tích dữ liệu
+# VDaAgent (P-170) — Nền tảng profiling và phân tích dữ liệu
 
-P-170 là ứng dụng phân tích dữ liệu nhiều workspace theo nguyên tắc evidence-first: profiling dữ liệu dạng bảng, phân tích có giới hạn, hỏi đáp có nguồn, so sánh drift và tạo report.
+VDaAgent là ứng dụng phân tích dữ liệu nhiều workspace theo nguyên tắc evidence-first. Hệ thống tiếp nhận dữ liệu dạng bảng, chạy profiling bất đồng bộ, hỗ trợ review metadata, phân tích/biểu đồ có giới hạn, hỏi đáp có nguồn, so sánh drift và tạo báo cáo PII-safe.
 
-## Chức năng hiện có
+## Những gì dự án đang hỗ trợ
 
-- Upload file CSV/TSV/Parquet/JSON hoặc kết nối MySQL, MongoDB và DuckDB.
-- Đưa Profile Run vào PostgreSQL queue và xử lý bằng Profiling Worker.
-- Review proposal về schema/chất lượng, tín hiệu PII, thống kê, correlation, outlier và narrative.
-- Tạo chart trong Command Center qua Preview và Official execution riêng biệt.
-- Hỏi QA dựa trên profile và execution qua JSON hoặc SSE.
-- So sánh các run đã hoàn thành bằng drift signal từ thống kê đã lưu.
-- Biên soạn Report Draft có thể sửa, tạo snapshot bất biến và export PDF an toàn với PII.
-- Cô lập dữ liệu theo workspace và kiểm tra capability ở API boundary.
+- Upload CSV, TSV, Parquet và JSON lên Supabase Storage, Google Drive hoặc local storage ở development.
+- Kết nối nguồn chỉ đọc MySQL, MongoDB và DuckDB; lưu credential đã mã hóa và chỉ trả metadata an toàn cho browser.
+- Đưa Profile Run vào queue PostgreSQL; worker riêng claim lease, heartbeat, retry và khôi phục job stale.
+- Profile source bằng DuckDB trên file đã materialize tạm thời; chỉ nạp các cột cần thiết vào pandas khi chạy statistical test.
+- Lưu missingness, cardinality, uniqueness, distribution, outlier, correlation, duplicate, PII, quasi-identifier, candidate key và semantic type.
+- Review proposal bằng LangGraph HITL, gồm confirm, reject, edit và yêu cầu kiểm định sâu.
+- Tạo chart tại Command Center qua hai bước Preview (approximate) và Official (evidence), kèm quality gate.
+- Trả lời QA qua JSON hoặc SSE; claim định lượng phải qua tool evidence và validator deterministic, nếu thiếu bằng chứng hệ thống sẽ abstain.
+- So sánh drift từ các thống kê đã lưu, không cần tải lại raw data.
+- Soạn Report Draft, ghim profile/chart/answer/note, tạo snapshot bất biến và export PDF phía Next.js server.
+- Cô lập dữ liệu theo workspace; mọi bảng ứng dụng trong PostgreSQL là backend-only đối với Supabase Data API.
 
-## Bắt đầu nhanh
+## Kiến trúc chạy
 
-Yêu cầu: Python 3.11, Node.js 22, pnpm 11.0.8 và PostgreSQL. PostgreSQL là dependency bắt buộc; backend không có SQLite fallback.
+Stack local và production có ba process chính:
+
+```text
+Browser / Next.js ── REST + SSE ── FastAPI ── PostgreSQL / Storage / LLM
+                                      │
+                                      └── Profiling Worker ── DuckDB compute
+```
+
+Frontend dùng Next.js 15, React 19 và TypeScript. Backend dùng Python 3.11, FastAPI, SQLAlchemy/Alembic, LangGraph, DuckDB và PostgreSQL. Production hiện được đóng gói thành ba container và triển khai lên Azure App Service qua GitHub Actions.
+
+## Bắt đầu nhanh trên Windows
+
+Yêu cầu: Python 3.11, Node.js 22, pnpm 11.0.8 và PostgreSQL 16-compatible. PostgreSQL là bắt buộc; dự án không hỗ trợ SQLite fallback.
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-# Sửa DATABASE_URL trong .env để trỏ tới PostgreSQL local trước bước migration.
-alembic upgrade head
 cd frontend
 pnpm install
 cd ..
 ```
 
-Đặt tối thiểu `DATABASE_URL` trong `.env`. Với luồng file local, dùng `APP_ENV=development`, `AUTH_MODE=dual` và local storage theo [hướng dẫn phát triển và kiểm thử local](docs/development/local-development-and-testing.md). Nếu môi trường đã có GNU Make, có thể chạy ba process bằng các shortcut:
+Sau khi sao chép `.env.example`, tối thiểu hãy đổi cấu hình local sau trước khi chạy migration:
 
-```text
-make backend     # FastAPI trên :8000
-make worker      # Profiling Worker dùng queue bền vững
-make frontend    # Next.js trên :3000
-make health
+```dotenv
+APP_ENV=development
+AUTH_MODE=dual
+STORAGE_PROVIDER=local
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ```
 
-## Tài liệu kỹ thuật
+Nếu `AUTH_MODE=dual` yêu cầu bearer dùng chung, đặt thêm `API_TOKEN`. LLM, embedding, Supabase Auth/Storage và Google Drive chỉ cần cấu hình khi kiểm thử các path tương ứng.
 
-Xem [docs/README.md](docs/README.md) để tìm tài liệu theo lộ trình.
+```powershell
+alembic -c alembic.ini upgrade head
+```
 
-- [Tổng quan hệ thống](docs/architecture/system-overview.md) — topology, request path và source map.
-- [Profiling Job bất đồng bộ](docs/architecture/async-profiling-jobs.md) — queue, state, lease và SSE.
-- [Phân tích có giới hạn](docs/architecture/bounded-execution.md) — QuerySpec, Preview/Official và quality gate.
-- [Agent system](docs/architecture/agent-system.md) — LangGraph, QA, retrieval, trace và evidence.
-- [Reports](docs/features/reports.md) — draft, snapshot, export và lifecycle hiện tại.
-- [Cấu hình](docs/operations/configuration.md) — cấu hình hiệu lực và bộ kiểm tra production.
-- [Triển khai Azure](docs/operations/deployment.md) — CI/CD đang dùng.
-- [Đánh giá](docs/development/evaluation.md) — phạm vi harness và cách diễn giải kết quả.
+Chạy ba terminal từ repository root:
 
-[ARCHITECTURE.md](ARCHITECTURE.md) là chỉ mục kiến trúc ngắn. [docs/summary.md](docs/summary.md) là handover snapshot và sổ đăng ký điểm còn thiếu.
+```powershell
+# API
+cd backend
+..\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+
+# Worker
+$env:PYTHONPATH = "backend"
+.\.venv\Scripts\python.exe -m src.workers.profiling_worker
+
+# Frontend
+cd frontend
+pnpm dev --port 3000
+```
+
+Nếu đã cài GNU Make trên Windows, có thể dùng `make backend`, `make worker`, `make frontend`, `make dev` và `make health`.
+
+## Kiểm tra nhanh
+
+```powershell
+ruff check backend/src tests
+python -m pytest -q
+
+cd frontend
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm test:e2e
+```
+
+OpenAPI chỉ mở ở development/test tại `http://localhost:8000/docs`; backend health ở `/health`, frontend health ở `/health` của port frontend.
+
+## Tài liệu
+
+- [Cổng tài liệu](docs/README.md)
+- [Tổng quan kiến trúc](ARCHITECTURE.md)
+- [Kiến trúc hệ thống chi tiết](docs/architecture/system-overview.md)
+- [Phát triển và kiểm thử local](docs/development/local-development-and-testing.md)
+- [Cấu hình vận hành](docs/operations/configuration.md)
+- [Migration và ranh giới Data API](docs/operations/database-migrations.md)
+- [Triển khai Azure](docs/operations/deployment.md)
+- [Tóm tắt bàn giao và known gaps](docs/summary.md)
 
 ## Cấu trúc repository
 
 ```text
-backend/src/        FastAPI router, agent, service, worker và persistence
-backend/migrations/  Lịch sử Alembic cho PostgreSQL
-frontend/src/       Next route, component, API client và PDF route
-tests/              Test backend, frontend, integration và evaluation
-evaluations/        Scorecard và report của harness
-config.yaml         Default không chứa secret
-.env.example        Danh sách key môi trường
-.github/workflows/   Workflow build/deploy Azure
+backend/src/          FastAPI, agent graph, tool, service, worker và persistence
+backend/migrations/   Chuỗi migration Alembic cho PostgreSQL
+frontend/src/         Next.js routes, component, API client và PDF renderer
+tests/                Backend, integration và evaluation tests
+frontend/src/**/*.test.*  Frontend unit/component tests đặt cạnh source
+evaluations/          Scorecard/report đã sinh; không phải source của harness
+scripts/              Migration, security, benchmark và knowledge-base utilities
+config.yaml           Default runtime không chứa secret
+.env.example          Inventory biến môi trường
+.github/workflows/    Quality gate, build image và triển khai Azure
 ```
 
-README root chỉ giữ vai trò entry point. Hợp đồng chi tiết cần được cập nhật tại tài liệu gần implementation sở hữu nó.
+Khi tài liệu và implementation khác nhau, source trong `backend/src/`, `frontend/src/`, migration, test và workflow triển khai là nguồn sự thật. Ghi chênh lệch chưa sửa vào [docs/summary.md](docs/summary.md).

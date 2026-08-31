@@ -1,21 +1,43 @@
 # So sánh drift
 
-## Hợp đồng
+Drift comparison đối chiếu hai profiling run bằng thống kê đã được lưu. Endpoint không đọc lại raw dataset và không gọi model.
 
-`POST /api/v1/profile/{run_id}/drift` so sánh current Profile Run đã hoàn tất với baseline khác cũng đã hoàn tất trong cùng workspace. API không kiểm tra hai run phải thuộc cùng dataset; nó chỉ kiểm tra tồn tại trong workspace, trạng thái `completed` và id khác nhau. Service đọc `column_stats` đã lưu và không reload raw data. Response gồm baseline/current id, summary và mọi finding có column, drift type, severity, metric, baseline/current value, PSI nếu có và detail.
+## Contract
 
-## Tín hiệu
+`POST /api/v1/profile/{current_run_id}/drift` nhận baseline run ID. Backend yêu cầu:
 
-Implementation phát hiện schema signal cho column thêm/xóa và dtype change, null-rate shift, numeric mean/std/cardinality shift và PSI trên top-k distribution đã lưu. Threshold nằm trong [`backend/src/services/drift.py`](../../backend/src/services/drift.py): null-rate shift minor ở 5 điểm phần trăm và major ở 10; numeric relative shift minor ở 20% và major ở 50%; PSI minor ở 0,1 và major ở 0,25. Một column có thể tạo nhiều finding.
+- hai run khác ID;
+- cả hai đã hoàn tất;
+- cả hai thuộc workspace hiện tại;
+- người gọi có capability cần thiết.
 
-Trường `summary` đếm signal major/minor, không đếm số column duy nhất. Phía sử dụng phải render mọi finding thay vì chọn một metric cho mỗi column.
+Kết quả gồm schema change, null-rate shift, numeric distribution shift và mức severity. So sánh có thể tái lập vì chỉ dùng artifact profiling bất biến của từng run.
 
-## Hành vi giao diện
+## Ngưỡng mặc định
 
-`/compare` liệt kê run đã completed trong workspace hiện tại, yêu cầu ít nhất hai run, hỗ trợ tìm column và lọc severity, rồi group toàn bộ finding backend theo column. Drift trong report dùng cùng grouping/evidence label. Filter chỉ thay đổi phạm vi hiển thị, không thay đổi backend comparison.
+| Tín hiệu | Warning | Critical |
+| --- | ---: | ---: |
+| Thay đổi null rate | 5 điểm phần trăm | 10 điểm phần trăm |
+| Thay đổi tương đối của metric số | 20% | 50% |
+| PSI | 0,10 | 0,25 |
 
-## Vị trí source code và kiểm chứng
+Schema thêm/xóa cột hoặc đổi kiểu được báo riêng. Ngưỡng là policy hiện tại, không phải quy tắc thống kê phổ quát; nếu thay đổi phải cập nhật test và tài liệu cùng lúc.
 
-- Tính toán/API: [`backend/src/services/drift.py`](../../backend/src/services/drift.py), [`backend/src/api/routes.py`](../../backend/src/api/routes.py), [`backend/src/models/schemas.py`](../../backend/src/models/schemas.py).
-- UI normalization: [`frontend/src/components/compare-workspace.tsx`](../../frontend/src/components/compare-workspace.tsx), [`frontend/src/lib/drift-evidence.ts`](../../frontend/src/lib/drift-evidence.ts).
-- Test: tìm trong `tests/` với `drift`, `psi`, `compare` và `finding`.
+## Giới hạn hiện tại
+
+Backend xác nhận cùng workspace nhưng chưa bắt buộc hai run thuộc cùng `dataset_id`. UI nên chỉ cho chọn run của cùng dataset, nhưng đây chưa phải invariant ở tầng service. Không dùng drift endpoint như bằng chứng rằng hai nguồn đại diện cho cùng thực thể dữ liệu.
+
+## Diễn giải an toàn
+
+- Phân biệt điểm phần trăm với phần trăm tương đối.
+- Metric thiếu ở một run là “không đủ dữ liệu”, không tự suy ra “không drift”.
+- Drift là tín hiệu cần điều tra, không tự động là lỗi pipeline.
+- Báo cáo phải giữ baseline/current run ID và thời điểm tạo profile.
+
+## Nguồn triển khai
+
+- `backend/src/api/routes.py`
+- `backend/src/services/drift.py`
+- `backend/src/models/schemas.py`
+- `frontend/src/app/compare/page.tsx`
+- `frontend/src/components/compare-workspace.tsx`

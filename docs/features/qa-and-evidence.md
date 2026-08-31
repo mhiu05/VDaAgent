@@ -1,32 +1,62 @@
 # QA và evidence
 
+QA trả lời câu hỏi về profiling run theo nguyên tắc evidence-first: câu trả lời định lượng chỉ hợp lệ khi số liệu có thể truy về artifact hoặc tool result đúng workspace/run.
+
 ## API
 
-`POST /api/v1/qa` trả answer JSON hoàn chỉnh. `POST /api/v1/qa/stream` trả SSE cho cùng pipeline có kiểm soát. Request có question (1–2.000 ký tự), `profile_run_id` tùy chọn, tối đa 20 history message (mỗi message 1–2.000 ký tự), `analysis_execution_id` tùy chọn, workspace-context version tùy chọn và response mode (`default` hoặc `chart_insight`). Sau khi validate, router chỉ chuyển 12 history message cuối vào graph.
+- `POST /api/v1/qa`: trả JSON hoàn chỉnh.
+- `POST /api/v1/qa/stream`: SSE cho tiến trình và token.
+- `GET /api/v1/agent-runs/{run_id}`: trạng thái agent run.
+- `GET /api/v1/agent-runs/{run_id}/trace`: trace event.
+- `GET /api/v1/agent-runs/{run_id}/evidence`: evidence chuẩn hóa.
+- `GET /api/v1/agent-runs/{run_id}/plan`: kế hoạch tool.
+- `GET /api/v1/agent-runs/{run_id}/trace-summary`: tóm tắt trace.
 
-## Định tuyến và guardrail
+Câu hỏi tối đa 2.000 ký tự, lịch sử tối đa 20 message; graph hiện chỉ dùng 12 message gần nhất.
 
-QA graph phân loại request và chọn guardrail, clarification, structured-tool hoặc retrieval route mang tính deterministic. Quantitative question gọi tool đã đăng ký với profile scope được server inject; model nhận tool result để diễn giải, không được issue arbitrary SQL/Python. Qualitative question lấy profile document và chỉ dùng external knowledge khi flag/provider cho phép. Chart insight phải yêu cầu Official execution được trích dẫn.
+## Luồng xử lý
 
-Prompt injection, yêu cầu credential và raw-PII exfiltration bị block trước model/tool call. Answer được redact và truncate theo guardrail setting. Mặc định audit lưu question hash/length, không lưu nội dung.
+1. kiểm tra workspace, run và trạng thái profile;
+2. phân loại ý định;
+3. với câu hỏi candidate key hoặc quality issue rộng, prefetch tool xác định;
+4. retrieval profile và nguồn ngoài chạy song song khi phù hợp;
+5. model soạn câu trả lời từ context đã giới hạn;
+6. validator kiểm tra evidence, con số, citation và nguồn;
+7. chỉ sau validation mới phát event trả lời cuối.
 
-## Hợp đồng evidence
+Retrieval ngoài phải được bật rõ ràng. Hybrid retrieval kết hợp sparse/dense; khi embedding provider không khả dụng, hệ thống hạ về sparse thay vì tạo evidence giả. Provider hỗ trợ gồm local, OpenAI, Voyage hoặc none theo cấu hình.
 
-Source được phân loại là `profile_report`, `external_knowledge` hoặc `tool`. Response có `evidence_status`:
+## Validator fail-closed
 
-- `verified` — dựa trên execution/tool đủ điều kiện hoặc source đã xác minh;
-- `profile_only` — dựa trên profile fact đã lưu nhưng không có Official execution mới;
-- `no_evidence` — clarification, refusal hoặc chưa có evidence đủ.
+`qa_validation.py` kiểm tra:
 
-`is_approximate`, `context_version_id`, `analysis_execution_id` và `profile_run_id` cho biết answer dựa trên dữ liệu nào. Agent runtime cũng lưu redacted trace và canonical evidence record.
+- run có thật, đúng workspace và đúng artifact;
+- tool/source thành công;
+- evidence có nội dung hỗ trợ kết luận;
+- mọi giá trị số trong câu trả lời xuất hiện trong evidence hợp lệ;
+- citation trỏ đúng evidence.
 
-## Vị trí source code và kiểm chứng
+Nếu không đủ bằng chứng, response phải abstain ổn định thay vì suy đoán. Trạng thái evidence được phân biệt:
 
-- Node/router: [`backend/src/agents/nodes/qa_nodes.py`](../../backend/src/agents/nodes/qa_nodes.py).
-- Guardrail: [`backend/src/services/guardrails.py`](../../backend/src/services/guardrails.py).
-- Retrieval: [`backend/src/services/retrieval.py`](../../backend/src/services/retrieval.py).
-- Contract: [`backend/src/models/schemas.py`](../../backend/src/models/schemas.py).
-- API/UI: [`backend/src/api/routes.py`](../../backend/src/api/routes.py), [`frontend/src/app/chat/page.tsx`](../../frontend/src/app/chat/page.tsx).
-- Test: tìm trong `tests/` với `qa`, `guardrail`, `evidence`, `retrieval` và `stream`.
+- `verified`: có tool/artifact trực tiếp;
+- `profile_only`: chỉ dựa trên artifact profiling;
+- `no_evidence`: không đủ căn cứ, phải abstain.
 
-Xem [Agent system](../architecture/agent-system.md) và [phân tích có giới hạn](../architecture/bounded-execution.md).
+Citation là liên kết provenance có cấu trúc, không chỉ là văn bản do model tự chèn.
+
+## Quy tắc với biểu đồ
+
+Insight từ biểu đồ chỉ được dùng khi execution là Official. Preview không được coi là evidence định lượng. Cột PII chưa bị reject không được gửi sang model hoặc dùng trong truy vấn.
+
+## Quan sát và đánh giá
+
+AI latency được ghi theo router, planner, retrieval, tools, evidence, final LLM, validation, TTFT, số call và token. Benchmark local chỉ kiểm tra wiring/performance trong môi trường đó, không phải production SLO.
+
+## Nguồn triển khai
+
+- `backend/src/api/routes.py`
+- `backend/src/api/agent_routes.py`
+- `backend/src/agents/nodes/qa_nodes.py`
+- `backend/src/services/qa_validation.py`
+- `backend/src/services/retrieval.py`
+- `backend/src/agents/runtime/trace.py`

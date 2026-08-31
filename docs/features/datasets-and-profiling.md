@@ -1,38 +1,76 @@
-# Profiling dataset
+# Dataset và profiling
 
-## Luồng người dùng
+Dataset là metadata của một nguồn dạng bảng; profile run là một lần phân tích cụ thể trên dataset đó. Một dataset có thể có nhiều run để so sánh theo thời gian.
 
-1. Upload CSV, TSV, Parquet hoặc JSON, hoặc tạo dataset từ datasource được hỗ trợ.
-2. API lưu dataset metadata và source reference trong workspace hiện tại.
-3. Tạo Profile Run bằng `POST /api/v1/profile` (hoặc biến thể theo dataset/batch) với idempotency key.
-4. Poll `GET /api/v1/profiling-jobs/{job_id}` hoặc subscribe SSE event.
-5. Đọc `GET /api/v1/profile/{run_id}`; nếu còn proposal thì review tại `PATCH /api/v1/profile/{run_id}/confirm`.
+## Tạo dataset
 
-Frontend cung cấp luồng này ở `/datasets`, `/datasets/new`, `/datasets/{datasetId}/runs`, `/profiles/{runId}` và `/profiles/{runId}/review`.
+Người dùng có thể:
 
-## Kết quả Profile Run
+- upload CSV, TSV, Parquet hoặc JSON;
+- chọn object từ storage đã kết nối;
+- dùng bảng/collection từ MySQL, MongoDB hoặc DuckDB connector.
 
-Profile Run hoàn tất lưu row/column count, scan mode và sampling provenance, executed query, missingness, cardinality/uniqueness, numeric summary, string length/top-k value, outlier, Pearson correlation, quasi-identifier, PII/semantic-type proposal, risk warning, statistical test và narrative tùy chọn. Cột PII không có top value. Kết quả sample mang `is_approximate` và margin of error nếu có.
+Sau khi tạo dataset, `POST /api/v1/datasets/{dataset_id}/profile` tạo job bất đồng bộ và trả HTTP 202. Batch endpoint `POST /api/v1/datasets/profile` nhận từ 1 đến 20 dataset. `POST /api/v1/profile` là contract profiling trực tiếp dùng cho các luồng tương thích.
 
-Input reader chạy qua DuckDB và tabular-source helper. Full scan và sample scan bị giới hạn bởi max column, sample size, outlier và test configuration. Source rỗng hoặc không có column sẽ fail an toàn.
+Client nên gửi idempotency key dài 8–255 ký tự khi có khả năng retry.
 
-## Review và tiếp tục xử lý
+## Trạng thái
 
-Metadata proposal ban đầu ở trạng thái pending. Với cấu hình repository hiện tại, chỉ `semantic_type` thuộc `low_risk_types` và có thể auto-confirm khi đạt confidence threshold; candidate key và PII vẫn chờ Analyst. Tuy nhiên Settings chưa giới hạn giá trị của `HITL_LOW_RISK_TYPES`, nên đây là policy do cấu hình quyết định chứ chưa phải invariant trong code. Action confirm/reject/edit/request_test được lưu, sau đó persisted LangGraph thread có thể resume. Profile-domain status có thể là `pending_review` trong khi job vẫn `running` hoặc `succeeded`.
+Job và kết quả domain là hai trạng thái khác nhau:
 
-## Ghi chú API
+- job: queued, running, succeeded hoặc failed;
+- profile run: queued, profiling, pending_review, completed hoặc failed.
 
-- `ProfileRequest.question` là tùy chọn, tối đa 2.000 ký tự; có question thì profiling có thể tiếp tục sang QA.
-- Sampling dùng `reservoir` hoặc `tablesample`, và lưu seed để tái lập.
-- Batch profile nhận 1–20 dataset id duy nhất.
-- Raw export mặc định tắt; profile/export response bị giới hạn và có PII policy.
+Job có thể `succeeded` trong khi run vẫn `pending_review`. Đây là trạng thái hợp lệ: tính toán đã xong nhưng metadata cần người dùng xác nhận. Sau confirm, worker được requeue để tiếp tục graph.
 
-## Vị trí source code và kiểm chứng
+Theo dõi bằng:
 
-- API: [`backend/src/api/routes.py`](../../backend/src/api/routes.py).
-- Compute: [`backend/src/services/compute.py`](../../backend/src/services/compute.py), [`tabular_source.py`](../../backend/src/services/tabular_source.py).
-- Graph: [`backend/src/agents/graph.py`](../../backend/src/agents/graph.py).
-- Schema: [`backend/src/models/schemas.py`](../../backend/src/models/schemas.py).
-- Test: tìm trong `tests/` với `profile`, `compute`, `sampling`, `pii`, `proposal` và `idempotency`.
+- `GET /api/v1/profiling-jobs/{job_id}`;
+- `GET /api/v1/profiling-jobs/{job_id}/events`;
+- `GET /api/v1/profile/{run_id}`;
+- `GET /api/v1/profile/{run_id}/summary`.
 
-Xem [Profiling Job bất đồng bộ](../architecture/async-profiling-jobs.md) về worker guarantee và [workspace isolation](../security/workspace-isolation-and-privacy.md) về data boundary.
+SSE phát các event `queued`, `profiling`, `resuming`, `review_required`, `ready`, `failed`. Backend poll theo nhịp thích ứng 1/2/3/5 giây, keepalive độc lập 10 giây, reset khi state đổi và dừng sớm khi client ngắt kết nối.
+
+## Cách profiling chạy
+
+Đường chính dùng DuckDB với source file-backed:
+
+1. materialize nguồn vào file tạm có quota;
+2. chỉ đọc/project các cột cần thiết;
+3. tạo sample bằng reservoir sampling;
+4. tính schema, null, cardinality, thống kê, correlation, PII, duplicate và candidate key trực tiếp trong DuckDB;
+5. chỉ nạp các cột được chọn vào pandas cho statistical test;
+6. xóa dữ liệu trung gian và file tạm.
+
+Mặc định sample 10.000 dòng, seed 42, tối đa 200 cột và top-k 10. Một số metric trên dữ liệu lớn là xấp xỉ; UI/API phải giữ cờ approximation thay vì trình bày như giá trị tuyệt đối.
+
+## Review metadata
+
+Graph có thể đề xuất semantic type, PII và candidate key. Chính sách mặc định chỉ auto-confirm đề xuất semantic type rủi ro thấp khi confidence đạt 0,95. Cấu hình low-risk tại Settings hiện chưa tự mở rộng allow-list runtime; thay đổi UI không đồng nghĩa thay đổi policy backend.
+
+`PATCH /api/v1/profile/{run_id}/confirm` ghi quyết định review. Trạng thái PII `pending`, `confirmed`, `edited` và `auto_confirmed` đều bị chặn ở các luồng phân tích; chỉ `rejected` được xem là không phải PII.
+
+## Kết quả và thao tác tiếp theo
+
+Một run hoàn tất cung cấp:
+
+- profile/summary và export;
+- statistical test;
+- QA có evidence;
+- drift comparison;
+- Command Center;
+- report draft.
+
+Dataset có thể list, xem lịch sử run, cập nhật collection hoặc soft-delete qua nhóm route `/api/v1/datasets`.
+
+## Nguồn triển khai
+
+- `backend/src/api/routes.py`
+- `backend/src/workers/profiling_worker.py`
+- `backend/src/agents/graph.py`
+- `backend/src/services/compute.py`
+- `backend/src/services/profile_service.py`
+- `backend/src/services/storage.py`
+- `frontend/src/app/datasets/`
+- `frontend/src/app/profiles/`

@@ -1,27 +1,64 @@
-# Command Center
+# Command Center và phân tích tương tác
 
-Command Center là workspace chart và analysis tại `/charts`. Nó chuyển business question hoặc profile thành analysis plan đã validate, sau đó tách exploration chi phí thấp khỏi execution mang evidence.
+Command Center là giao diện phân tích một profiling run đã có dữ liệu. Tính năng này kết hợp phiên phân tích có trạng thái, planner an toàn, preview giới hạn, kết quả Official và các biểu đồ tái lập được.
 
-## Phiên và context
+## Luồng sử dụng
 
-`POST /api/v1/profile/{run_id}/explorer/session` tạo hoặc dùng lại session chỉ khi profile đã completed. Service tạo quick context từ column statistic đã lưu, loại các column bị PII mask, rồi lưu context version ở trạng thái `draft` dưới analysis session. Preview dùng context hiện tại. Khi promote Preview, route tự approve context draft bằng actor hiện tại; generic Official execution endpoint thì yêu cầu context đã `approved` và đúng expected version.
+1. Mở một profiling run trong `/datasets/{datasetId}/profile/{runId}/command-center`.
+2. Frontend tạo hoặc lấy explorer session bằng `POST /api/v1/profile/{run_id}/explorer/session`.
+3. Người dùng chọn cột, bộ lọc và phép phân tích hoặc yêu cầu hệ thống lập kế hoạch biểu đồ.
+4. Backend tạo một context version bất biến cho lần phân tích.
+5. Preview chạy trên mẫu giới hạn; chỉ execution Official mới được dùng làm insight định lượng hoặc đưa vào báo cáo.
+6. Quality gate và provenance được lưu cùng session/execution để phục vụ kiểm tra sau này.
 
-Auto-plan và auto-profile-pack chỉ gửi field trong quick context cùng statistic an toàn như dtype/cardinality, không gửi raw row, tới model đã cấu hình. Khi model không khả dụng, deterministic fallback planning vẫn có thể chạy. Mọi plan tạo ra vẫn đi qua QuerySpec validation và quy tắc Preview/Official.
+## API chính
 
-## Preview, Official và insight
+| Nhóm | Endpoint |
+| --- | --- |
+| Phiên | `GET/POST /api/v1/analysis-sessions`, `GET /api/v1/analysis-sessions/{id}` |
+| Context | `POST .../{id}/context-versions`, `POST .../{id}/context-versions/{context_id}/approve` |
+| Quality | `POST .../{id}/quality-gate`, `POST .../{id}/quality-issues/{issue_id}/acknowledge` |
+| Execution | `POST/GET .../{id}/executions` |
+| Planner | `POST /api/v1/profile/{run_id}/charts/auto-plan` |
+| Gói biểu đồ | `POST /api/v1/profile/{run_id}/charts/auto-profile-pack` |
+| Thuật toán | `GET /api/v1/profile/{run_id}/charts/algorithms` |
+| Preview | `POST /api/v1/profile/{run_id}/explorer/previews` |
+| Promote | `POST /api/v1/profile/{run_id}/explorer/previews/{preview_id}/promote` |
 
-Manual chart, auto plan và profile pack có thể tạo Preview. Preview dùng sample và đánh dấu approximate. Promotion kiểm tra identity/expiry/context, tự approve context draft nếu cần, chạy quality gate nếu chưa có cho đúng context, thực thi Official, lưu result hash/evidence và trả next action. Insight dùng Official execution làm quantitative evidence; không được coi Preview là kết quả chính thức.
+Mọi endpoint đều kiểm tra workspace và quyền ở backend. ID phía client không thay thế kiểm tra quyền sở hữu tài nguyên.
 
-UI hỗ trợ native SVG/CSS/HTML/KPI/grid renderer và hiện giới hạn một chart workspace ở 12 chart. Forecast algorithm là catalog; khả năng dùng thực tế còn phụ thuộc input shape và dependency đã cài.
+## Planner an toàn
 
-## Trạng thái và lỗi hiển thị cho người dùng
+Planner có hai nhánh:
 
-QuerySpec không hợp lệ trả validation error. Dùng PII column, context stale, preview hết hạn, thiếu quality gate hoặc gate bị block trả domain conflict/authorization response. Timeout execution trả contract `explorer_timeout`. Result chứa approximation và limitation để UI không hiển thị sample như số chính xác.
+- fast path xác định cho các ý định đơn giản và rõ ràng;
+- model có structured output cho yêu cầu cần suy luận thêm.
 
-## Vị trí source code và kiểm chứng
+Trước khi gọi model, backend loại PII và chỉ truyền context đã làm sạch. Kết quả từ cả hai nhánh đều phải qua allow-list của `QuerySpec`; nếu người dùng nhắc một cột bị hạn chế, planner không cho cột đó ảnh hưởng tới model và trả một kế hoạch an toàn hơn. Log latency tách các stage router, planner, retrieval, tools, evidence, final LLM, validation và TTFT.
 
-- Route: [`backend/src/api/analysis_routes.py`](../../backend/src/api/analysis_routes.py).
-- Engine/schema: [`backend/src/services/analysis_engine.py`](../../backend/src/services/analysis_engine.py), [`backend/src/models/analysis_schemas.py`](../../backend/src/models/analysis_schemas.py).
-- Quality gate: [`backend/src/services/quality_gate.py`](../../backend/src/services/quality_gate.py).
-- UI: [`frontend/src/app/charts/page.tsx`](../../frontend/src/app/charts/page.tsx) và chart component.
-- Test: tìm trong `tests/` với `analysis`, `explorer`, `preview`, `quality_gate`, `query_spec` và `forecast`.
+## Preview và Official
+
+| Thuộc tính | Preview | Official |
+| --- | --- | --- |
+| Mục đích | phản hồi nhanh khi khám phá | kết quả có thể trích dẫn/tái sử dụng |
+| Giới hạn dòng đầu vào | 50.000 | theo execution policy |
+| Giới hạn dòng kết quả | 50 | 500 |
+| Thời hạn | hết hạn sau 1 giờ | được lưu bền vững |
+| Dùng làm evidence | không | có |
+| Dùng trong báo cáo | phải promote trước | có |
+
+Promotion tạo execution Official và đóng băng context liên quan. Luồng generic yêu cầu context đã được approve; luồng promote preview hiện tự approve context draft, vì vậy đây chưa phải một bước phê duyệt độc lập.
+
+## Giao diện
+
+Frontend giới hạn tối đa 12 biểu đồ trong một plan. Trạng thái URL/session được dùng để giữ ngữ cảnh khi chuyển giữa profiling, QA, chart và report. Lỗi validation phải được hiển thị như lỗi hợp đồng, không tự động nới giới hạn hay đổi sang truy vấn tự do.
+
+## Nguồn triển khai
+
+- `frontend/src/app/profiles/[runId]/page.tsx`
+- `frontend/src/components/command-center/`
+- `backend/src/api/analysis_routes.py`
+- `backend/src/services/analysis_engine.py`
+- `backend/src/services/analysis_repository.py`
+- `backend/src/services/chart_planner.py`
+- `backend/src/models/analysis_schemas.py`

@@ -1,29 +1,73 @@
-# Cô lập workspace và bảo vệ dữ liệu
+# Cô lập workspace và quyền riêng tư
 
-## Ranh giới cô lập
+Hệ thống dùng defense in depth: auth/capability ở API, scope workspace trong repository, Data API đóng với browser role, storage private và redaction trước AI/telemetry.
 
-Workspace id được resolve từ membership đã xác thực, không tin body của request. Dataset, Profile Run, analysis session/context/execution, report, connector, profile/report retrieval document, audit và agent query mang predicate của workspace đã resolve. External-knowledge document có thể là global với `workspace_id` null và chỉ được đưa vào retrieval khi configuration cho phép. Cross-workspace header bị reject mà không tiết lộ target có tồn tại hay không. Agent trace/evidence endpoint dùng cùng scope.
+## Ranh giới Data API
 
-Browser không truy cập trực tiếp các bảng ứng dụng qua Supabase Data API. Toàn bộ bảng domain, evidence, connector, audit và checkpointer được phân loại backend-only; migration bật RLS, thu hồi quyền bảng của `anon`/`authenticated` và thu hồi default privilege của role tạo bảng. Không có policy truy cập trực tiếp. Inventory được kiểm tra trong CI để bảng mới không thể xuất hiện mà thiếu quyết định truy cập.
+Trình duyệt chỉ dùng Supabase Auth với publishable key. Nó không được đọc/ghi bảng domain trực tiếp.
 
-## Dữ liệu thô và PII
+Migration `20260831_0022_data_api_boundary` bật RLS trên mọi app table được inventory nhưng không tạo policy cho `anon` hoặc `authenticated`; đồng thời revoke quyền table, sequence, function và default privilege của `PUBLIC`, `anon`, `authenticated`. Vì không có policy, RLS fail closed; vì grant đã bị revoke, Data API còn bị chặn ở lớp privilege.
 
-Raw file/object nằm ở Supabase Storage, Google Drive hoặc local development storage; PostgreSQL lưu metadata và derived result. Profiler phát hiện PII bằng heuristic tên column và giá trị sample, không lưu raw value trong proposal evidence và bỏ top-k value của PII column. Quasi-identifier được hiển thị riêng. Analysis reject column có PII proposal ở trạng thái `pending`, `confirmed`, `edited` hoặc `auto_confirmed` trong selection, dimension và filter; chỉ proposal đã `rejected` mới hết bị mask theo quy tắc này.
+Backend dùng connection/secret riêng và là nơi duy nhất thực thi domain access. `backend/src/services/database_access_policy.py` giữ inventory bảng hiện hành, optional runtime và legacy table để migration/test không bỏ sót.
 
-Profile/export payload có giới hạn. Raw export mặc định tắt. QA answer và agent trace redact bearer/API key, secret, email, phone, payment-card pattern, local path và sensitive key; string/result bị truncate. Telemetry PII-safe, không chứa raw prompt, model message, row hoặc credential. Audit mặc định lưu question hash/length, chỉ lưu content khi bật flag tương ứng.
+## Scope tenant
 
-## Thông tin xác thực và storage
+Mỗi thao tác phải:
 
-Datasource credential và Google Drive refresh token dùng Fernet encryption. `DATASOURCE_ENCRYPTION_KEY` bắt buộc cho datasource production; local fallback derivation chỉ là tiện ích development. Connector response chỉ có safe target metadata. Upload filename được normalize và loại path traversal; provider upload dùng chunk/retry có giới hạn.
+1. lấy principal từ bearer token;
+2. resolve membership và workspace hợp lệ;
+3. kiểm capability;
+4. query resource với `workspace_id`;
+5. kiểm quan hệ dataset/run/session/report khi có nhiều ID;
+6. ghi audit cho thao tác nhạy cảm.
 
-## Chính sách guest
+Không tin `workspace_id`, resource ID hoặc role do browser gửi. Query theo ID đơn lẻ là không đủ.
 
-Guest principal nhận workspace cô lập cùng storage provider, size limit và retention window đã cấu hình. Guest cleanup là thao tác maintenance/explicit; session request bình thường không tự xóa guest workspace cũ.
+## Storage và file tạm
 
-## Vị trí source code và kiểm chứng
+- Bucket/object là private.
+- Object key có prefix workspace/dataset.
+- Backend kiểm membership trước download/materialize.
+- Credential connector được mã hóa và không echo.
+- Source remote được stream với quota vào file tạm.
+- File tạm được dọn trên cả success và failure.
+- Provenance lưu stable source reference, không lưu temp path.
 
-- Security helper: [`backend/src/services/security.py`](../../backend/src/services/security.py).
-- Authz/repository scope: [`backend/src/api/dependencies.py`](../../backend/src/api/dependencies.py), [`backend/src/services/repository.py`](../../backend/src/services/repository.py).
-- PII/compute: [`backend/src/services/compute.py`](../../backend/src/services/compute.py).
-- Guardrail/trace: [`backend/src/services/guardrails.py`](../../backend/src/services/guardrails.py), [`backend/src/agents/runtime/trace.py`](../../backend/src/agents/runtime/trace.py).
-- Test: tìm trong `tests/` với `pii`, `privacy`, `redact`, `workspace_isolation`, `raw_export`, `path` và `encryption`.
+Local storage chỉ dùng phát triển. Guest storage phải có prefix/lifecycle riêng và không trộn với tenant production.
+
+## PII và AI
+
+PII status `pending`, `confirmed`, `edited` và `auto_confirmed` đều bị chặn; chỉ `rejected` được dùng trong phân tích/model context. Planner sanitize schema/context trước model và không cho cột hạn chế ảnh hưởng fallback. QA validator fail closed nếu evidence sai run/workspace, nguồn không hợp lệ hoặc số không được hỗ trợ.
+
+Không gửi raw row, PII, bearer token, DB URI hoặc secret tới LLM/LangSmith. Trace/evidence phải qua redaction. LangSmith adapter hiện metadata-only.
+
+## Kiểm thử bắt buộc
+
+```powershell
+python scripts/migration_smoke.py
+python scripts/assert_database_security.py
+python -m pytest -q tests/test_database_access_policy.py tests/test_database_security.py
+python -m pytest -q tests/test_auth.py tests/test_permissions.py tests/test_services/test_security.py
+```
+
+Security assertion thực sự đổi sang browser role để chứng minh truy cập bị từ chối, rồi xác nhận backend role vẫn CRUD. Chỉ kiểm tra `relrowsecurity=true` là chưa đủ.
+
+## Checklist review
+
+- Bảng mới đã vào inventory và migration RLS/revoke chưa?
+- Repository query đã scope workspace chưa?
+- Storage object có prefix và auth check chưa?
+- Response/log/trace có raw value hoặc secret không?
+- PII pending có bị chặn không?
+- Guest/compatibility có tắt ở production không?
+- Test cross-workspace gồm cả đọc, sửa, xóa và export chưa?
+- Service key có chỉ nằm server-side không?
+
+## Nguồn triển khai
+
+- `backend/migrations/versions/20260831_0022_data_api_boundary.py`
+- `backend/src/services/database_access_policy.py`
+- `scripts/assert_database_security.py`
+- `backend/src/services/security.py`
+- `backend/src/services/storage.py`
+- `backend/src/services/qa_validation.py`

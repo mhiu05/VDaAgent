@@ -1,33 +1,78 @@
-# Quan sát và phục hồi lỗi
+# Quan sát và khôi phục lỗi
 
-## Kiểm tra sức khỏe và chẩn đoán
+Observability của VDaAgent dựa trên structured log, request correlation, audit record, agent trace và health endpoint. Không ghi raw dataset, credential, bearer token hoặc prompt chứa PII vào log.
 
-- Backend liveness: `GET /health` ở root, không phải `/api/v1/health`.
-- Worker liveness: `/health` của worker, trả role `profiling-worker`; trạng thái stopping/unhealthy dùng 503.
-- Frontend liveness: route Next `/health`.
-- Diagnostic API: `/api/v1/status` và `/api/v1/audit`, có authorization.
+## Health và trạng thái
 
-API validate hoặc tạo correlation id rồi trả trong response. Structured log, request metric, agent trace và audit event có thể nối bằng id này. Performance telemetry có thể phát `Server-Timing` khi bật; slow-query threshold và sampling có thể cấu hình. LangSmith tracing là optional; adapter hiện luôn ẩn input/output và chỉ export metadata trong allow-list, dù setting `LANGSMITH_DATA_MODE` còn nhận cả giá trị `sanitized_content`.
+- API: `GET /health`.
+- Worker: `GET /health` trên health port của process worker.
+- Frontend: `GET /health`.
+- Trạng thái ứng dụng: `GET /api/v1/status`.
 
-## Ngữ nghĩa lỗi
+OpenAPI bị tắt trong production. Health chỉ nên phản ánh readiness cần thiết, không trả cấu hình nhạy cảm.
 
-Validation là 422; domain conflict thường là 409; authentication/authorization là 401/403; not-found là 404; database operational failure là 503 với `Retry-After: 3`; lỗi không biết là safe 500 kèm request id. Error payload không chứa credential, raw source value, prompt hoặc local path.
+## Telemetry backend
 
-## Hướng dẫn phục hồi
+Mỗi request có correlation/request ID. Performance telemetry theo dõi tổng thời gian, database query và slow query (mặc định từ 200 ms). Server-Timing tắt mặc định vì có thể lộ chi tiết vận hành; chỉ bật có chủ đích.
 
-**Profile Job bị kẹt ở queued:** kiểm tra process worker, `PYTHONPATH=backend`, database connectivity và worker health. API enqueue không tự thực thi profile.
+Theo dõi tối thiểu:
 
-**Job kẹt ở running:** kiểm tra heartbeat/lease và worker log. Stale recovery sẽ reclaim lease hết hạn; vượt attempt limit thì job chuyển failed. Sau khi mất lease, cần giả định xử lý at-least-once.
+- request rate, error rate, p50/p95/p99;
+- database pool wait, query chậm, lock và connection exhaustion;
+- profiling queue depth, tuổi job lâu nhất, retry, lease expiry;
+- CPU/RAM/disk tạm của worker;
+- storage/download latency;
+- SSE connection/disconnect;
+- PDF timeout.
 
-**Preview hoặc Official timeout:** kiểm tra QuerySpec limit, source latency, preview row budget và bounded execution timeout. Không tăng limit ngay; trước hết xác minh PII/context/quality-gate constraint và source health.
+## AI và agent
 
-**Datasource attention/expired:** dùng connector test/status endpoint và xoay credential ở backend. Secret được mã hóa và không thể lấy lại từ API response.
+Log latency tách router, planner, retrieval, tools, evidence, final LLM, validation và time-to-first-token; kèm call/token count khi có. Agent run lưu plan, trace, evidence và trace summary đã làm sạch.
 
-**PDF export lỗi:** kiểm tra quyền với export-source và Chromium trong frontend image. Server route timeout source fetch sau 30 giây và trả safe 502/504/500.
+LangSmith là tùy chọn. Adapter hiện ẩn input/output và gửi metadata-only kể cả khi data mode cấu hình là `sanitized_content`. Không gửi dataset value hoặc secret sang tracing.
 
-## Vị trí source code và kiểm chứng
+## Khôi phục profiling job
 
-- Middleware/error: [`backend/src/main.py`](../../backend/src/main.py).
-- Worker recovery: [`backend/src/workers/profiling_worker.py`](../../backend/src/workers/profiling_worker.py).
-- Telemetry: [`backend/src/services/perf_telemetry.py`](../../backend/src/services/perf_telemetry.py).
-- Test: tìm trong `tests/` với `health`, `correlation`, `retry`, `stale`, `timeout`, `audit` và `telemetry`.
+Worker dùng lease, heartbeat, retry và stale-job recovery:
+
+- concurrency mặc định 1;
+- poll 1 giây;
+- lease 300 giây;
+- tối đa 3 attempt;
+- shutdown grace 30 giây.
+
+Delivery là at-least-once, nên handler phải idempotent. Khi worker chết, lease hết hạn cho phép worker khác claim lại. Không sửa trạng thái bằng tay trước khi kiểm tra attempt, lease owner, heartbeat, domain state và audit.
+
+## Playbook sự cố
+
+### Queue tăng nhưng không có job chạy
+
+1. kiểm tra worker health/startup command;
+2. kiểm tra database connectivity/pool;
+3. kiểm tra lease cũ và heartbeat;
+4. kiểm tra storage credential và quota file tạm;
+5. scale concurrency thận trọng sau khi xác định bottleneck.
+
+### Job succeeded nhưng UI vẫn chờ
+
+Kiểm tra profile run có `pending_review` hay không. Job thành công không đồng nghĩa domain đã `completed`. Xác minh SSE nhận `review_required` và client xử lý terminal/domain state đúng.
+
+### SSE bị treo
+
+Kiểm tra proxy buffering, keepalive 10 giây, disconnect log và trạng thái job/run trực tiếp. Client có thể fallback polling nhưng không được tạo job mới nếu đã có idempotency key.
+
+### Lỗi OOM hoặc hết disk
+
+Kiểm tra giới hạn materialization, file tạm bị sót và projection. Luồng chính phải file-backed DuckDB; nếu thấy full pandas load, xác định đó có phải statistical test có chọn cột hay regression.
+
+### QA trả số không có nguồn
+
+Lấy agent trace/evidence, kiểm tra tool result và validator. Response đúng là abstain nếu evidence không đủ; không bỏ validator để “cứ trả lời”.
+
+### Deploy không healthy
+
+So sánh image SHA, app settings, migration revision và log startup của từng app. API/worker phải cùng backend SHA. Rollback theo [Triển khai](deployment.md), không sửa schema thủ công.
+
+## Dữ liệu phục vụ điều tra
+
+Giữ request ID, workspace ID, job/run/agent ID, image SHA, migration revision và timestamp. Chỉ dùng synthetic hoặc dữ liệu đã redact khi chia sẻ ngoài nhóm có quyền.

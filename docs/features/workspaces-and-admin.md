@@ -1,27 +1,52 @@
-# Workspace và quản trị
+# Workspace, membership và quản trị
 
-## Mô hình workspace
+Workspace là ranh giới tenant chính. Mọi dataset, profile run, connector, analysis session, agent run, report và audit record phải được truy cập qua workspace đã xác thực.
 
-Analyst đã authenticate có thể thuộc một hoặc nhiều workspace active. Browser chọn workspace bằng `X-Workspace-Id`; khi có nhiều membership mà bỏ header, API trả conflict `workspace_required`. Dataset, Profile Run, analysis session, connector, report, audit event và agent record đều có workspace scope. Retrieval document của profile/report cũng có workspace scope; external corpus có thể là global với `workspace_id` null.
+## Phiên và onboarding
 
-Workspace role hiện tại là `analyst`. Giá trị owner/viewer/admin cũ được normalize về canonical workspace role; system-admin là account context riêng và không phải workspace superuser.
+Các endpoint nền:
 
-Endpoint gồm `/session`, `/workspace-bootstrap`, `/me`, `/workspaces`, `/workspaces/archived`, tạo/configuration workspace, list/update member, tạo/cancel/accept invitation, archive/restore/permanent purge, và guest-session cleanup. Context/theme update dùng optimistic expected version.
+- `GET /api/v1/session`;
+- `GET /api/v1/workspace-bootstrap`;
+- `GET /api/v1/me`;
+- `GET/POST /api/v1/workspaces`;
+- `POST /api/v1/onboarding/provision`;
+- `POST /api/v1/invitations/accept`;
+- `DELETE /api/v1/guest/session`.
 
-## Mô hình capability
+Frontend dùng bootstrap để chọn workspace hiện tại và hiển thị navigation. Route guard phía trình duyệt chỉ là UX; backend vẫn xác minh bearer token, membership, capability và ownership cho từng request.
 
-Permission là capability có tên, ví dụ `dataset.read`, `profile.run`, `analysis.run`, `report.draft.write`, `workspace.members.manage` và `workspace.storage.connect`. Các route nghiệp vụ theo workspace dùng `require_permission` hoặc dependency workspace tương ứng; repository method xử lý resource nhận workspace predicate lần nữa. System Admin route dưới `/api/v1/admin` dùng system capability (`user.accounts.read`, `user.account.manage`, `system.admin`) và không cấp quyền Analyst workspace.
+## Membership và capability
 
-Do chỉ có một workspace role, `analyst` hiện nhận toàn bộ capability submit/review/publish report và quản lý workspace. Capability registry tách tên quyền nhưng chưa tạo separation of duties giữa nhiều workspace role.
+Registry hiện dùng một workspace role chuẩn là `analyst`. Quyền thực tế đến từ capability registry, không nên suy luận từ nhãn role ở UI. API thành viên/invitation nằm dưới:
 
-## Bề mặt Admin
+- `/api/v1/workspaces/current/members`;
+- `/api/v1/workspaces/current/invitations`;
+- `/api/v1/workspaces/current/configuration`.
 
-`/admin` và `/api/v1/admin/users` cho system administrator list user, tạo user, đổi status/role và delete. Frontend route guard chỉ hỗ trợ UX; dependency backend vẫn là authorization boundary. Account bị lock hoặc inactive sẽ fail closed kể cả token cũ còn hạn.
+Cập nhật membership hoặc cấu hình phải ghi audit. Archived workspace không được dùng cho tác vụ phân tích mới; restore và permanent delete là thao tác lifecycle riêng.
 
-## Vị trí source code và kiểm chứng
+## Guest và compatibility mode
 
-- Dependency: [`backend/src/api/dependencies.py`](../../backend/src/api/dependencies.py).
-- Capability: [`backend/src/services/permissions.py`](../../backend/src/services/permissions.py).
-- Workspace/admin route: [`backend/src/api/authz_routes.py`](../../backend/src/api/authz_routes.py), [`admin_routes.py`](../../backend/src/api/admin_routes.py).
-- Browser guard: [`frontend/src/lib/auth/route-access.ts`](../../frontend/src/lib/auth/route-access.ts).
-- Test: tìm trong `tests/` với `workspace`, `membership`, `invitation`, `permission`, `admin` và `tenant`.
+Development có thể dùng `AUTH_MODE=dual` để bootstrap user/workspace local. Guest session có vòng đời giới hạn và endpoint xóa riêng. Đây là luồng tương thích/phát triển, không thay thế Supabase Auth trong production.
+
+## System administrator
+
+System admin là phạm vi toàn hệ thống, tách khỏi workspace membership. Route `/api/v1/admin/users` hỗ trợ list/create, đổi trạng thái, đổi system role và delete theo capability. Một system admin không nên được ngầm thêm vào mọi workspace; khi truy cập tài nguyên tenant vẫn phải qua policy được định nghĩa rõ.
+
+## Quy tắc isolation
+
+- Không nhận `workspace_id` từ client rồi tin trực tiếp.
+- Repository query phải scope bằng workspace đã resolve từ principal/membership.
+- ID không tồn tại và ID thuộc workspace khác nên dùng lỗi không làm lộ tài nguyên.
+- Audit ghi actor, workspace, action, target và request correlation.
+- Browser không được gọi trực tiếp bảng domain qua Supabase Data API.
+
+## Nguồn triển khai
+
+- `backend/src/api/authz_routes.py`
+- `backend/src/api/admin_routes.py`
+- `backend/src/api/dependencies.py`
+- `backend/src/services/auth.py`
+- `backend/src/services/permissions.py`
+- `frontend/src/lib/auth/`

@@ -1,46 +1,83 @@
 # Profiling Job bất đồng bộ
 
-## Hợp đồng
+## Submission contract
 
-`POST /api/v1/profile`, `POST /api/v1/datasets/{dataset_id}/profile` và `POST /api/v1/datasets/profile` validate input, kiểm tra workspace ownership, tạo durable job và trả HTTP 202. Profile request đơn yêu cầu `Idempotency-Key`; batch nhận 1–20 dataset id duy nhất và áp dụng idempotency cho từng item. Response có `job_id`, `profiling_run_id`, `status`, `next_action`, `duplicate` và error object an toàn.
+Ba endpoint tạo job:
 
-Job status là `queued | running | succeeded | failed`. Profile-domain status là `created`, `running`, `pending_review`, `resuming`, `completed`, `failed`; hai field này không thay thế cho nhau.
+- `POST /api/v1/profile`;
+- `POST /api/v1/datasets/{dataset_id}/profile`;
+- `POST /api/v1/datasets/profile` cho batch 1–20 dataset ID duy nhất.
 
-## Trạng thái và quyền sở hữu
+Request đơn yêu cầu `Idempotency-Key` dài 8–255 ký tự. API hash request; dùng lại key với cùng payload trả job cũ và đánh dấu duplicate, dùng lại với payload khác trả 409 `idempotency_conflict`. Production chỉ nhận `dataset_id` hoặc stable storage/datasource reference đã được tạo qua API.
 
-Queue được biểu diễn trong `profile_runs` bằng các field về availability, claim token, worker id, heartbeat, lease, attempt count, error code/message và payload. API tạo row; worker claim và heartbeat; repository complete hoặc fail. Profile result, proposal, test và narrative được lưu trong PostgreSQL.
+API validate quyền/source, insert durable record rồi trả HTTP 202. Nó không chạy profiling trong request.
+
+## Hai state machine
+
+`profile_runs` chứa cả trạng thái job và trạng thái domain:
+
+| Phạm vi | Trạng thái |
+| --- | --- |
+| Job | `queued`, `running`, `succeeded`, `failed` |
+| Profile | `created`, `queued`, `running`, `pending_review`, `resuming`, `completed`, `failed` |
+
+Job có thể `succeeded` khi graph đã dừng an toàn ở `pending_review`; review sau đó tạo resume payload và đưa chính run đó trở lại queue. Vì vậy client phải dùng `next_action`/profile status, không chỉ nhìn job status.
+
+Queue fields gồm availability, attempt/max attempt, claim token, worker ID, start/finish/heartbeat/lease timestamp, error code/message, request hash, correlation ID và resume payload.
+
+## Worker lifecycle
 
 ```mermaid
 sequenceDiagram
-  participant U as Browser
-  participant A as API
+  participant B as Browser
+  participant A as FastAPI
   participant DB as PostgreSQL
-  participant W as Profiling Worker
+  participant W as Worker
   participant S as Storage
-  U->>A: POST profile + Idempotency-Key
-  A->>DB: insert job và run
-  A-->>U: 202 job_id
-  W->>DB: claim bằng lease
-  W->>S: materialize source
-  W->>W: compute có giới hạn và LangGraph
-  W->>DB: heartbeat và lưu projection
-  W->>DB: complete hoặc retry/fail
-  U->>A: GET job hoặc SSE events
+  B->>A: POST profile + Idempotency-Key
+  A->>DB: insert queued Profile Run
+  A-->>B: 202 job_id/run_id
+  W->>DB: claim with lease
+  W->>S: stream/materialize source
+  W->>W: DuckDB + LangGraph
+  W->>DB: heartbeat + persist projection
+  W->>DB: succeeded / requeue / failed
+  B->>A: GET job/summary hoặc SSE
 ```
 
-## Ngữ nghĩa của worker
+Worker dùng `FOR UPDATE SKIP LOCKED`-style claim trong repository, concurrency process-local có giới hạn và heartbeat theo lease. Default: concurrency 1, poll 1 giây, lease 300 giây, max 3 attempt, shutdown grace 30 giây. `--once` xử lý tối đa một job; `--health-port 8000` mở health server.
 
-[`backend/src/workers/profiling_worker.py`](../../backend/src/workers/profiling_worker.py) chạy polling loop. Worker recover stale job theo lease, claim số slot theo concurrency, heartbeat job đang chạy và graceful shutdown. Default là một slot, poll mỗi một giây, lease 300 giây, tối đa ba attempt và shutdown grace 30 giây. `--once` xử lý một job; `--health-port` mở health endpoint.
+Lỗi `ProfileError` retryable được requeue đến max attempt. Lỗi không retryable hoặc vượt limit chuyển `failed` với safe error. Recovery chạy định kỳ cho lease stale và các legacy resume bị orphan. Graceful shutdown ngừng claim mới; task vượt grace để lease hết hạn và được process khác recover.
 
-Lease recovery dẫn tới xử lý at-least-once, không phải exactly-once: worker mất lease có thể bị thay thế sau stale recovery. Idempotency bảo vệ việc tạo request, không biến external read hay model call thành exactly-once. `ProfileError` có thể retry sẽ được đưa lại vào queue tới khi đạt attempt limit; lỗi không retry được hoặc vượt limit chuyển thành `failed` với code/message an toàn.
+Ngữ nghĩa là **at-least-once**, không phải exactly-once. Idempotency bảo vệ submission và resume mutation, nhưng external download/model call có thể đã xảy ra trước khi worker mất lease.
 
-## Tiến trình SSE
+## Review và resume
 
-`GET /api/v1/profiling-jobs/{job_id}/events` là SSE projection từ state đã lưu. Event name hiện có `queued`, `profiling`, `resuming`, `review_required`, `ready` và `failed`. Stream gửi event id xác định, keep-alive định kỳ và state gần nhất khi reconnect; không mang raw row hoặc credential. `ready` và `failed` là terminal. Database record, không phải browser stream, là nguồn sự thật.
+`PATCH /api/v1/profile/{run_id}/confirm` atomically áp dụng decision và, khi `resume=true`, lưu payload + chuyển run sang `resuming`/`queued`. HTTP request không trực tiếp gọi graph. Worker sau đó load checkpoint `profile:{run_id}`, resume bằng `Command`, persist kết quả và complete job mới.
 
-## Vị trí source code và kiểm chứng
+Review hỗ trợ confirm/reject/edit; candidate key không hỗ trợ edit. `request_test` cần 1–20 test spec hợp lệ. Conflict đồng thời hoặc state không đúng trả 409.
 
-- Queue method: [`backend/src/services/repository.py`](../../backend/src/services/repository.py) (`create_profile_job`, `claim_profile_job`, `heartbeat_profile_job`, `complete_profile_job`, `fail_profile_job`, stale recovery).
-- API model và limit: [`backend/src/models/schemas.py`](../../backend/src/models/schemas.py).
-- Test worker/API: tìm trong `tests/` với `profiling_worker`, `profiling-jobs`, `idempotency` và `events`.
-- Vận hành: [configuration](../operations/configuration.md) và [quan sát/phục hồi lỗi](../operations/observability-and-failure-recovery.md).
+## SSE projection
+
+`GET /api/v1/profiling-jobs/{job_id}/events` đọc lightweight summary đã persist, không stream graph memory. Event:
+
+- `queued`;
+- `profiling`;
+- `resuming`;
+- `review_required`;
+- `ready`;
+- `failed`.
+
+Event ID là hash deterministic của summary. Reconnect luôn nhận state mới nhất; stream chỉ emit khi payload đổi. `ready` và `failed` là terminal.
+
+Khi state không đổi, polling backoff theo 1, 2, 3 rồi tối đa 5 giây; state đổi sẽ reset về nhịp nhanh. Keepalive comment chạy độc lập mỗi 10 giây và không gây thêm DB query. Generator kiểm tra client disconnect trước/sau wait để dừng đọc database sớm. Header tắt proxy buffering và cache transform.
+
+## Vận hành và test
+
+- Worker: [`backend/src/workers/profiling_worker.py`](../../backend/src/workers/profiling_worker.py).
+- Service: [`backend/src/services/profile_service.py`](../../backend/src/services/profile_service.py).
+- Queue/recovery: [`backend/src/services/repository.py`](../../backend/src/services/repository.py).
+- API/SSE: [`backend/src/api/routes.py`](../../backend/src/api/routes.py).
+- Test: `tests/test_services/test_profile_jobs.py`, `tests/test_api/test_profiling_events.py`.
+
+Xem [configuration](../operations/configuration.md) và [failure recovery](../operations/observability-and-failure-recovery.md).

@@ -1,27 +1,54 @@
-# Report và vòng đời
+# Báo cáo
 
-## Tạo và chỉnh sửa
+Báo cáo ghép các insight đã được kiểm chứng thành draft có thể chỉnh sửa, sau đó đóng băng thành snapshot để publish/export.
 
-Report có workspace scope. `POST /api/v1/reports` tạo draft; Command Center có thể pin profile section, chart, agent answer và note qua `/reports/{id}/items`. Pin yêu cầu `Idempotency-Key`. Draft title và item note có thể sửa, item có thể xóa, còn reorder dùng optimistic `expected_draft_version`. Browser report detail là `/reports/{reportId}`.
+## Mô hình dữ liệu
 
-## Snapshot và export
+- report: container và trạng thái lifecycle;
+- report item: tham chiếu insight/execution cùng thứ tự và nội dung trình bày;
+- draft: trạng thái mutable;
+- snapshot: bản bất biến, có payload chuẩn hóa và hash;
+- export source: dữ liệu đã kiểm tra để frontend/server renderer tạo PDF.
 
-`POST /api/v1/reports/{id}/snapshots` tính hash ổn định và đóng băng item set. Snapshot bất biến mới nhất được dùng bởi `/reports/{id}/export-source`; nếu chưa có snapshot, endpoint trả draft fallback có giới hạn và hash `draft`. Next server route `/api/reports/profile/[runId]` chuyển authorization/workspace header, lấy PII-safe export payload và render PDF bằng Playwright/Chromium. Route có source timeout 30 giây và trả lỗi 4xx/5xx an toàn.
+Item định lượng phải tham chiếu profile run, Official execution hoặc evidence có provenance. Ghi chú thủ công là nội dung biên tập, không trở thành quantitative evidence chỉ vì được thêm vào report.
 
-## Vòng đời hiện tại
+## API chính
 
-`reports` dùng các state `draft`, `in_review`, `published` và `archived`; `report_versions` có thêm `snapshot`, `approved`, `changes_requested` và `rejected`, đồng thời lưu review decision. Tuy nhiên public `POST /api/v1/reports/{id}/submit` hiện publish ngay vì `ReportService.submit_report` gọi `Repository.publish_report`. Review endpoint yêu cầu version ở `in_review`, nên không phải bước tiếp nối đáng tin cậy của public submit hiện tại. Đây là known gap, không phải approval workflow được ngầm giả định. `/review`, `/publish` và `/archive` vẫn có thể dùng theo permission và state check.
+Các route nằm dưới `/api/v1/reports`:
 
-Workspace hiện chỉ có canonical role `analyst`, và role này nhận đồng thời `report.submit`, `report.review` lẫn `report.publish`. `Repository.review_report` không kiểm tra reviewer khác creator. Workspace settings có `report_separation_of_duties: true` nhưng source hiện không đọc flag này khi mutate report. Vì vậy separation of duties chưa được enforce.
+- list/get và lấy export source;
+- tạo report;
+- thêm, sửa, xóa, sắp xếp item;
+- sửa draft title;
+- tạo snapshot;
+- submit, review, publish, archive;
+- xóa report khi policy cho phép.
 
-Handler list/get được đặt tên “published” nhưng đều dùng `published_only=False`. List truyền thêm `exclude_rejected=True`, còn get/export-source không có filter rejected tương đương. Report library vì vậy có thể chứa draft/in-review; lookup trực tiếp còn có thể trả report có latest version bị rejected. Phía sử dụng phải theo behavior này cho tới khi contract đổi.
+`GET/POST /api/v1/profile/{run_id}/report-draft` hỗ trợ draft gắn với một profiling run. Frontend PDF route dùng Chromium phía server và timeout 30 giây.
 
-## Vị trí source code và kiểm chứng
+## Snapshot và tính tái lập
 
-- API/service: [`backend/src/api/authz_routes.py`](../../backend/src/api/authz_routes.py), [`backend/src/services/report_service.py`](../../backend/src/services/report_service.py).
-- Draft/snapshot: [`backend/src/services/report_draft_repository.py`](../../backend/src/services/report_draft_repository.py).
-- Persistence: [`backend/src/services/repository.py`](../../backend/src/services/repository.py).
-- Browser/PDF: [`frontend/src/app/reports/`](../../frontend/src/app/reports/), [`frontend/src/app/api/reports/profile/[runId]/route.ts`](../../frontend/src/app/api/reports/profile/%5BrunId%5D/route.ts).
-- Test: tìm trong `tests/` với `report`, `snapshot`, `draft`, `export` và `pdf`.
+Khi tạo snapshot, backend chuẩn hóa payload, giữ provenance và tính hash. Export/publish phải dựa trên snapshot thay vì đọc draft đang thay đổi. Nếu artifact nguồn không còn hợp lệ hoặc workspace không khớp, thao tác phải fail closed.
 
-Xem [kiến trúc Report Draft/snapshot](../architecture/report-draft-snapshots.md).
+## Trạng thái triển khai cần hiểu đúng
+
+Các hạn chế hiện tại:
+
+- submit hiện publish trực tiếp trong service thay vì tạo một review chain độc lập;
+- canonical workspace role là `analyst`, role này hiện có capability submit/review/publish;
+- `report_separation_of_duties` chưa được enforce;
+- list/get theo tên “published” vẫn dùng `published_only=False`; list loại rejected nhưng get/export chưa đồng nhất;
+- đường fallback có thể tạo `snapshot_hash="draft"`, nên không được xem là bằng chứng của snapshot bất biến.
+
+Vì vậy lifecycle hiện tại là API/workflow khả dụng, chưa phải kiểm soát phê duyệt nhiều người. Không mô tả nó như segregation-of-duties trong hồ sơ tuân thủ.
+
+## Nguồn triển khai
+
+- `backend/src/api/authz_routes.py`
+- `backend/src/api/routes.py`
+- `backend/src/services/report_service.py`
+- `backend/src/services/report_draft_repository.py`
+- `backend/src/models/auth_schemas.py`
+- `frontend/src/app/reports/`
+- `frontend/src/app/api/reports/profile/[runId]/route.ts`
+- `frontend/src/lib/pdf-report.ts`
