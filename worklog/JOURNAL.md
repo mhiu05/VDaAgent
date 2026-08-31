@@ -1,10 +1,10 @@
-# Weekly Journal — Team [Tên Team]
+# Mẫu nhật ký hàng tuần
 
-> Ghi lại mỗi tuần: học được gì, khó khăn gì, quyết định gì, kế hoạch tiếp.
+> Thay các trường trong dấu `[]` bằng thông tin thực tế của nhóm. Không xem nội dung mẫu này là worklog đã xác minh.
 
 ---
 
-## Week 1: [Ngày bắt đầu] - [Ngày kết thúc]
+## Tuần 1: [Ngày bắt đầu] - [Ngày kết thúc]
 
 ### Mục tiêu tuần này
 - [ ] [Mục tiêu 1]
@@ -18,19 +18,19 @@
 ### Khó khăn & Giải pháp
 | Khó khăn | Giải pháp | Kết quả |
 |----------|-----------|---------|
-| [mô tả] | [cách xử lý] | [output] |
+| [mô tả] | [cách xử lý] | [kết quả] |
 
 ### Bài học
 - [bài học 1]
 - [bài học 2]
 
 ### Kế hoạch tuần sau
-- [ ] [task 1]
-- [ ] [task 2]
+- [ ] [công việc 1]
+- [ ] [công việc 2]
 
 ---
 
-## Week 2: [Ngày bắt đầu] - [Ngày kết thúc]
+## Tuần 2: [Ngày bắt đầu] - [Ngày kết thúc]
 
 ### Mục tiêu tuần này
 - [ ] [Mục tiêu 1]
@@ -51,4 +51,4 @@
 
 ---
 
-<!-- Tiếp tục copy block trên cho Week 3, 4, 5, 6 -->
+<!-- Tiếp tục sao chép block trên cho Tuần 3, 4, 5, 6 -->
