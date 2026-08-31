@@ -39,6 +39,7 @@ test("completed profile routes analysis through the chart workspace", async ({ p
   await page.goto("/profiles/run-1?tab=explorer", { waitUntil: "networkidle" });
 
   await expect(page.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Quay lại" })).toHaveAttribute("href", "/datasets/dataset-1/runs");
   await expect(page.getByRole("heading", { name: "Tạo biểu đồ & phân tích" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Tạo biểu đồ & phân tích/ })).toHaveAttribute("href", "/charts?runId=run-1");
 });
