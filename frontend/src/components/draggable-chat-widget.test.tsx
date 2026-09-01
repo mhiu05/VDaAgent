@@ -85,6 +85,7 @@ describe("DraggableChatWidget", () => {
 
     fireEvent.change(runSelect, { target: { value: run.id } });
     expect((document.querySelector("form input[type='text']") as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByText("Answering against")).toBeNull();
   });
 
   it("keeps the floating icon available on the legacy Chat route", async () => {
@@ -94,8 +95,30 @@ describe("DraggableChatWidget", () => {
     expect(await screen.findByRole("button", { name: /trợ lý ai copilot/i })).toBeTruthy();
   });
 
+  it("toggles the chat drawer between compact and near-fullscreen sizes", async () => {
+    renderWidget();
+
+    const bubble = await screen.findByRole("button", { name: /copilot/i });
+    fireEvent.pointerDown(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
+    fireEvent.pointerUp(bubble, { pointerId: 1, clientX: 900, clientY: 700 });
+
+    const drawer = await screen.findByRole("complementary", { name: "VDaAgent" });
+    expect(drawer.style.width).toBe("440px");
+    expect(drawer.style.height).toBe("620px");
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand chat window" }));
+    expect(drawer.style.left).toBe("16px");
+    expect(drawer.style.top).toBe("16px");
+    expect(drawer.style.width).toBe(`${window.innerWidth - 32}px`);
+    expect(drawer.style.height).toBe(`${window.innerHeight - 32}px`);
+
+    fireEvent.click(screen.getByRole("button", { name: "Shrink chat window" }));
+    expect(drawer.style.width).toBe("440px");
+    expect(drawer.style.height).toBe("620px");
+  });
+
   it("prioritizes the profile route run over an older conversation context", async () => {
-    navigation.pathname = `/profiles/${run.id}`;
+    navigation.pathname = `/profiles/${run.id}/review`;
     api.getProfile.mockResolvedValue({ dataset_id: dataset.id });
     const conversation: ChatConversation = { id: "conversation-1", title: "Cuộc trò chuyện 1", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
     chatHistory.listConversations.mockReturnValue([conversation]);
@@ -115,7 +138,7 @@ describe("DraggableChatWidget", () => {
   });
 
   it("keeps chat input disabled until a selected run is validated", async () => {
-    navigation.pathname = `/profiles/${run.id}`;
+    navigation.pathname = `/profiles/${run.id}/review`;
     api.getProfile.mockResolvedValue({ dataset_id: dataset.id });
     api.listRuns.mockReturnValue(new Promise(() => {}));
     renderWidget();

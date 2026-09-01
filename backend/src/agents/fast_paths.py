@@ -56,6 +56,20 @@ def _duplicates_matches(question: str) -> bool:
     return _has_any(question, ("duplicate rows", "duplicate records", "duplicates", "dong trung", "ban ghi trung"))
 
 
+def _category_ranking_matches(question: str) -> bool:
+    """Recognize a highest-frequency category question without an LLM hop."""
+
+    asks_for_highest = _has_any(
+        question,
+        ("cao nhat", "nhieu nhat", "highest", "most", "top category", "top group"),
+    )
+    asks_for_count = _has_any(
+        question,
+        ("so luong", "count", "frequency", "tan suat", "ban ghi", "records"),
+    )
+    return asks_for_highest and asks_for_count
+
+
 def _citation(
     citation_id: str,
     *,
@@ -136,6 +150,36 @@ def _render_duplicates(data: dict[str, Any], citation_id: str) -> tuple[str, lis
     ]}]
 
 
+def _render_category_ranking(
+    data: dict[str, Any], citation_id: str
+) -> tuple[str, list[dict[str, Any]]] | None:
+    """Render the already-sorted first category from a persisted distribution."""
+
+    column = data.get("column_name")
+    values = data.get("values")
+    if not isinstance(column, str) or not isinstance(values, list) or not values:
+        return None
+    leader = values[0]
+    if not isinstance(leader, dict):
+        return None
+    category, count = leader.get("value"), leader.get("count")
+    if not isinstance(category, str) or not isinstance(count, int) or isinstance(count, bool):
+        return None
+    text = (
+        f"{category} là nhóm có số lượng cao nhất trong cột {column}: "
+        f"{count:,} bản ghi. [{citation_id}]"
+    )
+    return text, [{"text": text, "citations": [
+        _citation(
+            citation_id,
+            metric="frequency_count",
+            value=count,
+            unit="rows",
+            field=column,
+        ),
+    ]}]
+
+
 FAST_PATH_REGISTRY: tuple[FastPath, ...] = (
     FastPath("dataset_overview", "get_profile_overview", {}, _overview_matches, _render_overview),
     FastPath("row_count", "get_profile_overview", {}, _row_count_matches, _render_row_count),
@@ -151,18 +195,38 @@ def resolve_fast_path(question: str) -> FastPath | None:
 
 
 def execute_fast_path(
-    *, question: str, profile_run_id: str, workspace_id: str | None
+    *,
+    question: str,
+    profile_run_id: str,
+    workspace_id: str | None,
+    mentioned_columns: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Return one bounded tool result plus a deterministic answer, if supported."""
 
     spec = resolve_fast_path(question)
-    if spec is None:
+    normalized = _plain(question)
+    if spec is not None:
+        tool_name, tool_args, intent, render = (
+            spec.tool_name,
+            spec.tool_args,
+            spec.intent,
+            spec.render,
+        )
+    elif _category_ranking_matches(normalized) and len(mentioned_columns or []) == 1:
+        tool_name, tool_args, intent, render = (
+            "get_distribution",
+            {"column_name": mentioned_columns[0], "limit": 1},
+            "highest_frequency_category",
+            _render_category_ranking,
+        )
+    else:
         return None
-    result = run_tool(spec.tool_name, spec.tool_args, profile_run_id=profile_run_id)
+
+    result = run_tool(tool_name, tool_args, profile_run_id=profile_run_id)
     if not isinstance(result, dict) or result.get("error") or result.get("error_code"):
         return None
     citation_id = "S1"
-    rendered = spec.render(result.get("data") or {}, citation_id)
+    rendered = render(result.get("data") or {}, citation_id)
     if rendered is None:
         return None
     answer, claims = rendered
@@ -186,8 +250,8 @@ def execute_fast_path(
     source = {
         "type": "tool",
         "citation_id": citation_id,
-        "tool": spec.tool_name,
-        "args": spec.tool_args,
+        "tool": tool_name,
+        "args": tool_args,
         "status": "ok",
         "profile_run_id": profile_run_id,
         "workspace_id": workspace_id,
@@ -196,7 +260,7 @@ def execute_fast_path(
         "is_approximate": is_approximate,
     }
     return {
-        "intent": spec.intent,
+        "intent": intent,
         "answer": answer,
         "claims": claims,
         "sources": [source],

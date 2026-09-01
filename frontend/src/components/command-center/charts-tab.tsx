@@ -700,7 +700,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     }
     let insight = ""; let agentRunId: string | null = null; let evidenceStatus = "unverified";
     await streamQuestion({
-      question: `Hãy viết insight chuyên sâu cho biểu đồ "${chartDisplayTitle(chart)}". Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Phân tích toàn bộ các dòng trong Official evidence, nêu kết luận điều hành, bằng chứng định lượng, diễn giải ý nghĩa kinh doanh, điểm cần chú ý, khuyến nghị hành động và phạm vi/độ tin cậy. Trình bày bằng Markdown, không bịa số hoặc suy đoán ngoài Official execution.`,
+      question: `Câu hỏi nghiệp vụ cần trả lời: "${chartDisplayTitle(chart)}". Hãy tự viết insight chuyên sâu dựa trên toàn bộ Official evidence đã gắn với biểu đồ. Không hỏi lại Analyst hay yêu cầu chọn thêm metric/dimension. Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Nêu kết luận điều hành, bằng chứng định lượng, diễn giải ý nghĩa kinh doanh, điểm cần chú ý, khuyến nghị hành động và phạm vi/độ tin cậy. Trình bày bằng Markdown, không bịa số hoặc suy đoán ngoài Official execution.`,
       profile_run_id: runId,
       analysis_execution_id: chart.execution.id,
       workspace_context_version_id: chart.execution.context_version_id,

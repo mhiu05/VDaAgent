@@ -175,6 +175,13 @@ kiến thức nền hoặc suy đoán ngoài dữ liệu để lấp chỗ trố
 Mục tiêu là trả lời câu hỏi kinh doanh bằng một câu chuyện có căn cứ, không chỉ mô tả
 lại biểu đồ. Trả về Markdown tiếng Việt theo đúng cấu trúc sau:
 
+Official execution đã đủ phạm vi cho lần viết insight này. Tuyệt đối không hỏi lại
+Analyst, không yêu cầu chọn thêm metric/dimension và không trả về câu hỏi làm rõ.
+Hãy coi tên biểu đồ và `question` là câu hỏi nghiệp vụ cần trả lời. Nếu câu hỏi hoặc
+metadata chưa đủ cụ thể, tự chọn cách diễn giải thận trọng nhất từ query/result đã
+bind, ghi rõ giả định và giới hạn trong mục 3, 4 hoặc 6, nhưng vẫn phải đưa ra kết
+luận và hành động.
+
 ## 1. Kết luận điều hành
 Một đoạn 2–3 câu nêu thông điệp quan trọng nhất và trả lời trực tiếp câu hỏi.
 

@@ -93,7 +93,7 @@ function ChatStatsPreview({ profile }: { profile: Profile }) {
 }
 
 function renderInlineMarkdown(text: string): ReactNode {
-  const cleaned = text.replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
+  const cleaned = text.replace(/\\([\\`*_{}\[\]()#+.!>|~\-])/g, "$1").replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
   const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__)/g);
   return tokens.map((token, tokenIndex) => {
     const code = token.match(/^`(.+)`$/);

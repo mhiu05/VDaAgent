@@ -2,6 +2,26 @@ import React from "react";
 
 import type { AnswerSource } from "@/lib/types";
 
+function toolEvidenceLabel(source: Extract<AnswerSource, { type: "tool" }>): string {
+  const labels: Record<string, string> = {
+    get_profile_overview: "Tổng quan Profile Run",
+    get_column_profile: "Thống kê cột",
+    get_distribution: "Phân phối theo nhóm",
+    get_missingness_patterns: "Phân tích giá trị thiếu",
+    get_duplicate_analysis: "Phân tích bản ghi trùng",
+    get_candidate_keys: "Kiểm tra candidate key",
+    list_quality_issues: "Kiểm tra chất lượng dữ liệu",
+    get_correlation: "Tương quan giữa các cột",
+    get_top_correlations: "Các tương quan mạnh nhất",
+  };
+  const column = typeof source.args?.column_name === "string" ? source.args.column_name : null;
+  return `${labels[source.tool] || source.tool}${column ? ` · ${column}` : ""}`;
+}
+
+function evidenceStatusLabel(status: string): string {
+  return status === "ok" ? "đã kiểm chứng" : status;
+}
+
 function safeHttpUrl(value?: string): string | null {
   if (!value) return null;
   try {
@@ -17,7 +37,7 @@ export function AnswerSources({ sources }: { sources?: AnswerSource[] }) {
     <details className="answer-sources-details" aria-label="Nguồn trả lời & Tài liệu tham khảo">
       <summary className="answer-sources-summary">
         <span className="answer-sources-summary-icon">📚</span>
-        <span className="answer-sources-summary-title">Tài liệu tham khảo & Nguồn trích dẫn</span>
+        <span className="answer-sources-summary-title">Bằng chứng đã dùng</span>
         <span className="answer-sources-count-badge">{sources.length}</span>
         <span className="answer-sources-chevron" aria-hidden="true">▼</span>
       </summary>
@@ -29,7 +49,7 @@ export function AnswerSources({ sources }: { sources?: AnswerSource[] }) {
             return (
               <div className="answer-source-card profile" id={`citation-${citationKey}`} key={citationKey}>
                 <div className="answer-source-header">
-                  <span className="answer-source-badge profile">[{citationKey}] Profile Evidence</span>
+                  <span className="answer-source-badge profile">[{citationKey}] Bằng chứng Profile</span>
                   <span className="answer-source-name">📊 {source.dataset_name || "Bộ dữ liệu"}</span>
                 </div>
               </div>
@@ -71,8 +91,8 @@ export function AnswerSources({ sources }: { sources?: AnswerSource[] }) {
           return (
             <div className="answer-source-card tool" id={`citation-${("citation_id" in source ? source.citation_id : undefined) || `S${idx + 1}`}`} key={`${source.tool}-${source.status}-${idx}`}>
               <div className="answer-source-header">
-                <span className="answer-source-badge tool">⚡ Tool Evidence</span>
-                <span className="answer-source-name">{source.tool} · {source.status}</span>
+                <span className="answer-source-badge tool">⚡ Bằng chứng hệ thống</span>
+                <span className="answer-source-name">{toolEvidenceLabel(source)} · {evidenceStatusLabel(source.status)}</span>
               </div>
               {source.profile_run_id && <small className="answer-source-text">Profile Run: {source.profile_run_id}</small>}
             </div>

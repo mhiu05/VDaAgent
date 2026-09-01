@@ -80,3 +80,52 @@ def test_fast_paths_are_bounded_and_evidence_validated(
 
 def test_fast_path_requires_exact_intent_match() -> None:
     assert fast_paths.resolve_fast_path("Give me a business insight") is None
+
+
+def test_fast_path_answers_the_highest_frequency_category_from_profile_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any], str | None]] = []
+
+    def fake_run_tool(
+        name: str, args: dict[str, Any], profile_run_id: str | None = None
+    ) -> dict[str, Any]:
+        calls.append((name, args, profile_run_id))
+        return {
+            "tool": name,
+            "profile_run_id": profile_run_id,
+            "data": {
+                "column_name": "region",
+                "kind": "top_categories",
+                "values": [
+                    {"value": "North", "count": 42},
+                    {"value": "South", "count": 35},
+                ],
+            },
+            "evidence": [{"artifact": "column_stats"}],
+            "is_approximate": False,
+            "limitations": [],
+        }
+
+    monkeypatch.setattr(fast_paths, "run_tool", fake_run_tool)
+    result = fast_paths.execute_fast_path(
+        question="region nào có số lượng cao nhất?",
+        profile_run_id="run-1",
+        workspace_id="workspace-1",
+        mentioned_columns=["region"],
+    )
+
+    assert result is not None
+    assert result["intent"] == "highest_frequency_category"
+    assert calls == [("get_distribution", {"column_name": "region", "limit": 1}, "run-1")]
+    assert "North" in result["answer"]
+    assert "42" in result["answer"]
+    validation = validate_answer_evidence(
+        question="region nào có số lượng cao nhất?",
+        profile_run_id="run-1",
+        workspace_id="workspace-1",
+        sources=result["sources"],
+        tool_results=result["tool_results"],
+        answer=result["answer"],
+    )
+    assert validation.valid

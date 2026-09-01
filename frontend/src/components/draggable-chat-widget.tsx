@@ -78,6 +78,7 @@ export function DraggableChatWidget({
   const pathname = usePathname();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<"chat" | "history">("chat");
   const [convList, setConvList] = useState<ChatConversation[]>(conversations);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: -1, y: -1 });
@@ -720,19 +721,19 @@ export function DraggableChatWidget({
   if (position.x === -1) return null;
 
   // DYNAMIC DRAWER POSITIONING FOLLOWING THE DRAGGED ICON
-  const drawerWidth = 440;
-  const drawerHeight = 620;
   const isLeft = position.x < (typeof window !== "undefined" ? window.innerWidth / 2 : 600);
   const isTop = position.y < (typeof window !== "undefined" ? window.innerHeight / 2 : 400);
 
   const windowW = typeof window !== "undefined" ? window.innerWidth : 1200;
   const windowH = typeof window !== "undefined" ? window.innerHeight : 800;
+  const drawerWidth = isExpanded ? Math.max(0, windowW - 32) : 440;
+  const drawerHeight = isExpanded ? Math.max(0, windowH - 32) : 620;
 
-  const drawerLeft = isLeft
+  const drawerLeft = isExpanded ? 16 : isLeft
     ? Math.max(16, Math.min(windowW - drawerWidth - 16, position.x))
     : Math.max(16, position.x + 56 - drawerWidth);
 
-  const drawerTop = isTop
+  const drawerTop = isExpanded ? 16 : isTop
     ? Math.min(windowH - drawerHeight - 16, Math.max(16, position.y + 64))
     : Math.max(16, position.y - drawerHeight - 10);
 
@@ -745,6 +746,7 @@ export function DraggableChatWidget({
           left: `${position.x}px`,
           top: `${position.y}px`,
           zIndex: 9999,
+          display: isOpen && isExpanded ? "none" : undefined,
           touchAction: "none",
           userSelect: "none",
           transition: isDragging ? "none" : "left 0.3s ease-out, top 0.3s ease-out",
@@ -805,14 +807,15 @@ export function DraggableChatWidget({
       {/* FLOATING COPILOT DRAWER (DYNAMICALLY POSITIONED NEAR ICON) */}
       {isOpen && (
         <aside
+          className="draggable-chat-widget-drawer"
           style={{
             position: "fixed",
             left: `${drawerLeft}px`,
             top: `${drawerTop}px`,
-            width: "440px",
+            width: `${drawerWidth}px`,
             maxWidth: "calc(100vw - 2rem)",
-            height: "620px",
-            maxHeight: "calc(100vh - 5rem)",
+            height: `${drawerHeight}px`,
+            maxHeight: isExpanded ? "calc(100vh - 2rem)" : "calc(100vh - 5rem)",
             background: "#ffffff",
             color: "#0f172a",
             border: "1px solid #cbd5e1",
@@ -854,7 +857,7 @@ export function DraggableChatWidget({
                 <DataAnalyticsIcon size={18} color="#2563eb" />
               </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>
+                <h3 style={{ margin: 0, fontSize: "0.88rem", fontWeight: 700, color: "#0f172a" }}>
                   {viewMode === "history" ? "Lịch sử trò chuyện" : "VDaAgent"}
                 </h3>
                 <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
@@ -871,7 +874,7 @@ export function DraggableChatWidget({
                     onClick={() => setViewMode("history")}
                     style={{
                       padding: "5px 9px",
-                      fontSize: "0.75rem",
+                      fontSize: "0.68rem",
                       fontWeight: 600,
                       background: "#f1f5f9",
                       color: "#475569",
@@ -888,7 +891,7 @@ export function DraggableChatWidget({
                     onClick={handleStartNewChat}
                     style={{
                       padding: "5px 9px",
-                      fontSize: "0.75rem",
+                      fontSize: "0.68rem",
                       fontWeight: 600,
                       background: "#eff6ff",
                       color: "#2563eb",
@@ -907,7 +910,7 @@ export function DraggableChatWidget({
                   onClick={() => setViewMode("chat")}
                   style={{
                     padding: "5px 10px",
-                    fontSize: "0.75rem",
+                    fontSize: "0.68rem",
                     fontWeight: 600,
                     background: "#2563eb",
                     color: "#ffffff",
@@ -922,7 +925,30 @@ export function DraggableChatWidget({
 
               <button
                 type="button"
-                onClick={() => setIsOpen(false)}
+                onClick={() => setIsExpanded((expanded) => !expanded)}
+                aria-label={isExpanded ? "Shrink chat window" : "Expand chat window"}
+                aria-expanded={isExpanded}
+                title={isExpanded ? "Thu nhỏ cửa sổ chat" : "Phóng to gần toàn màn hình"}
+                style={{
+                  padding: "5px 8px",
+                  fontSize: "0.68rem",
+                  fontWeight: 600,
+                  background: isExpanded ? "#e0e7ff" : "#f1f5f9",
+                  color: "#475569",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                }}
+              >
+                <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {isExpanded ? <><path d="M9 3v6H3" /><path d="M15 3v6h6" /><path d="M9 21v-6H3" /><path d="M15 21v-6h6" /></> : <><path d="M8 3H3v5" /><path d="M16 3h5v5" /><path d="M8 21H3v-5" /><path d="M21 16v5h-5" /></>}
+                </svg>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setIsOpen(false); setIsExpanded(false); }}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -965,7 +991,7 @@ export function DraggableChatWidget({
               </div>
 
               {convList.length === 0 ? (
-                <div style={{ padding: "2rem 1rem", textAlign: "center", color: "#64748b", fontSize: "0.85rem" }}>
+                <div style={{ padding: "2rem 1rem", textAlign: "center", color: "#64748b", fontSize: "0.78rem" }}>
                   Chưa có lịch sử đoạn chat nào.<br />Bấm <b>+ Chat mới</b> để bắt đầu hỏi đáp dữ liệu!
                 </div>
               ) : (
@@ -990,7 +1016,7 @@ export function DraggableChatWidget({
                         }}
                       >
                         <div style={{ flex: 1, minWidth: 0, paddingRight: "8px" }}>
-                          <div style={{ fontSize: "0.88rem", fontWeight: 600, color: isActive ? "#1d4ed8" : "#1e293b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <div style={{ fontSize: "0.8rem", fontWeight: 600, color: isActive ? "#1d4ed8" : "#1e293b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             💬 {conv.title}
                           </div>
                           <div style={{ fontSize: "0.7rem", color: "#64748b", marginTop: "2px" }}>
@@ -1031,7 +1057,7 @@ export function DraggableChatWidget({
                   padding: "0.6rem 1rem",
                   background: "#f1f5f9",
                   borderBottom: "1px solid #e2e8f0",
-                  fontSize: "0.75rem",
+                  fontSize: "0.68rem",
                 }}
               >
                 <ProfileRunPicker
@@ -1045,16 +1071,6 @@ export function DraggableChatWidget({
                   helpText="Chọn bộ dữ liệu trước, sau đó chọn phiên Profile Run đã hoàn tất."
                   disabled={isThinking}
                 />
-                {activeProfile.data && <div className="chat-active-context" aria-label="Active answer context">
-                  <b>Answering against</b>
-                  <span>{activeProfile.data.dataset_name || "Dataset"}</span>
-                  <span>{activeProfile.data.run_name || `Version ${activeProfile.data.version ?? "—"}`}</span>
-                  <span>{activeProfile.data.scan_mode || "unknown"} scan</span>
-                  <span>{activeProfile.data.is_approximate ? "sample scope" : "full scope"}</span>
-                  {activeProfile.data.row_count !== null && activeProfile.data.row_count !== undefined && <span>{activeProfile.data.row_count.toLocaleString()} rows</span>}
-                  {(activeProfile.data.updated_at || activeProfile.data.created_at) && <span>Profiled {new Date(activeProfile.data.updated_at || activeProfile.data.created_at || "").toLocaleDateString()}</span>}
-                  <span>{activeProfile.data.pending_proposals ? "review required" : "reviewed"}</span>
-                </div>}
               </div>
 
               {/* MESSAGES SCROLL AREA */}
@@ -1088,7 +1104,7 @@ export function DraggableChatWidget({
                           background: isUser ? "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" : "#f1f5f9",
                           color: isUser ? "#ffffff" : "#1e293b",
                           border: isUser ? "none" : "1px solid #e2e8f0",
-                          fontSize: "0.85rem",
+                          fontSize: "0.78rem",
                           lineHeight: "1.5",
                           whiteSpace: isUser ? "pre-wrap" : "normal",
                           wordBreak: "break-word",
@@ -1128,7 +1144,7 @@ export function DraggableChatWidget({
                         border: "1px solid #bfdbfe",
                         borderRadius: "6px",
                         color: "#1d4ed8",
-                        fontSize: "0.72rem",
+                        fontSize: "0.66rem",
                         cursor: "pointer",
                         textAlign: "left",
                         fontWeight: 500,
@@ -1175,7 +1191,7 @@ export function DraggableChatWidget({
                     background: "#ffffff",
                     border: "1px solid #cbd5e1",
                     color: "#0f172a",
-                    fontSize: "0.85rem",
+                    fontSize: "0.78rem",
                     outline: "none",
                   }}
                 />
@@ -1190,7 +1206,7 @@ export function DraggableChatWidget({
                     color: "#ffffff",
                     border: "none",
                     fontWeight: 600,
-                    fontSize: "0.85rem",
+                    fontSize: "0.78rem",
                     cursor: input.trim() && isSelectedRunReady && !isThinking ? "pointer" : "not-allowed",
                     boxShadow: input.trim() && isSelectedRunReady && !isThinking ? "0 2px 6px rgba(37,99,235,0.25)" : "none",
                   }}

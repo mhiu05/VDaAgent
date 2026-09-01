@@ -1,6 +1,6 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatAnswer } from "./chat-answer";
 
@@ -14,6 +14,8 @@ const source = {
 };
 
 describe("ChatAnswer", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     Element.prototype.scrollIntoView = vi.fn();
   });
@@ -35,9 +37,61 @@ describe("ChatAnswer", () => {
     expect(screen.getByText("Conclusion")).toBeTruthy();
     expect(screen.getByText("Key findings")).toBeTruthy();
     expect(screen.getByText("Verified")).toBeTruthy();
+    expect(screen.getByText("Bằng chứng và cách kết luận")).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "Open evidence S1" }));
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-    expect(screen.getAllByText("Profile Run: run-1")).toHaveLength(2);
+    expect(screen.getAllByText("Profile Run: run-1")).toHaveLength(1);
+  });
+
+  it("does not render a stray zero when an answer has no sources or follow-up details", () => {
+    const { container } = render(<ChatAnswer
+      message={{
+        id: "no-extra-details", role: "agent", text: "The result is ready.",
+        answerEnvelope: {
+          schema_version: "v2", summary: "The result is ready.", findings: [],
+          limitations: [], actions: [], evidence_status: "profile_only", is_approximate: false,
+          provenance: { profile_run_id: "run-1" },
+        },
+      }}
+      fallback={<p>Legacy answer</p>}
+    />);
+
+    expect(container.querySelector(".chat-answer")?.textContent).not.toMatch(/(?:^|\s)0(?:\s|$)/);
+  });
+
+  it("shows the streamed answer when a partial V2 envelope has no summary", () => {
+    render(<ChatAnswer
+      message={{
+        id: "streamed-summary", role: "agent", text: "North has the highest count.",
+        answerEnvelope: {
+          schema_version: "v2", summary: null, findings: [], limitations: [], actions: [],
+          evidence_status: "profile_only", is_approximate: false, provenance: {},
+        },
+      }}
+      fallback={<p>Legacy answer</p>}
+    />);
+
+    expect(screen.getByText("North has the highest count.")).toBeTruthy();
+  });
+
+  it("removes Markdown markers from structured answer text", () => {
+    const { container } = render(<ChatAnswer
+      message={{
+        id: "formatted", role: "agent", text: "## **There are 10 rows**",
+        answerEnvelope: {
+          schema_version: "v2", summary: "## **There are 10 rows**",
+          findings: [{ text: "\\*\\*Rows are complete\\*\\* [S1]", citations: [] }],
+          limitations: ["**No limitations**"], actions: ["`Review` the result"],
+          evidence_status: "verified", is_approximate: false, provenance: {},
+        },
+      }}
+      fallback={<p>Legacy answer</p>}
+    />);
+
+    const answerText = container.querySelector(".chat-answer")?.textContent || "";
+    expect(answerText).toContain("There are 10 rows");
+    expect(answerText).toContain("Rows are complete");
+    expect(answerText).not.toMatch(/##|\\?\*\*/);
   });
 
   it("uses the legacy fallback and clearly presents insufficient evidence", () => {
@@ -74,9 +128,9 @@ describe("ChatAnswer", () => {
       fallback={<p>Legacy answer</p>}
     />);
 
-    expect(screen.getByText("Dataset: July revenue")).toBeTruthy();
-    expect(screen.getByText("Profile Run: July full scan")).toBeTruthy();
-    expect(screen.queryByText("Dataset: August revenue")).toBeNull();
+    expect(screen.getByText("Phạm vi dữ liệu: July revenue · Profile Run July full scan · full scope.")).toBeTruthy();
+    expect(screen.queryByText(/August revenue/)).toBeNull();
+    expect(screen.queryByText("Answer context")).toBeNull();
 
     rerender(<ChatAnswer
       message={{
@@ -90,7 +144,7 @@ describe("ChatAnswer", () => {
       fallback={<p>Legacy answer</p>}
     />);
 
-    expect(screen.getByText("Dataset: July revenue")).toBeTruthy();
-    expect(screen.queryByText("Dataset: September revenue")).toBeNull();
+    expect(screen.getByText("Phạm vi dữ liệu: July revenue · Profile Run July full scan · full scope.")).toBeTruthy();
+    expect(screen.queryByText(/September revenue/)).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import React, { type MouseEvent, type ReactNode } from "react";
 
 import { AnswerSources } from "@/components/answer-sources";
 import { ChatMessageActions, type ChatMessageActionsProps } from "@/components/chat-message-actions";
+import { toPlainText } from "@/components/markdown";
 import type { ChatMessage } from "@/lib/chat-history";
 
 function EvidenceBadge({ message }: { message: ChatMessage }) {
@@ -29,7 +30,7 @@ function CitationLinks({ citations }: { citations: NonNullable<ChatMessage["answ
     event.preventDefault();
     const target = document.getElementById(`citation-${citationId}`);
     const disclosure = target?.closest("details") as HTMLDetailsElement | null;
-    const answerDisclosure = target?.closest(".chat-answer")?.querySelector(".chat-answer-details") as HTMLDetailsElement | null;
+    const answerDisclosure = target?.closest(".chat-answer")?.querySelector(".chat-answer-evidence") as HTMLDetailsElement | null;
     if (answerDisclosure) answerDisclosure.open = true;
     if (disclosure) disclosure.open = true;
     target?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -45,6 +46,36 @@ function CitationLinks({ citations }: { citations: NonNullable<ChatMessage["answ
       [{citation.citation_id}]
     </a>
   ))}</>;
+}
+
+function AnswerEvidence({ message }: { message: ChatMessage }) {
+  const provenance = message.answerEnvelope?.provenance;
+  const sources = message.sources || [];
+  const profileRun = provenance?.profile_run_label
+    || provenance?.profile_run_id
+    || message.context?.profileRunLabel
+    || message.context?.profileRunId;
+  const dataset = provenance?.dataset_name || message.context?.datasetName;
+  const rowScope = provenance?.row_scope || message.context?.rowScope;
+  const noEvidence = (message.evidenceStatus || message.answerEnvelope?.evidence_status) === "no_evidence";
+
+  if (!profileRun && !dataset && sources.length === 0) return null;
+
+  return (
+    <details className="chat-answer-evidence" open>
+      <summary>Bằng chứng và cách kết luận</summary>
+      <p className="chat-answer-evidence-intro">
+        {noEvidence
+          ? "Profile Run đã được dùng để xác định phạm vi, nhưng chưa có đủ bằng chứng đã kiểm chứng để kết luận."
+          : "Kết luận chỉ dựa trên Profile Run và các nguồn được gắn trực tiếp với từng nhận định [S#]."}
+      </p>
+      <ul className="chat-answer-evidence-steps">
+        {profileRun && <li>Phạm vi dữ liệu: {dataset ? `${dataset} · ` : ""}Profile Run {profileRun}{rowScope ? ` · ${rowScope} scope` : ""}.</li>}
+        {sources.length > 0 && <li>Các nguồn bên dưới đã được dùng để kiểm chứng các nhận định có trích dẫn.</li>}
+      </ul>
+      {sources.length > 0 ? <AnswerSources sources={sources} /> : null}
+    </details>
+  );
 }
 
 export function ChatAnswer({
@@ -75,35 +106,24 @@ export function ChatAnswer({
     return <>{fallback}<EvidenceBadge message={message} /><AnswerSources sources={message.sources} /><ChatMessageActions message={message} {...resolvedActions} /></>;
   }
   const noEvidence = envelope.evidence_status === "no_evidence";
-  const answerRowCount = envelope.provenance.row_count ?? message.context?.rowCount;
+  const hasSupportingDetails = Boolean(envelope.limitations.length || envelope.actions.length);
+  const answerSummary = envelope.summary || message.text;
   return (
     <section className="chat-answer" aria-label="Structured answer">
       <EvidenceBadge message={message} />
-      {envelope.summary && <div className="chat-answer-summary"><h4>Conclusion</h4><p>{envelope.summary}</p></div>}
+      {answerSummary && <div className="chat-answer-summary"><h4>Conclusion</h4><p>{toPlainText(answerSummary)}</p></div>}
       {envelope.findings.length > 0 && <div className="chat-answer-findings"><h5>Key findings</h5><ol>{envelope.findings.map((finding, index) => (
-        <li key={`${finding.text}-${index}`}>{finding.text.replace(/\s*\[S\d+\]/g, "")} <CitationLinks citations={finding.citations} /></li>
+        <li key={`${finding.text}-${index}`}>{toPlainText(finding.text).replace(/\s*\[S\d+\]/g, "")} <CitationLinks citations={finding.citations} /></li>
       ))}</ol></div>}
-      {(message.sources?.length || envelope.limitations.length || envelope.actions.length) && <details className="chat-answer-details" open={noEvidence}>
-        <summary>{noEvidence ? "What is missing and what to do next" : "Evidence and limitations"}</summary>
-        {message.sources?.length ? <AnswerSources sources={message.sources} /> : null}
-        {envelope.limitations.length > 0 && <div><h5>Limitations</h5><ul>{envelope.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>}
-        {envelope.actions.length > 0 && <div><h5>Next steps</h5><ul>{envelope.actions.map((item) => <li key={item}>{item}</li>)}</ul></div>}
-      </details>}
-      {(envelope.provenance.profile_run_id || message.context?.profileRunId) && <details className="chat-answer-context" open>
-        <summary>Answer context</summary>
-        <div className="chat-context-chips">
-          {envelope.provenance.dataset_name || message.context?.datasetName ? <span>Dataset: {envelope.provenance.dataset_name || message.context?.datasetName}</span> : null}
-          <span>Profile Run: {envelope.provenance.profile_run_label || envelope.provenance.profile_run_id || message.context?.profileRunLabel || message.context?.profileRunId}</span>
-          {(envelope.provenance.row_scope || message.context?.rowScope) && <span>{envelope.provenance.row_scope || message.context?.rowScope} scope</span>}
-          {answerRowCount !== null && answerRowCount !== undefined && <span>{answerRowCount.toLocaleString()} rows</span>}
-          {(envelope.provenance.proposal_status || message.context?.proposalStatus) && <span>{envelope.provenance.proposal_status || message.context?.proposalStatus}</span>}
-          {(envelope.provenance.profiled_at || message.context?.profiledAt) && <span>Profiled {new Date(envelope.provenance.profiled_at || message.context?.profiledAt || "").toLocaleDateString()}</span>}
-        </div>
-        {envelope.provenance.scan_mode && <span> · {envelope.provenance.scan_mode} scan</span>}
+      <AnswerEvidence message={message} />
+      {hasSupportingDetails && <details className="chat-answer-details" open={noEvidence}>
+        <summary>{noEvidence ? "What is missing and what to do next" : "Limitations and next steps"}</summary>
+        {envelope.limitations.length > 0 && <div><h5>Limitations</h5><ul>{envelope.limitations.map((item) => <li key={item}>{toPlainText(item)}</li>)}</ul></div>}
+        {envelope.actions.length > 0 && <div><h5>Next steps</h5><ul>{envelope.actions.map((item) => <li key={item}>{toPlainText(item)}</li>)}</ul></div>}
       </details>}
       {envelope.clarification && <section className="chat-clarification" aria-label="Clarification required">
-        <h5>{envelope.clarification.question}</h5>
-        <div>{envelope.clarification.options.map((option) => <button type="button" key={option.id} onClick={() => onClarificationOption ? onClarificationOption(option) : dispatchAction("clarify", { option })}>{option.label}</button>)}</div>
+        <h5>{toPlainText(envelope.clarification.question)}</h5>
+        <div>{envelope.clarification.options.map((option) => <button type="button" key={option.id} onClick={() => onClarificationOption ? onClarificationOption(option) : dispatchAction("clarify", { option })}>{toPlainText(option.label)}</button>)}</div>
       </section>}
       <ChatMessageActions message={message} {...resolvedActions} />
     </section>

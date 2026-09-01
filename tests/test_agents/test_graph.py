@@ -169,6 +169,42 @@ def test_chart_insight_forces_qualitative_route() -> None:
     assert result["qa_context"]["analysis_execution"]["id"] == "execution-1"
 
 
+def test_router_recognizes_vietnamese_highest_count_questions_as_quantitative() -> None:
+    result = qa_router_node(
+        {
+            "question": "region nào có số lượng cao nhất?",
+            "profile_run_id": "run-1",
+            "column_names": ["region", "quantity"],
+            "qa_context": {},
+        }
+    )
+
+    assert result["question_type"] == "quantitative"
+    assert result["qa_context"]["mentioned_columns"] == ["region"]
+
+
+def test_chart_insight_never_enters_metric_clarification() -> None:
+    result = qa_router_node(
+        {
+            "question": "Câu hỏi nghiệp vụ cần trả lời: doanh thu nào tốt nhất?",
+            "profile_run_id": "run-1",
+            "column_names": ["gross_revenue", "net_revenue", "order_count"],
+            "qa_context": {
+                "chart_insight": True,
+                "analysis_execution": {"id": "execution-1", "execution_kind": "official"},
+            },
+        }
+    )
+
+    assert result["question_type"] == "qualitative"
+    assert result.get("answerability", "answerable") == "answerable"
+    assert result.get("clarification") is None
+    assert result["qa_context"] == {
+        "chart_insight": True,
+        "analysis_execution": {"id": "execution-1", "execution_kind": "official"},
+    }
+
+
 def test_router_requires_context_confirmation_for_cross_run_follow_up() -> None:
     result = qa_router_node(
         {

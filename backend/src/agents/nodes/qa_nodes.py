@@ -56,6 +56,16 @@ _VAGUE_REFERENCES = re.compile(
 )
 
 _QUANTITATIVE_HINTS = (
+    "số lượng",
+    "cao nhất",
+    "thấp nhất",
+    "nhiều nhất",
+    "ít nhất",
+    "so luong",
+    "cao nhat",
+    "thap nhat",
+    "nhieu nhat",
+    "it nhat",
     "bao nhiêu",
     "mấy",
     "tỷ lệ",
@@ -626,6 +636,26 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
         }
 
+    # A chart insight is not an open-ended Q&A turn.  The API has already
+    # authenticated and bound an Official execution to this request, which is
+    # the complete evidence scope for the answer.  Route it before generic
+    # clarification rules so an ambiguous metric or a prior chat turn cannot
+    # make the agent ask the analyst to restate the chart's business question.
+    chart_insight = bool((state.get("qa_context") or {}).get("chart_insight"))
+    if chart_insight:
+        routed_context: dict[str, Any] = {"chart_insight": True}
+        official_execution = (state.get("qa_context") or {}).get("analysis_execution")
+        if official_execution:
+            routed_context["analysis_execution"] = official_execution
+        return {
+            "question": question,
+            "question_type": "qualitative",
+            "selected_skill": select_skill_for_question(question),
+            "qa_context": routed_context,
+            "tool_calls": state.get("tool_calls", 0) + 1,
+            **_set_budget(state, "full_agent", get_settings()),
+        }
+
     if _SOCIAL_GREETING.search(question) or _extract_name(question):
         return {
             "question": question,
@@ -690,12 +720,7 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
 
     lowered = question.lower()
     normalized_lowered = re.sub(r"[-_]", " ", lowered)
-    chart_insight = bool((state.get("qa_context") or {}).get("chart_insight"))
     if not state.get("profile_run_id"):
-        heuristic = "qualitative"
-    elif chart_insight:
-        # A chart insight is a grounded narrative over an already-bound
-        # Official execution, even when the prompt contains numeric values.
         heuristic = "qualitative"
     elif any(h in lowered for h in _CONCEPT_HINTS):
         heuristic = "qualitative"
@@ -741,16 +766,6 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
         "mentioned_columns": mentioned,
         "columns_available": columns[:50],
     }
-    # Preserve server-injected execution bindings while adding router metadata.
-    # ``qa_context`` is a normal state field, so LangGraph replaces rather than
-    # deep-merges it between nodes.
-    if chart_insight:
-        routed_context["chart_insight"] = True
-        if (state.get("qa_context") or {}).get("analysis_execution"):
-            routed_context["analysis_execution"] = (state.get("qa_context") or {})[
-                "analysis_execution"
-            ]
-
     return {
         "question": question,
         "question_type": question_type,
@@ -891,10 +906,12 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     # Common profile questions are served by an explicit, bounded fast-path
     # registry. The answer still passes the same fail-closed validator below.
     _progress(state, "running_tool")
+    mentioned_columns = (state.get("qa_context") or {}).get("mentioned_columns") or []
     fast_path = execute_fast_path(
         question=question,
         profile_run_id=run_id,
         workspace_id=state.get("workspace_id"),
+        mentioned_columns=mentioned_columns,
     )
     if fast_path:
         _progress(state, "validating")
@@ -992,7 +1009,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     calls_used = 0
     evidence_available = False
     max_calls = settings.guardrails_max_tool_calls_per_request
-    mentioned = (state.get("qa_context") or {}).get("mentioned_columns") or []
+    mentioned = mentioned_columns
     prefetched_evidence: list[dict[str, Any]] = []
     for name, args in _deterministic_qa_tool_specs(question, mentioned):
         if _cancelled(state):

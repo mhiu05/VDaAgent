@@ -36,8 +36,32 @@ export function normalizeMarkdownText(input: string): string {
   return parts.length ? parts.join("\n") : input;
 }
 
+export function unescapeMarkdown(input: string): string {
+  return input.replace(/\\([\\`*_{}\[\]()#+.!>|~\-])/g, "$1");
+}
+
+export function toPlainText(input: string): string {
+  return unescapeMarkdown(normalizeMarkdownText(input))
+    .replace(/^\s*#{1,6}\s*/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*[-+*]\s+/gm, "")
+    .replace(/^\s*\d+[.)]\s+/gm, "")
+    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, "")
+    .replace(/!\[([^\]]*)\]\([^\)\n]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^\)\n]*\)/g, "$1")
+    .replace(/`{1,3}([^`\n]+)`{1,3}/g, "$1")
+    .replace(/\*\*([^\n]*?)\*\*/g, "$1")
+    .replace(/__([^\n]*?)__/g, "$1")
+    .replace(/~~([^\n]*?)~~/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function renderInlineMarkdown(text: string): ReactNode {
-  const cleaned = text.replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
+  const cleaned = unescapeMarkdown(text).replace(/"{1,2}([^"\n]+?)"{1,2}/g, "$1");
   const tokens = cleaned.split(/(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*)/g);
 
   return tokens.map((token, tokenIndex) => {
