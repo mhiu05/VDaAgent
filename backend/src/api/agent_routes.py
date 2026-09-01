@@ -26,6 +26,16 @@ _agent_run_read = Depends(require_permission(AGENT_RUN_READ))
 _agent_trace_read = Depends(require_permission(AGENT_TRACE_READ))
 
 
+def _public_record(value: dict[str, Any], schema: type[Any]) -> dict[str, Any]:
+    """Redact and project a repository row to its public API contract."""
+
+    return {
+        field: redact_trace_payload(value[field])
+        for field in schema.model_fields
+        if field in value
+    }
+
+
 def _run_or_404(run_id: str, context: RequestContext) -> dict[str, Any]:
     run = get_repository().get_agent_run(run_id, workspace_id=context.workspace_id)
     if not run:
@@ -41,7 +51,7 @@ async def get_agent_run(
     run_id: str,
     context: RequestContext = _agent_run_read,
 ) -> AgentRunRecord:
-    return AgentRunRecord(**_run_or_404(run_id, context))
+    return AgentRunRecord(**_public_record(_run_or_404(run_id, context), AgentRunRecord))
 
 
 @router.get("/agent-runs/{run_id}/trace", response_model=list[TraceEventRecord])
@@ -58,7 +68,7 @@ async def get_agent_trace(
         after_sequence=after_sequence,
         limit=limit or get_settings().agent_trace_event_limit,
     )
-    return [TraceEventRecord(**redact_trace_payload(event)) for event in events]
+    return [TraceEventRecord(**_public_record(event, TraceEventRecord)) for event in events]
 
 
 @router.get("/agent-runs/{run_id}/evidence", response_model=list[CanonicalEvidence])
@@ -70,7 +80,7 @@ async def get_agent_evidence(
     evidence = get_repository().list_agent_evidence(
         run_id, workspace_id=context.workspace_id
     )
-    return [CanonicalEvidence(**redact_trace_payload(item)) for item in evidence]
+    return [CanonicalEvidence(**_public_record(item, CanonicalEvidence)) for item in evidence]
 
 
 @router.get("/agent-runs/{run_id}/plan")
