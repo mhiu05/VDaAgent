@@ -63,6 +63,26 @@ retrieval:
   profile_context_chars: 12000
   knowledge_context_chars: 12000
 
+# Product budgets for the P1 Chat Agent. They are fail-safe ceilings, not
+# promises: validation still runs before any answer is delivered.
+qa:
+  latency_deterministic_budget_seconds: 5
+  latency_tool_budget_seconds: 12
+  latency_full_agent_budget_seconds: 25
+  latency_router_budget_seconds: 3
+  latency_retrieval_timeout_seconds: 8
+  parallel_retrieval_concurrency: 2
+  # P2 reuses only verified deterministic profile aggregates. A hit is always
+  # recalculated and evidence-validated before it is returned.
+  semantic_cache_enabled: true
+  semantic_cache_ttl_seconds: 900
+  semantic_cache_max_entries_per_workspace: 200
+  # Soft-deleted conversations are retained for this period before the
+  # backend maintenance job may purge them.
+  conversation_retention_days: 30
+  verifier_timeout_seconds: 2.0
+  verifier_risk_threshold: 3
+
 security:
   require_api_token: false
   user_rate_per_minute: 30
@@ -93,7 +113,9 @@ guardrails:
 # corresponding migration and deterministic eval gates have passed.
 agent:
   trace_mode: "shadow"
-  verifier_mode: "off"
+  # P2 verifier runs in shadow mode only: it records high-risk projection
+  # failures but never replaces a separately validated deterministic answer.
+  verifier_mode: "shadow"
   planner_enabled: false
   jobs_enabled: false
   workspace_memory_enabled: false

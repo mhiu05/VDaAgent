@@ -1,4 +1,4 @@
-"""Reproducible local control-flow benchmark for P1-05B.
+"""Reproducible local control-flow benchmark for chat-agent improvements.
 
 The benchmark deliberately uses fixed-delay local adapters. It measures the
 application's own critical path (call count and serial versus concurrent work)
@@ -28,9 +28,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "backend"))
 
 from src.agents.nodes import qa_nodes  # noqa: E402
+from src.agents import fast_paths  # noqa: E402
 from src.api import analysis_routes  # noqa: E402
 from src.services.chart_planner import ChartPlanCandidate  # noqa: E402
 from src.services import ai_latency  # noqa: E402
+from src.services.qa_validation import validate_answer_evidence  # noqa: E402
 
 _TOOL_DELAY_SECONDS = 0.012
 _RETRIEVAL_DELAY_SECONDS = 0.03
@@ -173,6 +175,9 @@ def _tool(name: str, _args: dict[str, Any], profile_run_id: str | None = None) -
     elif name == "get_column_profile":
         data = {"column_name": "order_id", "null_pct": 0, "uniqueness_ratio": 1.0}
         artifact = "column_stats"
+    elif name == "get_profile_overview":
+        data = {"row_count": 1_250, "column_count": 8}
+        artifact = "profile_runs"
     else:
         data = {"issues": [{"column_name": "sales", "issue_type": "high_missingness"}]}
         artifact = "column_stats"
@@ -254,6 +259,50 @@ def _quality_issue(mode: str) -> dict[str, Any]:
                 }
             ),
         )
+
+
+def _profile_fast_path(mode: str) -> dict[str, Any]:
+    """Compare the former tool-plus-model wording path to P0's direct renderer."""
+
+    question = "How many rows are in this dataset?"
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(fast_paths, "run_tool", _tool))
+        if mode == "before":
+            def legacy() -> dict[str, Any]:
+                tool_result = _tool("get_profile_overview", {}, "run-1")
+                started = time.perf_counter()
+                answer = _BaseLLM("The Profile Run contains 1,250 rows. [S1]").invoke([]).content
+                ai_latency.record_model(
+                    "qa_structured",
+                    (time.perf_counter() - started) * 1000,
+                    input_tokens=80,
+                    output_tokens=20,
+                )
+                sources = [{
+                    "type": "tool", "citation_id": "S1", "tool": "get_profile_overview",
+                    "args": {}, "status": "ok", "profile_run_id": "run-1", "workspace_id": "workspace-1",
+                }]
+                validation = validate_answer_evidence(
+                    question=question, profile_run_id="run-1", workspace_id="workspace-1",
+                    sources=sources, tool_results=[{**tool_result, "workspace_id": "workspace-1"}], answer=answer,
+                )
+                return {"evidence_status": validation.evidence_status}
+
+            return _capture("qa_profile_fast_path", legacy)
+
+        def fast() -> dict[str, Any]:
+            result = fast_paths.execute_fast_path(
+                question=question, profile_run_id="run-1", workspace_id="workspace-1"
+            )
+            if result is None:
+                raise RuntimeError("Synthetic fast-path scenario was not recognized.")
+            validation = validate_answer_evidence(
+                question=question, profile_run_id="run-1", workspace_id="workspace-1",
+                sources=result["sources"], tool_results=result["tool_results"], answer=result["answer"],
+            )
+            return {"evidence_status": validation.evidence_status}
+
+        return _capture("qa_profile_fast_path", fast)
 
 
 def _qualitative_retrieval(mode: str) -> dict[str, Any]:
@@ -366,6 +415,7 @@ def main() -> int:
     scenarios = {
         "candidate_key": lambda: _candidate_key(args.mode),
         "quality_issue": lambda: _quality_issue(args.mode),
+        "profile_fast_path": lambda: _profile_fast_path(args.mode),
         "qualitative_retrieval": lambda: _qualitative_retrieval(args.mode),
         "chart_planner": lambda: _chart_planner(args.mode),
     }
@@ -376,7 +426,7 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "benchmark": "p1-05b-local-control-flow",
+                "benchmark": "chat-agent-local-control-flow",
                 "mode": args.mode,
                 "adapter_delays_ms": {
                     "tool": _TOOL_DELAY_SECONDS * 1000,

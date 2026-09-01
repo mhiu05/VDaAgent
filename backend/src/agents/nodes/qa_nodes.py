@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Any
 
 from src.agents.prompts import (
@@ -27,6 +27,7 @@ from src.agents.prompts import (
     QA_STRUCTURED_PROMPT,
     QA_VECTOR_PROMPT,
 )
+from src.agents.fast_paths import execute_fast_path, resolve_fast_path
 from src.agents.runtime.trace import invoke_model, record_retrieval_call
 from src.agents.skills.registry import select_skill_for_question, skill_guidance
 from src.agents.state import ProfilingState
@@ -72,6 +73,8 @@ _QUANTITATIVE_HINTS = (
     "đếm",
     "count",
     "null",
+    "missing",
+    "thiáº¿u",
     "cardinality",
     "outlier",
     "tương quan",
@@ -87,6 +90,86 @@ _QUANTITATIVE_HINTS = (
     "proposal",
     "confidence",
 )
+
+_FOLLOW_UP_REFERENCE = re.compile(
+    r"\b(this|that|it|above|previous|prior|này|đó|trên|kết quả|câu trả lời)\b",
+    re.IGNORECASE,
+)
+
+_AMBIGUOUS_METRIC = re.compile(
+    r"\b(metric|measure|value|revenue|sales|doanh thu|chỉ số|giá trị|average|trung bình|sum|tổng)\b",
+    re.IGNORECASE,
+)
+
+
+def _progress(state: ProfilingState, stage: str, detail: str | None = None) -> None:
+    """Emit a real QA milestone when the API supplied a stream callback."""
+
+    callback = state.get("progress_callback")
+    if callable(callback):
+        try:
+            callback({"stage": stage, **({"detail": detail} if detail else {})})
+        except RuntimeError:
+            # The client may have disconnected while a worker-thread node was
+            # completing. Progress delivery must not turn that cancellation
+            # into an agent failure.
+            return
+
+
+def _cancelled(state: ProfilingState) -> bool:
+    event = state.get("cancel_event")
+    return bool(event is not None and getattr(event, "is_set", lambda: False)())
+
+
+def _budget_seconds(settings: Any, category: str) -> float:
+    field = {
+        "deterministic": "qa_latency_deterministic_budget_seconds",
+        "tool": "qa_latency_tool_budget_seconds",
+        "full_agent": "qa_latency_full_agent_budget_seconds",
+    }[category]
+    defaults = {"deterministic": 5.0, "tool": 12.0, "full_agent": 25.0}
+    return float(getattr(settings, field, defaults[category]))
+
+
+def _set_budget(state: ProfilingState, category: str, settings: Any) -> dict[str, Any]:
+    """Choose a product budget after routing without changing QA strategy."""
+
+    started = float(state.get("qa_started_monotonic") or time.perf_counter())
+    seconds = _budget_seconds(settings, category)
+    ai_latency.set_budget(category, seconds)
+    return {
+        "qa_budget_category": category,
+        "qa_deadline_monotonic": started + seconds,
+    }
+
+
+def _budget_expired(state: ProfilingState, *, stage: str, fallback: str | None = None) -> bool:
+    deadline = float(state.get("qa_deadline_monotonic") or 0.0)
+    if deadline <= 0.0 or time.perf_counter() <= deadline:
+        return False
+    ai_latency.mark_budget_exceeded(stage=stage, fallback=fallback)
+    return True
+
+
+def _timeout_result() -> dict[str, Any]:
+    return {
+        "answer": "",
+        "answer_sources": [],
+        "evidence_status": "no_evidence",
+        "answerability": "insufficient_evidence",
+        "error_code": "CHAT_TIMEOUT",
+    }
+
+
+def _detail_instruction(state: ProfilingState) -> str:
+    """Presentation guidance is intentionally independent of tool/model choice."""
+
+    detail = state.get("answer_detail") or "standard"
+    if detail == "quick":
+        return "Answer briefly: conclusion plus at most three supported findings. Keep citations and limitations."
+    if detail == "deep":
+        return "Give a deeper supported explanation: methodology, comparisons, assumptions, limitations, and next actions. Do not add unsupported facts."
+    return "Give a standard concise answer with conclusion, supported findings, limitations, and next actions."
 
 
 def _deterministic_qa_tool_specs(
@@ -354,6 +437,52 @@ def _resolve_column_from_history(state: ProfilingState, columns: list[str]) -> l
     return []
 
 
+def _clarification_for_context_mismatch(
+    state: ProfilingState, question: str
+) -> dict[str, Any] | None:
+    """Detect only material follow-ups that could combine two run scopes."""
+
+    current_run = str(state.get("profile_run_id") or "")
+    if not current_run or not _FOLLOW_UP_REFERENCE.search(question):
+        return None
+    prior_runs = {
+        str(item.get("profile_run_id"))
+        for item in state.get("messages") or []
+        if isinstance(item, dict) and item.get("profile_run_id")
+    }
+    if not prior_runs or prior_runs == {current_run}:
+        return None
+    return {
+        "reason": "context_mismatch",
+        "question": "Should I use the current Profile Run, or keep the earlier run for this follow-up?",
+        "options": [
+            {"id": "current_context", "label": "Use the current Profile Run"},
+            {"id": "earlier_context", "label": "Keep the earlier Profile Run"},
+        ],
+    }
+
+
+def _clarification_for_ambiguous_metric(
+    question: str, columns: list[str], mentioned: list[str]
+) -> dict[str, Any] | None:
+    """Ask one deterministic question only when column choice changes a result."""
+
+    if mentioned or not columns or resolve_fast_path(question):
+        return None
+    if not _AMBIGUOUS_METRIC.search(question):
+        return None
+    # Suggestions come exclusively from current profile metadata.  They are
+    # labels, not a guess that any field is a suitable revenue metric.
+    choices = [str(column) for column in columns[:5] if str(column).strip()]
+    if len(choices) < 2:
+        return None
+    return {
+        "reason": "metric",
+        "question": "Which profiled column should I use for this metric?",
+        "options": [{"id": column, "label": column} for column in choices],
+    }
+
+
 def _profile_fallback_summary(run_id: str | None) -> str:
     """Tạo tóm tắt deterministic, ngắn gọn khi LLM không sẵn sàng."""
     if not run_id:
@@ -451,11 +580,25 @@ def _guard_answer(answer: str) -> str:
 
 
 def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
+    """Classify a question after recording the genuine routing milestone."""
+    _progress(state, "classifying")
+    if _cancelled(state):
+        return {
+            "question_type": "guardrail",
+            "answer": "Request cancelled.",
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "qa_path": "cancelled",
+        }
     """Phân loại câu hỏi. Không đủ thông tin để trả lời thì đánh dấu clarify."""
     assessment = assess_question(state.get("question") or "")
     question = assessment.normalized
     if not question:
-        return {"question_type": "clarify", "answer": "Bạn muốn hỏi gì về dataset này?"}
+        return {
+            "question_type": "clarify",
+            "answer": "Bạn muốn hỏi gì về dataset này?",
+            "answerability": "needs_clarification",
+        }
 
     if assessment.blocked:
         get_audit().log(
@@ -512,6 +655,17 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
 
     mentioned = _mentioned_columns(question, columns)
 
+    context_clarification = _clarification_for_context_mismatch(state, question)
+    if context_clarification:
+        return {
+            "question": question,
+            "question_type": "clarify",
+            "qa_context": {"columns_available": columns[:50], "clarification": context_clarification},
+            "answerability": "needs_clarification",
+            "clarification": context_clarification,
+            **_set_budget(state, "deterministic", get_settings()),
+        }
+
     # Tham chiếu mơ hồ: thử resolve từ context trước khi hỏi lại (eval B-01).
     if _VAGUE_REFERENCES.search(question) and not mentioned:
         mentioned = _resolve_column_from_history(state, columns)
@@ -519,7 +673,20 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
             return {
                 "question_type": "clarify",
                 "qa_context": {"columns_available": columns[:50]},
+                "answerability": "needs_clarification",
+                **_set_budget(state, "deterministic", get_settings()),
             }
+
+    metric_clarification = _clarification_for_ambiguous_metric(question, columns, mentioned)
+    if metric_clarification:
+        return {
+            "question": question,
+            "question_type": "clarify",
+            "qa_context": {"columns_available": columns[:50], "clarification": metric_clarification},
+            "answerability": "needs_clarification",
+            "clarification": metric_clarification,
+            **_set_budget(state, "deterministic", get_settings()),
+        }
 
     lowered = question.lower()
     normalized_lowered = re.sub(r"[-_]", " ", lowered)
@@ -590,6 +757,11 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
         "selected_skill": select_skill_for_question(question),
         "qa_context": routed_context,
         "tool_calls": state.get("tool_calls", 0) + 1,
+        **_set_budget(
+            state,
+            "deterministic" if resolve_fast_path(question) else "tool" if question_type == "quantitative" else "full_agent",
+            get_settings(),
+        ),
     }
 
 
@@ -626,7 +798,26 @@ def qa_guardrail_node(state: ProfilingState) -> dict[str, Any]:
 def clarify_node(state: ProfilingState) -> dict[str, Any]:
     """Hỏi lại khi câu hỏi mơ hồ — thà hỏi còn hơn đoán (eval nhóm B)."""
     question = state.get("question") or ""
-    columns = (state.get("qa_context") or {}).get("columns_available") or []
+    qa_context = state.get("qa_context") or {}
+    columns = qa_context.get("columns_available") or []
+    structured = qa_context.get("clarification")
+
+    if isinstance(structured, dict):
+        options = [item for item in structured.get("options") or [] if isinstance(item, dict)]
+        option_text = "\n".join(
+            f"- {item.get('label')}" for item in options if item.get("label")
+        )
+        answer = str(structured.get("question") or "Please clarify the request.")
+        if option_text:
+            answer = f"{answer}\n{option_text}"
+        return {
+            "answer": _guard_answer(answer),
+            "answer_sources": [],
+            "question_type": "clarify",
+            "evidence_status": "no_evidence",
+            "answerability": "needs_clarification",
+            "clarification": structured,
+        }
 
     try:
         llm = get_llm()
@@ -657,6 +848,12 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
         "answer_sources": [],
         "question_type": "clarify",
         "evidence_status": "no_evidence",
+        "answerability": "needs_clarification",
+        "clarification": {
+            "reason": "column",
+            "question": "Which profiled column should I inspect?",
+            "options": [{"id": str(column), "label": str(column)} for column in columns[:5]],
+        },
     }
 
 
@@ -679,6 +876,51 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
             "evidence_status": "no_evidence",
         }
+
+    _progress(state, "reading_evidence")
+    if _cancelled(state):
+        return {
+            "answer": "Request cancelled.",
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "qa_path": "cancelled",
+        }
+    if _budget_expired(state, stage="before_tool", fallback="timeout"):
+        return _timeout_result()
+
+    # Common profile questions are served by an explicit, bounded fast-path
+    # registry. The answer still passes the same fail-closed validator below.
+    _progress(state, "running_tool")
+    fast_path = execute_fast_path(
+        question=question,
+        profile_run_id=run_id,
+        workspace_id=state.get("workspace_id"),
+    )
+    if fast_path:
+        _progress(state, "validating")
+        with ai_latency.timed("validation"):
+            fast_validation = validate_answer_evidence(
+                question=question,
+                profile_run_id=run_id,
+                sources=fast_path["sources"],
+                tool_results=fast_path["tool_results"],
+                answer=fast_path["answer"],
+                workspace_id=state.get("workspace_id"),
+            )
+        if fast_validation.valid:
+            return {
+                "answer": _guard_answer(fast_path["answer"]),
+                "answer_sources": fast_path["sources"],
+                "evidence_status": fast_validation.evidence_status,
+                "tool_calls": state.get("tool_calls", 0) + 1,
+                "qa_path": "deterministic_profile",
+                "fast_path_intent": fast_path["intent"],
+                "deterministic_claims": fast_path["claims"],
+                "answerability": "answerable",
+            }
+
+    if _budget_expired(state, stage="after_fast_path", fallback="timeout"):
+        return _timeout_result()
 
     try:
         base_llm = get_llm()
@@ -732,11 +974,17 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         )
         if validation is not None and not validation.valid:
             fallback_answer = insufficient_evidence_answer()
+        # Do not retain a provider/configuration exception in graph state.
+        # Routes turn this branch into the typed public error below.
+        fallback_answer = insufficient_evidence_answer()
         return {
             "answer": fallback_answer,
             "answer_sources": [source] if validation is None or validation.valid else [],
             "evidence_status": "verified" if validation is None or validation.valid else "no_evidence",
             "tool_calls": state.get("tool_calls", 0) + 1,
+            # The API maps this to the safe, actionable provider error rather
+            # than ever delivering a configuration exception to the browser.
+            "error_code": "PROVIDER_UNAVAILABLE",
         }
 
     sources: list[dict[str, Any]] = []
@@ -747,8 +995,16 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     mentioned = (state.get("qa_context") or {}).get("mentioned_columns") or []
     prefetched_evidence: list[dict[str, Any]] = []
     for name, args in _deterministic_qa_tool_specs(question, mentioned):
+        if _cancelled(state):
+            return {
+                "answer": "Request cancelled.",
+                "answer_sources": [],
+                "evidence_status": "no_evidence",
+                "qa_path": "cancelled",
+            }
         if calls_used >= max_calls:
             break
+        _progress(state, "running_tool")
         calls_used += 1
         result = run_tool(name, args, profile_run_id=run_id)
         if isinstance(result, dict):
@@ -778,6 +1034,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         question, sources, tool_results, mentioned
     )
     if deterministic_answer:
+        _progress(state, "validating")
         with ai_latency.timed("validation"):
             validation = validate_answer_evidence(
                 question=question,
@@ -806,6 +1063,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                 "answer_sources": sources,
                 "evidence_status": validation.evidence_status,
                 "tool_calls": state.get("tool_calls", 0) + calls_used,
+                "qa_path": "deterministic_tool",
             }
 
     evidence_started = time.perf_counter()
@@ -815,6 +1073,8 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             "content": BASE_RULES
             + "\n\n"
             + QA_STRUCTURED_PROMPT
+            + "\n\nPresentation detail:\n"
+            + _detail_instruction(state)
             + "\n\nNative skill playbook:\n"
             + skill_guidance(state.get("selected_skill")),
         },
@@ -848,6 +1108,16 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     response: Any = None
 
     for _ in range(max(1, settings.llm_max_tool_rounds)):
+        if _budget_expired(state, stage="tool_or_model", fallback="timeout"):
+            return _timeout_result()
+        if _cancelled(state):
+            return {
+                "answer": "Request cancelled.",
+                "answer_sources": [],
+                "evidence_status": "no_evidence",
+                "qa_path": "cancelled",
+            }
+        _progress(state, "preparing_answer")
         response = invoke_model(llm, messages, prompt_id="qa_structured")
         messages.append(response)
 
@@ -857,6 +1127,13 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
 
         budget_exhausted = False
         for call in tool_calls:
+            if _cancelled(state):
+                return {
+                    "answer": "Request cancelled.",
+                    "answer_sources": [],
+                    "evidence_status": "no_evidence",
+                    "qa_path": "cancelled",
+                }
             name = call.get("name", "")
             args = call.get("args", {}) or {}
             if calls_used >= max_calls:
@@ -872,6 +1149,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                 }
             else:
                 calls_used += 1
+                _progress(state, "running_tool")
                 result = run_tool(name, args, profile_run_id=run_id)
                 if isinstance(result, dict):
                     tool_results.append(
@@ -939,6 +1217,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
         ),
     )
     answer = _guard_answer(response_text(response))
+    _progress(state, "validating")
     with ai_latency.timed("validation"):
         validation = (
             validate_answer_evidence(
@@ -970,6 +1249,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
             else "verified" if evidence_available else "no_evidence"
         ),
         "tool_calls": state.get("tool_calls", 0) + calls_used,
+        "qa_path": "tool_llm",
     }
 
 
@@ -1024,6 +1304,13 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
     qa_context = state.get("qa_context") or {}
     chart_insight = bool(qa_context.get("chart_insight"))
     official_execution = qa_context.get("analysis_execution")
+    if _cancelled(state):
+        return {
+            "answer": "Request cancelled.",
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "qa_path": "cancelled",
+        }
     if qa_context.get("remembered_name"):
         return {
             "answer": _guard_answer(
@@ -1041,6 +1328,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             "evidence_status": "no_evidence",
         }
 
+    _progress(state, "retrieving")
     index = get_index()
     retrieval_started = time.perf_counter()
     def search_profile() -> list[Any]:
@@ -1069,14 +1357,49 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         )
 
     if run_id and settings.retrieval_external_knowledge_enabled and not chart_insight:
-        # Both searches are read-only, scoped to the same workspace, and have
-        # no data dependency. HybridIndex serializes index refresh internally;
-        # the expensive ranking work can therefore overlap safely.
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="qa-retrieval") as pool:
-            profile_future = pool.submit(search_profile)
-            knowledge_future = pool.submit(search_knowledge)
-            profile_hits = profile_future.result()
-            knowledge_hits = knowledge_future.result()
+        # Both searches are read-only and independently scoped. There are
+        # exactly two branches; profile retrieval is required for dataset
+        # claims, while external retrieval is an optional interpretation aid.
+        max_workers = max(1, min(2, int(getattr(settings, "qa_parallel_retrieval_concurrency", 2))))
+        timeout_seconds = float(getattr(settings, "qa_latency_retrieval_timeout_seconds", 8.0))
+        pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="qa-retrieval")
+        profile_started = time.perf_counter()
+        profile_future = pool.submit(search_profile)
+        knowledge_started = time.perf_counter()
+        knowledge_future = pool.submit(search_knowledge)
+
+        def await_branch(future: Any, *, name: str, started: float, required: bool) -> list[Any]:
+            try:
+                try:
+                    result = future.result(timeout=timeout_seconds)
+                except TypeError:  # deterministic benchmark adapter
+                    result = future.result()
+                ai_latency.record_parallel_branch(
+                    name, (time.perf_counter() - started) * 1000, required=required, outcome="completed"
+                )
+                return result
+            except FuturesTimeout:
+                future.cancel()
+                ai_latency.record_parallel_branch(
+                    name, (time.perf_counter() - started) * 1000, required=required, outcome="timeout"
+                )
+                return []
+            except Exception:
+                ai_latency.record_parallel_branch(
+                    name, (time.perf_counter() - started) * 1000, required=required, outcome="failed"
+                )
+                return []
+
+        try:
+            profile_hits = await_branch(profile_future, name="profile_retrieval", started=profile_started, required=True)
+            knowledge_hits = await_branch(knowledge_future, name="external_retrieval", started=knowledge_started, required=False)
+        finally:
+            shutdown = getattr(pool, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    shutdown(wait=False)
     else:
         profile_hits = search_profile()
         knowledge_hits = search_knowledge()
@@ -1102,6 +1425,32 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         profile_hits=profile_hits,
         knowledge_hits=knowledge_hits,
     )
+    if _cancelled(state):
+        return {
+            "answer": "Request cancelled.",
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "qa_path": "cancelled",
+        }
+    if _budget_expired(state, stage="retrieval", fallback="timeout"):
+        return _timeout_result()
+    # External documents can explain a concept, but they cannot substitute
+    # for a run-scoped profile when the question asks for a dataset metric.
+    # This is checked after the deterministic merge so an optional external
+    # outage never blocks a profile-grounded answer.
+    if (
+        run_id
+        and not profile_hits
+        and not chart_insight
+        and any(hint in question.casefold() for hint in _QUANTITATIVE_HINTS)
+    ):
+        return {
+            "answer": insufficient_evidence_answer(),
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "answerability": "insufficient_evidence",
+            "qa_path": "retrieval_profile_missing",
+        }
     hits = profile_hits + knowledge_hits
     # Chart insight can be grounded entirely by the bound Official execution;
     # a missing profile-index hit must not discard that stronger evidence.
@@ -1160,9 +1509,18 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
 
     llm_used = False
     try:
+        if _cancelled(state):
+            return {
+                "answer": "Request cancelled.",
+                "answer_sources": [],
+                "evidence_status": "no_evidence",
+                "qa_path": "cancelled",
+            }
+        _progress(state, "preparing_answer")
         llm = get_llm()
         llm_used = True
         system_prompt = BASE_RULES + "\n\n" + QA_VECTOR_PROMPT
+        system_prompt += "\n\nPresentation detail:\n" + _detail_instruction(state)
         if chart_insight:
             system_prompt += "\n\n" + CHART_INSIGHT_PROMPT
         user_payload: dict[str, Any] = {
@@ -1239,6 +1597,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
     )
     # Retrieval citations are also model proposals.  A citation outside the
     # bounded evidence list is never allowed to reach the API response.
+    _progress(state, "validating")
     with ai_latency.timed("validation"):
         citation_ids = [
             int(item) for item in re.findall(r"\[S(\d+)\]", answer, re.IGNORECASE)
@@ -1256,6 +1615,7 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
         if not invalid_citation and (sources or (chart_insight and official_execution))
         else "no_evidence",
         "tool_calls": state.get("tool_calls", 0) + 1,
+        "qa_path": "retrieval_llm" if llm_used else "retrieval_fallback",
     }
 __all__ = [
     "clarify_node",

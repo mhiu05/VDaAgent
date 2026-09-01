@@ -3,6 +3,25 @@ import { useAnalystWorkspace } from "./workspace-fixture";
 
 test("renders agent report markdown without raw formatting markers", async ({ page }) => {
   await useAnalystWorkspace(page);
+  await page.route("**/api/v1/profile/run-ux-test/summary", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        profile_run_id: "run-ux-test",
+        dataset_id: "dataset-ux-test",
+        dataset_name: "UX test dataset",
+        status: "completed",
+        job_status: "succeeded",
+        scan_mode: "full",
+        row_count: 10,
+        column_count: 2,
+        warning_count: 0,
+        pending_proposals: 0,
+        next_action: "use_results",
+      }),
+    });
+  });
   await page.route("**/api/v1/profile/run-ux-test", async (route) => {
     await route.fulfill({
       status: 200,

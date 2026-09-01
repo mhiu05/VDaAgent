@@ -1,3 +1,5 @@
+import React from "react";
+
 import type { AnswerSource } from "@/lib/types";
 
 function safeHttpUrl(value?: string): string | null {
@@ -67,11 +69,12 @@ export function AnswerSources({ sources }: { sources?: AnswerSource[] }) {
           }
 
           return (
-            <div className="answer-source-card tool" key={`${source.tool}-${source.status}-${idx}`}>
+            <div className="answer-source-card tool" id={`citation-${("citation_id" in source ? source.citation_id : undefined) || `S${idx + 1}`}`} key={`${source.tool}-${source.status}-${idx}`}>
               <div className="answer-source-header">
                 <span className="answer-source-badge tool">⚡ Tool Evidence</span>
                 <span className="answer-source-name">{source.tool} · {source.status}</span>
               </div>
+              {source.profile_run_id && <small className="answer-source-text">Profile Run: {source.profile_run_id}</small>}
             </div>
           );
         })}

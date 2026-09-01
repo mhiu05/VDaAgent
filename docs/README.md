@@ -29,6 +29,8 @@ Bộ tài liệu này mô tả implementation đang có trong repository, không
 - [Connector và storage](./features/connectors-and-storage.md)
 - [Command Center](./features/command-center.md)
 - [QA và evidence](./features/qa-and-evidence.md)
+- [Chat Agent P1 implementation](./features/chat-agent-p1-implementation.md)
+- [Chat Agent P2 implementation](./features/chat-agent-p2-implementation.md)
 - [So sánh drift](./features/drift-comparison.md)
 - [Report](./features/reports.md)
 - [Workspace và quản trị](./features/workspaces-and-admin.md)

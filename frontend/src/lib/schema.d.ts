@@ -24,6 +24,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/datasets/{dataset_id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Dataset Profile
+         * @description Queue one workspace dataset for profiling without running compute in HTTP.
+         */
+        post: operations["create_dataset_profile_api_v1_datasets__dataset_id__profile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Dataset Profiles
+         * @description Bounded batch queue submission; each item remains independently idempotent.
+         */
+        post: operations["create_dataset_profiles_api_v1_datasets_profile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/profiling-jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -56,6 +96,50 @@ export interface paths {
          * @description Đọc hồ sơ đã profiling. Giá trị mẫu của cột PII bị ẩn (eval C-01).
          */
         get: operations["get_profile_api_v1_profile__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/profile/{run_id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Profile Summary
+         * @description Read the lightweight, workspace-scoped Command Center contract.
+         */
+        get: operations["get_profile_summary_api_v1_profile__run_id__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/profiling-jobs/{job_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Profiling Job Events
+         * @description Stream durable profiling-summary milestones for one workspace job.
+         *
+         *     The stream reads the persisted run projection, so reconnecting or refreshing
+         *     always replays the latest state and cannot lose a milestone. No payload
+         *     contains profile details, source data, or another workspace's identifiers.
+         */
+        get: operations["profiling_job_events_api_v1_profiling_jobs__job_id__events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -178,6 +262,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Conversations
+         * @description Return one bounded page of workspace conversations, newest first.
+         */
+        get: operations["list_conversations_api_v1_conversations_get"];
+        put?: never;
+        /**
+         * Create Conversation
+         * @description Create an empty server conversation; never upload browser history.
+         */
+        post: operations["create_conversation_api_v1_conversations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation */
+        get: operations["get_conversation_api_v1_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Conversation */
+        delete: operations["delete_conversation_api_v1_conversations__conversation_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename Conversation */
+        patch: operations["rename_conversation_api_v1_conversations__conversation_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/conversations/{conversation_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Archive Conversation */
+        post: operations["archive_conversation_api_v1_conversations__conversation_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/profile/{run_id}/chat-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Chat Suggestions */
+        get: operations["chat_suggestions_api_v1_profile__run_id__chat_suggestions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/qa/feedback/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Chat Feedback Analytics */
+        get: operations["chat_feedback_analytics_api_v1_qa_feedback_analytics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/qa": {
         parameters: {
             query?: never;
@@ -189,9 +367,29 @@ export interface paths {
         put?: never;
         /**
          * Ask Question
-         * @description Q&A không streaming — tiện cho script và test.
+         * @description Run QA while emitting one PII-safe critical-path latency record.
          */
         post: operations["ask_question_api_v1_qa_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/qa/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Chat Feedback
+         * @description Upsert P2 feedback and its review-only evaluation candidate metadata.
+         */
+        post: operations["submit_chat_feedback_api_v1_qa_feedback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -211,13 +409,71 @@ export interface paths {
          * Ask Question Stream
          * @description Q&A streaming qua SSE.
          *
-         *     Event: `token` (từng đoạn văn bản) → `source` (danh sách nguồn) →
-         *     `done` (kết thúc) | `error`.
-         *
-         *     Nhánh định lượng cần gọi tool nhiều vòng nên không stream token được — nó
-         *     chạy xong rồi phát một lần, còn nhánh định tính stream token thật.
+         *     Emits versioned `status`, `meta`, `source`, `token`, `done`, and `error`
+         *     frames. Tokens are explicitly marked as validated delivery because answers
+         *     are checked against evidence before any answer text is released.
          */
         post: operations["ask_question_stream_api_v1_qa_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/datasource/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Datasource
+         * @description Validate an external source without persisting its credentials.
+         */
+        post: operations["test_datasource_api_v1_datasets_datasource_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/datasource": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Connect Datasource
+         * @description Create a tenant-owned dataset backed by an encrypted external source.
+         */
+        post: operations["connect_datasource_api_v1_datasets_datasource_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/datasource/{connection_id}/use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Use Saved Datasource
+         * @description Create a dataset that reuses an existing encrypted datasource connection.
+         */
+        post: operations["use_saved_datasource_api_v1_datasets_datasource__connection_id__use_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -509,6 +765,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analysis-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Analysis Sessions */
+        get: operations["list_analysis_sessions_api_v1_analysis_sessions_get"];
+        put?: never;
+        /** Create Analysis Session */
+        post: operations["create_analysis_session_api_v1_analysis_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Analysis Session */
+        get: operations["get_analysis_session_api_v1_analysis_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-sessions/{session_id}/context-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Context */
+        post: operations["create_context_api_v1_analysis_sessions__session_id__context_versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-sessions/{session_id}/context-versions/{context_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Context */
+        post: operations["approve_context_api_v1_analysis_sessions__session_id__context_versions__context_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-sessions/{session_id}/quality-gate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Quality Gate */
+        post: operations["run_quality_gate_api_v1_analysis_sessions__session_id__quality_gate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-sessions/{session_id}/quality-issues/{issue_id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge Quality Issue */
+        post: operations["acknowledge_quality_issue_api_v1_analysis_sessions__session_id__quality_issues__issue_id__acknowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-sessions/{session_id}/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Executions */
+        get: operations["list_executions_api_v1_analysis_sessions__session_id__executions_get"];
+        put?: never;
+        /** Execute Analysis */
+        post: operations["execute_analysis_api_v1_analysis_sessions__session_id__executions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/profile/{run_id}/explorer/session": {
         parameters: {
             query?: never;
@@ -540,7 +917,7 @@ export interface paths {
         put?: never;
         /**
          * Auto Plan Chart
-         * @description Turn one business question into a bounded, executable chart plan.
+         * @description Create a chart plan while emitting one safe planner-latency record.
          */
         post: operations["auto_plan_chart_api_v1_profile__run_id__charts_auto_plan_post"];
         delete?: never;
@@ -1028,6 +1405,23 @@ export interface paths {
         patch: operations["reorder_report_items_api_v1_reports__report_id__items_reorder_patch"];
         trace?: never;
     };
+    "/api/v1/reports/{report_id}/draft-title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Report Draft Title */
+        patch: operations["update_report_draft_title_api_v1_reports__report_id__draft_title_patch"];
+        trace?: never;
+    };
     "/api/v1/reports/{report_id}/items/{item_id}": {
         parameters: {
             query?: never;
@@ -1151,6 +1545,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Users
+         * @description Return all users in the system along with stats.
+         */
+        get: operations["list_users_api_v1_admin_users_get"];
+        put?: never;
+        /**
+         * Create User
+         * @description Create an Analyst through the server-side Supabase Admin API.
+         *
+         *     The service-role/secret key is read only by FastAPI and is never accepted
+         *     from or returned to the browser.  The local profile is created only after
+         *     Supabase confirms the identity.
+         */
+        post: operations["create_user_api_v1_admin_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update User Status
+         * @description Lock or unlock a user account.
+         */
+        post: operations["update_user_status_api_v1_admin_users__user_id__status_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update User Role
+         * @description Update role for a user (admin / analyst).
+         */
+        post: operations["update_user_role_api_v1_admin_users__user_id__role_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete User
+         * @description Permanently delete a user account.
+         */
+        delete: operations["delete_user_api_v1_admin_users__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/google-drive/status": {
         parameters: {
             query?: never;
@@ -1195,8 +1677,95 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Google Drive Disconnect */
-        delete: operations["google_drive_disconnect_api_v1_google_drive_connection_delete"];
+        /** Delete Google Drive Connection */
+        delete: operations["delete_google_drive_connection_api_v1_google_drive_connection_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connectors */
+        get: operations["list_connectors_api_v1_connectors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Connector */
+        get: operations["get_connector_api_v1_connectors__connection_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Datasource */
+        delete: operations["delete_datasource_api_v1_connectors__connection_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Saved Datasource */
+        patch: operations["update_saved_datasource_api_v1_connectors__connection_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/connectors/datasource": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save Datasource Connection */
+        post: operations["save_datasource_connection_api_v1_connectors_datasource_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/datasource/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test New Datasource */
+        post: operations["test_new_datasource_api_v1_connectors_datasource_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/{connection_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Saved Datasource */
+        post: operations["test_saved_datasource_api_v1_connectors__connection_id__test_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1311,6 +1880,178 @@ export interface components {
              */
             created_at: string;
         };
+        /** AnalysisSessionCreate */
+        AnalysisSessionCreate: {
+            /** Profile Run Id */
+            profile_run_id: string;
+            /**
+             * Mode
+             * @default quick
+             * @enum {string}
+             */
+            mode: "quick" | "deep";
+            /** Goal */
+            goal: string;
+            /** Decision */
+            decision?: string | null;
+            /** Audience */
+            audience?: string | null;
+            /**
+             * Output
+             * @default answer
+             * @enum {string}
+             */
+            output: "answer" | "report" | "chart";
+            /** Time Scope */
+            time_scope?: {
+                [key: string]: unknown;
+            } | null;
+            /** Population */
+            population?: {
+                [key: string]: unknown;
+            } | null;
+            /** Baseline */
+            baseline?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * AnswerCitation
+         * @description A backend-authored claim-to-source link for structured answer clients.
+         */
+        AnswerCitation: {
+            /** Citation Id */
+            citation_id: string;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "profile_report" | "tool" | "external_knowledge" | "official_execution";
+            /** Claim */
+            claim?: string | null;
+            /** Field */
+            field?: string | null;
+            /** Metric */
+            metric?: string | null;
+            /** Value */
+            value?: number | string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Aggregation */
+            aggregation?: string | null;
+            /** Numerator */
+            numerator?: number | null;
+            /** Denominator */
+            denominator?: number | null;
+            /** Time Window */
+            time_window?: string | null;
+            /** Filters */
+            filters?: {
+                [key: string]: string | number | boolean;
+            } | null;
+            /** Source Artifact */
+            source_artifact?: string | null;
+            /** Source Field */
+            source_field?: string | null;
+            /** Profile Run Id */
+            profile_run_id?: string | null;
+            /** Sample Scope */
+            sample_scope?: ("full" | "sample") | null;
+            /** Rounding */
+            rounding?: number | null;
+            /**
+             * Is Approximate
+             * @default false
+             */
+            is_approximate: boolean;
+        };
+        /**
+         * AnswerEnvelopeV2
+         * @description Additive structured answer contract; ``answer`` remains the V1 fallback.
+         */
+        AnswerEnvelopeV2: {
+            /**
+             * Schema Version
+             * @default v2
+             * @constant
+             */
+            schema_version: "v2";
+            /** Summary */
+            summary?: string | null;
+            /** Findings */
+            findings?: components["schemas"]["AnswerFinding"][];
+            /** Limitations */
+            limitations?: string[];
+            /** Actions */
+            actions?: string[];
+            /**
+             * Evidence Status
+             * @default no_evidence
+             * @enum {string}
+             */
+            evidence_status: "verified" | "profile_only" | "no_evidence";
+            /**
+             * Is Approximate
+             * @default false
+             */
+            is_approximate: boolean;
+            provenance: components["schemas"]["AnswerProvenance"];
+            /**
+             * Answer Detail
+             * @default standard
+             * @enum {string}
+             */
+            answer_detail: "quick" | "standard" | "deep";
+            /**
+             * Answerability
+             * @default answerable
+             * @enum {string}
+             */
+            answerability: "answerable" | "needs_clarification" | "insufficient_evidence";
+            clarification?: components["schemas"]["ClarificationPayload"] | null;
+        };
+        /**
+         * AnswerFinding
+         * @description A concise finding with only explicit, server-derived citations.
+         */
+        AnswerFinding: {
+            /** Text */
+            text: string;
+            /** Citations */
+            citations?: components["schemas"]["AnswerCitation"][];
+        };
+        /**
+         * AnswerProvenance
+         * @description Immutable context used for one answer, not the current UI selection.
+         */
+        AnswerProvenance: {
+            /** Workspace Id */
+            workspace_id?: string | null;
+            /** Dataset Id */
+            dataset_id?: string | null;
+            /** Dataset Name */
+            dataset_name?: string | null;
+            /** Profile Run Id */
+            profile_run_id?: string | null;
+            /** Profile Run Label */
+            profile_run_label?: string | null;
+            /** Scan Mode */
+            scan_mode?: string | null;
+            /** Row Scope */
+            row_scope?: string | null;
+            /** Row Count */
+            row_count?: number | null;
+            /** Profiled At */
+            profiled_at?: string | null;
+            /** Proposal Status */
+            proposal_status?: string | null;
+            /** Context Version Id */
+            context_version_id?: string | null;
+            /** Analysis Execution Id */
+            analysis_execution_id?: string | null;
+            /** Agent Run Id */
+            agent_run_id?: string | null;
+        };
         /**
          * AutoChartPlanRequest
          * @description Business intent supplied by the user; technical choices are agent-owned.
@@ -1403,6 +2144,64 @@ export interface components {
             forecast_horizon?: number | null;
             /** Season Length */
             season_length?: number | null;
+        };
+        /** ChatFeedbackRequest */
+        ChatFeedbackRequest: {
+            /** Agent Run Id */
+            agent_run_id: string;
+            /** Message Id */
+            message_id: string;
+            /**
+             * Polarity
+             * @enum {string}
+             */
+            polarity: "helpful" | "not_helpful";
+            /** Reason Code */
+            reason_code?: ("incorrect" | "missing_detail" | "too_verbose" | "too_short" | "wrong_context" | "bad_citation" | "slow" | "did_not_answer" | "other") | null;
+        };
+        /**
+         * ChatSuggestion
+         * @description A validated UI action, never arbitrary model-generated markup.
+         */
+        ChatSuggestion: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Action Type
+             * @default ask_question
+             * @constant
+             */
+            action_type: "ask_question";
+            /** Question */
+            question: string;
+            /** Referenced Columns */
+            referenced_columns?: string[];
+            /** Source Reason */
+            source_reason: string;
+        };
+        /**
+         * ClarificationOption
+         * @description A server-authored, dataset-backed option for one clarification turn.
+         */
+        ClarificationOption: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+        };
+        /** ClarificationPayload */
+        ClarificationPayload: {
+            /** Question */
+            question: string;
+            /** Options */
+            options?: components["schemas"]["ClarificationOption"][];
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "column" | "metric" | "aggregation" | "context_mismatch" | "scope";
         };
         /** ColumnStatOut */
         ColumnStatOut: {
@@ -1514,6 +2313,221 @@ export interface components {
                 [key: string]: components["schemas"]["ProposalOut"][];
             };
         };
+        /** ConnectorListResponse */
+        ConnectorListResponse: {
+            /** Connectors */
+            connectors?: components["schemas"]["ConnectorOut"][];
+            /** Available */
+            available?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * ConnectorOut
+         * @description Safe connector metadata; secret fields are intentionally absent.
+         */
+        ConnectorOut: {
+            /** Id */
+            id: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "data" | "storage" | "productivity";
+            /** Name */
+            name: string;
+            /**
+             * Owner Scope
+             * @enum {string}
+             */
+            owner_scope: "workspace" | "workspace_user";
+            /** Owner User Id */
+            owner_user_id?: string | null;
+            /** Connected By User Id */
+            connected_by_user_id?: string | null;
+            status: components["schemas"]["ConnectorStatus"];
+            /** Safe Target */
+            safe_target?: {
+                [key: string]: unknown;
+            };
+            /** Last Tested At */
+            last_tested_at?: string | null;
+            /** Last Success At */
+            last_success_at?: string | null;
+            /** Last Error At */
+            last_error_at?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Dataset Count
+             * @default 0
+             */
+            dataset_count: number;
+            /**
+             * Can Test
+             * @default false
+             */
+            can_test: boolean;
+            /**
+             * Can Edit
+             * @default false
+             */
+            can_edit: boolean;
+            /**
+             * Can Disconnect
+             * @default false
+             */
+            can_disconnect: boolean;
+        };
+        /**
+         * ConnectorStatus
+         * @enum {string}
+         */
+        ConnectorStatus: "connected" | "attention_required" | "expired" | "disconnected";
+        /** ConnectorTestResponse */
+        ConnectorTestResponse: {
+            /** Id */
+            id?: string | null;
+            /** Provider */
+            provider: string;
+            /** Ok */
+            ok: boolean;
+            /** Objects */
+            objects?: string[];
+            status: components["schemas"]["ConnectorStatus"];
+            /** Error Code */
+            error_code?: string | null;
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * ContextApprove
+         * @description Empty body: approver attribution comes from the verified JWT.
+         */
+        ContextApprove: Record<string, never>;
+        /** ContextCreate */
+        ContextCreate: {
+            /** Row Grain */
+            row_grain?: string | null;
+            /** Entity */
+            entity?: string | null;
+            /** Keys */
+            keys?: string[];
+            /** Time Column */
+            time_column?: string | null;
+            /** Timezone */
+            timezone?: string | null;
+            /** Dimensions */
+            dimensions?: string[];
+            /** Measures */
+            measures?: string[];
+            /** Ignored Columns */
+            ignored_columns?: string[];
+            /** Limitations */
+            limitations?: string[];
+        };
+        /**
+         * ConversationCreateRequest
+         * @description Create a small, workspace-scoped durable chat aggregate.
+         */
+        ConversationCreateRequest: {
+            /** Id */
+            id?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Active Dataset Id */
+            active_dataset_id?: string | null;
+            /** Active Profile Run Id */
+            active_profile_run_id?: string | null;
+        };
+        /** ConversationDetailOut */
+        ConversationDetailOut: {
+            conversation: components["schemas"]["ConversationOut"];
+            /** Messages */
+            messages?: components["schemas"]["ConversationMessageOut"][];
+            /** Next Before */
+            next_before?: string | null;
+        };
+        /** ConversationMessageOut */
+        ConversationMessageOut: {
+            /** Id */
+            id: string;
+            /** Conversation Id */
+            conversation_id: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "agent";
+            /** Text */
+            text: string;
+            /** Status */
+            status: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Agent Run Id */
+            agent_run_id?: string | null;
+            /** Parent Message Id */
+            parent_message_id?: string | null;
+            /** Retry Of */
+            retry_of?: string | null;
+            /** Regeneration Of */
+            regeneration_of?: string | null;
+            /** Answer Envelope */
+            answer_envelope?: {
+                [key: string]: unknown;
+            } | null;
+            /** Context Snapshot */
+            context_snapshot?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** ConversationOut */
+        ConversationOut: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /** Workspace Id */
+            workspace_id: string;
+            /** Active Dataset Id */
+            active_dataset_id?: string | null;
+            /** Active Profile Run Id */
+            active_profile_run_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Archived At */
+            archived_at?: string | null;
+        };
+        /** ConversationUpdateRequest */
+        ConversationUpdateRequest: {
+            /** Title */
+            title: string;
+        };
         /**
          * DatasetCollectionUpdate
          * @description Logical group label shared by a batch of uploaded datasets.
@@ -1540,6 +2554,95 @@ export interface components {
             last_profiled_at?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** DatasetProfileBatchRequest */
+        DatasetProfileBatchRequest: {
+            /** Dataset Ids */
+            dataset_ids: string[];
+            /** Dataset Name */
+            dataset_name?: string | null;
+            /** Collection Name */
+            collection_name?: string | null;
+            /** Run Name */
+            run_name?: string | null;
+            /** Scan Mode */
+            scan_mode?: ("full" | "sample") | null;
+            sampling?: components["schemas"]["SamplingConfig"] | null;
+        };
+        /** DatasetProfileResponse */
+        DatasetProfileResponse: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** Run Id */
+            run_id: string;
+            /** Job Id */
+            job_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Next Action */
+            next_action: string;
+            /**
+             * Duplicate
+             * @default false
+             */
+            duplicate: boolean;
+            error?: components["schemas"]["ProfileJobError"] | null;
+        };
+        /** DatasourceConnectResponse */
+        DatasourceConnectResponse: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "mysql" | "mongodb" | "duckdb";
+            /** Object Name */
+            object_name?: string | null;
+        };
+        /** DatasourceRequest */
+        DatasourceRequest: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "mysql" | "mongodb" | "duckdb";
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** Name */
+            name: string;
+        };
+        /**
+         * DatasourceReuseRequest
+         * @description Create a dataset from an already saved workspace datasource.
+         */
+        DatasourceReuseRequest: {
+            /** Name */
+            name: string;
+        };
+        /** DatasourceTestResponse */
+        DatasourceTestResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "mysql" | "mongodb" | "duckdb";
+            /** Objects */
+            objects?: string[];
+            /** Detail */
+            detail: string;
         };
         /** DriftFinding */
         DriftFinding: {
@@ -1585,6 +2688,12 @@ export interface components {
             summary: string;
             /** Findings */
             findings?: components["schemas"]["DriftFinding"][];
+        };
+        /** ExecutionCreate */
+        ExecutionCreate: {
+            query: components["schemas"]["QuerySpec"];
+            /** Expected Context Version Id */
+            expected_context_version_id: string;
         };
         /** ExternalKnowledgeSource */
         ExternalKnowledgeSource: {
@@ -1754,6 +2863,8 @@ export interface components {
             dataset_ref?: string | null;
             /** Dataset Name */
             dataset_name?: string | null;
+            /** Collection Name */
+            collection_name?: string | null;
             /** Run Name */
             run_name?: string | null;
             /**
@@ -1786,6 +2897,10 @@ export interface components {
             initial_question?: string | null;
             /** Version */
             version?: number | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
             /** Row Count */
             row_count?: number | null;
             /**
@@ -1880,6 +2995,42 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * ProfileSummaryResponse
+         * @description Lightweight, workspace-scoped state used by the Command Center shell.
+         */
+        ProfileSummaryResponse: {
+            /** Profile Run Id */
+            profile_run_id: string;
+            /** Dataset Id */
+            dataset_id: string;
+            /** Dataset Name */
+            dataset_name?: string | null;
+            /** Status */
+            status: string;
+            /** Job Status */
+            job_status?: string | null;
+            /** Scan Mode */
+            scan_mode?: string | null;
+            /** Row Count */
+            row_count?: number | null;
+            /** Column Count */
+            column_count?: number | null;
+            /**
+             * Warning Count
+             * @default 0
+             */
+            warning_count: number;
+            /**
+             * Pending Proposals
+             * @default 0
+             */
+            pending_proposals: number;
+            /** Context Version Id */
+            context_version_id?: string | null;
+            /** Next Action */
+            next_action: string;
+        };
         /** ProposalDecision */
         ProposalDecision: {
             /**
@@ -1947,11 +3098,34 @@ export interface components {
             role: "user" | "agent";
             /** Text */
             text: string;
+            /** Profile Run Id */
+            profile_run_id?: string | null;
+            /** Context Version Id */
+            context_version_id?: string | null;
         };
         /** QARequest */
         QARequest: {
             /** Question */
             question: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Message Id */
+            message_id?: string | null;
+            /** Assistant Message Id */
+            assistant_message_id?: string | null;
+            /**
+             * Persist User Message
+             * @default true
+             */
+            persist_user_message: boolean;
+            /** Parent Message Id */
+            parent_message_id?: string | null;
+            /** Retry Of */
+            retry_of?: string | null;
+            /** Regeneration Of */
+            regeneration_of?: string | null;
             /**
              * Profile Run Id
              * @description Bỏ trống để tìm trên toàn bộ index.
@@ -1966,8 +3140,20 @@ export interface components {
             analysis_execution_id?: string | null;
             /** Workspace Context Version Id */
             workspace_context_version_id?: string | null;
-            /** Output mode for the Q&A agent */
-            response_mode?: "default" | "chart_insight";
+            /**
+             * Response Mode
+             * @description Output mode for the Q&A agent; chart_insight uses Official execution evidence.
+             * @default default
+             * @enum {string}
+             */
+            response_mode: "default" | "chart_insight";
+            /**
+             * Answer Detail
+             * @description Presentation detail only; it never selects a weaker reasoning path.
+             * @default standard
+             * @enum {string}
+             */
+            answer_detail: "quick" | "standard" | "deep";
             /**
              * Stream
              * @default true
@@ -1978,6 +3164,10 @@ export interface components {
         QAResponse: {
             /** Question */
             question: string;
+            /** Request Id */
+            request_id?: string | null;
+            /** Message Id */
+            message_id?: string | null;
             /** Question Type */
             question_type?: string | null;
             /** Answer */
@@ -2011,6 +3201,27 @@ export interface components {
             trace_summary?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Answer Detail
+             * @default standard
+             * @enum {string}
+             */
+            answer_detail: "quick" | "standard" | "deep";
+            /**
+             * Answerability
+             * @default answerable
+             * @enum {string}
+             */
+            answerability: "answerable" | "needs_clarification" | "insufficient_evidence";
+            clarification?: components["schemas"]["ClarificationPayload"] | null;
+            answer_envelope?: components["schemas"]["AnswerEnvelopeV2"] | null;
+            /** Suggestions */
+            suggestions?: components["schemas"]["ChatSuggestion"][];
+        };
+        /** QualityAcknowledge */
+        QualityAcknowledge: {
+            /** Resolution Note */
+            resolution_note: string;
         };
         /** QuerySpec */
         QuerySpec: {
@@ -2133,6 +3344,11 @@ export interface components {
             item_ids: string[];
             /** Expected Draft Version */
             expected_draft_version: number;
+        };
+        /** ReportDraftTitleUpdate */
+        ReportDraftTitleUpdate: {
+            /** Title */
+            title: string;
         };
         /** ReportPublishInput */
         ReportPublishInput: {
@@ -2332,6 +3548,8 @@ export interface components {
              * @enum {string}
              */
             type: "tool";
+            /** Citation Id */
+            citation_id?: string | null;
             /** Tool */
             tool: string;
             /** Args */
@@ -2407,6 +3625,41 @@ export interface components {
             size_bytes: number;
             /** Suggested Name */
             suggested_name?: string | null;
+        };
+        /** UserCreatePayload */
+        UserCreatePayload: {
+            /** Email */
+            email: string;
+            /** Password */
+            password?: string | null;
+            /**
+             * Send Invite
+             * @default true
+             */
+            send_invite: boolean;
+        };
+        /** UserRolePayload */
+        UserRolePayload: {
+            /**
+             * Role
+             * @description Vai trò hệ thống (analyst hoặc admin)
+             * @enum {string}
+             */
+            role: "analyst" | "admin";
+        };
+        /** UserStatusPayload */
+        UserStatusPayload: {
+            /**
+             * Status
+             * @description Trạng thái tài khoản (active hoặc locked)
+             * @enum {string}
+             */
+            status: "active" | "locked";
+            /**
+             * Reason
+             * @description Lý do khóa tài khoản
+             */
+            reason?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2485,8 +3738,8 @@ export interface operations {
             query?: never;
             header: {
                 "Idempotency-Key": string;
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2517,12 +3770,88 @@ export interface operations {
             };
         };
     };
+    create_dataset_profile_api_v1_datasets__dataset_id__profile_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_dataset_profiles_api_v1_datasets_profile_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetProfileBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetProfileResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_profiling_job_api_v1_profiling_jobs__job_id__get: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 job_id: string;
@@ -2555,8 +3884,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2585,12 +3914,80 @@ export interface operations {
             };
         };
     };
+    get_profile_summary_api_v1_profile__run_id__summary_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    profiling_job_events_api_v1_profiling_jobs__job_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_profile_api_v1_profile__run_id__export_get: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2627,8 +4024,8 @@ export interface operations {
                 sections?: string | null;
             };
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2663,8 +4060,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2700,8 +4097,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2738,8 +4135,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2776,8 +4173,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -2810,12 +4207,299 @@ export interface operations {
             };
         };
     };
+    list_conversations_api_v1_conversations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                archived?: boolean;
+                before?: string | null;
+            };
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_conversation_api_v1_conversations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_api_v1_conversations__conversation_id__get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before?: string | null;
+            };
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_conversation_api_v1_conversations__conversation_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_conversation_api_v1_conversations__conversation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    archive_conversation_api_v1_conversations__conversation_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_suggestions_api_v1_profile__run_id__chat_suggestions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatSuggestion"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_feedback_analytics_api_v1_qa_feedback_analytics_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     ask_question_api_v1_qa_post: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2846,12 +4530,50 @@ export interface operations {
             };
         };
     };
+    submit_chat_feedback_api_v1_qa_feedback_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     ask_question_stream_api_v1_qa_stream_post: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2882,12 +4604,122 @@ export interface operations {
             };
         };
     };
+    test_datasource_api_v1_datasets_datasource_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasourceTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    connect_datasource_api_v1_datasets_datasource_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasourceConnectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    use_saved_datasource_api_v1_datasets_datasource__connection_id__use_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasourceReuseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasourceConnectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_dataset_api_v1_datasets_upload_post: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2922,8 +4754,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2954,8 +4786,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2990,8 +4822,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 dataset_id: string;
@@ -3028,8 +4860,8 @@ export interface operations {
                 limit?: number;
             };
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 dataset_id: string;
@@ -3062,8 +4894,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3096,8 +4928,8 @@ export interface operations {
                 limit?: number;
             };
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3130,8 +4962,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3167,8 +4999,8 @@ export interface operations {
                 limit?: number | null;
             };
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3201,8 +5033,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3235,8 +5067,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3271,8 +5103,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3305,8 +5137,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3339,8 +5171,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 skill_name: string;
@@ -3375,8 +5207,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 skill_name: string;
@@ -3411,12 +5243,356 @@ export interface operations {
             };
         };
     };
+    list_analysis_sessions_api_v1_analysis_sessions_get: {
+        parameters: {
+            query?: {
+                profile_run_id?: string | null;
+            };
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_analysis_session_api_v1_analysis_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisSessionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_analysis_session_api_v1_analysis_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_context_api_v1_analysis_sessions__session_id__context_versions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContextCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_context_api_v1_analysis_sessions__session_id__context_versions__context_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+                context_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContextApprove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_quality_gate_api_v1_analysis_sessions__session_id__quality_gate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    acknowledge_quality_issue_api_v1_analysis_sessions__session_id__quality_issues__issue_id__acknowledge_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QualityAcknowledge"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_executions_api_v1_analysis_sessions__session_id__executions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    execute_analysis_api_v1_analysis_sessions__session_id__executions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     ensure_explorer_session_api_v1_profile__run_id__explorer_session_post: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3451,8 +5627,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3491,8 +5667,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3527,8 +5703,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3564,8 +5740,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3605,8 +5781,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3714,8 +5890,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3781,8 +5957,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3819,8 +5995,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3853,8 +6029,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3887,8 +6063,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -3925,8 +6101,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3961,8 +6137,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 run_id: string;
@@ -3997,8 +6173,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 workspace_id: string;
@@ -4033,8 +6209,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 workspace_id: string;
@@ -4069,8 +6245,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 workspace_id: string;
@@ -4212,8 +6388,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4246,8 +6422,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4280,8 +6456,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4318,8 +6494,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 invitation_id: string;
@@ -4354,8 +6530,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 user_id: string;
@@ -4394,8 +6570,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4428,8 +6604,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -4466,8 +6642,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4502,8 +6678,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4538,8 +6714,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4580,8 +6756,8 @@ export interface operations {
                 sections?: string | null;
             };
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4617,8 +6793,8 @@ export interface operations {
             query?: never;
             header?: {
                 "Idempotency-Key"?: string | null;
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4657,8 +6833,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4693,12 +6869,52 @@ export interface operations {
             };
         };
     };
+    update_report_draft_title_api_v1_reports__report_id__draft_title_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                report_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportDraftTitleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_report_item_api_v1_reports__report_id__items__item_id__delete: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4734,8 +6950,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4775,8 +6991,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4811,8 +7027,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4847,8 +7063,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4887,8 +7103,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4927,8 +7143,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 report_id: string;
@@ -4963,10 +7179,202 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_v1_admin_users_get: {
+        parameters: {
+            query?: {
+                /** @description Tìm kiếm theo email, tên, user ID */
+                search?: string | null;
+                /** @description Lọc theo role (admin, analyst, all) */
+                role?: string | null;
+                /** @description Lọc theo status (active, locked, all) */
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_user_api_v1_admin_users_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCreatePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_status_api_v1_admin_users__user_id__status_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserStatusPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_role_api_v1_admin_users__user_id__role_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserRolePayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_v1_admin_users__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                user_id: string;
+            };
             cookie?: never;
         };
         requestBody?: never;
@@ -4997,8 +7405,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -5031,8 +7439,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -5061,12 +7469,12 @@ export interface operations {
             };
         };
     };
-    google_drive_disconnect_api_v1_google_drive_connection_delete: {
+    delete_google_drive_connection_api_v1_google_drive_connection_delete: {
         parameters: {
             query?: never;
             header?: {
-                authorization?: string | null;
                 "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -5082,6 +7490,257 @@ export interface operations {
                     "application/json": {
                         [key: string]: boolean;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_connectors_api_v1_connectors_get: {
+        parameters: {
+            query?: {
+                include_available?: boolean;
+            };
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_connector_api_v1_connectors__connection_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_datasource_api_v1_connectors__connection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_saved_datasource_api_v1_connectors__connection_id__patch: {
+        parameters: {
+            query?: {
+                expected_version?: number | null;
+            };
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_datasource_connection_api_v1_connectors_datasource_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_new_datasource_api_v1_connectors_datasource_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_saved_datasource_api_v1_connectors__connection_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Workspace-Id"?: string | null;
+                authorization?: string | null;
+            };
+            path: {
+                connection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorTestResponse"];
                 };
             };
             /** @description Validation Error */

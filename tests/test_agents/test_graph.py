@@ -169,6 +169,67 @@ def test_chart_insight_forces_qualitative_route() -> None:
     assert result["qa_context"]["analysis_execution"]["id"] == "execution-1"
 
 
+def test_router_requires_context_confirmation_for_cross_run_follow_up() -> None:
+    result = qa_router_node(
+        {
+            "question": "What about that result?",
+            "profile_run_id": "run-august",
+            "column_names": ["sales", "cost"],
+            "messages": [{"role": "agent", "text": "July sales were reviewed.", "profile_run_id": "run-july"}],
+        }
+    )
+
+    assert result["question_type"] == "clarify"
+    assert result["answerability"] == "needs_clarification"
+    assert result["clarification"]["reason"] == "context_mismatch"
+    assert [item["id"] for item in result["clarification"]["options"]] == ["current_context", "earlier_context"]
+
+
+def test_router_uses_real_columns_for_material_metric_ambiguity() -> None:
+    result = qa_router_node(
+        {
+            "question": "Which revenue metric is best?",
+            "profile_run_id": "run-1",
+            "column_names": ["gross_revenue", "net_revenue", "order_count"],
+            "messages": [],
+        }
+    )
+
+    assert result["question_type"] == "clarify"
+    assert result["clarification"]["reason"] == "metric"
+    assert [item["label"] for item in result["clarification"]["options"]] == [
+        "gross_revenue", "net_revenue", "order_count",
+    ]
+
+
+def test_router_does_not_clarify_when_recent_context_resolves_a_column() -> None:
+    result = qa_router_node(
+        {
+            "question": "Does that column have missing values?",
+            "profile_run_id": "run-1",
+            "column_names": ["sales", "cost"],
+            "messages": [{"role": "user", "text": "Please inspect sales."}],
+        }
+    )
+
+    assert result["question_type"] == "quantitative"
+    assert result["qa_context"]["mentioned_columns"] == ["sales"]
+
+
+def test_router_does_not_clarify_when_question_names_the_metric() -> None:
+    result = qa_router_node(
+        {
+            "question": "What is net_revenue?",
+            "profile_run_id": "run-1",
+            "column_names": ["gross_revenue", "net_revenue", "order_count"],
+            "messages": [],
+        }
+    )
+
+    assert result["question_type"] != "clarify"
+    assert result.get("clarification") is None
+
+
 def test_chart_insight_uses_official_execution_without_retrieval_hits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -290,7 +351,7 @@ def test_structured_qa_enforces_absolute_tool_budget(
 
     result = qa_structured_node(
         {
-            "question": "Có bao nhiêu cột?",
+            "question": "Summarize the unknown operational metric.",
             "profile_run_id": "run-1",
             "qa_context": {},
             "tool_calls": 0,
