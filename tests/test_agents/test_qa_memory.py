@@ -1,3 +1,6 @@
+import pytest
+
+from src.agents.nodes import qa_nodes
 from src.agents.nodes.qa_nodes import (
     _remembered_name,
     _resolve_column_from_history,
@@ -68,6 +71,21 @@ def test_qa_routes_an_english_distribution_suggestion_to_the_bounded_tool_path()
     assert routed["question_type"] == "quantitative"
     assert routed["qa_context"]["mentioned_columns"] == ["Quantity"]
     assert routed["qa_budget_category"] == "deterministic"
+
+
+def test_direct_fast_path_budget_starts_after_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(qa_nodes.time, "perf_counter", lambda: 100.0)
+    state = initial_qa_state("Show the distribution of Quantity.")
+    state["profile_run_id"] = "run-123"
+    state["column_names"] = ["Quantity"]
+    state["qa_started_monotonic"] = 1.0
+
+    routed = qa_router_node(state)
+
+    assert routed["qa_budget_category"] == "deterministic"
+    assert routed["qa_deadline_monotonic"] == 105.0
 
 
 def test_fuzzy_column_suggestions_for_self_correction() -> None:

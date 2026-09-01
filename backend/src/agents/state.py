@@ -104,6 +104,7 @@ class ProfilingState(TypedDict, total=False):
     # --- Control -------------------------------------------------------- #
     tool_calls: int
     error: str | None
+    error_code: str | None
 
 
 def initial_profiling_state(
@@ -157,6 +158,7 @@ def initial_profiling_state(
         answer_sources=[],
         tool_calls=0,
         error=None,
+        error_code=None,
     )
 
 
@@ -191,6 +193,7 @@ def initial_qa_state(
         answer_sources=[],
         tool_calls=0,
         error=None,
+        error_code=None,
         answer_detail=answer_detail,
         answerability="answerable",
         clarification=None,

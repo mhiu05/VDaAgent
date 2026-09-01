@@ -146,9 +146,14 @@ def _budget_seconds(settings: Any, category: str) -> float:
 
 
 def _set_budget(state: ProfilingState, category: str, settings: Any) -> dict[str, Any]:
-    """Choose a product budget after routing without changing QA strategy."""
+    """Choose a product budget after routing without changing QA strategy.
 
-    started = float(state.get("qa_started_monotonic") or time.perf_counter())
+    The stream-level deadline still bounds the whole request. Starting a
+    category budget here prevents router scheduling and graph hand-off from
+    consuming the time reserved for a bounded evidence tool.
+    """
+
+    started = time.perf_counter()
     seconds = _budget_seconds(settings, category)
     ai_latency.set_budget(category, seconds)
     return {
