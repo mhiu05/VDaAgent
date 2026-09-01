@@ -148,6 +148,61 @@ test("review resume surfaces a worker failure instead of waiting forever", async
   await expect(page.getByText("Profile chạy thất bại.")).toBeVisible();
 });
 
+test("review resume keeps polling when report generation outlives the watch warning", async ({ page }) => {
+  await useAnalystWorkspace(page);
+  await page.clock.install();
+  let resumed = false;
+  let workerDone = false;
+  const reviewedProfile = {
+    ...profile,
+    profile_run_id: "review-slow-resume",
+    status: "pending_review",
+    pending_proposals: 1,
+    proposals: {
+      pii: [{
+        id: "proposal-pii-slow-resume",
+        status: "pending",
+        column_name: "email",
+        pii_type: "email",
+        confidence_score: 0.98,
+        detection_method: "rule",
+        evidence: "Email pattern",
+      }],
+    },
+  };
+
+  await page.route("**/api/v1/profile/review-slow-resume/confirm", async (route) => {
+    resumed = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ profile_run_id: "review-slow-resume", applied: 1, pending_proposals: 0, status: "resuming", proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] } }),
+    });
+  });
+  await page.route("**/api/v1/profile/review-slow-resume", async (route) => {
+    const completed = workerDone && resumed;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify(completed
+        ? { ...reviewedProfile, status: "completed", narrative_report: "Profile ready", pending_proposals: 0, proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] } }
+        : resumed
+          ? { ...reviewedProfile, status: "resuming", pending_proposals: 0, proposals: { pii: [{ ...reviewedProfile.proposals.pii[0], status: "confirmed" }] } }
+          : reviewedProfile),
+    });
+  });
+
+  await page.goto("/profiles/review-slow-resume/review");
+  await page.getByLabel("Quyết định").selectOption("confirm");
+  await page.getByRole("button", { name: "Lưu quyết định & tiếp tục pipeline" }).click();
+  await expect(page.getByRole("heading", { name: "Đang tiếp tục profiling" })).toBeVisible();
+
+  await page.clock.fastForward(30 * 60_000 + 1);
+  await expect(page.getByText("Worker chưa hoàn tất báo cáo trong thời gian chờ.", { exact: false })).toBeVisible();
+
+  workerDone = true;
+  await page.clock.runFor(10_000);
+  await expect(page).toHaveURL(/\/profiles\/review-slow-resume\/preview$/);
+});
+
 test("review route shows pending metadata proposals", async ({ page }) => {
   await useAnalystWorkspace(page);
   await page.route("**/api/v1/profile/review-fallback", (route) => route.fulfill({

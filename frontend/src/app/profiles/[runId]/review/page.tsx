@@ -13,7 +13,11 @@ import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, Notice, PageHeade
 import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
 
 const profilingStatuses = new Set(["created", "queued", "running"]);
-const resumeWatchTimeoutMs = 120_000;
+// A resume can outlive one worker lease while another worker recovers it. The
+// queue allows up to three attempts, so the UI must keep watching longer than
+// the five-minute lease instead of treating a slow but healthy worker as
+// failed.
+const resumeWatchTimeoutMs = 30 * 60_000;
 
 function profilePreviewPath(runId: string) {
   return `/profiles/${encodeURIComponent(runId)}/preview`;
@@ -36,7 +40,7 @@ export default function ReviewPage() {
     // polling until the worker reaches the HITL checkpoint or a terminal state.
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return !resumeError && (profilingStatuses.has(status || "") || status === "resuming")
+      return profilingStatuses.has(status || "") || status === "resuming"
         ? 2_500
         : false;
     },
