@@ -321,6 +321,15 @@ jobs:
             -t "$ACR_LOGIN_SERVER/backend:latest" \
             .
 
+      - name: Reclaim runner space before frontend build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The backend dependency layer includes torch and can exhaust the
+          # ephemeral GitHub runner before the independent frontend build.
+          docker buildx prune --all --force
+          docker image prune --all --force
+
       - name: Build and push frontend image
         shell: bash
         env:
