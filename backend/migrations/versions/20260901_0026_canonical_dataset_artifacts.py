@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision = "20260901_0026"
 down_revision = "20260901_0025"
@@ -16,6 +17,41 @@ depends_on = None
 
 BROWSER_ROLES = ("anon", "authenticated")
 BACKEND_ONLY_TABLES = ("dataset_artifacts", "dataset_ingestions")
+
+
+def _has_table(table_name: str) -> bool:
+    return table_name in inspect(op.get_bind()).get_table_names(schema="public")
+
+
+def _has_column(table_name: str, column_name: str) -> bool:
+    return any(
+        column["name"] == column_name
+        for column in inspect(op.get_bind()).get_columns(table_name, schema="public")
+    )
+
+
+def _has_index(table_name: str, index_name: str) -> bool:
+    return any(
+        index["name"] == index_name
+        for index in inspect(op.get_bind()).get_indexes(table_name, schema="public")
+    )
+
+
+def _has_constraint(table_name: str, constraint_name: str) -> bool:
+    inspector = inspect(op.get_bind())
+    constraints = (
+        inspector.get_check_constraints(table_name, schema="public")
+        + inspector.get_foreign_keys(table_name, schema="public")
+        + inspector.get_unique_constraints(table_name, schema="public")
+    )
+    return any(item.get("name") == constraint_name for item in constraints)
+
+
+def _create_index_if_missing(
+    name: str, table_name: str, columns: list[str], **kwargs: object
+) -> None:
+    if not _has_index(table_name, name):
+        op.create_index(name, table_name, columns, **kwargs)
 
 
 def _secure_backend_table(table_name: str) -> None:
@@ -44,74 +80,82 @@ def _secure_backend_table(table_name: str) -> None:
 
 
 def upgrade() -> None:
-    op.add_column(
-        "datasets",
-        sa.Column(
-            "ingestion_status", sa.String(16), nullable=False, server_default="ready"
-        ),
-    )
-    op.create_check_constraint(
-        "ck_datasets_ingestion_status",
-        "datasets",
-        "ingestion_status IN ('uploading', 'importing', 'validating', 'ready', 'failed', 'deleted')",
-    )
+    # Some deployed environments received this additive schema before its
+    # Alembic revision was merged. Guard every object so those databases can
+    # advance their ledger without attempting duplicate DDL.
+    if not _has_column("datasets", "ingestion_status"):
+        op.add_column(
+            "datasets",
+            sa.Column("ingestion_status", sa.String(16), nullable=False, server_default="ready"),
+        )
+    if not _has_constraint("datasets", "ck_datasets_ingestion_status"):
+        op.create_check_constraint(
+            "ck_datasets_ingestion_status",
+            "datasets",
+            "ingestion_status IN ('uploading', 'importing', 'validating', 'ready', 'failed', 'deleted')",
+        )
 
-    op.create_table(
-        "dataset_artifacts",
-        sa.Column("id", sa.String(32), primary_key=True),
-        sa.Column(
-            "dataset_id",
-            sa.String(32),
-            sa.ForeignKey("datasets.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "workspace_id", sa.String(36), sa.ForeignKey("workspaces.id"), nullable=False
-        ),
-        sa.Column("storage_provider", sa.String(16), nullable=False),
-        sa.Column("bucket", sa.String(255)),
-        sa.Column("object_key", sa.String(1024), nullable=False),
-        sa.Column("size_bytes", sa.BigInteger()),
-        sa.Column("content_type", sa.String(255)),
-        sa.Column("content_sha256", sa.String(64)),
-        sa.Column("status", sa.String(16), nullable=False, server_default="pending"),
-        sa.Column("is_current", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("original_filename", sa.String(255)),
-        sa.Column("source_type", sa.String(32), nullable=False),
-        sa.Column("source_metadata", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
-        sa.Column("ingestion_key", sa.String(255), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("ready_at", sa.DateTime(timezone=True)),
-        sa.Column("failed_at", sa.DateTime(timezone=True)),
-        sa.Column("failure_code", sa.String(64)),
-        sa.Column("deleted_at", sa.DateTime(timezone=True)),
-        sa.CheckConstraint(
-            "storage_provider IN ('supabase', 'local')",
-            name="ck_dataset_artifacts_provider",
-        ),
-        sa.CheckConstraint(
-            "status IN ('pending', 'ready', 'failed', 'deleted')",
-            name="ck_dataset_artifacts_status",
-        ),
-        sa.CheckConstraint(
-            "size_bytes IS NULL OR size_bytes >= 0",
-            name="ck_dataset_artifacts_size",
-        ),
-        sa.UniqueConstraint(
-            "storage_provider", "bucket", "object_key", name="uq_dataset_artifacts_object"
-        ),
-        sa.UniqueConstraint(
-            "workspace_id", "ingestion_key", name="uq_dataset_artifacts_ingestion_key"
-        ),
+    if not _has_table("dataset_artifacts"):
+        op.create_table(
+            "dataset_artifacts",
+            sa.Column("id", sa.String(32), primary_key=True),
+            sa.Column(
+                "dataset_id",
+                sa.String(32),
+                sa.ForeignKey("datasets.id", ondelete="CASCADE"),
+                nullable=False,
+            ),
+            sa.Column(
+                "workspace_id", sa.String(36), sa.ForeignKey("workspaces.id"), nullable=False
+            ),
+            sa.Column("storage_provider", sa.String(16), nullable=False),
+            sa.Column("bucket", sa.String(255)),
+            sa.Column("object_key", sa.String(1024), nullable=False),
+            sa.Column("size_bytes", sa.BigInteger()),
+            sa.Column("content_type", sa.String(255)),
+            sa.Column("content_sha256", sa.String(64)),
+            sa.Column("status", sa.String(16), nullable=False, server_default="pending"),
+            sa.Column("is_current", sa.Boolean(), nullable=False, server_default=sa.false()),
+            sa.Column("original_filename", sa.String(255)),
+            sa.Column("source_type", sa.String(32), nullable=False),
+            sa.Column(
+                "source_metadata", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")
+            ),
+            sa.Column("ingestion_key", sa.String(255), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("ready_at", sa.DateTime(timezone=True)),
+            sa.Column("failed_at", sa.DateTime(timezone=True)),
+            sa.Column("failure_code", sa.String(64)),
+            sa.Column("deleted_at", sa.DateTime(timezone=True)),
+            sa.CheckConstraint(
+                "storage_provider IN ('supabase', 'local')",
+                name="ck_dataset_artifacts_provider",
+            ),
+            sa.CheckConstraint(
+                "status IN ('pending', 'ready', 'failed', 'deleted')",
+                name="ck_dataset_artifacts_status",
+            ),
+            sa.CheckConstraint(
+                "size_bytes IS NULL OR size_bytes >= 0",
+                name="ck_dataset_artifacts_size",
+            ),
+            sa.UniqueConstraint(
+                "storage_provider", "bucket", "object_key", name="uq_dataset_artifacts_object"
+            ),
+            sa.UniqueConstraint(
+                "workspace_id", "ingestion_key", name="uq_dataset_artifacts_ingestion_key"
+            ),
+        )
+    _create_index_if_missing("ix_dataset_artifacts_dataset_id", "dataset_artifacts", ["dataset_id"])
+    _create_index_if_missing(
+        "ix_dataset_artifacts_workspace_id", "dataset_artifacts", ["workspace_id"]
     )
-    op.create_index("ix_dataset_artifacts_dataset_id", "dataset_artifacts", ["dataset_id"])
-    op.create_index("ix_dataset_artifacts_workspace_id", "dataset_artifacts", ["workspace_id"])
-    op.create_index(
+    _create_index_if_missing(
         "ix_dataset_artifacts_workspace_status",
         "dataset_artifacts",
         ["workspace_id", "status", "created_at"],
     )
-    op.create_index(
+    _create_index_if_missing(
         "uq_dataset_artifacts_current",
         "dataset_artifacts",
         ["dataset_id"],
@@ -119,63 +163,76 @@ def upgrade() -> None:
         postgresql_where=sa.text("is_current AND status = 'ready'"),
     )
 
-    op.create_table(
-        "dataset_ingestions",
-        sa.Column("id", sa.String(32), primary_key=True),
-        sa.Column(
-            "workspace_id", sa.String(36), sa.ForeignKey("workspaces.id"), nullable=False
-        ),
-        sa.Column("created_by_user_id", sa.String(36), nullable=False),
-        sa.Column("idempotency_key", sa.String(255), nullable=False),
-        sa.Column("request_hash", sa.String(64), nullable=False),
-        sa.Column("kind", sa.String(32), nullable=False),
-        sa.Column(
-            "dataset_id",
-            sa.String(32),
-            sa.ForeignKey("datasets.id", ondelete="CASCADE"),
-        ),
-        sa.Column(
-            "artifact_id",
-            sa.String(32),
-            sa.ForeignKey("dataset_artifacts.id", ondelete="CASCADE"),
-        ),
-        sa.Column("status", sa.String(16), nullable=False, server_default="creating"),
-        sa.Column("expected_size_bytes", sa.BigInteger()),
-        sa.Column("expires_at", sa.DateTime(timezone=True)),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("finalized_at", sa.DateTime(timezone=True)),
-        sa.Column("error_code", sa.String(64)),
-        sa.Column("details", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
-        sa.CheckConstraint(
-            "status IN ('creating', 'pending', 'importing', 'finalized', 'failed', 'expired')",
-            name="ck_dataset_ingestions_status",
-        ),
-        sa.CheckConstraint(
-            "expected_size_bytes IS NULL OR expected_size_bytes >= 0",
-            name="ck_dataset_ingestions_size",
-        ),
-        sa.UniqueConstraint(
-            "workspace_id",
-            "created_by_user_id",
-            "idempotency_key",
-            name="uq_dataset_ingestions_idempotency",
-        ),
+    if not _has_table("dataset_ingestions"):
+        op.create_table(
+            "dataset_ingestions",
+            sa.Column("id", sa.String(32), primary_key=True),
+            sa.Column(
+                "workspace_id", sa.String(36), sa.ForeignKey("workspaces.id"), nullable=False
+            ),
+            sa.Column("created_by_user_id", sa.String(36), nullable=False),
+            sa.Column("idempotency_key", sa.String(255), nullable=False),
+            sa.Column("request_hash", sa.String(64), nullable=False),
+            sa.Column("kind", sa.String(32), nullable=False),
+            sa.Column(
+                "dataset_id",
+                sa.String(32),
+                sa.ForeignKey("datasets.id", ondelete="CASCADE"),
+            ),
+            sa.Column(
+                "artifact_id",
+                sa.String(32),
+                sa.ForeignKey("dataset_artifacts.id", ondelete="CASCADE"),
+            ),
+            sa.Column("status", sa.String(16), nullable=False, server_default="creating"),
+            sa.Column("expected_size_bytes", sa.BigInteger()),
+            sa.Column("expires_at", sa.DateTime(timezone=True)),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+            sa.Column("finalized_at", sa.DateTime(timezone=True)),
+            sa.Column("error_code", sa.String(64)),
+            sa.Column("details", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
+            sa.CheckConstraint(
+                "status IN ('creating', 'pending', 'importing', 'finalized', 'failed', 'expired')",
+                name="ck_dataset_ingestions_status",
+            ),
+            sa.CheckConstraint(
+                "expected_size_bytes IS NULL OR expected_size_bytes >= 0",
+                name="ck_dataset_ingestions_size",
+            ),
+            sa.UniqueConstraint(
+                "workspace_id",
+                "created_by_user_id",
+                "idempotency_key",
+                name="uq_dataset_ingestions_idempotency",
+            ),
+        )
+    _create_index_if_missing(
+        "ix_dataset_ingestions_workspace_id", "dataset_ingestions", ["workspace_id"]
     )
-    op.create_index("ix_dataset_ingestions_workspace_id", "dataset_ingestions", ["workspace_id"])
-    op.create_index("ix_dataset_ingestions_dataset_id", "dataset_ingestions", ["dataset_id"])
-    op.create_index("ix_dataset_ingestions_artifact_id", "dataset_ingestions", ["artifact_id"])
-    op.create_index(
+    _create_index_if_missing(
+        "ix_dataset_ingestions_dataset_id", "dataset_ingestions", ["dataset_id"]
+    )
+    _create_index_if_missing(
+        "ix_dataset_ingestions_artifact_id", "dataset_ingestions", ["artifact_id"]
+    )
+    _create_index_if_missing(
         "ix_dataset_ingestions_stale",
         "dataset_ingestions",
         ["status", "expires_at", "created_at"],
     )
 
-    op.add_column("profile_runs", sa.Column("artifact_id", sa.String(32)))
-    op.create_foreign_key(
-        "fk_profile_runs_artifact_id", "profile_runs", "dataset_artifacts", ["artifact_id"], ["id"]
-    )
-    op.create_index("ix_profile_runs_artifact_id", "profile_runs", ["artifact_id"])
+    if not _has_column("profile_runs", "artifact_id"):
+        op.add_column("profile_runs", sa.Column("artifact_id", sa.String(32)))
+    if not _has_constraint("profile_runs", "fk_profile_runs_artifact_id"):
+        op.create_foreign_key(
+            "fk_profile_runs_artifact_id",
+            "profile_runs",
+            "dataset_artifacts",
+            ["artifact_id"],
+            ["id"],
+        )
+    _create_index_if_missing("ix_profile_runs_artifact_id", "profile_runs", ["artifact_id"])
 
     for table_name in BACKEND_ONLY_TABLES:
         _secure_backend_table(table_name)
