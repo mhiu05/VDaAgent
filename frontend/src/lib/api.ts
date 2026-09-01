@@ -164,6 +164,16 @@ async function authHeaders(headers?: HeadersInit): Promise<Headers> {
   return next;
 }
 
+function isSupabaseAccessToken(token: string | null | undefined): token is string {
+  if (!token) return false;
+  const parts = token.split(".");
+  // Supabase access tokens are compact JWTs. Guest tokens used by the local
+  // fallback also contain two dots, but are deliberately not JWTs.
+  return parts.length === 3
+    && parts[0].startsWith("eyJ")
+    && parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part));
+}
+
 async function fetchWithLocalFallback(path: string, init: RequestInit): Promise<Response> {
   let lastConnectionError: unknown;
   // `localhost` can resolve to a different loopback protocol on Windows.
@@ -952,6 +962,14 @@ function storageTusEndpoint(): string | null {
   return `${url.origin}/storage/v1/upload/resumable`;
 }
 
+function directDatasetUploadsEnabled(): boolean {
+  // Direct TUS upload must be enabled explicitly after the Supabase bucket has
+  // policies that permit the authenticated workspace users to insert objects.
+  // The compatible backend route is the safe default and uses server-only
+  // storage credentials, so a missing Storage RLS policy cannot block uploads.
+  return process.env.NEXT_PUBLIC_DATASET_DIRECT_UPLOAD_ENABLED === "true";
+}
+
 async function uploadDatasetDirect(
   file: File,
   onProgress?: (percent: number) => void,
@@ -959,6 +977,15 @@ async function uploadDatasetDirect(
 ): Promise<UploadResult> {
   const endpoint = storageTusEndpoint();
   if (!endpoint) throw new ApiError("Direct upload is not configured.", 503);
+  // Supabase's signed upload token (x-signature) authorizes the object/path,
+  // while the user's access JWT in Authorization supplies the Storage RLS
+  // identity. Sending only x-signature makes the TUS endpoint reject the
+  // request with either "Invalid Compact JWS" or an opaque 403.
+  const uploadAuth = await authHeaders();
+  const accessToken = uploadAuth.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!isSupabaseAccessToken(accessToken)) {
+    throw new ApiError("Phiên Supabase không hợp lệ cho direct upload.", 401);
+  }
   const idempotencyKey = crypto.randomUUID();
   const session = await request<UploadSession>("/datasets/upload-sessions", {
     method: "POST",
@@ -971,7 +998,14 @@ async function uploadDatasetDirect(
       const upload = new tus.Upload(file, {
         endpoint,
         retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
-        headers: { "x-signature": session.token, "x-upsert": "false" },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+            ? { apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }
+            : {}),
+          "x-signature": session.token,
+          "x-upsert": "false",
+        },
         uploadDataDuringCreation: true,
         removeFingerprintOnSuccess: true,
         metadata: {
@@ -1038,7 +1072,8 @@ export async function uploadDataset(
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
 ): Promise<UploadResult> {
-  if (storageTusEndpoint()) {
+  const currentToken = await authTransport?.accessToken();
+  if (directDatasetUploadsEnabled() && storageTusEndpoint() && isSupabaseAccessToken(currentToken)) {
     return uploadDatasetDirect(file, onProgress, signal);
   }
   const idempotencyKey = crypto.randomUUID();
