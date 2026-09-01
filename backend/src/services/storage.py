@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urljoin, urlsplit
 
 # pyrefly: ignore [missing-import]
 import httpx
@@ -309,6 +309,27 @@ class SupabaseStorage:
     def put(self, local_path: Path, object_path: str, content_type: str | None = None) -> None:
         self.upload(local_path, object_path, content_type)
 
+    @staticmethod
+    def _is_missing_object_response(response: httpx.Response) -> bool:
+        """Recognize Storage's proxied `NoSuchKey` response.
+
+        Some Supabase Storage gateway paths return HTTP 400 while the JSON
+        payload carries the underlying 404 (`code=NoSuchKey`). Treating that
+        response as a hard metadata error prevents the first immutable upload
+        from ever reaching `put()`.
+        """
+        if response.status_code == 404:
+            return True
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        return (
+            response.status_code == 400
+            and isinstance(payload, dict)
+            and str(payload.get("code") or "") == "NoSuchKey"
+        )
+
     def stat(self, object_path: str) -> ObjectStat | None:
         key = self.settings.supabase_backend_key
         try:
@@ -317,11 +338,25 @@ class SupabaseStorage:
                     self._download_url(self.bucket, object_path),
                     headers={"Authorization": f"Bearer {key}", "apikey": key},
                 )
+                # HEAD deliberately has no response body, so for a gateway
+                # 400 we issue a one-byte GET solely to distinguish NoSuchKey
+                # from a genuine authorization/configuration failure.
+                if response.status_code == 400:
+                    probe = client.get(
+                        self._download_url(self.bucket, object_path),
+                        headers={
+                            "Authorization": f"Bearer {key}",
+                            "apikey": key,
+                            "Range": "bytes=0-0",
+                        },
+                    )
+                    if self._is_missing_object_response(probe):
+                        return None
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
             raise StorageDownloadError(
                 "Supabase Storage is temporarily unavailable.", retryable=True
             ) from exc
-        if response.status_code == 404:
+        if self._is_missing_object_response(response):
             return None
         if response.status_code >= 400:
             raise StorageDownloadError(
@@ -348,9 +383,19 @@ class SupabaseStorage:
             raise StorageUploadError("Supabase Storage returned an invalid upload authorization.")
         token = str(result.get("token") or "")
         signed_url = str(result.get("signedURL") or result.get("signed_url") or "")
-        if not token and signed_url:
-            token = signed_url.rstrip("/").rsplit("/", 1)[-1]
-        if not token:
+        # storage3 versions differ: some return ``token`` explicitly while
+        # others only return a signed URL whose query string contains the JWS.
+        # The final path segment is the object path, not an upload token; using
+        # it as x-signature makes Storage respond with ``Invalid Compact JWS``.
+        if token.count(".") != 2 and signed_url:
+            token = (parse_qs(urlsplit(signed_url).query).get("token") or [""])[0]
+        if token.count(".") != 2 and signed_url:
+            # Keep compatibility with SDKs that put the token in the path, but
+            # never accept an arbitrary filename/path as the JWS.
+            path_token = urlsplit(signed_url).path.rstrip("/").rsplit("/", 1)[-1]
+            if path_token.count(".") == 2:
+                token = path_token
+        if token.count(".") != 2:
             raise StorageUploadError("Supabase Storage did not return an upload token.")
         return {"token": token, "signed_url": signed_url}
 

@@ -56,6 +56,106 @@ def _supabase_storage() -> storage.SupabaseStorage:
     return instance
 
 
+class _SignedUploadStorageClient:
+    def __init__(self, result: dict[str, str]) -> None:
+        self.result = result
+        self.storage = self
+
+    def from_(self, _bucket: str) -> _SignedUploadStorageClient:
+        return self
+
+    def create_signed_upload_url(self, _object_path: str) -> dict[str, str]:
+        return self.result
+
+
+class _MetadataResponse:
+    def __init__(self, status_code: int, payload: object | None = None) -> None:
+        self.status_code = status_code
+        self.headers: dict[str, str] = {}
+        self.payload = payload
+
+    def json(self) -> object:
+        if self.payload is None:
+            raise ValueError("empty response")
+        return self.payload
+
+
+class _MetadataClient:
+    head_response: _MetadataResponse
+    get_response: _MetadataResponse | None = None
+    get_headers: dict[str, str] | None = None
+
+    def __init__(self, *, timeout: int) -> None:
+        self.timeout = timeout
+
+    def __enter__(self) -> _MetadataClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def head(self, _url: str, *, headers: dict[str, str]) -> _MetadataResponse:
+        return type(self).head_response
+
+    def get(self, _url: str, *, headers: dict[str, str]) -> _MetadataResponse:
+        type(self).get_headers = headers
+        assert type(self).get_response is not None
+        return type(self).get_response
+
+
+def test_create_signed_upload_extracts_jws_from_signed_url_query() -> None:
+    signed_url = (
+        "https://project.storage.supabase.co/storage/v1/object/upload/sign/"
+        "datasets/workspace/file.csv?token=header.payload.signature"
+    )
+    instance = _supabase_storage()
+    instance.bucket = "datasets"
+    instance.client = _SignedUploadStorageClient({"signedURL": signed_url})
+
+    result = instance.create_signed_upload("workspace/file.csv")
+
+    assert result == {"token": "header.payload.signature", "signed_url": signed_url}
+
+
+def test_create_signed_upload_does_not_use_object_path_as_token() -> None:
+    instance = _supabase_storage()
+    instance.bucket = "datasets"
+    instance.client = _SignedUploadStorageClient(
+        {"signedURL": "https://project.storage.supabase.co/object/sign/datasets/file.csv"}
+    )
+
+    with pytest.raises(storage.StorageUploadError, match="upload token"):
+        instance.create_signed_upload("datasets/file.csv")
+
+
+def test_stat_treats_proxied_no_such_key_as_missing(monkeypatch) -> None:
+    _MetadataClient.head_response = _MetadataResponse(400)
+    _MetadataClient.get_response = _MetadataResponse(
+        400, {"statusCode": "404", "code": "NoSuchKey", "message": "Object not found"}
+    )
+    _MetadataClient.get_headers = None
+    monkeypatch.setattr(storage.httpx, "Client", _MetadataClient)
+    instance = _supabase_storage()
+    instance.bucket = "datasets"
+
+    assert instance.stat("workspace/missing.csv") is None
+    assert _MetadataClient.get_headers is not None
+    assert _MetadataClient.get_headers["Range"] == "bytes=0-0"
+
+
+def test_stat_does_not_mask_other_storage_400(monkeypatch) -> None:
+    _MetadataClient.head_response = _MetadataResponse(400)
+    _MetadataClient.get_response = _MetadataResponse(
+        400, {"code": "InvalidJWT", "message": "Invalid Compact JWS"}
+    )
+    monkeypatch.setattr(storage.httpx, "Client", _MetadataClient)
+    instance = _supabase_storage()
+    instance.bucket = "datasets"
+
+    with pytest.raises(storage.StorageDownloadError, match="metadata"):
+        instance.stat("workspace/missing.csv")
+
+
 def test_download_to_file_streams_chunks_without_sdk_bytes(tmp_path: Path, monkeypatch) -> None:
     response = _StreamResponse([b"abc", b"def", b"ghi"])
     _StreamClient.response = response
