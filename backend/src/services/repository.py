@@ -5119,6 +5119,25 @@ class Repository:
                 )
             ]
 
+            # Conversation context pointers are nullable foreign keys with
+            # NO ACTION semantics. Detach them before deleting either the
+            # profile runs or the dataset, otherwise PostgreSQL rejects the
+            # otherwise valid dataset deletion with a foreign-key violation.
+            conversation_filter = conversations.c.active_dataset_id == dataset_id
+            if run_ids:
+                conversation_filter = or_(
+                    conversation_filter,
+                    conversations.c.active_profile_run_id.in_(run_ids),
+                )
+            conn.execute(
+                conversations.update()
+                .where(
+                    conversations.c.workspace_id == workspace_id,
+                    conversation_filter,
+                )
+                .values(active_dataset_id=None, active_profile_run_id=None)
+            )
+
             if run_ids:
                 for table in PROPOSAL_TABLES.values():
                     conn.execute(
