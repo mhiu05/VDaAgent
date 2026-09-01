@@ -133,7 +133,7 @@ Inventory truy cập bảng được khai báo trong [`database_access_policy.py
 - [Profiling Job bất đồng bộ](docs/architecture/async-profiling-jobs.md)
 - [Phân tích có giới hạn](docs/architecture/bounded-execution.md)
 - [Agent, QA, retrieval và evidence](docs/architecture/agent-system.md)
-- [Chat Agent P0](docs/features/chat-agent-p0-implementation.md), [P1](docs/features/chat-agent-p1-implementation.md) và [P2](docs/features/chat-agent-p2-implementation.md)
+- [Agent system, QA, retrieval và evidence](docs/architecture/agent-system.md), bao gồm capability Chat Agent P0–P2
 - [Report Draft và snapshot](docs/architecture/report-draft-snapshots.md)
 - [Authentication/authorization](docs/security/authentication-and-authorization.md)
 - [Cô lập workspace và privacy](docs/security/workspace-isolation-and-privacy.md)

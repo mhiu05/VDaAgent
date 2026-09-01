@@ -1,13 +1,15 @@
 # Migration cơ sở dữ liệu
 
-Alembic là nguồn sự thật schema cho production. Migration hiện là một chuỗi tuyến tính từ baseline `20260812_0000` đến head `20260831_0022`.
+> Đã kiểm tra theo chuỗi migration hiện có ngày 2026-09-01.
+
+Alembic là nguồn sự thật schema cho production. Migration hiện là một chuỗi tuyến tính từ baseline `20260812_0000` đến head `20260901_0026`.
 
 ## Quy tắc
 
 - Mọi thay đổi schema production phải có revision Alembic.
 - Không dùng `create_all` hoặc ALTER tự phát trong production runtime.
 - Revision phải nâng cấp được từ head trước và tạo được database mới từ rỗng.
-- Downgrade phải rõ ràng; thay đổi hủy dữ liệu cần kế hoạch riêng.
+- Downgrade phải rõ ràng; migration `20260901_0026` cố ý dùng no-op downgrade để không xóa artifact/provenance, nên rollback schema phải theo kế hoạch archive/restore riêng.
 - Dùng `DATABASE_MIGRATION_URL` cho release khi migration cần connection khác app; nếu trống, Alembic dùng `DATABASE_URL`.
 
 Repository local/test hiện vẫn gọi `create_all` và một số additive compatibility migration để hỗ trợ test/legacy. Hành vi đó không phải chiến lược triển khai production.
@@ -33,11 +35,11 @@ Không autogenerate rồi merge mù quáng; kiểm tra constraint, index, RLS, g
 
 ## Kiểm thử migration
 
-CI chạy:
+CI/workflow hiện chạy:
 
 ```powershell
 python scripts/migration_smoke.py
-python -m pytest -q tests/test_database_migrations.py tests/test_database_security.py
+python -m pytest -q tests/test_database_security.py
 ```
 
 Smoke test bao gồm database mới và đường upgrade từ revision cũ được hỗ trợ. Trước release, chạy `alembic check` và kiểm tra chỉ có một head.
@@ -54,6 +56,12 @@ python scripts/adopt_legacy_database.py --stamp
 Stamp không chạy DDL; nó chỉ ghi version. Không dùng để bỏ qua một schema chưa tương thích.
 
 ## Ranh giới Supabase Data API
+
+Các revision bảo mật và dữ liệu gần nhất:
+
+- `20260831_0022`: đóng ranh giới Supabase Data API;
+- `20260831_0023`–`20260901_0025`: idempotency và metadata cho Chat Agent P2;
+- `20260901_0026`: canonical `dataset_artifacts`/`dataset_ingestions` và bind artifact vào profile run.
 
 Revision `20260831_0022`:
 

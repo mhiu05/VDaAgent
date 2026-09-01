@@ -1,5 +1,7 @@
 # Agent, QA, retrieval và evidence
 
+> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-01.
+
 ## Profiling graph
 
 LangGraph tại [`backend/src/agents/graph.py`](../../backend/src/agents/graph.py) điều phối workflow cố định:

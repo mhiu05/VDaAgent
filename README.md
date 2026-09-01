@@ -101,8 +101,7 @@ OpenAPI chỉ mở ở development/test tại `http://localhost:8000/docs`; back
 
 - [Cổng tài liệu](docs/README.md)
 - [Tổng quan kiến trúc](ARCHITECTURE.md)
-- [Chat Agent P0–P2: trạng thái implementation](docs/features/chat-agent-p0-implementation.md)
-- [Chat Agent P2: lưu trữ, cache và verifier](docs/features/chat-agent-p2-implementation.md)
+- [Agent system, QA, retrieval và evidence](docs/architecture/agent-system.md) (bao gồm Chat Agent P0–P2)
 - [Kiến trúc hệ thống chi tiết](docs/architecture/system-overview.md)
 - [Phát triển và kiểm thử local](docs/development/local-development-and-testing.md)
 - [Cấu hình vận hành](docs/operations/configuration.md)

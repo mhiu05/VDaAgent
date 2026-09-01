@@ -1,5 +1,7 @@
 # Tổng quan hệ thống
 
+> Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-01.
+
 ## Mục tiêu và nguyên tắc
 
 VDaAgent hỗ trợ Analyst đi từ một nguồn dữ liệu dạng bảng đến profile, phân tích, câu trả lời và report có thể kiểm chứng. Implementation hiện tại giữ năm nguyên tắc:
@@ -89,7 +91,8 @@ QA router chọn guardrail, clarification, structured tool hoặc retrieval. Too
 
 ```text
 user_profiles ──< workspace_memberships >── workspaces
-workspaces ──< datasets ──< profile_runs
+workspaces ──< datasets ──< dataset_artifacts / dataset_ingestions
+datasets ──< profile_runs (mỗi run có thể bind artifact_id bất biến)
 profile_runs ──< column_stats / proposals / tests / drift_reports
 workspaces ──< analysis_sessions ──< semantic_context_versions
 analysis_sessions ──< quality_gate_runs / quality_issues / query_executions

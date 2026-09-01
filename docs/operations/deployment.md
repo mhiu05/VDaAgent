@@ -1,84 +1,61 @@
 # Triển khai Azure
 
-Production dùng ba Azure App Service container và Azure Container Registry:
+> Đã đối chiếu trực tiếp với `.github/workflows/azure-container-deploy.yml` ngày 2026-09-01.
 
-| Thành phần | App hiện tại | Image |
+Production chạy ba Azure App Service container và một Azure Container Registry (ACR):
+
+| Thành phần | Tên hiện tại | Image/port |
 | --- | --- | --- |
-| API | `p170-api-08140037` | `backend:<git-sha>` |
-| Profiling worker | biến repo `AZURE_PROFILING_WORKER_APP` | cùng backend image |
-| Frontend | `p170-web-08140019` | `frontend:<git-sha>` |
+| API | `vdaagent-api` | `backend:<commit-sha>` / 8000 |
+| Profiling worker | repository variable `AZURE_PROFILING_WORKER_APP` | cùng backend image / health 8000 |
+| Frontend | `vdaagent` | `frontend:<commit-sha>` / 8080 |
 
-Resource group là `rg-p170-hieu`; registry là `p170acr08140037.azurecr.io`.
+Workflow đặt resource group `rg-p170-linh-260829`, ACR `p170linh260829acr` và URL mặc định `https://vdaagent-api.azurewebsites.net` (API), `https://vdaagent.azurewebsites.net` (frontend).
 
 ## Workflow
 
 Nguồn sự thật là `.github/workflows/azure-container-deploy.yml`.
 
-- Pull request và workflow thủ công chạy quality gate trừ khi manual input `skip_quality` được bật.
-- Push trực tiếp lên `main` hiện bỏ qua hai quality job theo điều kiện workflow và đi tới release.
+- Pull request và `workflow_dispatch` chạy backend/frontend quality gate; manual run có thể chọn `skip_quality`.
+- Push vào `main` deploy theo điều kiện workflow; hai quality job bị skip trên push trực tiếp. Branch protection/PR gate phải bảo đảm kiểm thử trước release.
 - Pull request không deploy.
-- Release dùng hosted Ubuntu runner, đăng nhập Azure bằng GitHub OIDC và tag image bằng immutable commit SHA cùng `latest`.
-
-Vì push `main` không tự chạy quality job, branch protection/PR gate phải là lớp bắt buộc nếu muốn đảm bảo test trước mọi release.
+- Job `changes` chỉ bật deploy khi có thay đổi backend/frontend, Dockerfile, requirements Azure hoặc workflow.
+- Release dùng self-hosted runner, OIDC Azure, image tag bất biến theo commit SHA và thêm tag `latest`.
 
 ## Quality gate
 
-Backend:
-
-- Ruff;
-- migration smoke với PostgreSQL 16;
-- pytest;
-- evaluation contract dry-run/offline.
-
-Frontend:
-
-- pnpm install khóa bằng lockfile;
-- Vitest;
-- typecheck;
-- ESLint;
-- production build;
-- Playwright Chromium.
+Backend: Ruff, PostgreSQL migration smoke, toàn bộ pytest và evaluation dry-run/offline. Frontend: pnpm frozen-lockfile, Vitest, typecheck, ESLint, production build và Playwright Chromium.
 
 ## Thứ tự release
 
-1. validate secret/variable production;
-2. build và push backend image;
-3. build và push frontend image;
-4. chạy Alembic tới head bằng backend image cùng SHA;
-5. cấu hình/deploy API;
-6. cấu hình/deploy worker với startup `python -m src.workers.profiling_worker --health-port 8000`;
-7. cấu hình/deploy frontend với `node server.js`;
-8. restart cả ba app;
-9. chờ `/health` của API, worker và frontend trả 200.
+1. Validate secret/variable production.
+2. Build/push backend và frontend image lên ACR.
+3. Chạy `alembic upgrade head` bằng backend image cùng SHA.
+4. Cấu hình/deploy API và worker; worker chạy `python -m src.workers.profiling_worker --health-port 8000`.
+5. Cấu hình/deploy frontend với `node server.js` trên port 8080.
+6. Restart cả ba app và chờ health API, worker, frontend trả HTTP 200.
 
-Migration lỗi sẽ chặn deployment. API và worker luôn phải dùng cùng backend SHA.
+Migration lỗi hoặc health check thất bại sẽ chặn release. API và worker phải dùng cùng backend SHA.
 
 ## Secret và variable
 
-Bắt buộc gồm Azure OIDC, ACR pull credential, database URL, Supabase secret/public config, `CANONICAL_STORAGE_PROVIDER=supabase`, bucket và datasource encryption key. Drive client ID, secret, folder và token encryption key chỉ cần khi bật connector Google Drive; thiếu Drive không làm API/worker unhealthy. Worker app name là repository variable, không phải secret.
+Workflow yêu cầu Azure OIDC (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`), ACR pull credential, `DATABASE_URL`, `SUPABASE_SECRET_KEY`, datasource encryption key và Supabase public build config. `AZURE_PROFILING_WORKER_APP` là repository variable. LLM/Google Drive/LangSmith là tùy chọn theo path sử dụng, nhưng provider LLM cần key hợp lệ khi bật.
 
-LLM key là bắt buộc về mặt chức năng khi provider cần nó, dù bước validate hiện không đưa `LLM_API_KEY` vào danh sách hard-required. Hãy kiểm tra trước release.
-
-Workflow hiện còn thông báo lỗi trỏ tới file đã xóa `docs/azure-deploy-cicd.md`; tài liệu hiện hành là trang này.
+Backend production luôn đặt `AUTH_MODE=supabase`, `CANONICAL_STORAGE_PROVIDER=supabase`, Supabase issuer/audience, bucket `p170-dataset`, CORS frontend và `AGENT_TRACE_MODE=shadow`. Không đưa database URL, secret key, token connector hay LLM key vào frontend.
 
 ## Rollback
 
-- Chọn SHA image đã chạy ổn trước đó cho cả API và worker; chọn frontend SHA tương thích.
-- Không dùng force-push hay sửa lịch sử Git để rollback.
-- Nếu schema backward-compatible, rollback container trước.
-- Nếu schema không backward-compatible, thực hiện restore/downgrade theo runbook migration đã review.
-- Sau rollback, kiểm tra ba health endpoint, login, queue/worker và một truy vấn workspace-scoped.
+- Chọn lại commit-SHA image tương thích cho API, worker và frontend.
+- Không force-push và không rollback schema bằng cách sửa tay.
+- Nếu schema không tương thích ngược, dùng migration/restore plan đã review.
+- Sau rollback kiểm tra health, đăng nhập, workspace-scoped query, queue/worker và SSE terminal event.
 
 ## Kiểm tra sau deploy
 
-Ngoài health, nên xác minh:
+```powershell
+curl https://vdaagent-api.azurewebsites.net/health
+curl https://vdaagent.azurewebsites.net/health
+python scripts/reconcile_storage.py --workspace-id <synthetic-workspace>
+```
 
-- `GET /api/v1/status` không lộ secret;
-- auth Supabase và email confirmation;
-- tạo/upload một synthetic dataset;
-- finalize upload hai lần và xác nhận chỉ có một dataset/artifact;
-- worker claim và hoàn tất job;
-- SSE terminal event;
-- QA abstain/verified đúng contract;
-- browser role không đọc được bảng domain qua Data API.
-- chạy `python scripts/reconcile_storage.py --workspace-id <synthetic-workspace>` ở chế độ báo cáo.
+Nên chạy thêm synthetic upload/finalize, profiling, QA verified/abstain và assertion browser role không đọc bảng domain qua Supabase Data API. Chi tiết OIDC/ACR nằm trong chính workflow; không dùng tài liệu Azure cũ với tên app khác.

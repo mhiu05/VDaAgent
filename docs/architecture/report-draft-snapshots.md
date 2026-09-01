@@ -1,5 +1,7 @@
 # Report Draft và snapshot bất biến
 
+> Đã đối chiếu với report routes/service và PDF renderer hiện tại ngày 2026-09-01.
+
 ## Mô hình hai lớp
 
 Mỗi report có:
@@ -58,4 +60,4 @@ List/get handler hiện không giới hạn tuyệt đối ở published report;
 - Draft/snapshot: [`backend/src/services/report_draft_repository.py`](../../backend/src/services/report_draft_repository.py).
 - Lifecycle: [`backend/src/services/report_service.py`](../../backend/src/services/report_service.py).
 - Persistence: [`backend/src/services/repository.py`](../../backend/src/services/repository.py).
-- Frontend/PDF: [`frontend/src/app/reports/`](../../frontend/src/app/reports/), [PDF route](../../frontend/src/app/api/reports/profile/%5BrunId%5D/route.ts).
+- Frontend/PDF: [`frontend/src/app/reports/`](../../frontend/src/app/reports/), [PDF route](../../frontend/src/app/api/reports/profile/[runId]/route.ts).

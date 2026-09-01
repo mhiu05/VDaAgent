@@ -1,10 +1,12 @@
 # Command Center và phân tích tương tác
 
+> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-01.
+
 Command Center là giao diện phân tích một profiling run đã có dữ liệu. Tính năng này kết hợp phiên phân tích có trạng thái, planner an toàn, preview giới hạn, kết quả Official và các biểu đồ tái lập được.
 
 ## Luồng sử dụng
 
-1. Mở một profiling run trong `/datasets/{datasetId}/profile/{runId}/command-center`.
+1. Bắt đầu hoặc mở một profiling run trong `/profiles/{runId}/review`; sau khi run hoàn tất, hệ thống chuyển sang `/profiles/{runId}/preview`. Preview hiển thị tóm tắt Agent và dẫn tới `/charts?runId={runId}`.
 2. Frontend tạo hoặc lấy explorer session bằng `POST /api/v1/profile/{run_id}/explorer/session`.
 3. Người dùng chọn cột, bộ lọc và phép phân tích hoặc yêu cầu hệ thống lập kế hoạch biểu đồ.
 4. Backend tạo một context version bất biến cho lần phân tích.
@@ -55,7 +57,7 @@ Frontend giới hạn tối đa 12 biểu đồ trong một plan. Trạng thái 
 
 ## Nguồn triển khai
 
-- `frontend/src/app/profiles/[runId]/page.tsx`
+- `frontend/src/app/profiles/[runId]/review/page.tsx`
 - `frontend/src/components/command-center/`
 - `backend/src/api/analysis_routes.py`
 - `backend/src/services/analysis_engine.py`

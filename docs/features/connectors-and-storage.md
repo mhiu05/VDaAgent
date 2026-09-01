@@ -1,5 +1,7 @@
 # Connector, upload và storage
 
+> Đã đối chiếu với connector, ingestion và canonical artifact implementation ngày 2026-09-01.
+
 VDaAgent tách connector metadata, thông tin xác thực và dữ liệu nguồn. Trình duyệt không nhận database credential hoặc storage secret; backend là bên duy nhất kết nối nguồn và đọc object.
 
 ## Nguồn dữ liệu được hỗ trợ
@@ -24,7 +26,7 @@ Credential được mã hóa trước khi lưu. Response chỉ trả metadata đ
 
 ## Upload và materialization
 
-Upload production ưu tiên session hai bước: backend tạo object key theo workspace và signed upload authorization ngắn hạn, browser gửi file thẳng tới Supabase Storage, rồi backend verify size/object và finalize. `POST /api/v1/datasets/upload` vẫn là API tương thích và cũng tạo cùng canonical artifact. Backend không trả service-role credential cho browser.
+Upload mặc định đi qua API backend, backend stream file tới canonical storage bằng credential server-only. Cách này hoạt động khi bucket Supabase chưa có policy RLS cho browser. Có thể bật session hai bước/direct TUS bằng `NEXT_PUBLIC_DATASET_DIRECT_UPLOAD_ENABLED=true` **sau khi** bucket đã cho phép user đã xác thực insert object theo scope phù hợp. Khi bật TUS, browser gửi signed token qua `x-signature` cùng access JWT của user qua `Authorization`; guest/local token luôn dùng API upload tương thích. Cả hai luồng đều tạo cùng canonical artifact và backend không trả service-role credential cho browser.
 
 Drive và database connector được materialize trong ingestion, upload vào canonical storage rồi mới chuyển dataset sang `ready`. Khi profiling bắt đầu:
 
@@ -50,7 +52,8 @@ Tên object phải nằm dưới prefix theo workspace/dataset. Download qua bac
 
 - `CANONICAL_STORAGE_PROVIDER` (`supabase` production, `local` development/test)
 - `SUPABASE_STORAGE_BUCKET`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`
-- `APP_DATA_DIR`, `SECURITY_MAX_UPLOAD_MB`
+- `APP_DATA_DIR`, `SECURITY_MAX_UPLOAD_MB` (mặc định 500 MB cho workspace xác thực; guest dùng `GUEST_MAX_UPLOAD_MB`, mặc định 25 MB)
+- `NEXT_PUBLIC_DATASET_DIRECT_UPLOAD_ENABLED` (mặc định `false`; chỉ bật khi đã cấu hình Supabase Storage RLS cho browser)
 - `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REDIRECT_URI`
 - khóa mã hóa connector credential
 

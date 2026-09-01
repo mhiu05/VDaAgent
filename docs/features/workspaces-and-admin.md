@@ -1,5 +1,7 @@
 # Workspace, membership và quản trị
 
+> Đã đối chiếu với authz/admin routes và capability policy hiện tại ngày 2026-09-01.
+
 Workspace là ranh giới tenant chính. Mọi dataset, profile run, connector, analysis session, agent run, report và audit record phải được truy cập qua workspace đã xác thực.
 
 ## Phiên và onboarding

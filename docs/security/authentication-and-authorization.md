@@ -1,5 +1,7 @@
 # Xác thực và phân quyền
 
+> Đã đối chiếu với auth middleware và capability registry hiện tại ngày 2026-09-01.
+
 Production dùng Supabase Auth để phát JWT, nhưng mọi quyết định truy cập domain được thực thi trong FastAPI/PostgreSQL.
 
 ## Xác thực production

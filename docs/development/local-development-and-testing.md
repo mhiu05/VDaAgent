@@ -1,5 +1,7 @@
 # Phát triển và kiểm thử local
 
+> Đã đối chiếu với Makefile, package scripts, test harness và CI hiện tại ngày 2026-09-01.
+
 ## Yêu cầu
 
 - Python 3.11;

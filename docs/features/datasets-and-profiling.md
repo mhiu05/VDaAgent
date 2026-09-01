@@ -1,5 +1,7 @@
 # Dataset và profiling
 
+> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-01.
+
 Dataset là metadata của một nguồn dạng bảng; profile run là một lần phân tích cụ thể trên dataset đó. Một dataset có thể có nhiều run để so sánh theo thời gian.
 
 ## Tạo dataset
@@ -12,6 +14,8 @@ Người dùng có thể:
 
 Sau khi tạo dataset, `POST /api/v1/datasets/{dataset_id}/profile` tạo job bất đồng bộ và trả HTTP 202. Batch endpoint `POST /api/v1/datasets/profile` nhận từ 1 đến 20 dataset. `POST /api/v1/profile` là contract profiling trực tiếp dùng cho các luồng tương thích.
 
+API upload mặc định stream file qua backend vào canonical storage. Ingestion session là luồng direct TUS tùy chọn: `POST /api/v1/datasets/upload-sessions` tạo artifact pending và `POST /api/v1/datasets/upload-sessions/{ingestion_id}/finalize` verify object rồi chuyển artifact hiện tại sang `ready`. Idempotency key được ràng buộc theo workspace/user; finalize lặp lại phải trả cùng artifact hoặc lỗi conflict an toàn.
+
 Client nên gửi idempotency key dài 8–255 ký tự khi có khả năng retry.
 
 ## Trạng thái
@@ -19,7 +23,8 @@ Client nên gửi idempotency key dài 8–255 ký tự khi có khả năng retr
 Job và kết quả domain là hai trạng thái khác nhau:
 
 - job: queued, running, succeeded hoặc failed;
-- profile run: queued, profiling, pending_review, completed hoặc failed.
+- profile run: created/queued/running, pending_review, resuming, completed hoặc failed;
+- dataset ingestion: uploading/importing/validating/ready/failed/deleted; artifact: pending/ready/failed/deleted.
 
 Job có thể `succeeded` trong khi run vẫn `pending_review`. Đây là trạng thái hợp lệ: tính toán đã xong nhưng metadata cần người dùng xác nhận. Sau confirm, worker được requeue để tiếp tục graph.
 

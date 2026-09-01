@@ -1,5 +1,7 @@
 # Tóm tắt bàn giao VDaAgent (P-170)
 
+> Snapshot implementation được kiểm tra ngày 2026-09-01. Nội dung phản ánh code/migration/test hiện có, không phải cam kết SLA hay trạng thái production.
+
 Trang này chụp trạng thái implementation tại ngày 2026-09-01 để maintainer biết hệ thống thực sự làm gì và điểm nào chưa phải product guarantee. Cổng tài liệu là [docs/README.md](README.md), còn kiến trúc cấp cao ở [../ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## Luồng sản phẩm hiện tại
@@ -9,7 +11,7 @@ Trang này chụp trạng thái implementation tại ngày 2026-09-01 để main
 3. API chỉ tạo Profile Run/queue record khi dataset ready và snapshot chính xác `artifact_id`; worker retry luôn dùng artifact đó.
 4. DuckDB profile source file-backed, lưu aggregate/proposal và dừng ở HITL khi còn review.
 5. Analyst confirm/reject/edit/request test; resume cũng được đưa lại vào durable queue.
-6. Profile completed có thể mở Command Center, tạo chart plan, Preview và Official execution.
+6. Profile completed mở `/profiles/{runId}/preview` để xem tóm tắt Agent; từ preview có thể đi tới `/charts?runId={runId}` để tạo chart plan, Preview và Official execution.
 7. Chat Agent trả lời qua REST hoặc `chat_stream.v1` SSE. Fast path/tool/retrieval đều đi qua validator evidence; lịch sử server chỉ tạo khi analyst gửi một turn mới.
 8. Chat P2 lưu conversation/message theo workspace, sinh gợi ý deterministic từ aggregate an toàn và nhận feedback có reason code; cache đủ điều kiện phải tái chạy tool và tái validate trước khi trả lời.
 9. Drift so sánh các thống kê đã lưu; report pin evidence vào draft, snapshot rồi export PDF.
@@ -23,7 +25,7 @@ Trang này chụp trạng thái implementation tại ngày 2026-09-01 để main
 - Storage: Supabase Storage là canonical production; Google Drive là optional import connector; local là development/test adapter.
 - Authentication: Supabase JWT ở production; `dual`/guest là compatibility hoặc trial path.
 - Deployment: Azure App Service containers + ACR qua workflow GitHub Actions.
-- Migration head: `20260901_0025`, gồm durable P2 chat continuity và canonical dataset artifact/ingestion metadata.
+- Migration head: `20260901_0026`, gồm durable P2 chat metadata và canonical dataset artifact/ingestion metadata.
 
 ## Giới hạn mặc định đáng nhớ
 
@@ -46,9 +48,7 @@ Giá trị hiệu lực luôn là environment override → `config.yaml` → cod
 
 ## Chat Agent P0–P2 đã phản ánh
 
-- **P0:** `chat_stream.v1` có stage thực tế và cancellation hợp tác; answer V2 tách conclusion/findings/evidence/limitations, có provenance bất biến và fast path deterministic. Xem [báo cáo P0](features/chat-agent-p0-implementation.md).
-- **P1:** có message actions, immutable per-answer context, recovery/replay có kiểu, idempotent agent run, budget cho retrieval/latency, mức độ chi tiết, clarification có cấu trúc và semantic numeric validation. Xem [báo cáo P1](features/chat-agent-p1-implementation.md).
-- **P2:** có durable conversation history theo tenant, Profile Run suggestions deterministic, feedback/evaluation candidates idempotent, semantic cache được revalidate và high-risk verifier ở shadow mode. Xem [báo cáo P2](features/chat-agent-p2-implementation.md).
+- **Chat Agent hiện tại:** `chat_stream.v1` có stage thực tế và cancellation hợp tác; answer V2 tách conclusion/findings/evidence/limitations, có provenance bất biến và fast path deterministic. Các capability P1/P2 (message actions, recovery/replay, durable conversation, suggestions, feedback, semantic cache và verifier shadow) được mô tả tập trung trong [Agent system](architecture/agent-system.md).
 - Profiling CSV/TSV/Parquet/JSON chạy aggregate trực tiếp trong DuckDB trên file tạm; full DataFrame không còn được giữ cho pipeline chính.
 - Remote source được stream với byte limit và cleanup; statistical test chỉ reload các cột được yêu cầu.
 - Candidate-key và data-quality QA có deterministic prefetch/render path; validator fail-closed kiểm tra workspace/run, artifact, citation và số trong answer.

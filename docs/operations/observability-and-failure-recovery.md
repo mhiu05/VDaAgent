@@ -1,5 +1,7 @@
 # Quan sát và khôi phục lỗi
 
+> Đã đối chiếu với health route, telemetry và worker recovery hiện tại ngày 2026-09-01.
+
 Observability của VDaAgent dựa trên structured log, request correlation, audit record, agent trace và health endpoint. Không ghi raw dataset, credential, bearer token hoặc prompt chứa PII vào log.
 
 ## Health và trạng thái
