@@ -52,7 +52,7 @@ export function ProfileReviewPanel({ runId, onClose }: Props) {
   if (profile.isLoading) return <LoadingBlock label="Đang tải đề xuất cần review…" />;
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
   if (!profile.data) return <Notice tone="warning">Không thể tải review cho profile run này.</Notice>;
-  if (!pending.length && profile.data.status === "resuming") return <Notice tone="info"><b>Đã lưu quyết định.</b><p>Profile đang tiếp tục; Command Center sẽ tự chuyển sang Ready.</p></Notice>;
+  if (!pending.length && profile.data.status === "resuming") return <Notice tone="info"><b>Đã lưu quyết định.</b><p>Profile đang tiếp tục; không gian phân tích sẽ mở khi báo cáo sẵn sàng.</p></Notice>;
   if (!pending.length) return <Notice tone="info">Không còn proposal chờ review.</Notice>;
 
   return <section className="panel inline-review-panel" aria-label="Review đề xuất metadata">

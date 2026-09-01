@@ -143,7 +143,7 @@ export function DatasourceConnector({
         dataset_name: connected.name,
         scan_mode: "sample",
       }, crypto.randomUUID());
-      router.push(`/profiles/${job.profiling_run_id}`);
+      router.push(`/profiles/${job.profiling_run_id}/review`);
     } catch (reason) {
       setError(reason);
     } finally {

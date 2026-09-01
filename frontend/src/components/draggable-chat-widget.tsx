@@ -625,7 +625,7 @@ export function DraggableChatWidget({
     }
     if (recoveryAction === "open_profiling_status") {
       const profileRunId = message.answerEnvelope?.provenance.profile_run_id || message.context?.profileRunId;
-      if (profileRunId) window.location.assign(`/profiles/${encodeURIComponent(profileRunId)}`);
+      if (profileRunId) window.location.assign(`/profiles/${encodeURIComponent(profileRunId)}/review`);
       return;
     }
     document.getElementById("widget-profile-run")?.focus();

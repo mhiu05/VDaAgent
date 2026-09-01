@@ -1,31 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
-import { ApiError, confirmProposals, getProfile, waitForProfileReady } from "@/lib/api";
+import { ApiError, confirmProposals, getProfile } from "@/lib/api";
 import { profileQueryKey, profileSummaryQueryKey, profilingJobQueryKey } from "@/lib/profile-query-keys";
 import { finalValueOptions, pendingReviewProposals, proposalLabel, proposalValue, reviewDecisions, reviewSelectionsComplete, type ReviewSelection } from "@/lib/profile-review";
 import { formatPercent, toTitle } from "@/lib/format";
 import { EmptyState, ErrorNotice, LoadingBlock, LoadingButton, Notice, PageHeader, ProgressSteps, StatusBadge } from "@/components/ui";
 import type { Profile, Proposal, ProposalDecisionType, ProposalKind } from "@/lib/types";
 
-function profileReturnPath(runId: string) {
-  const fallback = `/profiles/${runId}`;
-  const value = new URLSearchParams(window.location.search).get("returnTo");
-  if (!value) return fallback;
+const profilingStatuses = new Set(["created", "queued", "running"]);
+const resumeWatchTimeoutMs = 120_000;
 
-  try {
-    const target = new URL(value, window.location.origin);
-    const allowedPath = target.pathname === fallback || target.pathname === "/chat";
-    return target.origin === window.location.origin && allowedPath
-      ? `${target.pathname}${target.search}${target.hash}`
-      : fallback;
-  } catch {
-    return fallback;
-  }
+function profilePreviewPath(runId: string) {
+  return `/profiles/${encodeURIComponent(runId)}/preview`;
 }
 
 export default function ReviewPage() {
@@ -34,20 +25,51 @@ export default function ReviewPage() {
   const client = useQueryClient();
   const { me, isGuest, workspaceId } = useAuth();
   const [selections, setSelections] = useState<Record<string, ReviewSelection>>({});
+  const [resumeError, setResumeError] = useState<Error | null>(null);
+  const [resumeWatch, setResumeWatch] = useState(false);
   const reviewRequestKey = useRef<string | null>(null);
-  const awaitingNarrative = useRef(false);
   const profile = useQuery({
     queryKey: profileQueryKey(workspaceId, runId),
     queryFn: ({ signal }) => getProfile(runId, signal),
     enabled: Boolean(runId && workspaceId),
-    // After an in-page submit, `waitForProfileReady()` is the sole poller.
-    // A refreshed legacy review route still polls until it observes a terminal
-    // result, preserving the fallback route without duplicate full-profile GETs.
-    refetchInterval: (query) => query.state.data?.status === "resuming" && !awaitingNarrative.current ? 2_000 : false,
+    // The review route is also the landing page for a newly queued run. Keep
+    // polling until the worker reaches the HITL checkpoint or a terminal state.
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return !resumeError && (profilingStatuses.has(status || "") || status === "resuming")
+        ? 2_500
+        : false;
+    },
   });
   const pending = useMemo(() => pendingReviewProposals(profile.data), [profile.data]);
   const reviewerName = me?.user.email || (isGuest ? "Phiên dùng thử" : "Tài khoản đăng nhập hiện tại");
   const reviewerRole = "analyst";
+
+  useEffect(() => {
+    if (profile.data?.status !== "resuming" || pending.length > 0 || resumeError || resumeWatch) return;
+    setResumeWatch(true);
+  }, [pending.length, profile.data?.status, resumeError, resumeWatch]);
+
+  useEffect(() => {
+    if (!resumeWatch || profile.data?.status !== "resuming" || pending.length > 0) return;
+    const timeout = window.setTimeout(() => {
+      setResumeWatch(false);
+      setResumeError(new ApiError("Worker chưa hoàn tất báo cáo trong thời gian chờ. Hãy kiểm tra worker rồi thử lại.", 408));
+    }, resumeWatchTimeoutMs);
+    return () => window.clearTimeout(timeout);
+  }, [pending.length, profile.data?.status, resumeWatch]);
+
+  useEffect(() => {
+    if (!profile.data || profile.data.status !== "completed" || pending.length > 0) return;
+    if (resumeError && !profile.data.narrative_report?.trim()) return;
+    if (resumeWatch && !profile.data.narrative_report?.trim()) {
+      setResumeWatch(false);
+      setResumeError(new ApiError("Profile đã hoàn tất nhưng chưa có nội dung báo cáo để mở.", 502));
+      return;
+    }
+    router.replace(profilePreviewPath(runId));
+  }, [pending.length, profile.data, resumeError, resumeWatch, router, runId]);
+
   const mutation = useMutation({
     onMutate: async () => {
       // A pre-review GET must not finish after PATCH and restore stale pending
@@ -59,9 +81,6 @@ export default function ReviewPage() {
       decisions: reviewDecisions(pending, selections),
     }, reviewRequestKey.current || (reviewRequestKey.current = crypto.randomUUID())),
     onError: async (error) => {
-      // An error thrown while waiting after a successful PATCH must leave the
-      // user here; the profile query above will keep tracking the worker.
-      if (awaitingNarrative.current) return;
       // The DB transaction may have committed even when the PATCH response
       // was lost or a duplicate request raced the first click. Reconcile once
       // with the authoritative profile before showing an error.
@@ -73,14 +92,15 @@ export default function ReviewPage() {
           items.some((proposal) => proposal.status === "pending"),
         );
         if (!stillPending && latest.pending_proposals === 0) {
+          client.setQueryData(profileQueryKey(workspaceId, runId), latest);
           if (latest.status === "completed" && latest.narrative_report?.trim()) {
-            client.setQueryData(profileQueryKey(workspaceId, runId), latest);
-            router.replace(profileReturnPath(runId));
+            router.replace(profilePreviewPath(runId));
           } else if (latest.status === "resuming") {
-            awaitingNarrative.current = true;
-            const ready = await waitForProfileReady(runId);
-            client.setQueryData(profileQueryKey(workspaceId, runId), ready);
-            router.replace(profileReturnPath(runId));
+            setResumeError(null);
+            setResumeWatch(true);
+          } else if (latest.status === "completed") {
+            setResumeWatch(false);
+            setResumeError(new ApiError("Profile đã hoàn tất nhưng chưa có nội dung báo cáo để mở.", 502));
           }
         }
       } catch {
@@ -88,28 +108,22 @@ export default function ReviewPage() {
         // fails; the user can retry with the same idempotency key.
       }
     },
-    onSuccess: async (confirmed) => {
+    onSuccess: (confirmed) => {
       // This is a backend response, not optimistic UI state. It immediately
       // replaces the fields that decide whether review is still required.
+      setResumeError(null);
       client.setQueryData<Profile>(profileQueryKey(workspaceId, runId), (current) => current && ({
         ...current,
         status: confirmed.status,
         pending_proposals: confirmed.pending_proposals,
         ...(confirmed.proposals ? { proposals: confirmed.proposals } : {}),
       }));
-      // Keep the user on this review page while the durable worker resumes the
-      // checkpoint and generates the narrative. Redirecting immediately made
-      // the profile page look finished while the summary was still pending.
       if (confirmed.pending_proposals === 0 && confirmed.status === "resuming") {
-        awaitingNarrative.current = true;
-        const ready = await waitForProfileReady(runId);
-        client.setQueryData(profileQueryKey(workspaceId, runId), ready);
+        setResumeWatch(true);
       }
       client.invalidateQueries({ queryKey: profilingJobQueryKey(workspaceId, runId) });
       client.invalidateQueries({ queryKey: profileSummaryQueryKey(workspaceId, runId) });
       reviewRequestKey.current = null;
-      awaitingNarrative.current = false;
-      router.replace(profileReturnPath(runId));
     },
   });
 
@@ -142,12 +156,53 @@ export default function ReviewPage() {
   if (profile.isError) return <ErrorNotice error={profile.error} retry={() => profile.refetch()} />;
   if (!profile.data) return <EmptyState title="Không có profile" detail="Không thể bắt đầu review vì run không còn tồn tại." />;
 
+  if (profilingStatuses.has(profile.data.status)) return <>
+    <PageHeader
+      eyebrow={`PROFILING · ${profile.data.run_name || `Phiên bản v${profile.data.version ?? "—"}`}`}
+      title="Đang chuẩn bị review"
+      description="Profiling đang được xử lý. Khi checkpoint metadata sẵn sàng, trang này sẽ tự hiển thị các proposal cần bạn quyết định."
+      action={<Link className="button secondary" href={`/datasets/${encodeURIComponent(profile.data.dataset_id)}/runs`}>Quay lại profile runs</Link>}
+    />
+    <Notice tone="info"><b>Profiling đang được xử lý.</b><p>Không cần gửi lại yêu cầu. Trang sẽ tự chuyển sang review ngay khi engine hoàn tất checkpoint.</p></Notice>
+    <section className="panel review-submit-panel">
+      <div className="inline-actions"><StatusBadge status={profile.data.status} /><span className="muted">Profile run: {profile.data.profile_run_id}</span></div>
+      <ProgressSteps steps={["Xếp hàng profiling", "Tính metric", "Chuẩn bị review"]} activeStep={profile.data.status === "running" ? 1 : 0} detail="Worker đang xử lý báo cáo. Bạn có thể đóng trang; tiến trình đã được lưu bền vững." />
+    </section>
+  </>;
+
+  if (profile.data.status === "resuming" && pending.length === 0) return <>
+    <PageHeader
+      eyebrow={`REVIEW ĐÃ LƯU · ${profile.data.run_name || `Phiên bản v${profile.data.version ?? "—"}`}`}
+      title="Đang tiếp tục profiling"
+      description="Quyết định metadata đã được lưu. Hệ thống đang hoàn tất báo cáo trước khi mở không gian phân tích."
+      action={<Link className="button secondary" href={`/datasets/${encodeURIComponent(profile.data.dataset_id)}/runs`}>Quay lại profile runs</Link>}
+    />
+    {resumeError && <ErrorNotice error={resumeError} retry={() => { setResumeError(null); setResumeWatch(true); void profile.refetch(); }} />}
+    <Notice tone="info"><b>Đang tiếp tục profile sau review.</b><p>Trang sẽ tự chuyển sang không gian phân tích khi báo cáo sẵn sàng.</p></Notice>
+    <section className="panel review-submit-panel"><ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Hoàn tất báo cáo"]} activeStep={1} detail="Worker đang xử lý checkpoint; bạn không cần gửi lại thao tác." /></section>
+  </>;
+
+  if (profile.data.status === "failed") return <>
+    <PageHeader
+      eyebrow={`PROFILING THẤT BẠI · ${profile.data.run_name || `Phiên bản v${profile.data.version ?? "—"}`}`}
+      title="Profiling chưa hoàn tất"
+      description="Profile run này không thể hoàn tất. Hãy quay lại danh sách profile run để bắt đầu lại sau khi kiểm tra dataset."
+      action={<Link className="button secondary" href={`/datasets/${encodeURIComponent(profile.data.dataset_id)}/runs`}>Quay lại profile runs</Link>}
+    />
+    <Notice tone="warning"><b>Profile chạy thất bại.</b><p>Hãy kiểm tra dataset và tạo một profile run mới.</p></Notice>
+  </>;
+
+  if (profile.data.status === "completed" && pending.length === 0) {
+    if (resumeError) return <ErrorNotice error={resumeError} retry={() => { setResumeError(null); setResumeWatch(true); void profile.refetch(); }} />;
+    return <LoadingBlock label="Đang mở không gian phân tích…" />;
+  }
+
   return <>
     <PageHeader
       eyebrow={`KIỂM DUYỆT METADATA · ${profile.data.run_name || `Phiên bản v${profile.data.version ?? "—"}`}`}
       title="Xác nhận metadata"
       description="Bạn quyết định metadata nào được dùng cho báo cáo và các bước phân tích sau đó."
-      action={<><Link className="button secondary" href={`/chat?profile=${runId}`}>Quay lại không gian Agent</Link><Link className="button secondary" href={`/profiles/${runId}`}>Quay lại báo cáo</Link></>}
+      action={<><Link className="button secondary" href={`/chat?profile=${runId}`}>Quay lại không gian Agent</Link><Link className="button secondary" href={`/datasets/${encodeURIComponent(profile.data.dataset_id)}/runs`}>Quay lại profile runs</Link></>}
     />
     {mutation.isError && <ErrorNotice error={mutation.error} />}
     <Notice tone="info"><b>Trạng thái workflow</b><p><StatusBadge status={profile.data.status} /> {profile.data.status === "pending_review" ? "Đang chờ quyết định của Analyst." : profile.data.status === "resuming" ? "Đang tiếp tục checkpoint." : "Kết quả cuối đã được lưu."}</p>{profile.data.answer && <p><b>Câu trả lời:</b> {profile.data.answer}</p>}</Notice>
@@ -165,7 +220,7 @@ export default function ReviewPage() {
         <ProgressSteps steps={["Lưu quyết định", "Tiếp tục pipeline", "Tạo tóm tắt agent", "Cập nhật profile"]} activeStep={2} detail="Worker đang hoàn tất checkpoint; trang này sẽ tự cập nhật." />
       </section>
     ) : pending.length === 0 ? (
-      <EmptyState title="Không còn proposal chờ review" detail="Bạn có thể quay lại báo cáo profile để xem metadata đã được xử lý." action={<Link href={`/profiles/${runId}`} className="button primary">Xem báo cáo</Link>} />
+      <EmptyState title="Không còn proposal chờ review" detail="Metadata đã được xử lý. Bạn có thể xem preview báo cáo trước khi mở không gian phân tích." action={<Link href={profilePreviewPath(runId)} className="button primary">Xem preview báo cáo</Link>} />
     ) : (
       <div className="grid" style={{ gap: 18 }}>
         {(["candidate_key", "semantic_type", "pii"] as ProposalKind[]).map((kind) => {

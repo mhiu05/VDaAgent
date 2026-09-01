@@ -54,7 +54,7 @@ export default function DatasetRunsPage() {
       const job = await createProfile(payload, profileSubmission.current.key);
       profileSubmission.current = null;
       setIsCreateModalOpen(false);
-      router.push(`/profiles/${job.profiling_run_id}`);
+      router.push(`/profiles/${job.profiling_run_id}/review`);
     } catch (error) {
       setProfileError(error);
       setProfiling(false);
@@ -85,7 +85,7 @@ export default function DatasetRunsPage() {
     {exportError && <ErrorNotice error={exportError} />}
     {Boolean(profileError) && !isCreateModalOpen && <ErrorNotice error={profileError} retry={() => void profileNewVersion()} />}
     {runs.data?.length === 0 && <EmptyState title="Chưa có profile run" detail="Bộ dữ liệu này chưa được profiling thành công. Hãy tạo phiên profiling mới để bắt đầu." />}
-    {!!runs.data?.length && <section className="panel"><div className="table-wrap"><table><thead><tr><th>Phiên profiling</th><th>Trạng thái</th><th>Scan</th><th>Số dòng</th><th>Thời điểm</th><th /></tr></thead><tbody>{runs.data.map((run) => <tr key={run.id}><td><b>{run.run_name || `Phiên bản v${run.version ?? "—"}`}</b><br /><small>Phiên bản v{run.version ?? "—"} · ID được quản lý nội bộ</small></td><td><StatusBadge status={run.status} /></td><td>{run.scan_mode || "—"}{run.is_approximate && " ≈"}</td><td>{formatNumber(run.row_count)}</td><td>{formatDate(run.created_at)}</td><td><div className="inline-actions"><Link href={`/profiles/${run.id}`} className="button secondary">Xem hồ sơ</Link>{run.status === "completed" && <LoadingButton type="button" className="button primary" busy={exportingRunId === run.id} disabled={exportingRunId !== null} onClick={() => void exportReport(run.id)}>{exportingRunId === run.id ? "Đang tạo báo cáo…" : "Xuất báo cáo"}</LoadingButton>}</div></td></tr>)}</tbody></table></div></section>}
+    {!!runs.data?.length && <section className="panel"><div className="table-wrap"><table><thead><tr><th>Phiên profiling</th><th>Trạng thái</th><th>Scan</th><th>Số dòng</th><th>Thời điểm</th><th /></tr></thead><tbody>{runs.data.map((run) => { const destination = run.status === "completed" ? `/profiles/${run.id}/preview` : `/profiles/${run.id}/review`; const label = run.status === "completed" ? "Xem preview" : "Theo dõi profiling"; return <tr key={run.id}><td><b>{run.run_name || `Phiên bản v${run.version ?? "—"}`}</b><br /><small>Phiên bản v{run.version ?? "—"} · ID được quản lý nội bộ</small></td><td><StatusBadge status={run.status} /></td><td>{run.scan_mode || "—"}{run.is_approximate && " ≈"}</td><td>{formatNumber(run.row_count)}</td><td>{formatDate(run.created_at)}</td><td><div className="inline-actions"><Link href={destination} className="button secondary">{label}</Link>{run.status === "completed" && <LoadingButton type="button" className="button primary" busy={exportingRunId === run.id} disabled={exportingRunId !== null} onClick={() => void exportReport(run.id)}>{exportingRunId === run.id ? "Đang tạo báo cáo…" : "Xuất báo cáo"}</LoadingButton>}</div></td></tr>; })}</tbody></table></div></section>}
 
     {isCreateModalOpen && <div className="profile-modal-backdrop" role="presentation" onClick={closeCreateModal}>
       <section className="profile-modal" role="dialog" aria-modal="true" aria-labelledby="new-profile-run-title" onClick={(event) => event.stopPropagation()}>

@@ -490,19 +490,9 @@ export default function ChatPage() {
       }
       const job = await createProfile(payload, profileSubmission.current.key);
       localStorage.setItem(ACTIVE_PROFILE_JOB_KEY, job.job_id);
-      await waitForProfilingJob(job.job_id, undefined, 30 * 60_000, (nextJob) => {
-        const stage = (nextJob.stage || "").toLocaleLowerCase("vi");
-        const nextProgress = nextJob.status === "succeeded" ? 100 : stage.includes("queue") ? 25 : stage.includes("profile") || stage.includes("scan") || stage.includes("compute") ? 60 : nextJob.status === "running" ? 45 : 30;
-        setProfileProgress(nextProgress);
-        setProfileStage(nextJob.status === "queued" ? "Đang chờ worker xử lý" : nextJob.status === "running" ? (nextJob.stage || "Đang tính profile") : "Đang hoàn thiện kết quả");
-      });
-      setProfileProgress(90); setProfileStage("Đang tải kết quả profile");
-      const result = await getProfile(job.profiling_run_id);
-      localStorage.removeItem(ACTIVE_PROFILE_JOB_KEY);
       profileSubmission.current = null;
-      setProfile(result); setProfileLoading(false); setProfileProgress(100); setProfileStage("Profiling đã hoàn tất"); setSelectedFile(null); setSelectedDatasetId(result.dataset_id); setSelectedRunId(result.profile_run_id);
-      addMessage("agent", result.pending_proposals > 0 ? `Profile đã sẵn sàng. Tôi đã tính ${result.row_count?.toLocaleString() || "—"} dòng và ${result.column_count} cột. Có ${result.pending_proposals} đề xuất cần bạn review; sau đó bạn có thể tiếp tục hỏi tôi về dataset.` : "Profile đã sẵn sàng. Tôi đã tính xong các metric và có thể trả lời câu hỏi của bạn dựa trên evidence.", "VDaAgent");
-      setState("ready");
+      window.location.assign(`/profiles/${encodeURIComponent(job.profiling_run_id)}/review`);
+      return;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Upload hoặc profiling thất bại.";
       setError(message); setProfileStage("Không thể hoàn tất"); setState("error");
@@ -805,7 +795,7 @@ export default function ChatPage() {
     }
     if (recoveryAction === "open_profiling_status") {
       const profileRunId = message.answerEnvelope?.provenance.profile_run_id || message.context?.profileRunId;
-      if (profileRunId) window.location.assign(`/profiles/${encodeURIComponent(profileRunId)}`);
+      if (profileRunId) window.location.assign(`/profiles/${encodeURIComponent(profileRunId)}/review`);
       return;
     }
     document.getElementById("agent-profile")?.focus();
@@ -886,7 +876,7 @@ export default function ChatPage() {
           {busy && (state === "uploading" || state === "profiling") && <ProgressSteps steps={["Upload", "Xử lý dữ liệu", "Hoàn tất"]} activeStep={profileProgress >= 90 ? 2 : profileProgress >= 20 ? 1 : 0} detail={`${profileStage} · ${profileProgress}%`} />}
           <LoadingButton className="button primary intake-start" onClick={startProfile} busy={busy && (state === "uploading" || state === "profiling")}>Tải lên và bắt đầu profiling</LoadingButton>
         </section>}
-        {profile?.pending_proposals ? <div className="notice warning agent-review-required"><b>Cần review trước khi tiếp tục</b><p>Profile còn {profile.pending_proposals} đề xuất. Hãy xác nhận, từ chối hoặc chỉnh sửa các đề xuất trước khi hỏi Agent.</p><Link className="button primary" href={`/profiles/${profile.profile_run_id}/review?returnTo=${encodeURIComponent(`/chat?conversation=${conversationId || ""}`)}`}>Xem xét proposals</Link></div> : null}
+        {profile?.pending_proposals ? <div className="notice warning agent-review-required"><b>Cần review trước khi tiếp tục</b><p>Profile còn {profile.pending_proposals} đề xuất. Hãy xác nhận, từ chối hoặc chỉnh sửa các đề xuất trước khi hỏi Agent.</p><Link className="button primary" href={`/profiles/${profile.profile_run_id}/review`}>Xem xét proposals</Link></div> : null}
         {error && <div className="notice error" role="alert"><b>Agent gặp lỗi</b><p>{error}</p></div>}
         {profile && <div className="chat-active-context" aria-label="Active answer context">
           <b>Answering against</b>

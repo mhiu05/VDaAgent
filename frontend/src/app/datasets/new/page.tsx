@@ -241,7 +241,7 @@ export default function NewDatasetPage() {
         completed[index] = true;
         setProfiled([...completed]);
         const runId = "run_id" in result ? result.run_id : result.profiling_run_id;
-        router.push(`/profiles/${runId}`);
+        router.push(`/profiles/${runId}/review`);
         return;
       }
       const datasetIds = uploads.flatMap(({ upload }) => upload.dataset_id ? [upload.dataset_id] : []);
@@ -255,9 +255,9 @@ export default function NewDatasetPage() {
         setError(new ApiError(`${failed.length} dataset không thể xếp hàng profiling. Bạn có thể thử lại; các dataset đã thành công sẽ không bị tạo trùng.`, 409));
         return;
       }
-      // A batch has several runs, so enter the first durable Command Center
+      // A batch has several runs, so enter the first durable review checkpoint
       // immediately; the Dataset list remains the place to open its peers.
-      router.push(`/profiles/${results[0].run_id}`);
+      router.push(`/profiles/${results[0].run_id}/review`);
     } catch (reason) { setError(reason); } finally { profileInFlight.current = false; setBusy(null); }
   }
 
@@ -303,7 +303,7 @@ export default function NewDatasetPage() {
       const result = await useSavedDatasource(savedDatasourceId, datasetName.trim());
       const payload = { dataset_name: result.name, scan_mode: scanMode };
       const job = await startDatasetProfile(result.dataset_id, payload, submissionKey(JSON.stringify({ dataset_id: result.dataset_id, ...payload })));
-      router.push(`/profiles/${job.run_id}`);
+      router.push(`/profiles/${job.run_id}/review`);
     } catch (reason) {
       setError(reason);
     } finally {
@@ -332,7 +332,7 @@ export default function NewDatasetPage() {
         payload,
         submissionKey(JSON.stringify({ dataset_id: imported.dataset_id, ...payload })),
       );
-      router.push(`/profiles/${job.run_id}`);
+      router.push(`/profiles/${job.run_id}/review`);
     } catch (reason) {
       setError(reason);
     } finally {
