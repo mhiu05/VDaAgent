@@ -2704,6 +2704,7 @@ async def upload_dataset(
     File được đọc theo từng chunk nên request quá lớn bị chặn trước khi kịp
     chiếm hết RAM.
     """
+    upload_started = time.perf_counter()
     get_rate_limiter().check(context.user_id)
     settings = get_settings()
 
@@ -2809,6 +2810,7 @@ async def upload_dataset(
         filename=name,
         bytes=size,
         storage_provider=provider,
+        upload_ms=round((time.perf_counter() - upload_started) * 1000),
     )
     return UploadResponse(
         dataset_ref=str(dataset["source_ref"]),

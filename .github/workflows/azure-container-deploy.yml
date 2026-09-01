@@ -23,17 +23,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  RESOURCE_GROUP: rg-p170-hieu
-  ACR_NAME: p170acr08140037
-  ACR_LOGIN_SERVER: p170acr08140037.azurecr.io
-  BACKEND_APP: p170-api-08140037
+  RESOURCE_GROUP: rg-p170-linh-260829
+  ACR_NAME: p170linh260829acr
+  ACR_LOGIN_SERVER: p170linh260829acr.azurecr.io
+  BACKEND_APP: vdaagent-api
   WORKER_APP: ${{ vars.AZURE_PROFILING_WORKER_APP }}
-  FRONTEND_APP: p170-web-08140019
-  BACKEND_URL: https://p170-api-08140037.azurewebsites.net
-  FRONTEND_URL: https://p170-web-08140019.azurewebsites.net
+  WORKER_APP_SERVICE_PLAN: asp-vdaagent-worker
+  FRONTEND_APP: vdaagent
+  BACKEND_URL: https://vdaagent-api.azurewebsites.net
+  FRONTEND_URL: https://vdaagent.azurewebsites.net
   AZURE_CLI_IMAGE: mcr.microsoft.com/azure-cli:2.75.0
 
 jobs:
+  changes:
+    name: Detect deploy-relevant changes
+    runs-on: self-hosted
+    outputs:
+      deploy: ${{ steps.filter.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          before="${{ github.event.before }}"
+          if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$before" "${{ github.sha }}")"
+          if printf '%s\n' "$changed" | grep -Eq '^(backend/|frontend/|Dockerfile\.|requirements\.azure\.txt|alembic/|\.github/workflows/azure-container-deploy\.yml)'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   backend-quality:
     name: Backend quality
     # Pushes deploy directly; pull requests and manual runs keep the quality gate.
@@ -162,15 +192,12 @@ jobs:
   build-and-deploy:
     name: Build and deploy Azure containers
     needs:
+      - changes
       - backend-quality
       - frontend-quality
     # !cancelled() lets a skipped gate through; a failed one still stops the release.
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    # Docker/containerd state on a persistent self-hosted runner can survive a
-    # failed build and corrupt the next BuildKit export. Use a fresh hosted
-    # runner for the release job so every image build starts with a clean
-    # container store.
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.changes.outputs.deploy == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: self-hosted
     timeout-minutes: 90
     permissions:
       contents: read
@@ -249,6 +276,26 @@ jobs:
             --output none
           az account set --subscription "$AZURE_SUBSCRIPTION_ID"
           echo "AZURE_CONFIG_DIR_HOST=$azure_config_dir" >> "$GITHUB_ENV"
+
+      - name: Ensure profiling worker uses dedicated plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          az() {
+            docker run --rm -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" "$AZURE_CLI_IMAGE" az "$@"
+          }
+          worker_plan_id="$(az appservice plan show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WORKER_APP_SERVICE_PLAN" \
+            --query id -o tsv)"
+          worker_app_id="$(az webapp show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WORKER_APP" \
+            --query id -o tsv)"
+          az resource update \
+            --ids "$worker_app_id" \
+            --set "properties.serverFarmId=$worker_plan_id" \
+            --output none
 
       - name: Log in to Azure Container Registry
         shell: bash
