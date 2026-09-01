@@ -75,14 +75,14 @@ def generate_contextual_suggestions(
     if missing and missing[0][1] >= 10:
         name, percentage = missing[0]
         add(
-            label=f"Why is {name} missing so often?",
-            question=f"Why is {name} missing so often in this Profile Run?",
+            label=f"Kiểm tra mức độ thiếu dữ liệu của cột {name}",
+            question=f"Mức độ thiếu dữ liệu của cột {name} trong Profile Run này là bao nhiêu?",
             reason="high_missingness",
             columns=[name],
         )
         add(
-            label="Show columns with more than 10% missing values",
-            question="Show columns with more than 10% missing values.",
+            label="Liệt kê các cột có trên 10% dữ liệu thiếu",
+            question="Liệt kê các cột có trên 10% dữ liệu thiếu.",
             reason="missingness_overview",
         )
 
@@ -90,14 +90,14 @@ def generate_contextual_suggestions(
     if numeric:
         name = numeric[0]
         add(
-            label=f"Show the distribution of {name}",
-            question=f"Show the distribution of {name}.",
+            label=f"Hiển thị phân phối của cột {name}",
+            question=f"Hiển thị phân phối của cột {name}.",
             reason="numeric_distribution",
             columns=[name],
         )
         add(
-            label="Which numeric columns have outliers?",
-            question="Which numeric columns have outliers?",
+            label="Cột số nào có outlier?",
+            question="Cột số nào có outlier?",
             reason="numeric_outliers",
         )
 
@@ -109,8 +109,8 @@ def generate_contextual_suggestions(
         column = proposal.get("column_name") if isinstance(proposal, dict) else None
         if isinstance(column, str) and column in known_columns and column.casefold() not in pii:
             add(
-                label=f"Why is {column} a candidate key?",
-                question=f"Why is {column} a candidate key? Check whether it has duplicates.",
+                label=f"Kiểm tra bằng chứng candidate key của cột {column}",
+                question=f"Kiểm tra bằng chứng candidate key của cột {column} và số bản ghi trùng.",
                 reason="candidate_key",
                 columns=[column],
             )
@@ -118,8 +118,8 @@ def generate_contextual_suggestions(
 
     if not choices:
         add(
-            label="Summarize this Profile Run",
-            question="Summarize the quality of this Profile Run.",
+            label="Tóm tắt chất lượng của Profile Run này",
+            question="Tóm tắt chất lượng của Profile Run này.",
             reason="profile_overview",
         )
     return choices[: max(1, min(limit, 4))]

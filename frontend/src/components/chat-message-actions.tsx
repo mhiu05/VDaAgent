@@ -16,25 +16,25 @@ export type ChatMessageActionsProps = {
 };
 
 const recoveryActionLabels: Record<string, string> = {
-  narrow_question: "Narrow the question",
-  clarify: "Clarify the question",
-  open_profiling_status: "Open profile status",
-  run_full_profile: "Choose a complete profile",
-  switch_context: "Choose another context",
-  switch_workspace: "Choose another workspace",
-  refresh_session: "Refresh session",
+  narrow_question: "Thu hẹp câu hỏi",
+  clarify: "Làm rõ câu hỏi",
+  open_profiling_status: "Mở trạng thái profiling",
+  run_full_profile: "Chọn Profile Run hoàn chỉnh",
+  switch_context: "Chọn ngữ cảnh khác",
+  switch_workspace: "Chọn workspace khác",
+  refresh_session: "Làm mới phiên đăng nhập",
 };
 
 export function answerCopyText(message: ChatMessage): string {
   const envelope = message.answerEnvelope;
   if (!envelope) return message.text;
   const sections: string[] = [];
-  if (envelope.summary) sections.push(`Conclusion\n${envelope.summary}`);
+  if (envelope.summary) sections.push(`Kết luận\n${envelope.summary}`);
   if (envelope.findings.length) {
-    sections.push(`Key findings\n${envelope.findings.map((finding) => `- ${finding.text}`).join("\n")}`);
+    sections.push(`Phát hiện chính\n${envelope.findings.map((finding) => `- ${finding.text}`).join("\n")}`);
   }
-  if (envelope.limitations.length) sections.push(`Limitations\n${envelope.limitations.map((item) => `- ${item}`).join("\n")}`);
-  if (envelope.actions.length) sections.push(`Next steps\n${envelope.actions.map((item) => `- ${item}`).join("\n")}`);
+  if (envelope.limitations.length) sections.push(`Giới hạn\n${envelope.limitations.map((item) => `- ${item}`).join("\n")}`);
+  if (envelope.actions.length) sections.push(`Bước tiếp theo\n${envelope.actions.map((item) => `- ${item}`).join("\n")}`);
   return sections.join("\n\n") || message.text;
 }
 
@@ -56,7 +56,7 @@ export function ChatMessageActions({
   if (message.role === "user") {
     return onEditUserQuestion ? (
       <div className="chat-message-actions user-actions">
-        <button type="button" onClick={onEditUserQuestion} aria-label="Edit and resend this question">Edit &amp; resend</button>
+        <button type="button" onClick={onEditUserQuestion} aria-label="Chỉnh sửa và gửi lại câu hỏi">Chỉnh sửa &amp; gửi lại</button>
       </div>
     ) : null;
   }
@@ -92,39 +92,39 @@ export function ChatMessageActions({
   };
 
   return (
-    <div className="chat-message-actions" aria-label="Message actions">
-      {canCopy && <button type="button" onClick={() => void copy()} disabled={busy} aria-label="Copy answer">{copied ? "Copied" : "Copy"}</button>}
-      {failed && canRetry && <button type="button" onClick={() => activate(onRetry)} disabled={busy || actionPending} aria-label="Retry this request">Retry</button>}
+    <div className="chat-message-actions" aria-label="Thao tác với tin nhắn">
+      {canCopy && <button type="button" onClick={() => void copy()} disabled={busy} aria-label="Sao chép câu trả lời">{copied ? "Đã sao chép" : "Sao chép"}</button>}
+      {failed && canRetry && <button type="button" onClick={() => activate(onRetry)} disabled={busy || actionPending} aria-label="Thử lại yêu cầu này">Thử lại</button>}
       {failed && onRecoveryAction && directRecoveryActions.map((action) => <button key={action} type="button" onClick={() => onRecoveryAction(action)} disabled={busy}>
         {recoveryActionLabels[action]}
       </button>)}
       {(!failed && (onRegenerate || onAskDeeper || onFeedback || canRetry)) && (
         <details className="chat-message-action-menu">
-          <summary aria-label="More message actions">More</summary>
+          <summary aria-label="Thêm thao tác với tin nhắn">Thêm</summary>
           <div>
-            {!failed && canRetry && <button type="button" onClick={() => activate(onRetry)} disabled={busy || actionPending}>Retry</button>}
-            {!failed && onRegenerate && <button type="button" onClick={() => activate(onRegenerate)} disabled={busy || actionPending}>Regenerate</button>}
-            {!failed && onAskDeeper && <button type="button" onClick={() => activate(onAskDeeper)} disabled={busy || actionPending}>Ask deeper</button>}
-            {!failed && onFeedback && <span className="chat-feedback-actions" aria-label="Answer feedback">
+            {!failed && canRetry && <button type="button" onClick={() => activate(onRetry)} disabled={busy || actionPending}>Thử lại</button>}
+            {!failed && onRegenerate && <button type="button" onClick={() => activate(onRegenerate)} disabled={busy || actionPending}>Tạo lại câu trả lời</button>}
+            {!failed && onAskDeeper && <button type="button" onClick={() => activate(onAskDeeper)} disabled={busy || actionPending}>Phân tích sâu hơn</button>}
+            {!failed && onFeedback && <span className="chat-feedback-actions" aria-label="Đánh giá câu trả lời">
               <select
-                aria-label="Optional feedback reason"
+                aria-label="Lý do đánh giá không bắt buộc"
                 value={feedbackReason}
                 onChange={(event) => setFeedbackReason(event.target.value)}
                 disabled={busy || actionPending || Boolean(feedback)}
               >
-                <option value="">Reason (optional)</option>
-                <option value="incorrect">Incorrect</option>
-                <option value="missing_detail">Missing detail</option>
-                <option value="too_verbose">Too verbose</option>
-                <option value="too_short">Too short</option>
-                <option value="wrong_context">Wrong context</option>
-                <option value="bad_citation">Bad citation</option>
-                <option value="slow">Slow</option>
-                <option value="did_not_answer">Did not answer</option>
-                <option value="other">Other</option>
+                <option value="">Lý do (không bắt buộc)</option>
+                <option value="incorrect">Không chính xác</option>
+                <option value="missing_detail">Thiếu chi tiết</option>
+                <option value="too_verbose">Quá dài</option>
+                <option value="too_short">Quá ngắn</option>
+                <option value="wrong_context">Sai ngữ cảnh</option>
+                <option value="bad_citation">Citation không phù hợp</option>
+                <option value="slow">Phản hồi chậm</option>
+                <option value="did_not_answer">Chưa trả lời câu hỏi</option>
+                <option value="other">Khác</option>
               </select>
-              <button type="button" onClick={() => sendFeedback("helpful")} disabled={busy || actionPending || Boolean(feedback)} aria-pressed={feedback === "helpful"}>Helpful</button>
-              <button type="button" onClick={() => sendFeedback("not_helpful")} disabled={busy || actionPending || Boolean(feedback)} aria-pressed={feedback === "not_helpful"}>Not helpful</button>
+              <button type="button" onClick={() => sendFeedback("helpful")} disabled={busy || actionPending || Boolean(feedback)} aria-pressed={feedback === "helpful"}>Hữu ích</button>
+              <button type="button" onClick={() => sendFeedback("not_helpful")} disabled={busy || actionPending || Boolean(feedback)} aria-pressed={feedback === "not_helpful"}>Chưa hữu ích</button>
             </span>}
           </div>
         </details>

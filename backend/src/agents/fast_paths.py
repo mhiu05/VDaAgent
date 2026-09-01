@@ -70,6 +70,13 @@ def _category_ranking_matches(question: str) -> bool:
     return asks_for_highest and asks_for_count
 
 
+def is_distribution_question(question: str) -> bool:
+    """Recognize a concrete column-distribution request without an LLM hop."""
+
+    normalized = _plain(question)
+    return _has_any(normalized, ("distribution", "phan phoi", "tan suat"))
+
+
 def _citation(
     citation_id: str,
     *,
@@ -94,7 +101,7 @@ def _render_overview(data: dict[str, Any], citation_id: str) -> tuple[str, list[
     rows, columns = data.get("row_count"), data.get("column_count")
     if not isinstance(rows, int) or not isinstance(columns, int):
         return None
-    text = f"The profiled dataset has {rows:,} rows and {columns:,} columns. [{citation_id}]"
+    text = f"Dataset đã profiling có {rows:,} dòng và {columns:,} cột. [{citation_id}]"
     return text, [{"text": text, "citations": [
         _citation(citation_id, metric="row_count", value=rows, unit="rows"),
         _citation(citation_id, metric="column_count", value=columns, unit="columns"),
@@ -105,7 +112,7 @@ def _render_row_count(data: dict[str, Any], citation_id: str) -> tuple[str, list
     value = data.get("row_count")
     if not isinstance(value, int):
         return None
-    text = f"The Profile Run contains {value:,} rows. [{citation_id}]"
+    text = f"Profile Run có {value:,} dòng. [{citation_id}]"
     return text, [{"text": text, "citations": [_citation(citation_id, metric="row_count", value=value, unit="rows")]}]
 
 
@@ -113,7 +120,7 @@ def _render_column_count(data: dict[str, Any], citation_id: str) -> tuple[str, l
     value = data.get("column_count")
     if not isinstance(value, int):
         return None
-    text = f"The Profile Run contains {value:,} columns. [{citation_id}]"
+    text = f"Profile Run có {value:,} cột. [{citation_id}]"
     return text, [{"text": text, "citations": [_citation(citation_id, metric="column_count", value=value, unit="columns")]}]
 
 
@@ -129,14 +136,14 @@ def _render_missingness(data: dict[str, Any], citation_id: str) -> tuple[str, li
         column, pct = row.get("column_name"), row.get("null_pct")
         if not isinstance(column, str) or not isinstance(pct, (int, float)):
             continue
-        item = f"{column}: {pct:g}% missing"
+        item = f"{column}: thiếu {pct:g}%"
         text_items.append(item)
         findings.append({"text": f"{item}. [{citation_id}]", "citations": [
             _citation(citation_id, metric="null_pct", value=float(pct), unit="percent", field=column),
         ]})
     if not text_items:
         return None
-    text = "Columns with the most missing values are " + "; ".join(text_items) + f". [{citation_id}]"
+    text = "Các cột có tỷ lệ thiếu dữ liệu cao nhất là " + "; ".join(text_items) + f". [{citation_id}]"
     return text, findings
 
 
@@ -144,7 +151,7 @@ def _render_duplicates(data: dict[str, Any], citation_id: str) -> tuple[str, lis
     value = data.get("duplicate_row_count")
     if not isinstance(value, int):
         return None
-    text = f"The Profile Run has {value:,} duplicate rows. [{citation_id}]"
+    text = f"Profile Run có {value:,} dòng trùng lặp. [{citation_id}]"
     return text, [{"text": text, "citations": [
         _citation(citation_id, metric="duplicate_row_count", value=value, unit="rows"),
     ]}]
@@ -180,6 +187,66 @@ def _render_category_ranking(
     ]}]
 
 
+def _distribution_value(value: Any) -> str | None:
+    """Format an aggregate category without inventing a value or precision."""
+
+    if value is None:
+        return "(trống)"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return format(value, "g")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _render_distribution(
+    data: dict[str, Any], citation_id: str
+) -> tuple[str, list[dict[str, Any]]] | None:
+    """Render a bounded persisted distribution with its evidence limits."""
+
+    column = data.get("column_name")
+    values = data.get("values")
+    if not isinstance(column, str) or not isinstance(values, list) or not values:
+        return None
+    findings: list[dict[str, Any]] = []
+    items: list[str] = []
+    for row in values[:5]:
+        if not isinstance(row, dict):
+            continue
+        value = _distribution_value(row.get("value"))
+        count = row.get("count")
+        if value is None or not isinstance(count, int) or isinstance(count, bool):
+            continue
+        item = f"`{value}`: {count:,} bản ghi"
+        items.append(item)
+        findings.append(
+            {
+                "text": f"{item}. [{citation_id}]",
+                "citations": [
+                    _citation(
+                        citation_id,
+                        metric="frequency_count",
+                        value=count,
+                        unit="rows",
+                        field=column,
+                    )
+                ],
+            }
+        )
+    if not items:
+        return None
+    text = (
+        f"Phân phối đã lưu của cột {column} gồm các giá trị xuất hiện nhiều nhất: "
+        + "; ".join(items)
+        + f". Đây là các nhóm giá trị đã được profiling lưu lại, không phải toàn bộ dữ liệu thô. [{citation_id}]"
+    )
+    return text, findings
+
+
 FAST_PATH_REGISTRY: tuple[FastPath, ...] = (
     FastPath("dataset_overview", "get_profile_overview", {}, _overview_matches, _render_overview),
     FastPath("row_count", "get_profile_overview", {}, _row_count_matches, _render_row_count),
@@ -211,6 +278,13 @@ def execute_fast_path(
             spec.tool_args,
             spec.intent,
             spec.render,
+        )
+    elif is_distribution_question(normalized) and len(mentioned_columns or []) == 1:
+        tool_name, tool_args, intent, render = (
+            "get_distribution",
+            {"column_name": mentioned_columns[0], "limit": 5},
+            "column_distribution",
+            _render_distribution,
         )
     elif _category_ranking_matches(normalized) and len(mentioned_columns or []) == 1:
         tool_name, tool_args, intent, render = (
@@ -246,7 +320,7 @@ def execute_fast_path(
                     "is_approximate": is_approximate,
                 })
     if is_approximate:
-        answer += " This result is approximate because the Profile Run used a sample."
+        answer += " Kết quả này là ước lượng vì Profile Run dùng dữ liệu mẫu."
     source = {
         "type": "tool",
         "citation_id": citation_id,
@@ -268,4 +342,9 @@ def execute_fast_path(
     }
 
 
-__all__ = ["FAST_PATH_REGISTRY", "execute_fast_path", "resolve_fast_path"]
+__all__ = [
+    "FAST_PATH_REGISTRY",
+    "execute_fast_path",
+    "is_distribution_question",
+    "resolve_fast_path",
+]

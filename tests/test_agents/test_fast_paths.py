@@ -129,3 +129,52 @@ def test_fast_path_answers_the_highest_frequency_category_from_profile_evidence(
         answer=result["answer"],
     )
     assert validation.valid
+
+
+def test_fast_path_answers_a_column_distribution_in_vietnamese(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any], str | None]] = []
+
+    def fake_run_tool(
+        name: str, args: dict[str, Any], profile_run_id: str | None = None
+    ) -> dict[str, Any]:
+        calls.append((name, args, profile_run_id))
+        return {
+            "tool": name,
+            "profile_run_id": profile_run_id,
+            "data": {
+                "column_name": "Quantity",
+                "kind": "top_categories",
+                "values": [
+                    {"value": 1, "count": 42},
+                    {"value": 2, "count": 35},
+                ],
+            },
+            "evidence": [{"artifact": "column_stats"}],
+            "is_approximate": False,
+            "limitations": ["Only persisted top categories are available."],
+        }
+
+    monkeypatch.setattr(fast_paths, "run_tool", fake_run_tool)
+    result = fast_paths.execute_fast_path(
+        question="Show the distribution of Quantity.",
+        profile_run_id="run-1",
+        workspace_id="workspace-1",
+        mentioned_columns=["Quantity"],
+    )
+
+    assert result is not None
+    assert result["intent"] == "column_distribution"
+    assert calls == [("get_distribution", {"column_name": "Quantity", "limit": 5}, "run-1")]
+    assert "Phân phối đã lưu" in result["answer"]
+    assert "42" in result["answer"]
+    validation = validate_answer_evidence(
+        question="Show the distribution of Quantity.",
+        profile_run_id="run-1",
+        workspace_id="workspace-1",
+        sources=result["sources"],
+        tool_results=result["tool_results"],
+        answer=result["answer"],
+    )
+    assert validation.valid

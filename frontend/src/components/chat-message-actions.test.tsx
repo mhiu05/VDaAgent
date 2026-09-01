@@ -24,11 +24,11 @@ describe("ChatMessageActions", () => {
   it("copies only user-facing structured content and gives non-intrusive feedback", async () => {
     render(<ChatMessageActions message={assistant} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy answer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sao chép câu trả lời" }));
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("Conclusion"));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("Kết luận"));
     expect(navigator.clipboard.writeText).not.toHaveBeenCalledWith(expect.stringContaining("agent-run-1"));
-    expect((await screen.findByRole("button", { name: "Copy answer" })).textContent).toBe("Copied");
+    expect((await screen.findByRole("button", { name: "Sao chép câu trả lời" })).textContent).toBe("Đã sao chép");
   });
 
   it("prevents rapid duplicate retry activation and exposes keyboard-accessible feedback", () => {
@@ -36,32 +36,32 @@ describe("ChatMessageActions", () => {
     const feedback = vi.fn();
     render(<ChatMessageActions message={{ ...assistant, status: "error", recoveryActions: ["retry"] }} onRetry={retry} onFeedback={feedback} />);
 
-    const retryButton = screen.getByRole("button", { name: "Retry this request" });
+    const retryButton = screen.getByRole("button", { name: "Thử lại yêu cầu này" });
     fireEvent.click(retryButton);
     fireEvent.click(retryButton);
     expect(retry).toHaveBeenCalledTimes(1);
 
     // Retry failures keep the action bar compact; unrelated feedback actions
     // are not offered until there is a completed answer.
-    expect(screen.queryByRole("button", { name: "Helpful" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Hữu ích" })).toBeNull();
   });
 
   it("renders only the recovery CTA supplied by the typed failure", () => {
     const recover = vi.fn();
     const view = render(<ChatMessageActions message={{ ...assistant, status: "error", recoveryActions: ["open_profiling_status"] }} onRecoveryAction={recover} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Open profile status" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mở trạng thái profiling" }));
 
     expect(recover).toHaveBeenCalledWith("open_profiling_status");
-    expect(view.container.querySelector('[aria-label="Retry this request"]')).toBeNull();
+    expect(view.container.querySelector('[aria-label="Thử lại yêu cầu này"]')).toBeNull();
   });
 
   it("binds feedback once to the completed assistant message", () => {
     const feedback = vi.fn();
     render(<ChatMessageActions message={assistant} onFeedback={feedback} />);
 
-    fireEvent.click(screen.getByText("More"));
-    const helpful = screen.getByRole("button", { name: "Helpful" });
+    fireEvent.click(screen.getByText("Thêm"));
+    const helpful = screen.getByRole("button", { name: "Hữu ích" });
     fireEvent.click(helpful);
     fireEvent.click(helpful);
 
@@ -73,7 +73,7 @@ describe("ChatMessageActions", () => {
     const edit = vi.fn();
     render(<ChatMessageActions message={{ id: "user-1", role: "user", text: "How many rows?" }} onEditUserQuestion={edit} />);
 
-    const editButton = screen.getByRole("button", { name: "Edit and resend this question" });
+    const editButton = screen.getByRole("button", { name: "Chỉnh sửa và gửi lại câu hỏi" });
     editButton.focus();
     expect(document.activeElement).toBe(editButton);
     fireEvent.click(editButton);

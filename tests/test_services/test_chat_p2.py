@@ -241,6 +241,8 @@ def test_suggestions_are_profile_scoped_and_omit_confirmed_pii() -> None:
         SuggestionRepository(), workspace_id="workspace-a", profile_run_id="run-a"
     )
     assert 2 <= len(suggestions) <= 4
+    assert any(item.question == "Hiển thị phân phối của cột revenue." for item in suggestions)
+    assert all("Show the distribution" not in item.question for item in suggestions)
     assert all("email" not in item.question.casefold() for item in suggestions)
     assert all("email" not in item.referenced_columns for item in suggestions)
 

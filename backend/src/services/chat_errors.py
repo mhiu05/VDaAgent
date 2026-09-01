@@ -45,21 +45,21 @@ class ChatError:
 
 
 ERRORS: dict[str, ChatError] = {
-    "CHAT_NETWORK": ChatError("CHAT_NETWORK", "The connection to the agent was interrupted.", ("retry",)),
-    "AUTH_REQUIRED": ChatError("AUTH_REQUIRED", "Your session needs to be refreshed.", ("refresh_session",)),
-    "PERMISSION_DENIED": ChatError("PERMISSION_DENIED", "You do not have access to this chat context.", ("switch_context",)),
-    "WORKSPACE_ACCESS_DENIED": ChatError("WORKSPACE_ACCESS_DENIED", "This workspace is not available to the current session.", ("switch_context",)),
-    "CHAT_TIMEOUT": ChatError("CHAT_TIMEOUT", "The analysis took too long to complete safely.", ("retry", "narrow_question")),
-    "CHAT_CANCELLED": ChatError("CHAT_CANCELLED", "The request was cancelled.", ("retry",)),
-    "PROFILE_NOT_READY": ChatError("PROFILE_NOT_READY", "This Profile Run is not ready yet.", ("open_profiling_status",)),
-    "PROFILE_UNAVAILABLE": ChatError("PROFILE_UNAVAILABLE", "The selected Profile Run is unavailable in this workspace.", ("switch_context",)),
-    "INSUFFICIENT_EVIDENCE": ChatError("INSUFFICIENT_EVIDENCE", "Available evidence is not sufficient for a safe answer.", ("run_full_profile", "clarify")),
-    "INVALID_QUESTION": ChatError("INVALID_QUESTION", "Please clarify the question before continuing.", ("clarify",)),
-    "CONTEXT_MISMATCH": ChatError("CONTEXT_MISMATCH", "This follow-up refers to a different Profile Run.", ("clarify", "switch_context")),
-    "TOOL_TEMPORARY_FAILURE": ChatError("TOOL_TEMPORARY_FAILURE", "A required analysis tool is temporarily unavailable.", ("retry",)),
-    "PROVIDER_UNAVAILABLE": ChatError("PROVIDER_UNAVAILABLE", "The answer provider is temporarily unavailable.", ("retry",)),
-    "REQUEST_IN_PROGRESS": ChatError("REQUEST_IN_PROGRESS", "This request is still being processed. Reconnect to check its result without starting another run.", ("reconnect",)),
-    "SERVER_ERROR": ChatError("SERVER_ERROR", "The agent could not complete the answer.", ("retry",)),
+    "CHAT_NETWORK": ChatError("CHAT_NETWORK", "Kết nối tới agent bị gián đoạn.", ("retry",)),
+    "AUTH_REQUIRED": ChatError("AUTH_REQUIRED", "Phiên đăng nhập cần được làm mới.", ("refresh_session",)),
+    "PERMISSION_DENIED": ChatError("PERMISSION_DENIED", "Bạn không có quyền truy cập ngữ cảnh chat này.", ("switch_context",)),
+    "WORKSPACE_ACCESS_DENIED": ChatError("WORKSPACE_ACCESS_DENIED", "Workspace này không khả dụng trong phiên hiện tại.", ("switch_context",)),
+    "CHAT_TIMEOUT": ChatError("CHAT_TIMEOUT", "Phân tích mất quá nhiều thời gian để hoàn tất an toàn.", ("retry", "narrow_question")),
+    "CHAT_CANCELLED": ChatError("CHAT_CANCELLED", "Yêu cầu đã bị hủy.", ("retry",)),
+    "PROFILE_NOT_READY": ChatError("PROFILE_NOT_READY", "Profile Run này chưa sẵn sàng.", ("open_profiling_status",)),
+    "PROFILE_UNAVAILABLE": ChatError("PROFILE_UNAVAILABLE", "Profile Run đã chọn không có trong workspace này.", ("switch_context",)),
+    "INSUFFICIENT_EVIDENCE": ChatError("INSUFFICIENT_EVIDENCE", "Evidence hiện có chưa đủ để trả lời an toàn.", ("run_full_profile", "clarify")),
+    "INVALID_QUESTION": ChatError("INVALID_QUESTION", "Hãy làm rõ câu hỏi trước khi tiếp tục.", ("clarify",)),
+    "CONTEXT_MISMATCH": ChatError("CONTEXT_MISMATCH", "Lượt hỏi tiếp theo này đang tham chiếu Profile Run khác.", ("clarify", "switch_context")),
+    "TOOL_TEMPORARY_FAILURE": ChatError("TOOL_TEMPORARY_FAILURE", "Công cụ phân tích cần thiết đang tạm thời không khả dụng.", ("retry",)),
+    "PROVIDER_UNAVAILABLE": ChatError("PROVIDER_UNAVAILABLE", "Nhà cung cấp câu trả lời AI đang tạm thời không khả dụng.", ("retry",)),
+    "REQUEST_IN_PROGRESS": ChatError("REQUEST_IN_PROGRESS", "Yêu cầu này vẫn đang được xử lý. Hãy kết nối lại để xem kết quả mà không tạo lượt chạy mới.", ("reconnect",)),
+    "SERVER_ERROR": ChatError("SERVER_ERROR", "Agent chưa thể hoàn tất câu trả lời.", ("retry",)),
 }
 
 

@@ -58,6 +58,18 @@ def test_qa_resolves_vague_reference_from_history() -> None:
     assert routed["qa_context"]["mentioned_columns"] == ["revenue"]
 
 
+def test_qa_routes_an_english_distribution_suggestion_to_the_bounded_tool_path() -> None:
+    state = initial_qa_state("Show the distribution of Quantity.")
+    state["profile_run_id"] = "run-123"
+    state["column_names"] = ["Quantity"]
+
+    routed = qa_router_node(state)
+
+    assert routed["question_type"] == "quantitative"
+    assert routed["qa_context"]["mentioned_columns"] == ["Quantity"]
+    assert routed["qa_budget_category"] == "deterministic"
+
+
 def test_fuzzy_column_suggestions_for_self_correction() -> None:
     stats = {
         "customer_id": {"dtype": "int64"},

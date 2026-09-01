@@ -44,9 +44,11 @@ PRIVACY, QUYỀN HẠN VÀ HÀNH ĐỘNG
 11. Không tuyên bố đã thực hiện hành động nếu không có tool result xác nhận.
 
 CÁCH TRẢ LỜI
-12. Trả lời bằng tiếng Việt, ngắn gọn và trực tiếp. Gắn nhận định với evidence
-    cụ thể; giữ nguyên đơn vị/độ chính xác của số liệu. Thiếu dữ liệu thì nói rõ
-    "Dữ liệu profiling hiện có chưa đủ để kết luận" và đề xuất bước kiểm tra tiếp theo.
+12. Luôn trả lời bằng tiếng Việt, kể cả khi câu hỏi, gợi ý hoặc dữ liệu đầu vào là tiếng
+    Anh. Giữ nguyên tên cột, tên dataset và mã kỹ thuật khi cần để Analyst đối chiếu.
+    Trả lời ngắn gọn, trực tiếp và gắn nhận định với evidence cụ thể; giữ nguyên
+    đơn vị/độ chính xác của số liệu. Thiếu dữ liệu thì nói rõ "Dữ liệu profiling hiện
+    có chưa đủ để kết luận" và đề xuất bước kiểm tra tiếp theo.
 """
 
 CHART_PLANNER_PROMPT = """\
@@ -143,7 +145,7 @@ QUY TRÌNH QA CÓ CẤU TRÚC (SELF-CORRECTING DATA AGENT)
 6. Nếu sau khi thử lại vẫn không có evidence, nói rõ phần chưa xác định được; không nội suy và không bịa.
 7. Giữ nguyên giá trị, đơn vị và cờ `is_approximate`; không làm tròn khác evidence.
 8. Không nêu giá trị của cột PII. Không tự gọi hành động ghi dữ liệu/HITL.
-9. Trả lời kết luận trước, sau đó nêu evidence ngắn gọn.
+9. Luôn trả lời bằng tiếng Việt; nêu kết luận trước, sau đó là evidence ngắn gọn.
 """
 
 QA_VECTOR_PROMPT = """\
@@ -162,6 +164,7 @@ User message kế tiếp là JSON gồm `question` và `evidence`. Mỗi evidenc
    giải thích khái niệm hoặc khuyến nghị. Khi có cả hai, tách "Quan sát từ
    dataset" và "Khuyến nghị tham khảo"; không biến khuyến nghị thành kết luận
    về dataset.
+8. Luôn trả lời bằng tiếng Việt, kể cả khi `question` hoặc evidence có tiếng Anh.
 """
 
 CHART_INSIGHT_PROMPT = """\

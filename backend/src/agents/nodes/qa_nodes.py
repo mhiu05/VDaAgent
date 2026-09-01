@@ -27,7 +27,11 @@ from src.agents.prompts import (
     QA_STRUCTURED_PROMPT,
     QA_VECTOR_PROMPT,
 )
-from src.agents.fast_paths import execute_fast_path, resolve_fast_path
+from src.agents.fast_paths import (
+    execute_fast_path,
+    is_distribution_question,
+    resolve_fast_path,
+)
 from src.agents.runtime.trace import invoke_model, record_retrieval_call
 from src.agents.skills.registry import select_skill_for_question, skill_guidance
 from src.agents.state import ProfilingState
@@ -176,10 +180,10 @@ def _detail_instruction(state: ProfilingState) -> str:
 
     detail = state.get("answer_detail") or "standard"
     if detail == "quick":
-        return "Answer briefly: conclusion plus at most three supported findings. Keep citations and limitations."
+        return "Trả lời ngắn gọn bằng tiếng Việt: kết luận và tối đa ba phát hiện có evidence. Giữ citation và giới hạn dữ liệu."
     if detail == "deep":
-        return "Give a deeper supported explanation: methodology, comparisons, assumptions, limitations, and next actions. Do not add unsupported facts."
-    return "Give a standard concise answer with conclusion, supported findings, limitations, and next actions."
+        return "Trả lời chuyên sâu bằng tiếng Việt: nêu phương pháp, so sánh, giả định, giới hạn và bước tiếp theo. Không thêm nhận định thiếu evidence."
+    return "Trả lời bằng tiếng Việt, ngắn gọn với kết luận, phát hiện có evidence, giới hạn và bước tiếp theo."
 
 
 def _deterministic_qa_tool_specs(
@@ -684,6 +688,9 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
         columns = list(stats.keys())
 
     mentioned = _mentioned_columns(question, columns)
+    has_direct_fast_path = bool(resolve_fast_path(question)) or (
+        is_distribution_question(question) and len(mentioned) == 1
+    )
 
     context_clarification = _clarification_for_context_mismatch(state, question)
     if context_clarification:
@@ -722,6 +729,8 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
     normalized_lowered = re.sub(r"[-_]", " ", lowered)
     if not state.get("profile_run_id"):
         heuristic = "qualitative"
+    elif has_direct_fast_path:
+        heuristic = "quantitative"
     elif any(h in lowered for h in _CONCEPT_HINTS):
         heuristic = "qualitative"
     else:
@@ -774,7 +783,7 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
         "tool_calls": state.get("tool_calls", 0) + 1,
         **_set_budget(
             state,
-            "deterministic" if resolve_fast_path(question) else "tool" if question_type == "quantitative" else "full_agent",
+            "deterministic" if has_direct_fast_path else "tool" if question_type == "quantitative" else "full_agent",
             get_settings(),
         ),
     }

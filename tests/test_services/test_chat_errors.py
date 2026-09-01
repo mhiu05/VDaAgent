@@ -37,3 +37,7 @@ def test_every_declared_chat_failure_has_its_own_safe_contract() -> None:
 
 def test_unknown_internal_errors_fail_closed_to_the_generic_public_error() -> None:
     assert chat_error("postgres_connection_refused").code == "SERVER_ERROR"
+
+
+def test_public_chat_failures_are_localized_in_vietnamese() -> None:
+    assert chat_error("CHAT_TIMEOUT").message == "Phân tích mất quá nhiều thời gian để hoàn tất an toàn."

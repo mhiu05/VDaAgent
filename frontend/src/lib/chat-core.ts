@@ -173,7 +173,7 @@ export function reduceChatStream(state: ChatStreamState, raw: SseEvent): ChatStr
     return {
       ...next,
       lifecycle: failure === "cancelled" ? "cancelled" : failure === "timeout" ? "timeout" : "failed",
-      statusDetail: typeof data.detail === "string" ? data.detail : "The agent could not complete the response.",
+      statusDetail: typeof data.detail === "string" ? data.detail : "Agent chưa thể hoàn tất câu trả lời.",
       errorCode: typeof data.code === "string" ? data.code : state.errorCode,
       recoveryActions: Array.isArray(data.recovery_actions)
         ? data.recovery_actions.filter((item): item is string => typeof item === "string")
