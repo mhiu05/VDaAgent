@@ -313,20 +313,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_image="$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
-          docker buildx build \
-            --push \
-            -f Dockerfile.backend.azure \
-            -t "$backend_image" \
-            -t "$ACR_LOGIN_SERVER/backend:latest" \
+          # The backend's ML dependency set exceeds the ephemeral disk on a
+          # GitHub runner. Build inside ACR so the immutable image never has
+          # to occupy runner storage during compilation.
+          az() {
+            docker run --rm \
+              -v "$AZURE_CONFIG_DIR_HOST:/root/.azure" \
+              -v "$GITHUB_WORKSPACE:/workspace" \
+              -w /workspace \
+              "$AZURE_CLI_IMAGE" az "$@"
+          }
+          az acr build \
+            --registry "$ACR_NAME" \
+            --file Dockerfile.backend.azure \
+            --image "backend:${GITHUB_SHA}" \
+            --image backend:latest \
             .
 
       - name: Reclaim runner space before frontend build
         shell: bash
         run: |
           set -euo pipefail
-          # The backend dependency layer includes torch and can exhaust the
-          # ephemeral GitHub runner before the independent frontend build.
+          # Keep the independent frontend build within the runner's small
+          # ephemeral disk budget, including after a workflow retry.
           docker buildx prune --all --force
           docker image prune --all --force
 
