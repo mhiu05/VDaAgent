@@ -320,9 +320,6 @@ jobs:
             -t "$backend_image" \
             -t "$ACR_LOGIN_SERVER/backend:latest" \
             .
-          # The remote BuildKit exporter does not populate the host daemon.
-          # Pull the immutable release image back for the migration container.
-          docker pull "$backend_image"
 
       - name: Build and push frontend image
         shell: bash
@@ -346,6 +343,17 @@ jobs:
             -t "$ACR_LOGIN_SERVER/frontend:${GITHUB_SHA}" \
             -t "$ACR_LOGIN_SERVER/frontend:latest" \
             frontend
+
+      - name: Prepare immutable backend image for migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Remote BuildKit leaves dependency-heavy layers in its local cache.
+          # Reclaim that ephemeral runner space before pulling the immutable
+          # backend image needed by the local migration container.
+          docker buildx prune --all --force
+          docker image prune --all --force
+          docker pull "$ACR_LOGIN_SERVER/backend:${GITHUB_SHA}"
 
       - name: Run Alembic migrations
         shell: bash
