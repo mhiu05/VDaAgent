@@ -84,6 +84,10 @@ def _numeric_observations(value: Any, prefix: str = "") -> list[tuple[str, float
         return values
     if isinstance(value, (int, float)):
         values.append((prefix.casefold(), float(value)))
+    elif isinstance(value, str) and re.fullmatch(r"[+-]?\d+(?:[.,]\d+)*", value.strip()):
+        parsed = _parse_localized_number(value)
+        if parsed is not None:
+            values.append((prefix.casefold(), parsed))
     elif isinstance(value, dict):
         for key, item in value.items():
             path = f"{prefix}.{key}" if prefix else str(key)

@@ -147,8 +147,8 @@ def test_fast_path_answers_a_column_distribution_in_vietnamese(
                 "column_name": "Quantity",
                 "kind": "top_categories",
                 "values": [
-                    {"value": 1, "count": 42},
-                    {"value": 2, "count": 35},
+                    {"value": "1", "count": 42},
+                    {"value": "2", "count": 35},
                 ],
             },
             "evidence": [{"artifact": "column_stats"}],

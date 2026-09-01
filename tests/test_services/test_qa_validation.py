@@ -33,6 +33,31 @@ def test_valid_evidence_is_verified() -> None:
     assert outcome.evidence_status == "verified"
 
 
+def test_numeric_category_values_stored_as_strings_support_distribution_answer() -> None:
+    outcome = validate_answer_evidence(
+        question="Show the distribution of Quantity.",
+        profile_run_id="run-1",
+        sources=[_source(tool="get_distribution")],
+        tool_results=[
+            {
+                **_result(
+                    data={
+                        "column_name": "Quantity",
+                        "values": [
+                            {"value": "2", "count": 236},
+                            {"value": "1", "count": 223},
+                        ],
+                    }
+                ),
+                "tool": "get_distribution",
+            }
+        ],
+        answer="`2`: 236 bản ghi; `1`: 223 bản ghi. [S1]",
+    )
+
+    assert outcome.valid is True
+
+
 def test_missing_evidence_abstains() -> None:
     outcome = validate_answer_evidence(
         question="null_pct của sales là bao nhiêu?",
