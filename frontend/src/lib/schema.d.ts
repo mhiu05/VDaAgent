@@ -2124,7 +2124,7 @@ export interface components {
              * @default aggregate
              * @enum {string}
              */
-            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
+            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "forecast_ranking" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
             /** X Column */
             x_column?: string | null;
             /** Y Column */
@@ -3230,7 +3230,7 @@ export interface components {
              * @default aggregate
              * @enum {string}
              */
-            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
+            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "forecast_ranking" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
             /**
              * Aggregate
              * @enum {string}

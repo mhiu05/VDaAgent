@@ -99,11 +99,29 @@ def _quick_context(run_id: str, workspace_id: str) -> dict[str, Any]:
             measures.append(name)
         else:
             dimensions.append(name)
+    time_column = next(
+        (
+            name
+            for name, stat in stats.items()
+            if name not in restricted
+            and (
+                any(
+                    token in str(stat.get("dtype", "")).casefold()
+                    for token in ("date", "time", "datetime", "timestamp")
+                )
+                or any(
+                    token in name.casefold()
+                    for token in ("date", "time", "ngay", "thang", "nam")
+                )
+            )
+        ),
+        None,
+    )
     return {
         "row_grain": "One source row",
         "entity": None,
         "keys": [],
-        "time_column": None,
+        "time_column": time_column,
         "timezone": None,
         "dimensions": dimensions[:100],
         "measures": measures[:100],

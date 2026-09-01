@@ -57,7 +57,7 @@ class FilterSpec(BaseModel):
 
 class QuerySpec(BaseModel):
     analysis_kind: Literal[
-        "aggregate", "histogram", "scatter", "box", "heatmap", "forecast",
+        "aggregate", "histogram", "scatter", "box", "heatmap", "forecast", "forecast_ranking",
         "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
         "violin", "donut", "outlier",
     ] = "aggregate"

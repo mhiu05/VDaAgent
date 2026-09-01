@@ -118,6 +118,13 @@ def _mentions(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
 
 
+def _requested_limit(question: str, default: int = 50) -> int:
+    match = re.search(r"\btop\s*(\d{1,2})\b", _plain(question))
+    if not match:
+        return default
+    return min(max(int(match.group(1)), 1), 50)
+
+
 COLUMN_SYNONYMS: dict[str, tuple[str, ...]] = {
     "gia": ("price", "cost", "amount", "salary", "fee", "rate", "revenue", "val", "spend"),
     "price": ("price", "cost", "amount", "fee"),
@@ -132,6 +139,8 @@ COLUMN_SYNONYMS: dict[str, tuple[str, ...]] = {
     "danh gia": ("rating", "score", "rank", "diem", "eval"),
     "san pham": ("product", "item", "goods", "sku", "title", "name"),
     "ngay": ("date", "time", "restocked", "created", "updated", "timestamp", "year"),
+    "mua": ("quantity", "qty", "units", "volume", "count"),
+    "ban chay": ("quantity", "qty", "units", "volume", "count"),
 }
 
 
@@ -144,6 +153,22 @@ def _best_column(question: str, columns: list[str], preferred: tuple[str, ...] =
         return directly_named[0]
     for key, tokens in COLUMN_SYNONYMS.items():
         if key in intent:
+            # Prefer a column whose normalized name is exactly the semantic
+            # token before accepting a broader substring match.  For example,
+            # a request about "sản phẩm" should choose `Product` when the
+            # profile also contains `Product_Category`, regardless of the
+            # profile's column order.
+            normalized_tokens = {_plain(token) for token in tokens}
+            exact_match = next(
+                (
+                    column
+                    for column in columns
+                    if _plain(column) in normalized_tokens
+                ),
+                None,
+            )
+            if exact_match:
+                return exact_match
             for token in tokens:
                 for column in columns:
                     if token in _plain(column):
@@ -183,6 +208,95 @@ def _time_columns(context: dict[str, Any], column_stats: dict[str, Any]) -> list
         ) and name not in result:
             result.append(name)
     return result
+
+
+def _purchase_measure(question: str, measures: list[str]) -> str | None:
+    """Prefer units sold for purchase/sales language over price measures."""
+
+    text = _plain(question)
+    if _mentions(
+        text,
+        ("mua", "ban chay", "so luong", "quantity", "qty", "units", "volume"),
+    ):
+        return _best_column(
+            question,
+            measures,
+            ("quantity", "qty", "units", "volume", "so luong"),
+        )
+    return None
+
+
+def _forecast_grain(
+    question: str, time_column: str, column_stats: dict[str, Any]
+) -> Literal["day", "week", "month", "quarter", "year"]:
+    text = _plain(question)
+    if _mentions(text, ("ngay", "day")):
+        return "day"
+    if _mentions(text, ("tuan", "week")):
+        return "week"
+    if _mentions(text, ("thang", "month")):
+        return "month"
+    if _mentions(text, ("quy", "quarter")):
+        return "quarter"
+    if _mentions(text, ("nam", "year")):
+        return "year"
+
+    stat = column_stats.get(time_column) or {}
+    values = stat.get("top_k_values") or []
+    endpoints = [
+        item.get("value")
+        for item in values
+        if isinstance(item, dict) and item.get("label") in {"min", "max"}
+    ]
+    if len(endpoints) == 2:
+        try:
+            parsed = sorted(datetime.fromisoformat(str(item).replace("Z", "+00:00")) for item in endpoints)
+            span_days = max((parsed[-1] - parsed[0]).total_seconds() / 86_400, 0)
+            cardinality = int(stat.get("cardinality") or 0)
+            average_gap = span_days / max(cardinality - 1, 1)
+            if average_gap <= 2:
+                return "day"
+            if average_gap <= 10:
+                return "week"
+            if average_gap <= 45:
+                return "month"
+            if average_gap <= 120:
+                return "quarter"
+        except (TypeError, ValueError):
+            pass
+    return "month"
+
+
+def _is_future_question(text: str) -> bool:
+    return _mentions(
+        text,
+        ("tuong lai", "sap toi", "du bao", "forecast", "predict", "tien doan"),
+    )
+
+
+def _is_forecast_ranking_request(
+    question: str,
+    context: dict[str, Any],
+    column_stats: dict[str, Any],
+) -> bool:
+    text = _plain(question)
+    dimensions = [str(item) for item in context.get("dimensions") or []]
+    measures = [str(item) for item in context.get("measures") or []]
+    times = _time_columns(context, column_stats)
+    categorical_dimensions = [item for item in dimensions if item not in times]
+    ranking_requested = bool(
+        re.search(r"\btop\s*\d{1,2}\b", text)
+        or _mentions(text, ("xep hang", "ranking", "cao nhat", "ban chay"))
+    )
+    return bool(
+        times
+        and measures
+        and categorical_dimensions
+        and ranking_requested
+        and _is_future_question(text)
+        and _best_dimension(question, categorical_dimensions)
+        and _purchase_measure(question, measures)
+    )
 
 
 def sanitize_chart_context(
@@ -264,7 +378,9 @@ def can_plan_deterministically(
             ("trend", "xu huong", "theo thang", "theo nam", "monthly", "yearly", "over time"),
         )
     )
-    if _mentions(text, ("forecast", "du bao")):
+    if _is_forecast_ranking_request(question, safe_context, column_stats):
+        return True
+    if _mentions(text, ("forecast", "du bao", "predict", "tien doan", "tuong lai", "sap toi")):
         return bool(time_columns and measures)
     if _mentions(text, ("missing", "null", "cardinality", "outlier")):
         return bool(dimensions or measures)
@@ -333,13 +449,16 @@ def _fallback_candidate(
     times = _time_columns(context, column_stats)
 
     explicit_forecast = (
-        "du bao", "forecast", "predict", "tien doan",
+        "du bao", "forecast", "predict", "tien doan", "tuong lai", "sap toi",
         "neuralprophet", "prophet", "auto arima", "sarimax", "sarima",
         "arimax", "arima", "holt winters", "holt", "ets",
         "moving average", "trung binh truot", "seasonal naive", "naive",
         "random forest", "xgboost", "lightgbm", "catboost",
     )
-    if times and _mentions(text, explicit_forecast):
+    forecast_ranking = _is_forecast_ranking_request(question, context, column_stats)
+    if forecast_ranking:
+        problem: ProblemType = "forecast"
+    elif times and _mentions(text, explicit_forecast):
         problem: ProblemType = "forecast"
     elif times and _mentions(text, ("thang", "quy", "nam", "ngay", "xu huong", "thay doi", "trend", "over time")):
         problem: ProblemType = "trend"
@@ -356,7 +475,7 @@ def _fallback_candidate(
     else:
         problem = "compare"
 
-    measure = _best_column(
+    measure = _purchase_measure(question, measures) or _best_column(
         question,
         measures,
         ("price", "revenue", "sales", "amount", "total", "doanh thu", "doanh so", "value", "rating", "cost", "salary"),
@@ -388,7 +507,7 @@ def _fallback_candidate(
     if problem == "forecast":
         horizon_match = re.search(r"\b(\d{1,2})\s*(?:ky|ngay|tuan|thang|quy|nam|period|day|week|month|quarter|year)", text)
         forecast_horizon = min(max(int(horizon_match.group(1)), 1), 60) if horizon_match else 12
-        time_grain = "day" if _mentions(text, ("ngay", "day")) else "week" if _mentions(text, ("tuan", "week")) else "quarter" if _mentions(text, ("quy", "quarter")) else "year" if _mentions(text, ("nam", "year")) else "month"
+        time_grain = _forecast_grain(question, time_column or times[0], column_stats)
         season_length = {"day": 7, "week": 52, "month": 12, "quarter": 4, "year": 2}[time_grain]
         explicit_algorithms = (
             ("neuralprophet", "neuralprophet"), ("prophet", "prophet"),
@@ -404,6 +523,9 @@ def _fallback_candidate(
         available = available_forecast_algorithms()
         algorithm = preferred if preferred in available else "seasonal_naive" if "seasonal_naive" in available and _mentions(text, ("mua vu", "season")) else "drift"
         x_column = time_column
+        if forecast_ranking:
+            x_column = dimension
+            second_dimension = time_column
     if problem == "trend":
         x_column = time_column
         time_grain = "month" if "thang" in text or "month" in text else "quarter" if "quy" in text or "quarter" in text else "year" if "nam" in text or "year" in text else "month"
@@ -528,6 +650,28 @@ def build_chart_plan(
     else:
         proposed = candidate or fallback
 
+    forecast_ranking = _is_forecast_ranking_request(question, context, column_stats)
+    if forecast_ranking:
+        time_column = times[0]
+        ranking_dimension = _best_dimension(
+            question, [item for item in dimensions if item not in times]
+        )
+        purchase_measure = _purchase_measure(question, measures)
+        proposed = proposed.model_copy(
+            update={
+                "problem": "forecast",
+                "algorithm": (
+                    proposed.algorithm
+                    if proposed.algorithm in available_forecast_algorithms()
+                    else "drift"
+                ),
+                "x_column": ranking_dimension,
+                "y_column": purchase_measure,
+                "second_dimension": time_column,
+                "time_grain": _forecast_grain(question, time_column, column_stats),
+            }
+        )
+
     problem = proposed.problem
     algorithm = proposed.algorithm
     if problem == "forecast" and not times:
@@ -546,7 +690,9 @@ def build_chart_plan(
     if algorithm == "correlation_heatmap" and len(measures) < 2:
         problem, algorithm = fallback.problem, fallback.algorithm
 
-    if problem in {"trend", "forecast"}:
+    if forecast_ranking:
+        x_column = proposed.x_column if proposed.x_column in dimensions else fallback.x_column
+    elif problem in {"trend", "forecast"}:
         x_column = proposed.x_column if proposed.x_column in times else fallback.x_column
     elif algorithm == "scatter":
         x_column = proposed.x_column if proposed.x_column in measures else fallback.x_column
@@ -578,6 +724,9 @@ def build_chart_plan(
         time_grain = proposed.time_grain or fallback.time_grain or "month"
         if algorithm not in available_forecast_algorithms():
             algorithm = fallback.algorithm
+    if forecast_ranking:
+        second_dimension = times[0]
+        time_grain = proposed.time_grain or _forecast_grain(question, times[0], column_stats)
 
     if algorithm == "scatter" and y_column == x_column:
         y_column = next((item for item in measures if item != x_column), None)
@@ -626,7 +775,28 @@ def build_chart_plan(
         chart_type = "bar"
         rationale += " (Hệ thống xác nhận Ranking intent ưu tiên dùng Bar chart)."
 
-    if problem == "forecast":
+    if forecast_ranking:
+        chart_type = "bar"
+        rationale += " (Dá»± bÃ¡o theo tá»«ng sáº£n pháº©m Ä‘Æ°á»£c xáº¿p háº¡ng theo tá»•ng sá»‘ lÆ°á»£ng dá»± kiáº¿n)."
+
+    if forecast_ranking:
+        query = {
+            "analysis_kind": "forecast_ranking",
+            "aggregate": "sum" if y_column else "count",
+            "column": y_column,
+            "dimensions": [x_column, second_dimension],
+            "filters": [],
+            "time_grain": time_grain,
+            "forecast_algorithm": algorithm,
+            "forecast_horizon": forecast_horizon,
+            "season_length": season_length,
+            "confidence_level": 0.95,
+            "history_limit": 500,
+            "bins": 12,
+            "limit": _requested_limit(question),
+            "sort": "desc",
+        }
+    elif problem == "forecast":
         query = {
             "analysis_kind": "forecast",
             "aggregate": "sum" if y_column else "count",

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from datetime import date, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -45,6 +46,14 @@ class ExecutionControl:
             connection = self._connection
         if connection is not None:
             connection.interrupt()
+
+
+def _json_default(value: Any) -> str:
+    """Serialize DuckDB date/time values before persisting execution evidence."""
+
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
 
 
 def _identifier(value: str) -> str:
@@ -126,6 +135,7 @@ class AnalysisEngine:
         bins = int(query.get("bins", 12))
         allowed_kinds = {
             "aggregate", "histogram", "scatter", "box", "heatmap", "forecast",
+            "forecast_ranking",
             "missing_bar", "missing_heatmap", "correlation_heatmap", "cardinality",
             "violin", "donut", "outlier",
         }
@@ -160,7 +170,7 @@ class AnalysisEngine:
         if not 5 <= bins <= 30:
             raise AnalysisQueryError("bins phải nằm trong khoảng 5–30.")
         if (
-            analysis_kind in {"aggregate", "heatmap", "forecast", "donut"}
+            analysis_kind in {"aggregate", "heatmap", "forecast", "forecast_ranking", "donut"}
             and aggregate != "count"
             and not value_column
         ):
@@ -185,7 +195,7 @@ class AnalysisEngine:
             raise AnalysisQueryError("Donut chart cần đúng một dimension.")
         if analysis_kind in profile_kinds and (dimensions or value_column or x_column or y_column):
             raise AnalysisQueryError("Biểu đồ metric profiling chỉ nhận danh sách columns.")
-        if time_grain and analysis_kind not in {"aggregate", "forecast"}:
+        if time_grain and analysis_kind not in {"aggregate", "forecast", "forecast_ranking"}:
             raise AnalysisQueryError("time_grain chỉ hỗ trợ aggregate hoặc forecast time-series.")
         if analysis_kind == "forecast":
             if len(dimensions) != 1 or not time_grain:
@@ -194,6 +204,17 @@ class AnalysisEngine:
                 raise AnalysisQueryError("Forecast cần một thuật toán trong allow-list.")
             if x_column or y_column:
                 raise AnalysisQueryError("Forecast không nhận x_column/y_column tùy ý.")
+        if analysis_kind == "forecast_ranking":
+            if len(dimensions) != 2 or not time_grain:
+                raise AnalysisQueryError(
+                    "Forecast ranking cần một dimension nhóm, một time dimension và time_grain."
+                )
+            if not query.get("forecast_algorithm"):
+                raise AnalysisQueryError("Forecast ranking cần một thuật toán trong allow-list.")
+            if x_column or y_column:
+                raise AnalysisQueryError(
+                    "Forecast ranking không nhận x_column/y_column tùy ý."
+                )
         requested_columns = {
             str(item)
             for item in [value_column, x_column, y_column, *dimensions, *selected_columns]
@@ -210,7 +231,7 @@ class AnalysisEngine:
                 )
         measures = set(context.get("measures") or [])
         if (
-            analysis_kind in {"histogram", "box", "violin", "forecast"}
+            analysis_kind in {"histogram", "box", "violin", "forecast", "forecast_ranking"}
             and measures
             and aggregate != "count"
             and value_column not in measures
@@ -233,7 +254,7 @@ class AnalysisEngine:
                 raise AnalysisQueryError("Không thể group-by trên cột PII.")
         if time_grain not in {None, "day", "week", "month", "quarter", "year"}:
             raise AnalysisQueryError("time_grain không nằm trong allowlist.")
-        if time_grain and len(dimensions) != 1:
+        if time_grain and analysis_kind != "forecast_ranking" and len(dimensions) != 1:
             raise AnalysisQueryError("time_grain chỉ hỗ trợ đúng một time dimension.")
         allowed = (
             set(context.get("dimensions") or [])
@@ -289,11 +310,16 @@ class AnalysisEngine:
         if aggregate not in expressions:
             raise AnalysisQueryError("Aggregate không nằm trong allowlist.")
         where, params = self._filters(query.get("filters") or [], columns, pii)
+        time_dimension = self._time_dimension(dimensions, context, stats)
+        if analysis_kind in {"forecast", "forecast_ranking"} and not time_dimension:
+            raise AnalysisQueryError("Không xác định được time dimension cho forecast.")
+        if analysis_kind == "forecast_ranking" and time_dimension == dimensions[0]:
+            raise AnalysisQueryError("Forecast ranking cần dimension nhóm đứng trước time dimension.")
         dimension_selects: list[str] = []
         dimension_groups: list[str] = []
         for item in dimensions:
             identifier = _identifier(item)
-            if time_grain:
+            if time_grain and (analysis_kind != "forecast_ranking" or item == time_dimension):
                 expression = (
                     f"date_trunc('{time_grain}', TRY_CAST({identifier} AS TIMESTAMP))"
                 )
@@ -302,7 +328,7 @@ class AnalysisEngine:
             else:
                 dimension_selects.append(identifier)
                 dimension_groups.append(identifier)
-        if time_grain:
+        if time_grain and analysis_kind != "forecast_ranking":
             # A failed date cast must not become a misleading ``NULL`` bucket.
             # Keep this predicate server-generated; users still cannot submit SQL.
             time_predicate = (
@@ -343,6 +369,15 @@ class AnalysisEngine:
                 expressions[aggregate],
                 where,
                 group,
+                int(query.get("history_limit", 500)),
+            )
+        elif analysis_kind == "forecast_ranking":
+            sql = self._forecast_ranking_history_sql(
+                dimensions[0],
+                time_dimension,
+                time_grain,
+                expressions[aggregate],
+                where,
                 int(query.get("history_limit", 500)),
             )
         else:
@@ -390,7 +425,61 @@ class AnalysisEngine:
                 control.detach()
             connection.close()
         data = [dict(zip(names, row, strict=True)) for row in rows]
-        if analysis_kind == "forecast":
+        forecast_ranking_skipped = 0
+        if analysis_kind == "forecast_ranking":
+            try:
+                grouped: dict[str, dict[str, list[Any]]] = {}
+                for row in data:
+                    label = str(row.get("group_label") or "(NULL)")
+                    bucket = grouped.setdefault(
+                        label, {"timestamps": [], "values": []}
+                    )
+                    bucket["timestamps"].append(row["timestamp"])
+                    bucket["values"].append(row["value"])
+                ranked: list[dict[str, Any]] = []
+                for label, history in grouped.items():
+                    try:
+                        forecast = forecast_series(
+                            history["timestamps"],
+                            history["values"],
+                            algorithm=str(query.get("forecast_algorithm")),
+                            horizon=int(query.get("forecast_horizon", 12)),
+                            season_length=int(query.get("season_length", 12)),
+                            confidence_level=float(query.get("confidence_level", 0.95)),
+                            time_grain=str(time_grain),
+                        )
+                    except ForecastingError:
+                        forecast_ranking_skipped += 1
+                        continue
+                    ranked.append(
+                        {
+                            dimensions[0]: label,
+                            "value": sum(float(value) for value in forecast["forecast"]),
+                            "lower": sum(float(value) for value in forecast["lower"]),
+                            "upper": sum(float(value) for value in forecast["upper"]),
+                            "series": "forecast",
+                            "forecast_periods": len(forecast["forecast"]),
+                        }
+                    )
+                if not ranked:
+                    raise AnalysisQueryError(
+                        "Không đủ lịch sử hợp lệ để dự báo theo từng nhóm sản phẩm."
+                    )
+                ranked.sort(key=lambda item: (-float(item["value"]), str(item[dimensions[0]])))
+                data = ranked[:limit]
+                names = [
+                    dimensions[0],
+                    "value",
+                    "lower",
+                    "upper",
+                    "series",
+                    "forecast_periods",
+                ]
+            except (TypeError, ValueError, KeyError) as exc:
+                raise AnalysisQueryError(
+                    "Không thể tổng hợp dự báo theo từng nhóm sản phẩm."
+                ) from exc
+        elif analysis_kind == "forecast":
             try:
                 forecast = forecast_series(
                     [row["timestamp"] for row in data],
@@ -439,14 +528,23 @@ class AnalysisEngine:
             names = [time_column, "value", "series", "lower", "upper"]
         result = {"data": data, "columns": names, "row_count": len(data)}
         limitations = list(context.get("limitations") or [])
-        if analysis_kind == "forecast":
+        if analysis_kind in {"forecast", "forecast_ranking"}:
             limitations.append(
                 "Forecast là ước lượng mô hình, không phải giá trị chắc chắn; "
                 "prediction interval được ước lượng từ độ lệch chuẩn lịch sử."
             )
-            limitations.extend(
-                f"Model warning: {message}" for message in forecast.get("warnings", [])
-            )
+            if analysis_kind == "forecast":
+                limitations.extend(
+                    f"Model warning: {message}" for message in forecast.get("warnings", [])
+                )
+            else:
+                limitations.append(
+                    "Các sản phẩm được xếp hạng theo tổng số lượng dự báo trong các kỳ tương lai."
+                )
+                if forecast_ranking_skipped:
+                    limitations.append(
+                        f"Bỏ qua {forecast_ranking_skipped} nhóm không có đủ lịch sử để dự báo."
+                    )
         if execution_kind == "preview":
             effective_row_budget = int(preview_row_budget or 50_000)
             limitations.append(
@@ -481,14 +579,22 @@ class AnalysisEngine:
         limitations: list[str],
         is_approximate: bool,
     ) -> dict[str, Any]:
+        serializable_result = json.loads(
+            json.dumps(result, ensure_ascii=False, default=_json_default)
+        )
         canonical = json.dumps(
             query, sort_keys=True, ensure_ascii=False, separators=(",", ":")
         )
         result_hash = hashlib.sha256(
-            json.dumps(result, sort_keys=True, default=str).encode()
+            json.dumps(
+                serializable_result,
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode()
         ).hexdigest()
         return {
-            "result": result,
+            "result": serializable_result,
             "result_hash": result_hash,
             "canonical_query": json.loads(canonical),
             "duration_ms": round((time.perf_counter() - started) * 1000),
@@ -584,6 +690,22 @@ class AnalysisEngine:
         )
 
     @staticmethod
+    def _time_dimension(
+        dimensions: list[str], context: dict[str, Any], stats: dict[str, Any]
+    ) -> str | None:
+        explicit = context.get("time_column")
+        if explicit in dimensions:
+            return str(explicit)
+        for dimension in dimensions:
+            dtype = str((stats.get(dimension) or {}).get("dtype", "")).casefold()
+            name = dimension.casefold()
+            if any(token in dtype for token in ("date", "time", "datetime", "timestamp")):
+                return dimension
+            if any(token in name for token in ("date", "time", "ngay", "thang", "nam")):
+                return dimension
+        return None
+
+    @staticmethod
     def _forecast_history_sql(
         time_expression: str,
         aggregate_expression: str,
@@ -602,6 +724,42 @@ class AnalysisEngine:
             f"ORDER BY timestamp DESC NULLS LAST LIMIT {history_limit}"
             ") SELECT timestamp, value FROM recent_series ORDER BY timestamp ASC"
         )
+
+    @staticmethod
+    def _forecast_ranking_history_sql(
+        ranking_dimension: str,
+        time_dimension: str,
+        time_grain: str | None,
+        aggregate_expression: str,
+        where: str,
+        history_limit: int,
+    ) -> str:
+        if not 12 <= history_limit <= 2000:
+            raise AnalysisQueryError("history_limit phải nằm trong khoảng 12–2000.")
+        ranking_identifier = _identifier(ranking_dimension)
+        time_identifier = _identifier(time_dimension)
+        time_expression = (
+            f"date_trunc('{time_grain}', TRY_CAST({time_identifier} AS TIMESTAMP))"
+            if time_grain
+            else f"TRY_CAST({time_identifier} AS TIMESTAMP)"
+        )
+        time_where = f"TRY_CAST({time_identifier} AS TIMESTAMP) IS NOT NULL"
+        bounded_where = (
+            f"{where} AND {time_where}" if where else f" WHERE {time_where}"
+        )
+        return (
+            "WITH grouped_series AS ("
+            f"SELECT {ranking_identifier} AS group_label, {time_expression} AS timestamp, "
+            f"{aggregate_expression} AS value FROM source{bounded_where} "
+            f"GROUP BY {ranking_identifier}, {time_expression}"
+            "), limited_series AS ("
+            "SELECT group_label, timestamp, value, "
+            "ROW_NUMBER() OVER (PARTITION BY group_label ORDER BY timestamp DESC) AS row_number "
+            "FROM grouped_series"
+            ") SELECT group_label, timestamp, value FROM limited_series "
+            f"WHERE row_number <= {history_limit} ORDER BY group_label ASC, timestamp ASC"
+        )
+
     def _scatter_sql(
         self,
         x_column: str,
@@ -815,6 +973,14 @@ def query_summary(query: dict[str, Any]) -> str:
             f"{(query.get('dimensions') or ['time'])[0]} ({query.get('time_grain')}) "
             f"using {query.get('forecast_algorithm')} for "
             f"{int(query.get('forecast_horizon', 12))} future period(s)."
+        )
+    if analysis_kind == "forecast_ranking":
+        dimensions = [str(item) for item in query.get("dimensions") or []]
+        return (
+            f"Forecast ranking of {query.get('aggregate')} {query.get('column') or 'rows'} by "
+            f"{dimensions[0] if dimensions else 'group'} across "
+            f"{dimensions[1] if len(dimensions) > 1 else 'time'} ({query.get('time_grain')}); "
+            f"top {int(query.get('limit', 5))} by {int(query.get('forecast_horizon', 12))} future period(s)."
         )
     aggregate_labels = {
         "count": "Count rows",

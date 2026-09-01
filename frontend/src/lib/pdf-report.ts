@@ -143,7 +143,7 @@ const EXPORT_CHART_TYPES = new Set<ChartType>([
   "correlation_heatmap", "cardinality", "violin", "donut", "outlier", "map",
 ]);
 const EXPORT_ANALYSIS_KINDS = new Set<AnalysisKind>([
-  "aggregate", "histogram", "scatter", "box", "heatmap", "forecast", "missing_bar", "missing_heatmap",
+  "aggregate", "histogram", "scatter", "box", "heatmap", "forecast", "forecast_ranking", "missing_bar", "missing_heatmap",
   "correlation_heatmap", "cardinality", "violin", "donut", "outlier",
 ]);
 const EXPORT_RENDERERS = new Set<ChartRenderer>(["native-svg", "native-css", "native-html", "native-kpi", "native-grid"]);

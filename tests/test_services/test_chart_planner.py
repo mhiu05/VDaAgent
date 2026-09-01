@@ -138,6 +138,47 @@ def test_business_forecast_selects_bounded_model_and_horizon() -> None:
     assert plan["query"]["season_length"] == 12
 
 
+def test_future_product_ranking_uses_quantity_forecast_per_product() -> None:
+    context = {
+        "dimensions": [
+            "Date", "Branch", "Region", "Sales_Channel", "Product_Category", "Product",
+        ],
+        "measures": ["Quantity", "Unit_Price_VND"],
+        "time_column": "Date",
+    }
+    stats = {
+        "Date": {
+            "dtype": "datetime64[us]",
+            "cardinality": 31,
+            "top_k_values": [
+                {"label": "min", "value": "2026-01-01T00:00:00"},
+                {"label": "max", "value": "2026-01-31T00:00:00"},
+            ],
+        },
+        "Product": {"dtype": "string", "cardinality": 16},
+        "Product_Category": {"dtype": "string", "cardinality": 4},
+        "Quantity": {"dtype": "int64", "mean": 10},
+        "Unit_Price_VND": {"dtype": "int64", "mean": 100},
+    }
+
+    plan = build_chart_plan(
+        "top 5 s\u1ea3n ph\u1ea9m c\u00f3 xu h\u01b0\u1edbng \u0111\u01b0\u1ee3c mua nhi\u1ec1u trong t\u01b0\u01a1ng lai",
+        context,
+        stats,
+    )
+
+    assert plan["problem"] == "forecast"
+    assert plan["algorithm"] == "drift"
+    assert plan["x_column"] == "Product"
+    assert plan["y_column"] == "Quantity"
+    assert plan["second_dimension"] == "Date"
+    assert plan["time_grain"] == "day"
+    assert plan["chart_type"] == "bar"
+    assert plan["query"]["analysis_kind"] == "forecast_ranking"
+    assert plan["query"]["dimensions"] == ["Product", "Date"]
+    assert plan["query"]["limit"] == 5
+
+
 @pytest.mark.parametrize(
     ("question", "algorithm", "analysis_kind", "chart_type"),
     [

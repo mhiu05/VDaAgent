@@ -318,6 +318,81 @@ def test_naive_forecast_uses_aggregated_time_series(sales_engine: AnalysisEngine
     assert output["canonical_query"]["forecast_algorithm"] == "naive"
 
 
+def test_forecast_ranking_returns_top_groups_and_serializable_evidence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "product_sales.csv"
+    source.write_text(
+        "Date,Product,Quantity\n"
+        "2026-01-01,A,1\n"
+        "2026-01-02,A,2\n"
+        "2026-01-03,A,3\n"
+        "2026-01-04,A,4\n"
+        "2026-01-05,A,5\n"
+        "2026-01-01,B,10\n"
+        "2026-01-02,B,10\n"
+        "2026-01-03,B,10\n"
+        "2026-01-04,B,10\n"
+        "2026-01-05,B,10\n"
+        "2026-01-01,C,4\n"
+        "2026-01-02,C,4\n"
+        "2026-01-03,C,4\n"
+        "2026-01-01,D,8\n"
+        "2026-01-02,D,9\n",
+        encoding="utf-8",
+    )
+
+    class RankingRepository(_Repository):
+        def get_profile_run(self, profile_run_id: str):
+            return {
+                "id": profile_run_id,
+                "dataset_id": "dataset-1",
+                "row_count": 15,
+                "is_approximate": False,
+            }
+
+        def get_column_stats(self, profile_run_id: str):
+            return {
+                "Date": {"dtype": "date", "cardinality": 5},
+                "Product": {"dtype": "string", "cardinality": 4},
+                "Quantity": {"dtype": "int64", "mean": 7, "cardinality": 10},
+            }
+
+    engine = AnalysisEngine(RankingRepository(source))  # type: ignore[arg-type]
+    output = engine.execute(
+        profile_run_id="run-1",
+        context={
+            "dimensions": ["Product", "Date"],
+            "measures": ["Quantity"],
+            "time_column": "Date",
+        },
+        query={
+            "analysis_kind": "forecast_ranking",
+            "aggregate": "sum",
+            "column": "Quantity",
+            "dimensions": ["Product", "Date"],
+            "filters": [],
+            "time_grain": "day",
+            "forecast_algorithm": "drift",
+            "forecast_horizon": 3,
+            "season_length": 7,
+            "confidence_level": 0.95,
+            "history_limit": 12,
+            "bins": 12,
+            "limit": 2,
+            "sort": "desc",
+        },
+    )
+
+    rows = output["result"]["data"]
+    assert len(rows) == 2
+    assert [row["Product"] for row in rows] == ["B", "A"]
+    assert all(row["series"] == "forecast" for row in rows)
+    assert all(isinstance(row["value"], float) for row in rows)
+    assert all(isinstance(value, str) for value in output["result"]["columns"])
+    assert output["query_summary"].startswith("Forecast ranking")
+
+
 @pytest.mark.parametrize(
     ("query", "spec", "expected_x", "expected_y"),
     [
@@ -380,6 +455,21 @@ def test_naive_forecast_uses_aggregated_time_series(sales_engine: AnalysisEngine
             },
             {"chart_type": "line", "renderer": "native-svg"},
             "order_date",
+            "sales",
+        ),
+        (
+            {
+                "analysis_kind": "forecast_ranking",
+                "aggregate": "sum",
+                "column": "sales",
+                "dimensions": ["region", "order_date"],
+                "time_grain": "day",
+                "forecast_algorithm": "drift",
+                "forecast_horizon": 6,
+                "season_length": 7,
+            },
+            {"chart_type": "bar", "renderer": "native-css"},
+            "region",
             "sales",
         ),
     ],

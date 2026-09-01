@@ -63,6 +63,9 @@ class ReportDraftRepository:
         elif analysis_kind == "forecast":
             expected_x = str(dimensions[0]) if dimensions else None
             expected_y = query.get("column")
+        elif analysis_kind == "forecast_ranking":
+            expected_x = str(dimensions[0]) if dimensions else None
+            expected_y = query.get("column")
         elif analysis_kind in {"missing_bar", "cardinality", "outlier"}:
             expected_x = "column"
             expected_y = None
@@ -85,13 +88,13 @@ class ReportDraftRepository:
             if analysis_kind in {"histogram", "scatter", "violin"}
             else None,
             "forecast_algorithm": query.get("forecast_algorithm")
-            if analysis_kind == "forecast"
+            if analysis_kind in {"forecast", "forecast_ranking"}
             else None,
             "forecast_horizon": query.get("forecast_horizon")
-            if analysis_kind == "forecast"
+            if analysis_kind in {"forecast", "forecast_ranking"}
             else None,
             "season_length": query.get("season_length")
-            if analysis_kind == "forecast"
+            if analysis_kind in {"forecast", "forecast_ranking"}
             else None,
         }
         normalized = dict(spec or {})
@@ -148,6 +151,7 @@ class ReportDraftRepository:
             "box": "box",
             "heatmap": "heatmap",
             "forecast": "line",
+            "forecast_ranking": "bar",
             "missing_bar": "missing_bar",
             "missing_heatmap": "missing_heatmap",
             "correlation_heatmap": "correlation_heatmap",

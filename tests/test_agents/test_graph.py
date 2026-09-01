@@ -309,6 +309,48 @@ def test_chart_insight_uses_official_execution_without_retrieval_hits(
     assert '"official_execution"' in str(received[0][1]["content"])
 
 
+def test_official_chart_insight_falls_back_to_bounded_result_without_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.agents.nodes.qa_nodes.get_llm",
+        lambda: (_ for _ in ()).throw(AssertionError("LLM should not be called")),
+    )
+
+    result = qa_vector_node(
+        {
+            "question": "top 5 sản phẩm trong tương lai",
+            "profile_run_id": "run-1",
+            "qa_context": {
+                "chart_insight": True,
+                "analysis_execution": {
+                    "id": "execution-1",
+                    "execution_kind": "official",
+                    "query_spec": {
+                        "analysis_kind": "forecast_ranking",
+                        "column": "Quantity",
+                        "dimensions": ["Product", "Date"],
+                        "time_grain": "day",
+                        "forecast_horizon": 3,
+                    },
+                    "result": {
+                        "data": [
+                            {"Product": "A", "value": 12.5, "lower": 9, "upper": 16},
+                            {"Product": "B", "value": 8, "lower": 5, "upper": 11},
+                        ],
+                        "row_count": 2,
+                    },
+                },
+            },
+        }
+    )
+
+    assert result["qa_path"] == "official_execution_fallback"
+    assert result["evidence_status"] == "verified"
+    assert "A" in result["answer"]
+    assert "12.50" in result["answer"]
+
+
 def test_vector_qa_never_falls_back_to_another_profile_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

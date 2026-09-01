@@ -107,7 +107,7 @@ const PROBLEM_CHARTS: Record<ProblemType, ChartType[]> = {
   compare: ["bar", "table"], trend: ["line", "table"], ranking: ["bar", "table"], summary: ["kpi", "table"],
   distribution: ["histogram", "box", "violin", "outlier"], relationship: ["scatter", "heatmap", "correlation_heatmap"],
   quality: ["missing_bar", "missing_heatmap", "cardinality", "outlier"],
-  forecast: ["line", "table"],
+  forecast: ["line", "bar", "table"],
   composition: ["donut", "bar", "table"],
   geographic: ["bar", "table"],
   multi_dimensional: ["scatter", "heatmap"],
@@ -160,6 +160,22 @@ function dayAfter(value: string): string {
 
 function chartQuery(chart: ChartDraft): QuerySpec {
   if (chart.planned_query) return chart.planned_query;
+  if (chart.problem === "forecast" && chart.second_dimension) return {
+    analysis_kind: "forecast_ranking",
+    aggregate: chart.y_column ? "sum" : "count",
+    column: chart.y_column || undefined,
+    dimensions: [chart.x_column, chart.second_dimension].filter(Boolean) as string[],
+    filters: [],
+    time_grain: chart.time_grain || "month",
+    forecast_algorithm: chart.algorithm as ForecastAlgorithm,
+    forecast_horizon: chart.forecast_horizon,
+    season_length: chart.season_length,
+    confidence_level: 0.95,
+    history_limit: 500,
+    bins: 12,
+    limit: 50,
+    sort: "desc",
+  };
   if (chart.problem === "forecast") return {
     analysis_kind: "forecast",
     aggregate: chart.y_column ? "sum" : "count",
@@ -255,7 +271,7 @@ function chartSelectionExplanation(chart: ChartDraft): ChartSelectionExplanation
   const checks = [`Bài toán: ${PROBLEMS.find((item) => item.value === chart.problem)?.label || chart.problem || "chưa xác định"}`];
 
   if (chartType === "bar") {
-    const suitable = Boolean(dimensions.length === 1 && rowCount > 0);
+    const suitable = Boolean(dimensions.length >= 1 && rowCount > 0);
     return {
       confidence: suitable ? "high" : "review",
       headline: suitable ? `Bar phù hợp để so sánh ${query?.aggregate || "giá trị"} theo “${dimension}”.` : "Bar cần một dimension để so sánh các nhóm.",

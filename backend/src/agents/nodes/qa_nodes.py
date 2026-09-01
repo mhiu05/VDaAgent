@@ -550,6 +550,79 @@ def _profile_fallback_summary(run_id: str | None) -> str:
     return "\n".join(lines)
 
 
+def _official_chart_insight(execution: dict[str, Any]) -> str:
+    """Render a bounded insight directly from an authenticated Official result.
+
+    Chart insight is already bound to immutable evidence by the API. A slow or
+    unavailable language model must not turn a valid chart result into a failed
+    chart workflow, and this fallback never invents values outside that result.
+    """
+
+    query = execution.get("query_spec") or {}
+    result = execution.get("result") or {}
+    rows = [row for row in result.get("data") or [] if isinstance(row, dict)]
+    dimensions = [str(item) for item in query.get("dimensions") or []]
+    analysis_kind = str(query.get("analysis_kind") or "aggregate")
+    column = str(query.get("column") or "rows")
+    if not rows:
+        return (
+            "## Kết luận điều hành\n\n"
+            "Official execution không trả về nhóm dữ liệu hợp lệ để viết insight."
+        )
+
+    def display_value(value: Any) -> str:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        return f"{number:,.2f}" if number % 1 else f"{number:,.0f}"
+
+    if analysis_kind == "forecast_ranking":
+        dimension = dimensions[0] if dimensions else "group"
+        horizon = int(query.get("forecast_horizon", 12))
+        grain = str(query.get("time_grain") or "time")
+        lines = [
+            "## Kết luận điều hành",
+            "",
+            f"Official execution xếp hạng theo tổng **{column}** dự báo trong "
+            f"{horizon} kỳ {grain} tương lai. Đây là thứ hạng dự báo, không phải doanh số đã phát sinh.",
+            "",
+            "### Top nhóm theo dự báo",
+        ]
+        for index, row in enumerate(rows, start=1):
+            label = str(row.get(dimension) or "(NULL)")
+            lines.append(f"{index}. **{label}** — {display_value(row.get('value'))}")
+        lines.extend(
+            [
+                "",
+                "## Điểm cần chú ý",
+                "",
+                "- Khoảng lower/upper trong Official result cho biết độ bất định của dự báo; không nên đọc giá trị điểm như cam kết chắc chắn.",
+                "- Kết quả chỉ phản ánh lịch sử đã có trong Profile Run và các nhóm đủ lịch sử để fit model.",
+                "",
+                "## Khuyến nghị hành động",
+                "",
+                f"Ưu tiên kiểm tra tồn kho và kế hoạch bán hàng của các nhóm đứng đầu **{dimension}**, sau đó đối chiếu với khoảng dự báo trước khi phân bổ nguồn lực.",
+            ]
+        )
+        return "\n".join(lines)
+
+    dimension = dimensions[0] if dimensions else None
+    first = rows[0]
+    label = str(first.get(dimension) or "Kết quả") if dimension else "Kết quả tổng hợp"
+    return "\n".join(
+        [
+            "## Kết luận điều hành",
+            "",
+            f"Official execution ghi nhận **{label}** là nhóm đứng đầu với giá trị **{display_value(first.get('value'))}**.",
+            "",
+            "## Khuyến nghị hành động",
+            "",
+            "Dùng kết quả này làm cơ sở ưu tiên kiểm tra nguyên nhân và kế hoạch vận hành; mọi diễn giải vẫn bị giới hạn bởi phạm vi Official execution.",
+        ]
+    )
+
+
 def _mentioned_columns(question: str, columns: list[str]) -> list[str]:
     lowered = question.lower()
     return [c for c in columns if c and c.lower() in lowered]
@@ -1341,6 +1414,14 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
             "evidence_status": "no_evidence",
             "qa_path": "cancelled",
+        }
+    if chart_insight and official_execution and official_execution.get("execution_kind") == "official":
+        return {
+            "answer": _guard_answer(_official_chart_insight(official_execution)),
+            "answer_sources": [],
+            "evidence_status": "verified",
+            "answerability": "answerable",
+            "qa_path": "official_execution_fallback",
         }
     if qa_context.get("remembered_name"):
         return {
