@@ -15,10 +15,15 @@ from src.agents.runtime.trace import complete_agent_run, fail_agent_run, start_a
 from src.agents.state import initial_profiling_state
 from src.config import get_settings
 from src.models.schemas import ConfirmRequest, ProfileRequest
-from src.services.google_drive import is_google_drive_ref
+from src.services.google_drive import (
+    GoogleDriveConnectionRequiredError,
+    GoogleDriveError,
+    is_google_drive_ref,
+)
+from src.services.ingestion import DatasetIngestionService, IngestionError
 from src.services.repository import Repository
 from src.services.stats_tests import TESTS
-from src.services.storage import is_supabase_ref
+from src.services.storage import StorageDownloadError, artifact_source_ref, is_supabase_ref
 from src.services.datasource import connection_id_from_ref
 
 logger = logging.getLogger(__name__)
@@ -94,6 +99,18 @@ class ProfileService:
             if not dataset:
                 raise ProfileError("Không tìm thấy dataset trong workspace.", 404)
 
+        ingestion_status = str(dataset.get("ingestion_status") or "ready")
+        if ingestion_status != "ready":
+            raise ProfileError(
+                "Dataset is not ready for profiling.",
+                409,
+                error_code="dataset_not_ready",
+                retryable=ingestion_status in {"uploading", "importing", "validating"},
+            )
+        artifact = self.repo.get_current_dataset_artifact(
+            dataset_id, workspace_id=workspace_id
+        )
+
         is_datasource = dataset_ref.lower().startswith("datasource://")
         if is_datasource:
             connection_id_from_ref(dataset_ref)
@@ -122,6 +139,7 @@ class ProfileService:
             request_hash=request_hash,
             correlation_id=correlation_id,
             max_attempts=self.settings.profiling_worker_max_attempts,
+            artifact_id=str(artifact["id"]) if artifact else None,
             source_content_sha256=dataset.get("content_sha256"),
             source_version=dataset.get("source_version"),
             sampling_strategy=(sampling_config or {}).get("strategy")
@@ -163,6 +181,45 @@ class ProfileService:
                 404,
                 error_code="dataset_not_found",
             )
+
+        artifact = None
+        if job.get("artifact_id"):
+            artifact = self.repo.get_dataset_artifact(
+                str(job["artifact_id"]), workspace_id=workspace_id
+            )
+            if not artifact or artifact.get("status") != "ready":
+                raise ProfileError(
+                    "The canonical dataset artifact is no longer available.",
+                    409,
+                    error_code="artifact_not_ready",
+                )
+        execution_source_ref = str(dataset["source_ref"])
+        if artifact is None and is_google_drive_ref(execution_source_ref):
+            try:
+                artifact = await asyncio.to_thread(
+                    DatasetIngestionService(repository=self.repo, settings=self.settings)
+                    .canonicalize_legacy_drive_dataset,
+                    dataset,
+                    workspace_id=workspace_id,
+                )
+                self.repo.bind_profile_run_artifact(
+                    run_id, artifact, workspace_id=workspace_id
+                )
+            except GoogleDriveConnectionRequiredError as exc:
+                raise ProfileError(
+                    "Legacy Google Drive access must be reconnected before migration.",
+                    409,
+                    error_code="drive_reconnect_required",
+                ) from exc
+            except (GoogleDriveError, IngestionError) as exc:
+                raise ProfileError(
+                    "Legacy Google Drive dataset could not be canonicalized.",
+                    502,
+                    error_code="legacy_canonicalization_failed",
+                    retryable=isinstance(exc, IngestionError) and exc.retryable,
+                ) from exc
+        if artifact:
+            execution_source_ref = artifact_source_ref(artifact)
 
         if str(job.get("status") or "") in {"pending_review", "completed"}:
             return {"run_id": run_id, "agent_run_id": job.get("agent_run_id")}
@@ -207,7 +264,7 @@ class ProfileService:
             else None
         )
         state = initial_profiling_state(
-            dataset_ref=str(dataset["source_ref"]),
+            dataset_ref=execution_source_ref,
             dataset_name=str(dataset.get("name") or dataset["source_ref"]),
             scan_mode=job.get("scan_mode") or self.settings.profiling_default_scan_mode,
             sampling_config=sampling_config,
@@ -243,6 +300,18 @@ class ProfileService:
                 503,
                 error_code="database_unavailable",
                 retryable=True,
+            ) from exc
+        except StorageDownloadError as exc:
+            fail_agent_run(agent_run_id, workspace_id=workspace_id, error=exc)
+            raise ProfileError(
+                "Canonical dataset storage is temporarily unavailable."
+                if exc.retryable
+                else "The canonical dataset object is unavailable.",
+                503 if exc.retryable else 409,
+                error_code="storage_download_unavailable"
+                if exc.retryable
+                else "canonical_object_unavailable",
+                retryable=exc.retryable,
             ) from exc
         except Exception as exc:
             logger.exception("Profiling job failed job_id=%s", run_id)

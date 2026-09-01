@@ -3,7 +3,7 @@
 import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { connectGoogleDrive, createProfile, getGoogleDriveStatus, listConnectors, startDatasetProfile, startDatasetProfiles, uploadDataset, useSavedDatasource, ApiError, type GoogleDriveStatus } from "@/lib/api";
+import { connectGoogleDrive, createProfile, getGoogleDriveStatus, importGoogleDriveFile, listConnectors, listGoogleDriveFiles, startDatasetProfile, startDatasetProfiles, uploadDataset, useSavedDatasource, ApiError, type GoogleDriveStatus } from "@/lib/api";
 import { humanFileSize } from "@/lib/format";
 import type { UploadResult } from "@/lib/types";
 import { ErrorNotice, LoadingButton, Notice, PageHeader, ProgressSteps } from "@/components/ui";
@@ -25,14 +25,15 @@ export default function NewDatasetPage() {
   const [dragging, setDragging] = useState(false);
   const [scanMode, setScanMode] = useState<"full" | "sample">("sample");
   const [datasetName, setDatasetName] = useState("");
-  const [busy, setBusy] = useState<"upload" | "profile" | null>(null);
-  const [sourceMode, setSourceMode] = useState<"file" | "datasource">("file");
+  const [busy, setBusy] = useState<"upload" | "import" | "profile" | null>(null);
+  const [sourceMode, setSourceMode] = useState<"file" | "drive" | "datasource">("file");
   const [savedDatasourceId, setSavedDatasourceId] = useState("");
   const [showNewDatasource, setShowNewDatasource] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [selectionWarning, setSelectionWarning] = useState<string | null>(null);
   const [driveStatus, setDriveStatus] = useState<GoogleDriveStatus | null>(null);
   const [driveConnecting, setDriveConnecting] = useState(false);
+  const [selectedDriveFileId, setSelectedDriveFileId] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const driveStatusSequence = useRef(0);
@@ -42,6 +43,12 @@ export default function NewDatasetPage() {
     queryKey: ["connectors", workspaceId],
     queryFn: () => listConnectors(),
     enabled: authenticated && Boolean(workspaceId),
+    staleTime: 30_000,
+  });
+  const driveFilesQuery = useQuery({
+    queryKey: ["google-drive-files", workspaceId],
+    queryFn: listGoogleDriveFiles,
+    enabled: sourceMode === "drive" && Boolean(driveStatus?.connected),
     staleTime: 30_000,
   });
   const savedDatasourceOptions = (connectorsQuery.data?.connectors ?? []).filter((item) => item.category === "data" && item.provider === "mongodb" && item.id.startsWith("datasource:"));
@@ -305,6 +312,35 @@ export default function NewDatasetPage() {
     }
   }
 
+  async function handleDriveImport() {
+    if (!selectedDriveFileId) return;
+    if (profileInFlight.current) return;
+    profileInFlight.current = true;
+    setBusy("import");
+    setError(null);
+    try {
+      const imported = await importGoogleDriveFile(
+        selectedDriveFileId,
+        datasetName.trim() || undefined,
+        submissionKey(`drive:${selectedDriveFileId}`),
+      );
+      if (!imported.dataset_id) throw new ApiError("Drive import did not create a dataset.", 500);
+      setBusy("profile");
+      const payload = { dataset_name: imported.suggested_name || imported.filename, scan_mode: scanMode };
+      const job = await startDatasetProfile(
+        imported.dataset_id,
+        payload,
+        submissionKey(JSON.stringify({ dataset_id: imported.dataset_id, ...payload })),
+      );
+      router.push(`/profiles/${job.run_id}`);
+    } catch (reason) {
+      setError(reason);
+    } finally {
+      profileInFlight.current = false;
+      setBusy(null);
+    }
+  }
+
   function handleUploadClick() {
     if (driveBlocked) {
       if (driveStatus?.can_connect) void handleConnectDrive();
@@ -322,7 +358,7 @@ export default function NewDatasetPage() {
     setDragging(false);
     selectFiles(Array.from(event.dataTransfer.files));
   };
-  const driveBlocked = driveStatus?.provider === "google_drive" && !driveStatus.connected;
+  const driveBlocked = false;
   const allUploaded = files.length > 0 && uploadResults.length === files.length && uploadResults.every(Boolean);
   const uploadedCount = uploadResults.filter(Boolean).length;
   const profiledCount = profiled.filter(Boolean).length;
@@ -331,13 +367,13 @@ export default function NewDatasetPage() {
     <PageHeader eyebrow="Bộ dữ liệu mới" title="Tải lên và bắt đầu profiling" description="Hệ thống sẽ tự động quét và phân tích dữ liệu của bạn một cách bảo mật. Các chỉ số được tính toán chính xác tuyệt đối, AI chỉ đóng vai trò hỗ trợ gợi ý thông tin." />
     {error && <ErrorNotice error={error} retry={files.length && !allUploaded ? handleUpload : allUploaded ? handleProfile : undefined} />}
     {selectionWarning && <Notice tone="info"><p>{selectionWarning}</p></Notice>}
-    {driveStatus?.provider === "google_drive" && <Notice tone={driveStatus.connected ? "success" : "info"}>
+    {sourceMode === "drive" && driveStatus && <Notice tone={driveStatus.connected ? "success" : "info"}>
       <b>{driveStatus.connected ? "Google Drive đã kết nối." : "Cần kết nối Google Drive trước khi upload."}</b>
       {!driveStatus.connected && <p>{driveStatus.can_connect ? "Bạn chỉ cần kết nối Google Drive 1 lần trong 1 workspace." : "Workspace hiện chưa cho phép kết nối Google Drive."}</p>}
       {!driveStatus.connected && driveStatus.can_connect && <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>{driveConnecting ? "Đang mở Google…" : "Kết nối Google Drive"}</LoadingButton>}
     </Notice>}
-    <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MongoDB Atlas</button></div>
-    {sourceMode === "datasource" ? <div className="stacked-section">
+    <div className="inline-actions" role="tablist" aria-label="Kiểu nguồn dữ liệu"><button type="button" className={`button ${sourceMode === "file" ? "primary" : "secondary"}`} onClick={() => setSourceMode("file")}>File từ máy</button><button type="button" className={`button ${sourceMode === "drive" ? "primary" : "secondary"}`} onClick={() => setSourceMode("drive")}>Google Drive</button><button type="button" className={`button ${sourceMode === "datasource" ? "primary" : "secondary"}`} onClick={() => setSourceMode("datasource")}>MongoDB Atlas</button></div>
+    {sourceMode === "drive" ? <section className="panel"><div className="panel-title"><h2>Import from Google Drive</h2><small>The selected file is copied once into workspace storage before profiling.</small></div>{!driveStatus?.connected ? <Notice tone="info">Connect Google Drive to select a file. Existing imports remain usable after disconnect.</Notice> : driveFilesQuery.isPending ? <p className="muted">Loading Drive files…</p> : <div className="form-grid"><div className="field full"><label htmlFor="drive-file">Drive file</label><select id="drive-file" value={selectedDriveFileId} onChange={(event) => setSelectedDriveFileId(event.target.value)} disabled={busy !== null}><option value="">Select a file</option>{(driveFilesQuery.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}{item.size_bytes ? ` · ${humanFileSize(item.size_bytes)}` : ""}</option>)}</select></div><div className="field full"><label htmlFor="drive-dataset-name">Dataset name</label><input id="drive-dataset-name" value={datasetName} onChange={(event) => setDatasetName(event.target.value)} maxLength={255} placeholder="Keep the Drive filename" disabled={busy !== null} /></div><div className="field"><label htmlFor="drive-scan-mode">Scan mode</label><select id="drive-scan-mode" value={scanMode} onChange={(event) => setScanMode(event.target.value as "full" | "sample")} disabled={busy !== null}><option value="sample">Sample</option><option value="full">Full scan</option></select></div></div>}<div className="form-actions">{!driveStatus?.connected && driveStatus?.can_connect ? <LoadingButton className="button secondary" onClick={handleConnectDrive} busy={driveConnecting}>Connect Google Drive</LoadingButton> : <LoadingButton className="button primary" onClick={handleDriveImport} busy={busy !== null} disabled={!selectedDriveFileId || busy !== null}>Import and profile</LoadingButton>}</div></section> : sourceMode === "datasource" ? <div className="stacked-section">
       <section className="panel saved-datasource-panel">
         <div className="panel-title"><h2>Dùng MongoDB Atlas đã kết nối</h2><small>Credential vẫn nằm ở backend; dataset mới chỉ tham chiếu connection dùng chung.</small></div>
         {!!savedDatasourceOptions.length && <div className="form-grid">

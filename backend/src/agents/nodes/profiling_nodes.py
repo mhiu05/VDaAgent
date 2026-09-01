@@ -37,6 +37,7 @@ from src.services.repository import get_repository
 from src.services.retrieval import get_index
 from src.services.security import get_audit
 from src.services.stats_tests import run_tests
+from src.services.storage import artifact_source_ref
 
 # --------------------------------------------------------------------------- #
 # Cache dataframe theo profile_run_id
@@ -59,13 +60,22 @@ def get_dataframe(run_id: str, columns: list[str] | None = None) -> pd.DataFrame
     if not run:
         return None
 
-    dataset = get_repository().get_dataset(run["dataset_id"])
-    if not dataset:
-        return None
+    dataset_ref: str | None = None
+    if run.get("artifact_id"):
+        artifact = get_repository().get_dataset_artifact(
+            str(run["artifact_id"]), workspace_id=str(run["workspace_id"])
+        )
+        if artifact and artifact.get("status") == "ready":
+            dataset_ref = artifact_source_ref(artifact)
+    if not dataset_ref:
+        dataset = get_repository().get_dataset(run["dataset_id"])
+        if not dataset:
+            return None
+        dataset_ref = str(dataset["source_ref"])
 
     try:
         df, _query, _truncated = compute.load_dataset(
-            dataset["source_ref"],
+            dataset_ref,
             scan_mode=run["scan_mode"],
             sample_size=run.get("sample_size") or 10_000,
             sample_strategy=run.get("sampling_strategy") or "reservoir",
@@ -100,7 +110,7 @@ def ingest_node(state: ProfilingState) -> dict[str, Any]:
     if not run or run.get("dataset_id") != dataset_id or not dataset:
         return {"error": "Profile run không còn ánh xạ an toàn tới dataset."}
     repo.transition_profile_run(run_id, {"created", "queued", "running"}, "running")
-    dataset_ref = dataset["source_ref"]
+    dataset_ref = state["dataset_ref"]
     scan_mode = state.get("scan_mode", settings.profiling_default_scan_mode)
     config = dict(state.get("sampling_config") or {})
 

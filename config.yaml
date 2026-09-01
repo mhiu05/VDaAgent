@@ -147,7 +147,8 @@ database:
   url: ""
   checkpointer_url: ""
 
-storage_provider: supabase
+canonical_storage_provider: supabase
+storage_provider: supabase # deprecated compatibility input
 guest_storage_provider: supabase
 guest_max_upload_mb: 25
 guest_retention_hours: 24

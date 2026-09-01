@@ -25,6 +25,8 @@ INTERNAL_BACKEND_ONLY_TABLES = frozenset(
         "conversations",
         "evaluation_candidates",
         "datasource_connections",
+        "dataset_artifacts",
+        "dataset_ingestions",
         "evidence_items",
         "google_drive_connections",
         "google_drive_oauth_states",

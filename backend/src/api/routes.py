@@ -86,24 +86,20 @@ from src.models.schemas import (
     TestRequest,
     TestResponse,
     UploadResponse,
+    UploadSessionCreate,
+    UploadSessionOut,
 )
 from src.services import drift as drift_service
 from src.services.analysis_repository import get_analysis_repository
-from src.services.google_drive import (
-    GoogleDriveConnectionRequiredError,
-    GoogleDriveError,
-    GoogleDriveStorage,
-    is_google_drive_ref,
-    parse_google_drive_ref,
-)
+from src.services.google_drive import is_google_drive_ref
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
 from src.services.datasource import (
     DatasourceError,
     decrypt_config,
     encrypt_config,
+    materialize_connection,
     normalize_config,
     probe,
-    source_ref_for_connection,
 )
 from src.services.llm import (
     LLMNotConfiguredError,
@@ -112,6 +108,7 @@ from src.services.llm import (
     report_text,
     safe_llm_warning,
 )
+from src.services.ingestion import DatasetIngestionService, IngestionError
 from src.services.chat_errors import chat_error, http_detail
 from src.services.chat_answer import build_answer_envelope
 from src.services.chat_cache import cache_candidate, cache_response_payload, revalidate_cache_hit, _VALIDATOR_VERSION
@@ -140,8 +137,7 @@ from src.services.security import (
 )
 from src.services.stats_tests import TESTS, run_tests
 from src.services.storage import (
-    StorageNotConfiguredError,
-    StorageUploadError,
+    LocalObjectStorage,
     get_storage,
     is_supabase_ref,
     parse_supabase_ref,
@@ -2560,10 +2556,12 @@ async def test_datasource(
 @router.post("/datasets/datasource", response_model=DatasourceConnectResponse, status_code=201)
 async def connect_datasource(
     request: DatasourceRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
 ) -> DatasourceConnectResponse:
     """Create a tenant-owned dataset backed by an encrypted external source."""
     get_rate_limiter().check(context.user_id)
+    settings = get_settings()
     try:
         normalized = normalize_config(request.kind, request.config)
         await asyncio.to_thread(probe, request.kind, normalized)
@@ -2584,16 +2582,33 @@ async def connect_datasource(
             kind=request.kind,
             config_encrypted=encrypted,
         )
-        dataset_id = uuid4().hex
-        get_repository().create_dataset(
-            dataset_id,
-            request.name,
-            request.kind,
-            source_ref_for_connection(connection_id),
-            workspace_id=context.workspace_id,
-            content_sha256=hashlib.sha256(encrypted.encode()).hexdigest(),
-            source_version="connection-v1",
-            datasource_connection_id=connection_id,
+        connection = get_repository().get_datasource_connection(
+            connection_id, workspace_id=context.workspace_id
+        )
+        if not connection:
+            raise RuntimeError("Datasource connection metadata is missing.")
+        with materialize_connection(connection, settings) as materialized:
+            extension = ".parquet" if request.kind == "duckdb" else ".json" if request.kind == "mongodb" else ".csv"
+            ingestion = DatasetIngestionService(settings=settings).ingest_path(
+                materialized,
+                workspace_id=context.workspace_id,
+                user_id=context.user_id,
+                idempotency_key=idempotency_key or uuid4().hex,
+                kind=request.kind,
+                filename=f"{request.name}{extension}",
+                dataset_name=request.name,
+                content_type="application/vnd.apache.parquet" if extension == ".parquet" else "application/json" if extension == ".json" else "text/csv",
+                source_type=request.kind,
+                source_metadata={
+                    "connection_id": connection_id,
+                    "resource_identifier": normalized.get("table") or normalized.get("collection") or "query",
+                    "connection_version": 1,
+                },
+                source_version="connection-v1",
+            )
+        dataset_id = str(ingestion["dataset_id"])
+        get_repository().set_dataset_datasource_connection(
+            dataset_id, connection_id, workspace_id=context.workspace_id
         )
     except Exception as exc:
         logger.exception("Không lưu được datasource metadata")
@@ -2617,6 +2632,7 @@ async def connect_datasource(
 async def use_saved_datasource(
     connection_id: str,
     request: DatasourceReuseRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
 ) -> DatasourceConnectResponse:
     """Create a dataset that reuses an existing encrypted datasource connection."""
@@ -2636,17 +2652,30 @@ async def use_saved_datasource(
         repo.mark_datasource_health(connection_id, workspace_id=context.workspace_id, ok=False, error_code="PROVIDER_UNAVAILABLE")
         raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
 
-    dataset_id = uuid4().hex
     try:
-        repo.create_dataset(
-            dataset_id,
-            request.name,
-            str(connection["kind"]),
-            source_ref_for_connection(connection_id),
-            workspace_id=context.workspace_id,
-            content_sha256=hashlib.sha256(str(connection["config_encrypted"]).encode()).hexdigest(),
-            source_version=f"connection-v{int(connection.get('version') or 1)}",
-            datasource_connection_id=connection_id,
+        kind = str(connection["kind"])
+        extension = ".parquet" if kind == "duckdb" else ".json" if kind == "mongodb" else ".csv"
+        with materialize_connection(connection, get_settings()) as materialized:
+            ingestion = DatasetIngestionService().ingest_path(
+                materialized,
+                workspace_id=context.workspace_id,
+                user_id=context.user_id,
+                idempotency_key=idempotency_key or uuid4().hex,
+                kind=kind,
+                filename=f"{request.name}{extension}",
+                dataset_name=request.name,
+                content_type="application/vnd.apache.parquet" if extension == ".parquet" else "application/json" if extension == ".json" else "text/csv",
+                source_type=kind,
+                source_metadata={
+                    "connection_id": connection_id,
+                    "resource_identifier": config.get("table") or config.get("collection") or "query",
+                    "connection_version": int(connection.get("version") or 1),
+                },
+                source_version=f"connection-v{int(connection.get('version') or 1)}",
+            )
+        dataset_id = str(ingestion["dataset_id"])
+        repo.set_dataset_datasource_connection(
+            dataset_id, connection_id, workspace_id=context.workspace_id
         )
     except Exception as exc:
         logger.exception("Could not create dataset from saved datasource")
@@ -2665,6 +2694,7 @@ async def use_saved_datasource(
 @router.post("/datasets/upload", response_model=UploadResponse, status_code=201)
 async def upload_dataset(
     file: UploadFile = File(..., description="CSV / TSV / Parquet / JSON"),  # noqa: B008
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
 ) -> UploadResponse:
     """Nhận file dữ liệu từ Analyst và trả `dataset_ref` để gọi `POST /profile`.
@@ -2687,15 +2717,13 @@ async def upload_dataset(
         settings.guest_max_upload_mb if is_guest else settings.security_max_upload_mb
     )
     limit_bytes = limit_mb * 1024 * 1024
-    dataset_id = uuid4().hex
-    temporary_path: Path | None = None
     target: Path | None = None
     size = 0
-    content_digest = hashlib.sha256()
     provider = (
-        settings.guest_storage_provider if is_guest else settings.storage_provider
+        settings.guest_storage_provider
+        if is_guest
+        else settings.canonical_storage_provider
     )
-    use_remote_storage = provider in {"supabase", "google_drive"}
     if settings.app_env == "production" and provider == "local" and not is_guest:
         raise HTTPException(
             status_code=503,
@@ -2709,31 +2737,14 @@ async def upload_dataset(
         raise HTTPException(
             status_code=503, detail="Production chưa cấu hình Supabase Storage."
         )
-    if provider == "google_drive" and not settings.google_drive_configured:
-        raise HTTPException(
-            status_code=503, detail="Production chưa cấu hình Google Drive đầy đủ."
-        )
-
-    # Remote storage là source of truth. Local file chỉ là file tạm cho upload
-    # hoặc compatibility path ở development/test.
+    # The request body is bounded on disk, then copied into the immutable
+    # canonical adapter. Production browsers normally use signed direct upload.
     try:
-        if use_remote_storage:
-            fd, temp_name = tempfile.mkstemp(
-                prefix="p170-upload-", suffix=PurePath(name).suffix
-            )
-            os.close(fd)
-            temporary_path = Path(temp_name)
-            target = temporary_path
-        else:
-            local_dir = (
-                settings.upload_path
-                / "workspaces"
-                / context.workspace_id
-                / "datasets"
-                / dataset_id
-            )
-            local_dir.mkdir(parents=True, exist_ok=True)
-            target = local_dir / f"{uuid4().hex}-{name}"
+        fd, temp_name = tempfile.mkstemp(
+            prefix="p170-upload-", suffix=PurePath(name).suffix
+        )
+        os.close(fd)
+        target = Path(temp_name)
 
         assert target is not None
         with target.open("wb") as out:
@@ -2745,7 +2756,6 @@ async def upload_dataset(
                         detail=f"File vượt giới hạn {limit_mb} MB.",
                     )
                 out.write(chunk)
-                content_digest.update(chunk)
     except HTTPException:
         if target is not None:
             target.unlink(missing_ok=True)
@@ -2766,122 +2776,136 @@ async def upload_dataset(
         raise HTTPException(status_code=422, detail="File rỗng.")
 
     try:
-        if provider == "supabase":
-            prefix = "guest-workspaces" if is_guest else "workspaces"
-            object_name = f"{prefix}/{context.workspace_id}/datasets/{dataset_id}/{uuid4().hex}-{name}"
-            try:
-                await asyncio.to_thread(
-                    get_storage(settings).upload,
-                    target,
-                    object_name,
-                    file.content_type,
-                )
-            except StorageNotConfiguredError as exc:
-                raise HTTPException(status_code=503, detail=str(exc)) from exc
-            except StorageUploadError as exc:
-                logger.exception(
-                    "Supabase Storage upload failed",
-                    extra={"bucket": settings.supabase_storage_bucket},
-                )
-                raise HTTPException(
-                    status_code=502,
-                    detail="Không thể tải file lên Supabase Storage. Vui lòng thử lại.",
-                ) from exc
-            dataset_ref = f"supabase://{settings.supabase_storage_bucket}/{object_name}"
-            stored_name = dataset_ref
-            filename = name
-        elif provider == "google_drive":
-            try:
-                file_id = await asyncio.to_thread(
-                    GoogleDriveStorage(settings).upload,
-                    context.workspace_id,
-                    target,
-                    name,
-                    file.content_type,
-                )
-            except GoogleDriveConnectionRequiredError as exc:
-                raise HTTPException(status_code=409, detail=str(exc)) from exc
-            except GoogleDriveError as exc:
-                logger.exception("Google Drive upload failed")
-                raise HTTPException(
-                    status_code=502,
-                    detail="Không thể tải file lên Google Drive. Vui lòng thử lại.",
-                ) from exc
-            dataset_ref = f"gdrive://{context.workspace_id}/{file_id}/{name}"
-            stored_name = dataset_ref
-            filename = name
-        else:
-            assert target is not None
-            dataset_ref = str(target)
-            stored_name = target.name
-            filename = target.name
-    except HTTPException:
-        raise
-    except Exception as exc:
-        destination = (
-            "Google Drive" if provider == "google_drive" else "Supabase Storage"
-        )
-        raise HTTPException(
-            status_code=502, detail=f"Không thể lưu file vào {destination}."
-        ) from exc
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
-
-    source_type = (
-        "parquet"
-        if name.endswith(".parquet")
-        else "json"
-        if name.endswith(".json")
-        else "csv"
-    )
-    try:
-        get_repository().create_dataset(
-            dataset_id,
-            PurePath(name).stem,
-            source_type,
-            dataset_ref,
+        ingestion = await asyncio.to_thread(
+            DatasetIngestionService(settings=settings).ingest_path,
+            target,
             workspace_id=context.workspace_id,
-            content_sha256=content_digest.hexdigest(),
-            source_version=None,
+            user_id=context.user_id,
+            idempotency_key=idempotency_key or uuid4().hex,
+            kind="upload",
+            filename=name,
+            dataset_name=PurePath(name).stem,
+            content_type=file.content_type,
+            source_type="upload",
+            source_metadata={"original_filename": name},
         )
-    except Exception as exc:
-        logger.exception("Không lưu được metadata upload")
-        try:
-            if is_supabase_ref(dataset_ref):
-                bucket, object_path = parse_supabase_ref(dataset_ref)
-                get_storage(settings).remove(bucket, object_path)
-            elif is_google_drive_ref(dataset_ref):
-                source_workspace, file_id, _ = parse_google_drive_ref(dataset_ref)
-                if source_workspace != context.workspace_id:
-                    raise ValueError("Object Google Drive không thuộc workspace.")
-                GoogleDriveStorage(settings).remove(context.workspace_id, file_id)
-            else:
-                Path(dataset_ref).unlink(missing_ok=True)
-        except Exception:
-            logger.warning(
-                "Không rollback được source upload sau lỗi metadata", exc_info=True
-            )
-        raise HTTPException(
-            status_code=500, detail="Không thể lưu metadata dataset."
-        ) from exc
+        dataset = get_repository().get_dataset(
+            str(ingestion["dataset_id"]), workspace_id=context.workspace_id
+        )
+        if not dataset:
+            raise IngestionError("Dataset metadata is missing.", code="dataset_missing")
+    except IngestionError as exc:
+        status_code = 409 if exc.code == "idempotency_conflict" else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    finally:
+        if target is not None:
+            target.unlink(missing_ok=True)
+
     _audit(
         context,
         "api_upload",
         resource_type="dataset",
-        resource_id=dataset_id,
+        resource_id=str(dataset["id"]),
         filename=name,
-        stored=stored_name,
         bytes=size,
+        storage_provider=provider,
     )
-    logger.info("Đã lưu file upload %s (%d bytes)", stored_name, size)
-
     return UploadResponse(
-        dataset_ref=dataset_ref,
-        dataset_id=dataset_id,
-        filename=filename,
+        dataset_ref=str(dataset["source_ref"]),
+        dataset_id=str(dataset["id"]),
+        filename=name,
         size_bytes=size,
         suggested_name=PurePath(name).stem,
+    )
+
+@router.post("/datasets/upload-sessions", response_model=UploadSessionOut, status_code=201)
+async def create_upload_session(
+    payload: UploadSessionCreate,
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=255),
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> UploadSessionOut:
+    """Reserve a tenant-scoped object and return a signed, non-upsert upload token."""
+    started = time.perf_counter()
+    settings = get_settings()
+    if context.actor.is_guest:
+        raise HTTPException(status_code=403, detail="Direct uploads require an authenticated workspace.")
+    if payload.size_bytes > settings.security_max_upload_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds the configured upload limit.")
+    try:
+        filename = safe_filename(payload.filename)
+        result = await asyncio.to_thread(
+            DatasetIngestionService(settings=settings).create_signed_upload,
+            workspace_id=context.workspace_id,
+            user_id=context.user_id,
+            idempotency_key=idempotency_key,
+            filename=filename,
+            dataset_name=(payload.dataset_name or PurePath(filename).stem).strip(),
+            size_bytes=payload.size_bytes,
+            content_type=payload.content_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IngestionError as exc:
+        raise HTTPException(
+            status_code=409 if exc.code == "idempotency_conflict" else 503,
+            detail=str(exc),
+        ) from exc
+    logger.info(
+        "upload_session_created",
+        extra={
+            "workspace_id": context.workspace_id,
+            "dataset_id": str(result["dataset_id"]),
+            "upload_session_create_ms": round((time.perf_counter() - started) * 1000, 2),
+            "size_bytes": payload.size_bytes,
+        },
+    )
+    return UploadSessionOut(**result)
+
+
+@router.post("/datasets/upload-sessions/{ingestion_id}/finalize", response_model=UploadResponse)
+async def finalize_upload_session(
+    ingestion_id: str,
+    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+) -> UploadResponse:
+    """Verify the reserved object and atomically make its dataset profileable."""
+    started = time.perf_counter()
+    try:
+        result = await asyncio.to_thread(
+            DatasetIngestionService().finalize_signed_upload,
+            ingestion_id,
+            workspace_id=context.workspace_id,
+        )
+        dataset = get_repository().get_dataset(
+            str(result["dataset_id"]), workspace_id=context.workspace_id
+        )
+        artifact = get_repository().get_dataset_artifact(
+            str(result["artifact_id"]), workspace_id=context.workspace_id
+        )
+        if not dataset or not artifact:
+            raise IngestionError("Finalized dataset metadata is missing.", code="dataset_missing")
+    except IngestionError as exc:
+        code = (
+            404
+            if exc.code in {"ingestion_missing", "object_not_found"}
+            else 503
+            if exc.retryable
+            else 409
+        )
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
+    _audit(
+        context,
+        "upload.finalized",
+        resource_type="dataset",
+        resource_id=str(dataset["id"]),
+        bytes=int(artifact.get("size_bytes") or 0),
+        upload_finalize_ms=round((time.perf_counter() - started) * 1000, 2),
+    )
+    return UploadResponse(
+        dataset_ref=str(dataset["source_ref"]),
+        dataset_id=str(dataset["id"]),
+        filename=str(artifact.get("original_filename") or dataset["name"]),
+        size_bytes=int(artifact.get("size_bytes") or 0),
+        suggested_name=str(dataset["name"]),
     )
 
 
@@ -2948,6 +2972,39 @@ async def delete_dataset(
 
     deleted_file = False
     source_ref = str(deleted["source_ref"])
+    artifacts = list(deleted.get("artifacts") or [])
+    if artifacts:
+        deleted_objects = 0
+        for artifact in artifacts:
+            try:
+                if artifact["storage_provider"] == "supabase":
+                    get_storage().remove(str(artifact["bucket"]), str(artifact["object_key"]))
+                else:
+                    LocalObjectStorage().delete(str(artifact["object_key"]))
+                deleted_objects += 1
+            except Exception:
+                logger.warning(
+                    "Could not delete canonical dataset object",
+                    extra={"dataset_id": dataset_id, "storage_provider": artifact.get("storage_provider")},
+                    exc_info=True,
+                )
+        deleted_file = deleted_objects == len(artifacts)
+        _audit(
+            context,
+            "api_delete_dataset",
+            dataset_id=dataset_id,
+            resource_type="dataset",
+            resource_id=dataset_id,
+            deleted_runs=len(run_ids),
+            deleted_file=deleted_file,
+            deleted_objects=deleted_objects,
+        )
+        return {
+            "dataset_id": dataset_id,
+            "deleted_runs": len(run_ids),
+            "deleted_file": deleted_file,
+            "deleted_objects": deleted_objects,
+        }
     if source_ref.lower().startswith("datasource://"):
         # Saved datasource connections are reusable. Dataset deletion removes
         # only this dataset; the connection remains available to other
@@ -2977,16 +3034,9 @@ async def delete_dataset(
                 "Không xóa được object Supabase %s", source_ref, exc_info=True
             )
     elif is_google_drive_ref(source_ref):
-        try:
-            source_workspace, file_id, _ = parse_google_drive_ref(source_ref)
-            if source_workspace != context.workspace_id:
-                raise ValueError("Object Google Drive không thuộc workspace.")
-            GoogleDriveStorage().remove(context.workspace_id, file_id)
-            deleted_file = True
-        except Exception:
-            logger.warning(
-                "Không xóa được object Google Drive %s", source_ref, exc_info=True
-            )
+        # Drive is connector provenance, not application-owned storage. A
+        # legacy Drive source must remain untouched when its dataset is deleted.
+        logger.info("Preserved legacy Google Drive source for deleted dataset")
     else:
         source_path = Path(source_ref)
         upload_root = get_settings().upload_path.resolve()

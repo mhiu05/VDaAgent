@@ -15,6 +15,7 @@ from tests.conftest import (
     submit_and_run_profile,
 )
 from src.config import get_settings
+from src.services.ingestion import DatasetIngestionService
 from src.services.repository import get_repository
 
 
@@ -691,7 +692,9 @@ def test_qa_pending_review_remains_fail_closed(client: TestClient, profile_run: 
         },
     )
     assert response.status_code == 409
-    assert "chưa hoàn tất" in response.json()["detail"]
+    body = response.json()["detail"]
+    assert body["code"] == "PROFILE_NOT_READY"
+    assert "open_profiling_status" in body["recovery_actions"]
 
 
 def test_qa_unknown_run_returns_404(client: TestClient) -> None:
@@ -927,6 +930,114 @@ def test_upload_rejects_empty_file(client: TestClient) -> None:
         "/api/v1/datasets/upload", files={"file": ("empty.csv", b"", "text/csv")}
     )
     assert upload.status_code == 422
+
+
+def test_canonical_upload_metadata_is_workspace_scoped(
+    client: TestClient, monkeypatch
+) -> None:
+    first_headers = _analyst_headers(client, monkeypatch)
+    second_headers = _analyst_headers(client, monkeypatch)
+    first_workspace = first_headers["X-Workspace-Id"]
+    second_workspace = second_headers["X-Workspace-Id"]
+    service = DatasetIngestionService()
+    reserved = service.reserve(
+        workspace_id=first_workspace,
+        user_id="security-test-user",
+        idempotency_key=uuid4().hex,
+        kind="upload",
+        filename="tenant.csv",
+        dataset_name="Tenant source",
+        expected_size_bytes=8,
+        content_type="text/csv",
+        source_type="upload",
+    )
+    artifact = get_repository().get_dataset_artifact(
+        str(reserved["artifact_id"]), workspace_id=first_workspace
+    )
+    assert artifact is not None
+    assert str(artifact["object_key"]).startswith(
+        f"workspaces/{first_workspace}/datasets/{reserved['dataset_id']}/source/"
+    )
+    assert get_repository().get_dataset_artifact(
+        str(reserved["artifact_id"]), workspace_id=second_workspace
+    ) is None
+
+    cross_workspace_finalize = client.post(
+        f"/api/v1/datasets/upload-sessions/{reserved['id']}/finalize",
+        headers=second_headers,
+    )
+    assert cross_workspace_finalize.status_code == 404
+
+
+def test_drive_import_retry_reuses_canonical_dataset_without_redownload(
+    client: TestClient, monkeypatch
+) -> None:
+    from src.api import google_drive_routes
+
+    headers = _analyst_headers(client, monkeypatch)
+    content = b"id,city\n1,Hanoi\n"
+
+    class _DriveConnector:
+        downloads = 0
+
+        def metadata(self, workspace_id: str, file_id: str) -> dict[str, object]:
+            assert workspace_id == headers["X-Workspace-Id"]
+            assert file_id == "drive-file-a"
+            return {
+                "id": file_id,
+                "name": "drive-source.csv",
+                "size": str(len(content)),
+                "mimeType": "text/csv",
+                "version": "7",
+                "modifiedTime": "2026-09-01T00:00:00Z",
+            }
+
+        def download(
+            self,
+            workspace_id: str,
+            file_id: str,
+            destination: Path,
+            *,
+            max_bytes: int,
+        ) -> None:
+            assert workspace_id == headers["X-Workspace-Id"]
+            assert file_id == "drive-file-a"
+            assert len(content) < max_bytes
+            type(self).downloads += 1
+            destination.write_bytes(content)
+
+    monkeypatch.setattr(google_drive_routes, "GoogleDriveConnector", _DriveConnector)
+    key = uuid4().hex
+    first = client.post(
+        "/api/v1/google-drive/import",
+        headers={**headers, "Idempotency-Key": key},
+        json={"file_id": "drive-file-a", "dataset_name": "Drive source"},
+    )
+    second = client.post(
+        "/api/v1/google-drive/import",
+        headers={**headers, "Idempotency-Key": key},
+        json={"file_id": "drive-file-a", "dataset_name": "Drive source"},
+    )
+
+    assert first.status_code == second.status_code == 201
+    assert first.json()["dataset_id"] == second.json()["dataset_id"]
+    assert _DriveConnector.downloads == 1
+
+
+def test_workspace_header_cannot_target_another_workspace_drive_import(
+    client: TestClient, monkeypatch
+) -> None:
+    first = _analyst_headers(client, monkeypatch)
+    second = _analyst_headers(client, monkeypatch)
+    forged = {**first, "X-Workspace-Id": second["X-Workspace-Id"], "Idempotency-Key": uuid4().hex}
+
+    response = client.post(
+        "/api/v1/google-drive/import",
+        headers=forged,
+        json={"file_id": "drive-file-a"},
+    )
+
+    assert response.status_code in {403, 404}
 
 
 # --------------------------------------------------------------------------- #

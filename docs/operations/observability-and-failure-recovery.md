@@ -21,7 +21,7 @@ Theo dõi tối thiểu:
 - database pool wait, query chậm, lock và connection exhaustion;
 - profiling queue depth, tuổi job lâu nhất, retry, lease expiry;
 - CPU/RAM/disk tạm của worker;
-- storage/download latency;
+- upload session/finalize, Drive metadata/download, canonical upload/verify và storage download latency;
 - SSE connection/disconnect;
 - PDF timeout.
 
@@ -42,6 +42,16 @@ Worker dùng lease, heartbeat, retry và stale-job recovery:
 - shutdown grace 30 giây.
 
 Delivery là at-least-once, nên handler phải idempotent. Khi worker chết, lease hết hạn cho phép worker khác claim lại. Không sửa trạng thái bằng tay trước khi kiểm tra attempt, lease owner, heartbeat, domain state và audit.
+
+Profile job đã bind `artifact_id` không được đổi sang artifact mới hơn của dataset. `queue_wait_ms`, `execution_ms` và `storage_download_ms` cho phép tách queue, materialization và tổng worker execution. Ingestion log `canonical_upload_ms`, `canonical_verify_ms` và metadata finalize; Drive audit thêm metadata/download/import total. Không suy ra Supabase nhanh hơn Drive nếu chưa chạy benchmark staging.
+
+## Reconciliation và migration
+
+- `python scripts/reconcile_storage.py` là read-only, phát hiện record thiếu object, ingestion stale và tùy chọn object chưa có record.
+- `python scripts/migrate_storage_to_supabase.py` mặc định dry-run; `--execute` canonicalize legacy Drive theo batch ngoài Alembic.
+- `python scripts/benchmark_storage_materialization.py` đo p50/p95/p99 cho reference legacy/canonical; kết quả chỉ là local/staging measurement.
+
+Không tự xóa orphan candidate. Trước cleanup phải kiểm tra ingestion idempotency key, audit, object age và mọi retained Profile Run/evidence có còn bind artifact hay không.
 
 ## Playbook sự cố
 

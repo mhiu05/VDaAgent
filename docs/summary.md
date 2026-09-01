@@ -1,17 +1,18 @@
 # Tóm tắt bàn giao VDaAgent (P-170)
 
-Trang này chụp trạng thái implementation tại ngày 2026-08-31 để maintainer biết hệ thống thực sự làm gì và điểm nào chưa phải product guarantee. Cổng tài liệu là [docs/README.md](README.md), còn kiến trúc cấp cao ở [../ARCHITECTURE.md](../ARCHITECTURE.md).
+Trang này chụp trạng thái implementation tại ngày 2026-09-01 để maintainer biết hệ thống thực sự làm gì và điểm nào chưa phải product guarantee. Cổng tài liệu là [docs/README.md](README.md), còn kiến trúc cấp cao ở [../ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ## Luồng sản phẩm hiện tại
 
 1. Người dùng xác thực, backend đồng bộ account projection và resolve một workspace active.
-2. Analyst upload file hoặc tạo dataset từ connector MySQL/MongoDB/DuckDB.
-3. API tạo Profile Run/queue record và trả HTTP 202; worker riêng xử lý source.
+2. Analyst upload file hoặc import từ Drive/MySQL/MongoDB/DuckDB; ingestion verify rồi finalize thành canonical Supabase artifact (local trong development/test).
+3. API chỉ tạo Profile Run/queue record khi dataset ready và snapshot chính xác `artifact_id`; worker retry luôn dùng artifact đó.
 4. DuckDB profile source file-backed, lưu aggregate/proposal và dừng ở HITL khi còn review.
 5. Analyst confirm/reject/edit/request test; resume cũng được đưa lại vào durable queue.
 6. Profile completed có thể mở Command Center, tạo chart plan, Preview và Official execution.
-7. QA chỉ kết luận khi có evidence phù hợp; chart insight phải bind Official execution.
-8. Drift so sánh các thống kê đã lưu; report pin evidence vào draft, snapshot rồi export PDF.
+7. Chat Agent trả lời qua REST hoặc `chat_stream.v1` SSE. Fast path/tool/retrieval đều đi qua validator evidence; lịch sử server chỉ tạo khi analyst gửi một turn mới.
+8. Chat P2 lưu conversation/message theo workspace, sinh gợi ý deterministic từ aggregate an toàn và nhận feedback có reason code; cache đủ điều kiện phải tái chạy tool và tái validate trước khi trả lời.
+9. Drift so sánh các thống kê đã lưu; report pin evidence vào draft, snapshot rồi export PDF.
 
 ## Stack và trạng thái kỹ thuật
 
@@ -19,11 +20,10 @@ Trang này chụp trạng thái implementation tại ngày 2026-08-31 để main
 - Backend: Python 3.11, FastAPI, Pydantic, SQLAlchemy/Alembic và LangGraph.
 - Compute: DuckDB file-backed; pandas/NumPy/SciPy/statsmodels/scikit-learn và các forecast backend tùy deployment.
 - Persistence: PostgreSQL bắt buộc; LangGraph checkpointer cũng dùng PostgreSQL.
-- Storage: Supabase Storage, Google Drive hoặc local development storage.
+- Storage: Supabase Storage là canonical production; Google Drive là optional import connector; local là development/test adapter.
 - Authentication: Supabase JWT ở production; `dual`/guest là compatibility hoặc trial path.
 - Deployment: Azure App Service containers + ACR qua workflow GitHub Actions.
-- Migration head: `20260831_0024`, including durable P2 chat continuity,
-  feedback/evaluation candidates, and the verified deterministic answer cache.
+- Migration head: `20260901_0025`, gồm durable P2 chat continuity và canonical dataset artifact/ingestion metadata.
 
 ## Giới hạn mặc định đáng nhớ
 
@@ -44,19 +44,11 @@ Trang này chụp trạng thái implementation tại ngày 2026-08-31 để main
 
 Giá trị hiệu lực luôn là environment override → `config.yaml` → code default. Không coi bảng này là invariant nếu deployment đã override.
 
-## Những thay đổi mới đã phản ánh
+## Chat Agent P0–P2 đã phản ánh
 
-- Chat Agent P1 adds message actions, immutable per-answer context, typed
-  recovery/replay, controlled retrieval budgets, answer-detail controls,
-  structured clarification, and semantic numeric validation. See
-  [the implementation report](features/chat-agent-p1-implementation.md) for
-  verified local evidence and the remaining staging release block.
-- Chat Agent P2 adds tenant-scoped durable conversation history, deterministic
-  Profile Run suggestions, idempotent reason-coded feedback/evaluation
-  candidates, a revalidated deterministic semantic cache, and shadow-mode
-  high-risk projection verification. See [the P2 implementation
-  report](features/chat-agent-p2-implementation.md) for storage/privacy
-  boundaries and the staging measurements still required.
+- **P0:** `chat_stream.v1` có stage thực tế và cancellation hợp tác; answer V2 tách conclusion/findings/evidence/limitations, có provenance bất biến và fast path deterministic. Xem [báo cáo P0](features/chat-agent-p0-implementation.md).
+- **P1:** có message actions, immutable per-answer context, recovery/replay có kiểu, idempotent agent run, budget cho retrieval/latency, mức độ chi tiết, clarification có cấu trúc và semantic numeric validation. Xem [báo cáo P1](features/chat-agent-p1-implementation.md).
+- **P2:** có durable conversation history theo tenant, Profile Run suggestions deterministic, feedback/evaluation candidates idempotent, semantic cache được revalidate và high-risk verifier ở shadow mode. Xem [báo cáo P2](features/chat-agent-p2-implementation.md).
 - Profiling CSV/TSV/Parquet/JSON chạy aggregate trực tiếp trong DuckDB trên file tạm; full DataFrame không còn được giữ cho pipeline chính.
 - Remote source được stream với byte limit và cleanup; statistical test chỉ reload các cột được yêu cầu.
 - Candidate-key và data-quality QA có deterministic prefetch/render path; validator fail-closed kiểm tra workspace/run, artifact, citation và số trong answer.
@@ -89,13 +81,13 @@ Promote Preview tự approve context hiện tại bằng actor nếu context cò
 
 Default chỉ chứa `semantic_type`, nhưng `HITL_LOW_RISK_TYPES` nhận list string tự do. Node auto-confirm duyệt cả candidate key, semantic type và PII rồi tin cấu hình; misconfiguration có thể nới policy ngoài ý định.
 
-### Evaluation staging hiện có đã cũ so với các fix mới
+### Chat Agent chưa có release evidence trên staging được ủy quyền
 
-`evaluations/results/latest_scorecard.md` là staging run tại commit `6717254...`, đạt 17/17 HTTP 200 nhưng FAIL evidence/planner/latency gates. Các commit hiện tại đã sửa candidate-key/quality evidence và PII-safe planning, nhưng repository chưa có staging scorecard mới chứng minh các gate đã pass. Không dùng unit test hoặc local latency benchmark thay thế một rerun staging authenticated.
+P0/P1/P2 có focused local test, migration smoke và offline evaluation; `evaluations/results/p0-local/` xác nhận 17/17 synthetic cases của harness offline nhưng cố ý mang trạng thái `NOT_EVALUATED`. Scorecard staging trước đó không chứng minh các behavior chat hiện tại. Cần chạy lại synthetic evaluation authenticated trên đúng commit, đo TTFVA/p95 theo execution path và đo cache hit rate; không dùng unit test, offline harness hoặc fixed-delay benchmark thay cho bằng chứng release.
 
-### Workflow còn tham chiếu đường dẫn tài liệu cũ
+### P2 verifier và retention job chưa enforce/schedule
 
-Thông báo lỗi trong bước validate production configuration vẫn trỏ tới `docs/azure-deploy-cicd.md`, file đã được hợp nhất vào [deployment](operations/deployment.md). Đây là stale reference trong YAML, không phải link còn tồn tại trong bộ Markdown.
+`agent_verifier_mode=shadow` chỉ ghi verification result, không thay answer. Chế độ `enforce` vẫn bị chặn bởi cấu hình cho tới khi có UX fail-closed đã review. `purge_expired_deleted_conversations` là primitive maintenance có giới hạn, chưa có scheduler production gọi nó; soft-deleted conversation cần có job vận hành trước khi có thể cam kết retention thực tế.
 
 ### Cấu hình có default ở nhiều lớp
 
@@ -107,5 +99,7 @@ Thông báo lỗi trong bước validate production configuration vẫn trỏ t�
 - Chạy focused pytest, sau đó full pytest phù hợp với phạm vi thay đổi.
 - Chạy `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm build` và Playwright cho frontend.
 - Chạy evaluation dry-run/offline để kiểm tra harness; rerun staging synthetic sau thay đổi QA/planner.
+- Sau đổi P2 schema, chạy `python scripts/migration_smoke.py`, assertion Data API boundary và focused conversation/cache/verifier tests.
+- Trước khi bật verifier enforce hoặc mô tả cache là cải thiện latency, có staging evidence theo execution path và review privacy/retention.
 - Kiểm tra health của API, worker và frontend; dùng correlation ID/telemetry thay vì log raw payload.
 - Khi đổi data flow, kiểm tra lại workspace predicate, PII masking, approximation, evidence binding, idempotency và cleanup file tạm.

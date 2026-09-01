@@ -146,10 +146,8 @@ async def lifespan(app: FastAPI) -> Any:
             "DATASOURCE_ENCRYPTION_KEY",
             "AUTH_MODE=supabase",
         }
-        if settings.storage_provider == "supabase":
+        if settings.canonical_storage_provider == "supabase":
             critical.add("SUPABASE_SECRET_KEY")
-        elif settings.storage_provider == "google_drive":
-            critical.add("GOOGLE_DRIVE_* (storage provider google_drive)")
         if settings.auth_allow_guest and settings.guest_storage_provider == "supabase":
             critical.add("SUPABASE_SECRET_KEY (guest trial storage)")
         if settings.auth_allow_guest and settings.guest_storage_provider == "local":

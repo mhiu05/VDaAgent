@@ -117,3 +117,52 @@ def test_materialize_source_uses_streaming_api_and_cleans_successful_temp_file(
         assert path.read_bytes() == b"id,city\n1,Hanoi\n"
 
     assert not temporary_path.exists()
+
+
+def test_local_object_storage_supports_immutable_lifecycle(tmp_path: Path) -> None:
+    settings = SimpleNamespace(upload_path=tmp_path)
+    adapter = storage.LocalObjectStorage(settings)
+    source = tmp_path / "input.csv"
+    source.write_bytes(b"id,name\n1,A\n")
+    object_key = storage.canonical_object_key(
+        "workspace-a", "dataset-a", "artifact-a", "people.csv"
+    )
+
+    adapter.put(source, object_key, "text/csv")
+    observed = adapter.stat(object_key)
+    destination = tmp_path / "download.csv"
+
+    assert observed is not None
+    assert observed.size_bytes == source.stat().st_size
+    assert adapter.download_to_path(object_key, destination, max_bytes=1024) == observed.size_bytes
+    assert destination.read_bytes() == source.read_bytes()
+    with pytest.raises(storage.StorageUploadError) as duplicate:
+        adapter.put(source, object_key, "text/csv")
+    assert duplicate.value.status == 409
+
+    adapter.delete(object_key)
+    assert adapter.stat(object_key) is None
+
+
+def test_local_object_storage_rejects_paths_outside_canonical_root(tmp_path: Path) -> None:
+    adapter = storage.LocalObjectStorage(SimpleNamespace(upload_path=tmp_path))
+
+    with pytest.raises(storage.StorageReferenceError, match="outside"):
+        adapter.stat("../../another-workspace/source.csv")
+
+
+def test_artifact_source_ref_is_provider_neutral() -> None:
+    assert storage.artifact_source_ref(
+        {
+            "storage_provider": "supabase",
+            "bucket": "datasets",
+            "object_key": "workspaces/w/datasets/d/source/a.csv",
+        }
+    ) == "supabase://datasets/workspaces/w/datasets/d/source/a.csv"
+    assert storage.artifact_source_ref(
+        {
+            "storage_provider": "local",
+            "bucket": None,
+            "object_key": "workspaces/w/datasets/d/source/a.csv",
+        }
+    ) == "local-object:///workspaces/w/datasets/d/source/a.csv"

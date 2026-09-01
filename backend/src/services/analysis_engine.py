@@ -18,7 +18,7 @@ import duckdb
 from src.services.forecasting import ForecastingError, forecast_series
 from src.services.datasource import DatasourceError
 from src.services.repository import Repository
-from src.services.storage import materialize_source
+from src.services.storage import artifact_source_ref, materialize_source
 
 
 class AnalysisQueryError(ValueError):
@@ -98,7 +98,15 @@ class AnalysisEngine:
                 run["dataset_id"], workspace_id=workspace_id
             )
         )
-        source_ref = str((dataset or {}).get("source_ref", ""))
+        source_ref = ""
+        if run.get("artifact_id"):
+            artifact = self.repository.get_dataset_artifact(
+                str(run["artifact_id"]), workspace_id=str(run["workspace_id"])
+            )
+            if artifact and artifact.get("status") == "ready":
+                source_ref = artifact_source_ref(artifact)
+        if not source_ref:
+            source_ref = str((dataset or {}).get("source_ref", ""))
         if not source_ref:
             raise AnalysisQueryError("Profile run không có immutable source.")
 

@@ -709,6 +709,39 @@ class UploadResponse(BaseModel):
     suggested_name: str | None = None
 
 
+class UploadSessionCreate(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    size_bytes: int = Field(..., gt=0)
+    content_type: str | None = Field(default=None, max_length=255)
+    dataset_name: str | None = Field(default=None, max_length=255)
+
+
+class UploadSessionOut(BaseModel):
+    id: str
+    dataset_id: str
+    artifact_id: str
+    bucket: str
+    object_key: str
+    token: str = ""
+    signed_url: str = ""
+    expires_at: datetime | None = None
+    status: str
+
+
+class GoogleDriveImportRequest(BaseModel):
+    file_id: str = Field(..., min_length=1, max_length=255)
+    dataset_name: str | None = Field(default=None, max_length=255)
+
+
+class GoogleDriveFileOut(BaseModel):
+    id: str
+    name: str
+    size_bytes: int | None = None
+    content_type: str | None = None
+    revision: str | None = None
+    modified_at: datetime | None = None
+
+
 DatasourceKind = Literal["mysql", "mongodb", "duckdb"]
 
 
@@ -892,4 +925,8 @@ __all__ = [
     "TestSpec",
     "ToolSource",
     "UploadResponse",
+    "UploadSessionCreate",
+    "UploadSessionOut",
+    "GoogleDriveImportRequest",
+    "GoogleDriveFileOut",
 ]

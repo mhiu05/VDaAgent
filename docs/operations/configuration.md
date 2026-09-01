@@ -17,11 +17,11 @@ APP_ENV=development
 AUTH_MODE=dual
 AUTH_ALLOW_GUEST=true
 AUTH_REQUIRE_EMAIL_CONFIRMED=false
-STORAGE_PROVIDER=local
+CANONICAL_STORAGE_PROVIDER=local
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
 ```
 
-`.env.example` cố ý gần production hơn: hiện đặt `APP_ENV=production`, `AUTH_MODE=supabase` và `STORAGE_PROVIDER=google_drive`. Không chạy nguyên trạng với các placeholder.
+`.env.example` cố ý gần production hơn: hiện đặt `APP_ENV=production`, `AUTH_MODE=supabase` và `CANONICAL_STORAGE_PROVIDER=supabase`. Không chạy nguyên trạng với các placeholder.
 
 PostgreSQL là bắt buộc. SQLite không còn là runtime được hỗ trợ.
 
@@ -33,7 +33,7 @@ PostgreSQL là bắt buộc. SQLite không còn là runtime được hỗ trợ.
 - `SUPABASE_URL`, `SUPABASE_AUTH_ISSUER`, `SUPABASE_AUTH_AUDIENCE`
 - `SUPABASE_PUBLISHABLE_KEY` cho auth public và `SUPABASE_SECRET_KEY` cho backend
 - `DATASOURCE_ENCRYPTION_KEY`
-- storage credential tương ứng provider
+- `CANONICAL_STORAGE_PROVIDER=supabase`, `SUPABASE_STORAGE_BUCKET` và server-side Supabase credential
 - `CORS_ORIGINS`
 - LLM key khi bật provider cần API key
 
@@ -65,7 +65,7 @@ Auth mode, guest/signup/email confirmation, issuer/audience, JWKS cache, token f
 
 ### Storage và connector
 
-Local path, Supabase bucket/prefix, Google Drive OAuth/folder, guest storage provider và key mã hóa credential.
+`CANONICAL_STORAGE_PROVIDER` chọn Supabase production hoặc local development. Google Drive OAuth/folder chỉ bật connector import và không phải dependency startup. `STORAGE_PROVIDER` là bridge cấu hình cũ; không dùng cho deployment mới.
 
 ### Telemetry
 

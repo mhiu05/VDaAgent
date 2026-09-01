@@ -31,6 +31,13 @@ P2_MIGRATION_PATH = (
     / "versions"
     / "20260831_0024_chat_agent_p2.py"
 )
+STORAGE_MIGRATION_PATH = (
+    ROOT
+    / "backend"
+    / "migrations"
+    / "versions"
+    / "20260901_0025_canonical_dataset_artifacts.py"
+)
 
 
 def _load_security_migration():
@@ -43,6 +50,14 @@ def _load_security_migration():
 
 def _load_p2_security_migration():
     spec = importlib.util.spec_from_file_location("p170_chat_agent_p2", P2_MIGRATION_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_storage_security_migration():
+    spec = importlib.util.spec_from_file_location("p170_storage_artifacts", STORAGE_MIGRATION_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -63,8 +78,17 @@ def test_direct_browser_access_is_an_explicit_empty_surface() -> None:
 def test_security_migration_covers_every_classified_backend_table() -> None:
     migration = _load_security_migration()
     p2_migration = _load_p2_security_migration()
-    assert frozenset(migration.APPLICATION_TABLES) | frozenset(p2_migration.BACKEND_ONLY_TABLES) == MIGRATION_MANAGED_BACKEND_ONLY_TABLES
+    storage_migration = _load_storage_security_migration()
+    assert (
+        frozenset(migration.APPLICATION_TABLES)
+        | frozenset(p2_migration.BACKEND_ONLY_TABLES)
+        | frozenset(storage_migration.BACKEND_ONLY_TABLES)
+    ) == MIGRATION_MANAGED_BACKEND_ONLY_TABLES
     assert frozenset(migration.APPLICATION_TABLES).isdisjoint(p2_migration.BACKEND_ONLY_TABLES)
+    assert frozenset(storage_migration.BACKEND_ONLY_TABLES).isdisjoint(
+        frozenset(migration.APPLICATION_TABLES) | frozenset(p2_migration.BACKEND_ONLY_TABLES)
+    )
+    assert tuple(storage_migration.BROWSER_ROLES) == ("anon", "authenticated")
     assert tuple(p2_migration.BROWSER_ROLES) == ("anon", "authenticated")
     assert frozenset(migration.RUNTIME_MANAGED_TABLES) == (
         RUNTIME_MANAGED_BACKEND_ONLY_TABLES

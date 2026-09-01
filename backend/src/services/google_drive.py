@@ -1,8 +1,8 @@
-"""Google Drive OAuth and workspace-scoped source storage.
+"""Google Drive OAuth and optional external dataset import connector.
 
-Supabase remains the identity/metadata system.  Drive stores only the binary
-dataset source; the refresh token is encrypted before it is written to the
-metadata database.
+The refresh token is encrypted before it is written to metadata. New internal
+processing never treats Drive as canonical storage; upload/remove remain only
+for the bounded legacy-dataset migration window.
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ class GoogleDriveOAuth:
             raise GoogleDriveOAuthError("Không giải mã được refresh token Google Drive.") from exc
 
 
-class GoogleDriveStorage:
+class GoogleDriveConnector:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self.oauth = GoogleDriveOAuth(self.settings)
@@ -227,6 +227,46 @@ class GoogleDriveStorage:
             raise GoogleDriveError("Google Drive không trả file ID sau upload.")
         return file_id
 
+    def list_files(self, workspace_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        service, _ = self._service(workspace_id)
+        response = (
+            service.files()
+            .list(
+                pageSize=max(1, min(limit, 100)),
+                q="trashed = false and mimeType != 'application/vnd.google-apps.folder'",
+                fields="files(id,name,size,mimeType,modifiedTime,version,md5Checksum)",
+                orderBy="modifiedTime desc",
+                spaces="drive",
+            )
+            .execute()
+        )
+        return [dict(item) for item in response.get("files", []) if item.get("id") and item.get("name")]
+
+    def metadata(self, workspace_id: str, file_id: str) -> dict[str, Any]:
+        service, _ = self._service(workspace_id)
+        try:
+            item = (
+                service.files()
+                .get(
+                    fileId=file_id,
+                    fields="id,name,size,mimeType,modifiedTime,version,md5Checksum,trashed",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as exc:
+            response = getattr(exc, "resp", None)
+            if getattr(response, "status", None) in {401, 403}:
+                raise GoogleDriveConnectionRequiredError(
+                    "Google Drive authorization expired or no longer permits this file."
+                ) from exc
+            if getattr(response, "status", None) == 404:
+                raise GoogleDriveError("Google Drive file was not found.") from exc
+            raise GoogleDriveError("Could not read Google Drive file metadata.") from exc
+        if item.get("trashed"):
+            raise GoogleDriveError("Google Drive file was deleted before import.")
+        return dict(item)
+
     def download(
         self,
         workspace_id: str,
@@ -278,6 +318,10 @@ def new_oauth_state_id() -> str:
     return secrets.token_urlsafe(32)
 
 
+# Compatibility alias for legacy gdrive:// materialization and deletion only.
+GoogleDriveStorage = GoogleDriveConnector
+
+
 def oauth_state_expiry(settings: Settings | None = None) -> datetime:
     current = settings or get_settings()
     return datetime.now(UTC) + timedelta(seconds=current.google_drive_oauth_state_ttl_seconds)
@@ -290,6 +334,7 @@ __all__ = [
     "GoogleDriveNotConfiguredError",
     "GoogleDriveOAuth",
     "GoogleDriveOAuthError",
+    "GoogleDriveConnector",
     "GoogleDriveStorage",
     "is_google_drive_ref",
     "new_oauth_state_id",

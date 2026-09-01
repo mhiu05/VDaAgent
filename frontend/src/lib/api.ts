@@ -15,6 +15,7 @@ import type {
 } from "@/lib/types";
 import type { DatasourceConfig, DatasourceConnectResult, DatasourceKind, DatasourceTestResult } from "@/lib/types";
 import type { AnalysisExecution, AnalysisSession, AutoChartPlan, AutoProfilePack, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
+import * as tus from "tus-js-client";
 
 const configuredApiBase = process.env.NEXT_PUBLIC_API_URL;
 
@@ -589,6 +590,31 @@ export function getProfilingJob(jobId: string, signal?: AbortSignal): Promise<Pr
   return request<ProfilingJob>(`/profiling-jobs/${encodeURIComponent(jobId)}`, { signal, cache: "no-store" });
 }
 
+export type GoogleDriveFile = {
+  id: string;
+  name: string;
+  size_bytes: number | null;
+  content_type: string | null;
+  revision: string | null;
+  modified_at: string | null;
+};
+
+export function listGoogleDriveFiles(): Promise<GoogleDriveFile[]> {
+  return request<GoogleDriveFile[]>("/google-drive/files", { cache: "no-store" });
+}
+
+export function importGoogleDriveFile(
+  fileId: string,
+  datasetName?: string,
+  idempotencyKey = crypto.randomUUID(),
+): Promise<UploadResult> {
+  return request<UploadResult>("/google-drive/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ file_id: fileId, dataset_name: datasetName || undefined }),
+  });
+}
+
 export function getProfileSummary(runId: string, signal?: AbortSignal): Promise<ProfileSummary> {
   return request<ProfileSummary>(`/profile/${encodeURIComponent(runId)}/summary`, { signal, cache: "no-store" });
 }
@@ -904,8 +930,77 @@ export async function streamQuestion(
   }
 }
 
+type UploadSession = {
+  id: string;
+  dataset_id: string;
+  artifact_id: string;
+  bucket: string;
+  object_key: string;
+  token: string;
+  signed_url: string;
+  expires_at?: string | null;
+  status: string;
+};
+
+function storageTusEndpoint(): string | null {
+  const configured = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!configured) return null;
+  const url = new URL(configured);
+  if (url.hostname.endsWith(".supabase.co") && !url.hostname.endsWith(".storage.supabase.co")) {
+    url.hostname = `${url.hostname.slice(0, -".supabase.co".length)}.storage.supabase.co`;
+  }
+  return `${url.origin}/storage/v1/upload/resumable`;
+}
+
+async function uploadDatasetDirect(
+  file: File,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
+): Promise<UploadResult> {
+  const endpoint = storageTusEndpoint();
+  if (!endpoint) throw new ApiError("Direct upload is not configured.", 503);
+  const idempotencyKey = crypto.randomUUID();
+  const session = await request<UploadSession>("/datasets/upload-sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ filename: file.name, size_bytes: file.size, content_type: file.type || null }),
+    signal,
+  });
+  if (session.status !== "finalized") {
+    await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(file, {
+        endpoint,
+        retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
+        headers: { "x-signature": session.token, "x-upsert": "false" },
+        uploadDataDuringCreation: true,
+        removeFingerprintOnSuccess: true,
+        metadata: {
+          bucketName: session.bucket,
+          objectName: session.object_key,
+          contentType: file.type || "application/octet-stream",
+          cacheControl: "3600",
+        },
+        onError: (error) => reject(new ApiError(`Upload failed: ${error.message}`, 502)),
+        onProgress: (uploaded, total) => onProgress?.(total ? Math.round((uploaded / total) * 100) : 0),
+        onSuccess: () => resolve(),
+      });
+      signal?.addEventListener("abort", () => {
+        void upload.abort(true);
+        reject(new DOMException("Upload was cancelled.", "AbortError"));
+      }, { once: true });
+      upload.start();
+    });
+  }
+  return request<UploadResult>(`/datasets/upload-sessions/${encodeURIComponent(session.id)}/finalize`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    signal,
+  });
+}
+
 function uploadDatasetOnce(
   file: File,
+  idempotencyKey: string,
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
   baseUrl = apiBase(),
@@ -918,6 +1013,7 @@ function uploadDatasetOnce(
     request.responseType = "json";
     request.withCredentials = true;
     headers.forEach((value, key) => request.setRequestHeader(key, value));
+    request.setRequestHeader("Idempotency-Key", idempotencyKey);
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
     };
@@ -942,21 +1038,25 @@ export async function uploadDataset(
   onProgress?: (percent: number) => void,
   signal?: AbortSignal,
 ): Promise<UploadResult> {
+  if (storageTusEndpoint()) {
+    return uploadDatasetDirect(file, onProgress, signal);
+  }
+  const idempotencyKey = crypto.randomUUID();
   try {
-    return await uploadDatasetOnce(file, onProgress, signal);
+    return await uploadDatasetOnce(file, idempotencyKey, onProgress, signal);
   } catch (reason) {
     // XHR does not use apiFetch, so retry once after refreshing an expired
     // Supabase session just like the other API calls do.
     if (reason instanceof ApiError && reason.status === 401 && authTransport) {
       const previousToken = await authTransport.accessToken();
       const refreshed = await authTransport.refresh();
-      if (refreshed && refreshed !== previousToken) return uploadDatasetOnce(file, onProgress, signal, apiBase());
+      if (refreshed && refreshed !== previousToken) return uploadDatasetOnce(file, idempotencyKey, onProgress, signal, apiBase());
       throw new ApiError("PhiÃªn Ä‘Äƒng nháº­p Ä‘Ã£ háº¿t háº¡n. HÃ£y Ä‘Äƒng nháº­p láº¡i.", 401);
     }
     if (reason instanceof ApiError && reason.status === 0) {
       for (const baseUrl of apiBaseCandidates().slice(1)) {
         try {
-          return await uploadDatasetOnce(file, onProgress, signal, baseUrl);
+          return await uploadDatasetOnce(file, idempotencyKey, onProgress, signal, baseUrl);
         } catch (fallbackReason) {
           if (!(fallbackReason instanceof ApiError) || fallbackReason.status !== 0) throw fallbackReason;
         }

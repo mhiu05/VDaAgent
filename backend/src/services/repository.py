@@ -21,6 +21,7 @@ from typing import Any, Literal
 # pyrefly: ignore [missing-import]
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -247,6 +248,7 @@ datasets = Table(
     # local path; evidence uses the hash, not the mutable source reference.
     Column("content_sha256", String(64), nullable=True),
     Column("source_version", String(255), nullable=True),
+    Column("ingestion_status", String(16), nullable=False, default="ready"),
     Column("collection_name", String(255), nullable=True, index=True),
     Column("datasource_connection_id", String(32), ForeignKey("datasource_connections.id"), nullable=True, index=True),
     Column(
@@ -258,6 +260,87 @@ datasets = Table(
     ),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("last_profiled_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint(
+        "ingestion_status IN ('uploading', 'importing', 'validating', 'ready', 'failed', 'deleted')",
+        name="ck_datasets_ingestion_status",
+    ),
+)
+
+dataset_artifacts = Table(
+    "dataset_artifacts",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("dataset_id", String(32), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False, index=True),
+    Column("storage_provider", String(16), nullable=False),
+    Column("bucket", String(255), nullable=True),
+    Column("object_key", String(1024), nullable=False),
+    Column("size_bytes", BigInteger, nullable=True),
+    Column("content_type", String(255), nullable=True),
+    Column("content_sha256", String(64), nullable=True),
+    Column("status", String(16), nullable=False, default="pending"),
+    Column("is_current", Boolean, nullable=False, default=False),
+    Column("original_filename", String(255), nullable=True),
+    Column("source_type", String(32), nullable=False),
+    Column("source_metadata", JSON, nullable=False, default=dict),
+    Column("ingestion_key", String(255), nullable=False),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("ready_at", DateTime(timezone=True), nullable=True),
+    Column("failed_at", DateTime(timezone=True), nullable=True),
+    Column("failure_code", String(64), nullable=True),
+    Column("deleted_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint("storage_provider IN ('supabase', 'local')", name="ck_dataset_artifacts_provider"),
+    CheckConstraint("status IN ('pending', 'ready', 'failed', 'deleted')", name="ck_dataset_artifacts_status"),
+    CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="ck_dataset_artifacts_size"),
+    UniqueConstraint("storage_provider", "bucket", "object_key", name="uq_dataset_artifacts_object"),
+    UniqueConstraint("workspace_id", "ingestion_key", name="uq_dataset_artifacts_ingestion_key"),
+)
+
+Index(
+    "uq_dataset_artifacts_current",
+    dataset_artifacts.c.dataset_id,
+    unique=True,
+    postgresql_where=and_(
+        dataset_artifacts.c.is_current.is_(True),
+        dataset_artifacts.c.status == "ready",
+    ),
+)
+Index(
+    "ix_dataset_artifacts_workspace_status",
+    dataset_artifacts.c.workspace_id,
+    dataset_artifacts.c.status,
+    dataset_artifacts.c.created_at,
+)
+
+dataset_ingestions = Table(
+    "dataset_ingestions",
+    metadata,
+    Column("id", String(32), primary_key=True),
+    Column("workspace_id", String(36), ForeignKey("workspaces.id"), nullable=False, index=True),
+    Column("created_by_user_id", String(36), nullable=False),
+    Column("idempotency_key", String(255), nullable=False),
+    Column("request_hash", String(64), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("dataset_id", String(32), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=True, index=True),
+    Column("artifact_id", String(32), ForeignKey("dataset_artifacts.id", ondelete="CASCADE"), nullable=True, index=True),
+    Column("status", String(16), nullable=False, default="creating"),
+    Column("expected_size_bytes", BigInteger, nullable=True),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
+    Column("finalized_at", DateTime(timezone=True), nullable=True),
+    Column("error_code", String(64), nullable=True),
+    Column("details", JSON, nullable=False, default=dict),
+    CheckConstraint("status IN ('creating', 'pending', 'importing', 'finalized', 'failed', 'expired')", name="ck_dataset_ingestions_status"),
+    CheckConstraint("expected_size_bytes IS NULL OR expected_size_bytes >= 0", name="ck_dataset_ingestions_size"),
+    UniqueConstraint("workspace_id", "created_by_user_id", "idempotency_key", name="uq_dataset_ingestions_idempotency"),
+)
+
+Index(
+    "ix_dataset_ingestions_stale",
+    dataset_ingestions.c.status,
+    dataset_ingestions.c.expires_at,
+    dataset_ingestions.c.created_at,
 )
 
 datasource_connections = Table(
@@ -296,6 +379,7 @@ profile_runs = Table(
     metadata,
     Column("id", String(32), primary_key=True),
     Column("dataset_id", String(32), ForeignKey("datasets.id"), nullable=False),
+    Column("artifact_id", String(32), ForeignKey("dataset_artifacts.id"), nullable=True, index=True),
     Column("source_content_sha256", String(64), nullable=True),
     Column("source_version", String(255), nullable=True),
     Column(
@@ -4446,6 +4530,497 @@ class Repository:
             )
         return dataset_id
 
+    def reserve_dataset_ingestion(
+        self,
+        *,
+        ingestion_id: str,
+        dataset_id: str,
+        artifact_id: str,
+        workspace_id: str,
+        created_by_user_id: str,
+        idempotency_key: str,
+        request_hash: str,
+        kind: str,
+        dataset_name: str,
+        dataset_source_type: str,
+        storage_provider: str,
+        bucket: str | None,
+        object_key: str,
+        original_filename: str | None,
+        source_type: str,
+        source_metadata: dict[str, Any],
+        ingestion_key: str,
+        expected_size_bytes: int | None = None,
+        expires_at: datetime | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Atomically reserve one retry-safe dataset ingestion.
+
+        The unique idempotency constraint is the concurrency boundary. The
+        winning transaction creates all metadata in a few statements; object
+        storage and connector calls happen only after this transaction ends.
+        """
+        now = _now()
+        with self.engine.begin() as conn:
+            created = conn.execute(
+                pg_insert(dataset_ingestions)
+                .values(
+                    id=ingestion_id,
+                    workspace_id=workspace_id,
+                    created_by_user_id=created_by_user_id,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                    kind=kind,
+                    status="creating",
+                    expected_size_bytes=expected_size_bytes,
+                    expires_at=expires_at,
+                    created_at=now,
+                    updated_at=now,
+                    details=details or {},
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        dataset_ingestions.c.workspace_id,
+                        dataset_ingestions.c.created_by_user_id,
+                        dataset_ingestions.c.idempotency_key,
+                    ]
+                )
+                .returning(dataset_ingestions.c.id)
+            ).scalar_one_or_none()
+            if created is None:
+                existing = conn.execute(
+                    select(dataset_ingestions).where(
+                        dataset_ingestions.c.workspace_id == workspace_id,
+                        dataset_ingestions.c.created_by_user_id == created_by_user_id,
+                        dataset_ingestions.c.idempotency_key == idempotency_key,
+                    )
+                ).mappings().one()
+                return {
+                    **dict(existing),
+                    "duplicate": True,
+                    "conflict": existing["request_hash"] != request_hash,
+                }
+
+            source_ref = (
+                f"supabase://{bucket}/{object_key}"
+                if storage_provider == "supabase"
+                else f"local-object:///{object_key}"
+            )
+            conn.execute(
+                datasets.insert().values(
+                    id=dataset_id,
+                    name=dataset_name,
+                    source_type=dataset_source_type,
+                    source_ref=source_ref,
+                    ingestion_status="uploading" if kind == "upload" else "importing",
+                    workspace_id=workspace_id,
+                    created_at=now,
+                )
+            )
+            conn.execute(
+                dataset_artifacts.insert().values(
+                    id=artifact_id,
+                    dataset_id=dataset_id,
+                    workspace_id=workspace_id,
+                    storage_provider=storage_provider,
+                    bucket=bucket,
+                    object_key=object_key,
+                    status="pending",
+                    is_current=False,
+                    original_filename=original_filename,
+                    source_type=source_type,
+                    source_metadata=source_metadata,
+                    ingestion_key=ingestion_key,
+                    created_at=now,
+                )
+            )
+            row = conn.execute(
+                dataset_ingestions.update()
+                .where(dataset_ingestions.c.id == ingestion_id)
+                .values(
+                    dataset_id=dataset_id,
+                    artifact_id=artifact_id,
+                    status="pending" if kind == "upload" else "importing",
+                    updated_at=now,
+                )
+                .returning(*dataset_ingestions.c)
+            ).mappings().one()
+            return {**dict(row), "duplicate": False, "conflict": False}
+
+    def get_dataset_ingestion(
+        self, ingestion_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(dataset_ingestions).where(
+                    dataset_ingestions.c.id == ingestion_id,
+                    dataset_ingestions.c.workspace_id == workspace_id,
+                )
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def finalize_dataset_ingestion(
+        self,
+        ingestion_id: str,
+        *,
+        workspace_id: str,
+        size_bytes: int,
+        content_type: str | None,
+        content_sha256: str | None,
+        source_version: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Promote a verified object and dataset to ready in one transaction."""
+        now = _now()
+        with self.engine.begin() as conn:
+            ingestion = conn.execute(
+                select(dataset_ingestions)
+                .where(
+                    dataset_ingestions.c.id == ingestion_id,
+                    dataset_ingestions.c.workspace_id == workspace_id,
+                )
+                .with_for_update()
+            ).mappings().first()
+            if not ingestion:
+                return None
+            if ingestion["status"] == "finalized":
+                return dict(ingestion)
+            if ingestion["status"] in {"failed", "expired"}:
+                raise ValueError("Ingestion is no longer finalizable.")
+            expected = ingestion.get("expected_size_bytes")
+            if expected is not None and int(expected) != size_bytes:
+                raise ValueError("Uploaded object size does not match the reserved size.")
+            dataset_id = str(ingestion["dataset_id"])
+            artifact_id = str(ingestion["artifact_id"])
+            conn.execute(
+                dataset_artifacts.update()
+                .where(
+                    dataset_artifacts.c.dataset_id == dataset_id,
+                    dataset_artifacts.c.is_current.is_(True),
+                )
+                .values(is_current=False)
+            )
+            artifact = conn.execute(
+                dataset_artifacts.update()
+                .where(
+                    dataset_artifacts.c.id == artifact_id,
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                    dataset_artifacts.c.status == "pending",
+                )
+                .values(
+                    size_bytes=size_bytes,
+                    content_type=content_type,
+                    content_sha256=content_sha256,
+                    status="ready",
+                    is_current=True,
+                    ready_at=now,
+                    failed_at=None,
+                    failure_code=None,
+                )
+                .returning(*dataset_artifacts.c)
+            ).mappings().first()
+            if not artifact:
+                raise ValueError("Canonical artifact is not pending.")
+            source_ref = (
+                f"supabase://{artifact['bucket']}/{artifact['object_key']}"
+                if artifact["storage_provider"] == "supabase"
+                else f"local-object:///{artifact['object_key']}"
+            )
+            conn.execute(
+                datasets.update()
+                .where(
+                    datasets.c.id == dataset_id,
+                    datasets.c.workspace_id == workspace_id,
+                )
+                .values(
+                    source_ref=source_ref,
+                    content_sha256=content_sha256,
+                    source_version=source_version,
+                    ingestion_status="ready",
+                )
+            )
+            finalized = conn.execute(
+                dataset_ingestions.update()
+                .where(dataset_ingestions.c.id == ingestion_id)
+                .values(status="finalized", updated_at=now, finalized_at=now, error_code=None)
+                .returning(*dataset_ingestions.c)
+            ).mappings().one()
+            return dict(finalized)
+
+    def fail_dataset_ingestion(
+        self, ingestion_id: str, *, workspace_id: str, error_code: str
+    ) -> bool:
+        now = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                dataset_ingestions.update()
+                .where(
+                    dataset_ingestions.c.id == ingestion_id,
+                    dataset_ingestions.c.workspace_id == workspace_id,
+                    dataset_ingestions.c.status.not_in(("finalized", "expired")),
+                )
+                .values(status="failed", error_code=error_code, updated_at=now)
+                .returning(dataset_ingestions.c.dataset_id, dataset_ingestions.c.artifact_id)
+            ).first()
+            if not row:
+                return False
+            conn.execute(
+                dataset_artifacts.update()
+                .where(dataset_artifacts.c.id == row.artifact_id)
+                .values(status="failed", failure_code=error_code, failed_at=now)
+            )
+            conn.execute(
+                datasets.update()
+                .where(datasets.c.id == row.dataset_id)
+                .values(ingestion_status="failed")
+            )
+            return True
+
+    def get_current_dataset_artifact(
+        self, dataset_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(dataset_artifacts).where(
+                    dataset_artifacts.c.dataset_id == dataset_id,
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                    dataset_artifacts.c.status == "ready",
+                    dataset_artifacts.c.is_current.is_(True),
+                )
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def get_dataset_artifact(
+        self, artifact_id: str, *, workspace_id: str
+    ) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(dataset_artifacts).where(
+                    dataset_artifacts.c.id == artifact_id,
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                )
+            ).mappings().first()
+            return dict(row) if row else None
+
+    def list_dataset_artifacts(
+        self,
+        *,
+        workspace_id: str | None = None,
+        dataset_id: str | None = None,
+        statuses: set[str] | None = None,
+        after_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return a bounded, deterministic artifact page for operations."""
+        query = select(dataset_artifacts)
+        if workspace_id:
+            query = query.where(dataset_artifacts.c.workspace_id == workspace_id)
+        if dataset_id:
+            query = query.where(dataset_artifacts.c.dataset_id == dataset_id)
+        if statuses:
+            query = query.where(dataset_artifacts.c.status.in_(statuses))
+        if after_id:
+            query = query.where(dataset_artifacts.c.id > after_id)
+        query = query.order_by(dataset_artifacts.c.id).limit(max(1, min(limit, 1000)))
+        with self.engine.begin() as conn:
+            return [dict(row) for row in conn.execute(query).mappings()]
+
+    def list_legacy_drive_datasets(
+        self,
+        *,
+        workspace_id: str | None = None,
+        dataset_id: str | None = None,
+        after_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Find legacy Drive datasets that have no ready canonical artifact."""
+        ready_artifact = dataset_artifacts.alias("ready_artifact")
+        query = (
+            select(datasets)
+            .outerjoin(
+                ready_artifact,
+                and_(
+                    ready_artifact.c.dataset_id == datasets.c.id,
+                    ready_artifact.c.status == "ready",
+                ),
+            )
+            .where(
+                datasets.c.source_ref.like("gdrive://%"),
+                ready_artifact.c.id.is_(None),
+            )
+        )
+        if workspace_id:
+            query = query.where(datasets.c.workspace_id == workspace_id)
+        if dataset_id:
+            query = query.where(datasets.c.id == dataset_id)
+        if after_id:
+            query = query.where(datasets.c.id > after_id)
+        query = query.order_by(datasets.c.id).limit(max(1, min(limit, 1000)))
+        with self.engine.begin() as conn:
+            return [dict(row) for row in conn.execute(query).mappings()]
+
+    def list_stale_dataset_ingestions(
+        self,
+        *,
+        stale_before: datetime,
+        workspace_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Find non-terminal ingestions for conservative reconciliation."""
+        query = select(dataset_ingestions).where(
+            dataset_ingestions.c.status.in_(("creating", "pending", "importing")),
+            dataset_ingestions.c.updated_at < stale_before,
+        )
+        if workspace_id:
+            query = query.where(dataset_ingestions.c.workspace_id == workspace_id)
+        query = query.order_by(dataset_ingestions.c.updated_at).limit(
+            max(1, min(limit, 1000))
+        )
+        with self.engine.begin() as conn:
+            return [dict(row) for row in conn.execute(query).mappings()]
+
+    def reserve_artifact_for_existing_dataset(
+        self,
+        *,
+        artifact_id: str,
+        dataset_id: str,
+        workspace_id: str,
+        storage_provider: str,
+        bucket: str | None,
+        object_key: str,
+        original_filename: str | None,
+        source_type: str,
+        source_metadata: dict[str, Any],
+        ingestion_key: str,
+    ) -> dict[str, Any]:
+        """Reserve lazy legacy canonicalization without invalidating its fallback."""
+        with self.engine.begin() as conn:
+            dataset_exists = conn.execute(
+                select(datasets.c.id).where(
+                    datasets.c.id == dataset_id,
+                    datasets.c.workspace_id == workspace_id,
+                )
+            ).scalar_one_or_none()
+            if not dataset_exists:
+                raise ValueError("Dataset does not belong to workspace.")
+            created = conn.execute(
+                pg_insert(dataset_artifacts)
+                .values(
+                    id=artifact_id,
+                    dataset_id=dataset_id,
+                    workspace_id=workspace_id,
+                    storage_provider=storage_provider,
+                    bucket=bucket,
+                    object_key=object_key,
+                    status="pending",
+                    is_current=False,
+                    original_filename=original_filename,
+                    source_type=source_type,
+                    source_metadata=source_metadata,
+                    ingestion_key=ingestion_key,
+                    created_at=_now(),
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        dataset_artifacts.c.workspace_id,
+                        dataset_artifacts.c.ingestion_key,
+                    ]
+                )
+                .returning(*dataset_artifacts.c)
+            ).mappings().first()
+            if created:
+                return {**dict(created), "duplicate": False}
+            existing = conn.execute(
+                select(dataset_artifacts).where(
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                    dataset_artifacts.c.ingestion_key == ingestion_key,
+                )
+            ).mappings().one()
+            return {**dict(existing), "duplicate": True}
+
+    def finalize_existing_dataset_artifact(
+        self,
+        artifact_id: str,
+        *,
+        workspace_id: str,
+        size_bytes: int,
+        content_type: str | None,
+        content_sha256: str,
+        source_version: str | None,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self.engine.begin() as conn:
+            pending = conn.execute(
+                select(dataset_artifacts)
+                .where(
+                    dataset_artifacts.c.id == artifact_id,
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                )
+                .with_for_update()
+            ).mappings().one()
+            if pending["status"] == "ready":
+                return dict(pending)
+            if pending["status"] != "pending":
+                raise ValueError("Legacy artifact reservation is not pending.")
+            conn.execute(
+                dataset_artifacts.update()
+                .where(
+                    dataset_artifacts.c.dataset_id == pending["dataset_id"],
+                    dataset_artifacts.c.is_current.is_(True),
+                )
+                .values(is_current=False)
+            )
+            ready = conn.execute(
+                dataset_artifacts.update()
+                .where(dataset_artifacts.c.id == artifact_id)
+                .values(
+                    size_bytes=size_bytes,
+                    content_type=content_type,
+                    content_sha256=content_sha256,
+                    status="ready",
+                    is_current=True,
+                    ready_at=now,
+                )
+                .returning(*dataset_artifacts.c)
+            ).mappings().one()
+            source_ref = (
+                f"supabase://{ready['bucket']}/{ready['object_key']}"
+                if ready["storage_provider"] == "supabase"
+                else f"local-object:///{ready['object_key']}"
+            )
+            conn.execute(
+                datasets.update()
+                .where(
+                    datasets.c.id == ready["dataset_id"],
+                    datasets.c.workspace_id == workspace_id,
+                )
+                .values(
+                    source_ref=source_ref,
+                    content_sha256=content_sha256,
+                    source_version=source_version,
+                    ingestion_status="ready",
+                )
+            )
+            return dict(ready)
+
+    def bind_profile_run_artifact(
+        self, run_id: str, artifact: dict[str, Any], *, workspace_id: str
+    ) -> bool:
+        with self.engine.begin() as conn:
+            updated = conn.execute(
+                profile_runs.update()
+                .where(
+                    profile_runs.c.id == run_id,
+                    profile_runs.c.workspace_id == workspace_id,
+                    profile_runs.c.artifact_id.is_(None),
+                )
+                .values(
+                    artifact_id=artifact["id"],
+                    source_content_sha256=artifact.get("content_sha256"),
+                    source_version=(artifact.get("source_metadata") or {}).get("external_revision"),
+                )
+            )
+            return bool(updated.rowcount)
+
     def get_dataset(
         self, dataset_id: str, *, workspace_id: str | None = None
     ) -> dict[str, Any] | None:
@@ -4521,6 +5096,20 @@ class Repository:
             if not dataset:
                 return None
 
+            current_artifact = conn.execute(
+                select(dataset_artifacts).where(
+                    dataset_artifacts.c.dataset_id == dataset_id,
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                    dataset_artifacts.c.is_current.is_(True),
+                )
+            ).mappings().first()
+            artifact_rows = conn.execute(
+                select(dataset_artifacts).where(
+                    dataset_artifacts.c.dataset_id == dataset_id,
+                    dataset_artifacts.c.workspace_id == workspace_id,
+                )
+            ).mappings().all()
+
             run_ids = [
                 row[0]
                 for row in conn.execute(
@@ -4591,6 +5180,8 @@ class Repository:
             return {
                 "dataset_id": dataset_id,
                 "source_ref": dataset["source_ref"],
+                "artifact": dict(current_artifact) if current_artifact else None,
+                "artifacts": [dict(row) for row in artifact_rows],
                 "run_ids": run_ids,
             }
 
@@ -4605,6 +5196,7 @@ class Repository:
         idempotency_key: str,
         request_hash: str,
         max_attempts: int,
+        artifact_id: str | None = None,
         source_content_sha256: str | None = None,
         source_version: str | None = None,
         correlation_id: str | None = None,
@@ -4622,6 +5214,7 @@ class Repository:
                 pg_insert(profile_runs).values(
                     id=run_id,
                     dataset_id=dataset_id,
+                    artifact_id=artifact_id,
                     workspace_id=workspace_id,
                     source_content_sha256=source_content_sha256,
                     source_version=source_version,
@@ -4708,6 +5301,20 @@ class Repository:
                 query = query.where(profile_runs.c.workspace_id == workspace_id)
             row = conn.execute(query).mappings().first()
             return dict(row) if row else None
+
+    def set_dataset_datasource_connection(
+        self, dataset_id: str, connection_id: str, *, workspace_id: str
+    ) -> bool:
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                datasets.update()
+                .where(
+                    datasets.c.id == dataset_id,
+                    datasets.c.workspace_id == workspace_id,
+                )
+                .values(datasource_connection_id=connection_id)
+            )
+            return bool(result.rowcount)
 
     def update_agent_run_usage(
         self, agent_run_id: str, *, workspace_id: str, usage: dict[str, Any]

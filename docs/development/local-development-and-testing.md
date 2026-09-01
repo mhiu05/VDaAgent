@@ -30,7 +30,7 @@ APP_ENV=development
 AUTH_MODE=dual
 AUTH_ALLOW_GUEST=true
 AUTH_REQUIRE_EMAIL_CONFIRMED=false
-STORAGE_PROVIDER=local
+CANONICAL_STORAGE_PROVIDER=local
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
 ```
 
@@ -43,6 +43,14 @@ Không dùng nguyên các placeholder production trong `.env.example`.
 ```
 
 Production schema phải đi qua Alembic. Local/test có compatibility bootstrap trong repository, nhưng không nên dựa vào nó để thay migration.
+
+Khi máy dev có worker khác dùng test DB cấu hình sẵn, chạy suite trong database disposable để tránh race:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_isolated_pytest.py -q
+```
+
+Harness chỉ dùng server/credential từ `P170_TEST_DATABASE_URL`, không sửa database đó; nó tạo, migrate và drop một database tên `p170_test_*` trong `finally`.
 
 ## Chạy ba process
 

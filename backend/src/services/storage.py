@@ -13,12 +13,15 @@ import base64
 import logging
 import mimetypes
 import os
+import shutil
 import tempfile
 import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 from urllib.parse import quote, urljoin, urlsplit
 
 # pyrefly: ignore [missing-import]
@@ -48,9 +51,52 @@ class StorageUploadError(RuntimeError):
 class StorageDownloadError(RuntimeError):
     """Raised when a remote source cannot be streamed safely to local disk."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: int | None = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.retryable = retryable
+
+
+@dataclass(frozen=True)
+class ObjectStat:
+    size_bytes: int
+    content_type: str | None = None
+    etag: str | None = None
+
+
+class ObjectStorage(Protocol):
+    provider: str
+    bucket: str | None
+
+    def put(self, local_path: Path, object_path: str, content_type: str | None = None) -> None: ...
+    def stat(self, object_path: str) -> ObjectStat | None: ...
+    def download_to_path(self, object_path: str, destination: Path, *, max_bytes: int) -> int: ...
+    def delete(self, object_path: str) -> None: ...
+    def list_objects(self, prefix: str) -> Iterator[str]: ...
+
 
 def is_supabase_ref(value: str) -> bool:
     return value.lower().startswith("supabase://")
+
+
+def is_local_object_ref(value: str) -> bool:
+    return value.lower().startswith("local-object:///")
+
+
+def parse_local_object_ref(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() != "local-object" or parsed.netloc:
+        raise StorageReferenceError("Invalid local canonical object reference.")
+    object_path = parsed.path.lstrip("/")
+    if not object_path or ".." in Path(object_path).parts:
+        raise StorageReferenceError("Invalid local canonical object path.")
+    return object_path
 
 
 def parse_supabase_ref(value: str) -> tuple[str, str]:
@@ -67,6 +113,7 @@ class SupabaseStorage:
     """Small synchronous wrapper around the Supabase Storage client."""
 
     def __init__(self, settings: Settings | None = None) -> None:
+        self.provider = "supabase"
         self.settings = settings or get_settings()
         if not self.settings.supabase_url or not self.settings.supabase_backend_key:
             raise StorageNotConfiguredError(
@@ -259,6 +306,54 @@ class SupabaseStorage:
                     ) from exc
                 time.sleep(2**attempt)
 
+    def put(self, local_path: Path, object_path: str, content_type: str | None = None) -> None:
+        self.upload(local_path, object_path, content_type)
+
+    def stat(self, object_path: str) -> ObjectStat | None:
+        key = self.settings.supabase_backend_key
+        try:
+            with httpx.Client(timeout=self.settings.supabase_storage_timeout_seconds) as client:
+                response = client.head(
+                    self._download_url(self.bucket, object_path),
+                    headers={"Authorization": f"Bearer {key}", "apikey": key},
+                )
+        except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
+            raise StorageDownloadError(
+                "Supabase Storage is temporarily unavailable.", retryable=True
+            ) from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise StorageDownloadError(
+                f"Supabase Storage refused object metadata ({response.status_code}).",
+                status=response.status_code,
+                retryable=response.status_code in {408, 425, 429}
+                or response.status_code >= 500,
+            )
+        length = response.headers.get("content-length")
+        if length is None or not length.isdigit():
+            raise StorageDownloadError("Supabase Storage did not return a valid object size.")
+        return ObjectStat(
+            size_bytes=int(length),
+            content_type=response.headers.get("content-type"),
+            etag=response.headers.get("etag"),
+        )
+
+    def create_signed_upload(self, object_path: str) -> dict[str, str]:
+        try:
+            result = self.client.storage.from_(self.bucket).create_signed_upload_url(object_path)
+        except Exception as exc:
+            raise StorageUploadError("Could not create a signed upload authorization.") from exc
+        if not isinstance(result, dict):
+            raise StorageUploadError("Supabase Storage returned an invalid upload authorization.")
+        token = str(result.get("token") or "")
+        signed_url = str(result.get("signedURL") or result.get("signed_url") or "")
+        if not token and signed_url:
+            token = signed_url.rstrip("/").rsplit("/", 1)[-1]
+        if not token:
+            raise StorageUploadError("Supabase Storage did not return an upload token.")
+        return {"token": token, "signed_url": signed_url}
+
     def download(self, bucket: str, object_path: str) -> bytes:
         return self.client.storage.from_(bucket).download(object_path)
 
@@ -299,7 +394,10 @@ class SupabaseStorage:
                         detail = response.text.strip()[:300]
                         raise StorageDownloadError(
                             "Supabase Storage từ chối tải source"
-                            f" ({response.status_code}): {detail or 'không có nội dung.'}"
+                            f" ({response.status_code}): {detail or 'không có nội dung.'}",
+                            status=response.status_code,
+                            retryable=response.status_code in {408, 425, 429}
+                            or response.status_code >= 500,
                         )
                     with destination.open("wb") as target:
                         for chunk in response.iter_bytes(chunk_size=self.chunk_bytes):
@@ -318,7 +416,8 @@ class SupabaseStorage:
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as exc:
             destination.unlink(missing_ok=True)
             raise StorageDownloadError(
-                "Kết nối tới Supabase Storage bị gián đoạn khi tải source."
+                "Kết nối tới Supabase Storage bị gián đoạn khi tải source.",
+                retryable=True,
             ) from exc
         except Exception:
             destination.unlink(missing_ok=True)
@@ -327,6 +426,125 @@ class SupabaseStorage:
 
     def remove(self, bucket: str, object_path: str) -> None:
         self.client.storage.from_(bucket).remove([object_path])
+
+    def download_to_path(self, object_path: str, destination: Path, *, max_bytes: int) -> int:
+        return self.download_to_file(self.bucket, object_path, destination, max_bytes=max_bytes)
+
+    def delete(self, object_path: str) -> None:
+        self.remove(self.bucket, object_path)
+
+    def list_objects(self, prefix: str) -> Iterator[str]:
+        """Yield object keys below a prefix without loading bucket contents at once."""
+        pending = [prefix.strip("/")]
+        while pending:
+            directory = pending.pop()
+            offset = 0
+            while True:
+                rows = self.client.storage.from_(self.bucket).list(
+                    directory,
+                    {"limit": 100, "offset": offset, "sortBy": {"column": "name", "order": "asc"}},
+                )
+                if not isinstance(rows, list):
+                    raise StorageDownloadError("Supabase Storage returned an invalid object listing.")
+                for row in rows:
+                    if not isinstance(row, dict) or not row.get("name"):
+                        continue
+                    child = f"{directory}/{row['name']}" if directory else str(row["name"])
+                    if row.get("id") is None and not row.get("metadata"):
+                        pending.append(child)
+                    else:
+                        yield child
+                if len(rows) < 100:
+                    break
+                offset += len(rows)
+
+
+class LocalObjectStorage:
+    """Development-only canonical storage with the same immutable contract."""
+
+    provider = "local"
+    bucket = None
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.root = (self.settings.upload_path / "canonical").resolve()
+
+    def _path(self, object_path: str) -> Path:
+        candidate = (self.root / object_path).resolve()
+        try:
+            candidate.relative_to(self.root)
+        except ValueError as exc:
+            raise StorageReferenceError("Local object path is outside canonical storage.") from exc
+        return candidate
+
+    def put(self, local_path: Path, object_path: str, content_type: str | None = None) -> None:
+        del content_type
+        target = self._path(object_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with target.open("xb") as output, local_path.open("rb") as source:
+                shutil.copyfileobj(source, output, length=1024 * 1024)
+        except FileExistsError as exc:
+            raise StorageUploadError("Canonical object already exists.", status=409) from exc
+
+    def stat(self, object_path: str) -> ObjectStat | None:
+        target = self._path(object_path)
+        if not target.is_file():
+            return None
+        return ObjectStat(target.stat().st_size, mimetypes.guess_type(target.name)[0])
+
+    def download_to_path(self, object_path: str, destination: Path, *, max_bytes: int) -> int:
+        source = self._path(object_path)
+        if not source.is_file():
+            raise StorageDownloadError("Canonical object was not found.")
+        size = source.stat().st_size
+        if size > max_bytes:
+            raise StorageDownloadError("Dataset exceeds the profiling byte limit.")
+        with source.open("rb") as input_file, destination.open("wb") as output:
+            shutil.copyfileobj(input_file, output, length=1024 * 1024)
+        return size
+
+    def delete(self, object_path: str) -> None:
+        self._path(object_path).unlink(missing_ok=True)
+
+    def list_objects(self, prefix: str) -> Iterator[str]:
+        root = self._path(prefix)
+        if not root.exists():
+            return
+        if root.is_file():
+            yield root.relative_to(self.root).as_posix()
+            return
+        for item in root.rglob("*"):
+            if item.is_file():
+                yield item.relative_to(self.root).as_posix()
+
+
+def canonical_object_key(workspace_id: str, dataset_id: str, artifact_id: str, filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".csv", ".tsv", ".parquet", ".json"}:
+        raise StorageReferenceError("Unsupported canonical dataset extension.")
+    for value in (workspace_id, dataset_id, artifact_id):
+        if not value or not all(char.isalnum() or char in "-_" for char in value):
+            raise StorageReferenceError("Invalid canonical object identity.")
+    return f"workspaces/{workspace_id}/datasets/{dataset_id}/source/{artifact_id}{suffix}"
+
+
+def artifact_source_ref(artifact: dict[str, object]) -> str:
+    """Build the internal immutable reference for a persisted artifact row."""
+    object_key = str(artifact["object_key"])
+    if artifact["storage_provider"] == "supabase":
+        return f"supabase://{artifact['bucket']}/{object_key}"
+    if artifact["storage_provider"] == "local":
+        return f"local-object:///{object_key}"
+    raise StorageReferenceError("Unsupported canonical artifact provider.")
+
+
+def get_object_storage(settings: Settings | None = None) -> ObjectStorage:
+    current = settings or get_settings()
+    provider = current.canonical_storage_provider
+    if provider == "supabase":
+        return get_storage(current)
+    return LocalObjectStorage(current)
 
 
 _storage: SupabaseStorage | None = None
@@ -379,6 +597,7 @@ def materialize_source(
         fd, temp_name = tempfile.mkstemp(prefix="p170-gdrive-", suffix=Path(filename).suffix)
         os.close(fd)
         temp_path = Path(temp_name)
+        started = time.perf_counter()
         try:
             try:
                 GoogleDriveStorage(current_settings).download(
@@ -386,9 +605,43 @@ def materialize_source(
                 )
             except Exception as exc:
                 raise OSError(f"Lỗi tải dữ liệu từ Google Drive: {exc}") from exc
+            logger.info(
+                "source_materialized",
+                extra={
+                    "source_type": "legacy_google_drive",
+                    "storage_download_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "size_bytes": temp_path.stat().st_size,
+                },
+            )
             with utf8_tabular_source(temp_path) as readable_path:
                 yield readable_path
 
+        finally:
+            temp_path.unlink(missing_ok=True)
+        return
+
+    if is_local_object_ref(source_ref):
+        object_path = parse_local_object_ref(source_ref)
+        suffix = Path(object_path).suffix
+        fd, temp_name = tempfile.mkstemp(prefix="p170-source-", suffix=suffix)
+        os.close(fd)
+        temp_path = Path(temp_name)
+        started = time.perf_counter()
+        try:
+            LocalObjectStorage(current_settings).download_to_path(
+                object_path, temp_path, max_bytes=source_limit
+            )
+            logger.info(
+                "source_materialized",
+                extra={
+                    "source_type": "canonical",
+                    "storage_provider": "local",
+                    "storage_download_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "size_bytes": temp_path.stat().st_size,
+                },
+            )
+            with utf8_tabular_source(temp_path) as readable_path:
+                yield readable_path
         finally:
             temp_path.unlink(missing_ok=True)
         return
@@ -408,9 +661,19 @@ def materialize_source(
     fd, temp_name = tempfile.mkstemp(prefix="p170-source-", suffix=suffix)
     os.close(fd)
     temp_path = Path(temp_name)
+    started = time.perf_counter()
     try:
         get_storage(current_settings).download_to_file(
             bucket, object_path, temp_path, max_bytes=source_limit
+        )
+        logger.info(
+            "source_materialized",
+            extra={
+                "source_type": "canonical",
+                "storage_provider": "supabase",
+                "storage_download_ms": round((time.perf_counter() - started) * 1000, 2),
+                "size_bytes": temp_path.stat().st_size,
+            },
         )
         with utf8_tabular_source(temp_path) as readable_path:
             yield readable_path
@@ -419,14 +682,22 @@ def materialize_source(
 
 
 __all__ = [
+    "LocalObjectStorage",
+    "ObjectStat",
+    "ObjectStorage",
     "StorageNotConfiguredError",
     "StorageReferenceError",
     "StorageDownloadError",
     "StorageUploadError",
     "SupabaseStorage",
+    "artifact_source_ref",
+    "canonical_object_key",
+    "get_object_storage",
     "get_storage",
     "is_supabase_ref",
+    "is_local_object_ref",
     "materialize_source",
     "parse_supabase_ref",
+    "parse_local_object_ref",
     "reset_storage",
 ]

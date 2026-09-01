@@ -197,7 +197,7 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
+          CANONICAL_STORAGE_PROVIDER: supabase
           GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.GOOGLE_DRIVE_CLIENT_ID }}
           GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.GOOGLE_DRIVE_CLIENT_SECRET }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
@@ -213,18 +213,11 @@ jobs:
             NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
             test -n "${!name}" || missing+=("$name")
           done
-          if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
-            for name in \
-              GOOGLE_DRIVE_CLIENT_ID GOOGLE_DRIVE_CLIENT_SECRET \
-              GOOGLE_DRIVE_FOLDER_ID GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY; do
-              test -n "${!name}" || missing+=("$name")
-            done
-          fi
           # Report every gap at once so a release is not retried one secret at a time.
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "Missing production configuration: ${missing[*]}"
             echo "WORKER_APP comes from the AZURE_PROFILING_WORKER_APP repository variable; the rest are repository secrets."
-            echo "docs/azure-deploy-cicd.md explains how each value is provisioned."
+            echo "docs/operations/deployment.md explains how each value is provisioned."
             exit 1
           fi
 
@@ -339,7 +332,7 @@ jobs:
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
           AUTH_ALLOW_GUEST: ${{ vars.NEXT_PUBLIC_AUTH_ALLOW_GUEST || 'false' }}
           AUTH_ALLOW_SIGNUP: 'true'
-          STORAGE_PROVIDER: ${{ vars.STORAGE_PROVIDER || 'google_drive' }}
+          CANONICAL_STORAGE_PROVIDER: supabase
           GUEST_STORAGE_PROVIDER: ${{ vars.GUEST_STORAGE_PROVIDER || 'supabase' }}
           # The provider pair may sit in either store, so a secret is honoured when no variable is set.
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || secrets.LLM_PROVIDER || 'openai' }}
@@ -384,7 +377,7 @@ jobs:
             SUPABASE_AUTH_AUDIENCE=authenticated
             SUPABASE_URL="$SUPABASE_URL"
             SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
-            STORAGE_PROVIDER="$STORAGE_PROVIDER"
+            CANONICAL_STORAGE_PROVIDER="$CANONICAL_STORAGE_PROVIDER"
             GUEST_STORAGE_PROVIDER="$GUEST_STORAGE_PROVIDER"
             SUPABASE_STORAGE_BUCKET=p170-dataset
             SUPABASE_STORAGE_PREFIX=datasets
@@ -404,7 +397,7 @@ jobs:
               settings+=("$name=${!name}")
             fi
           done
-          if [ "$STORAGE_PROVIDER" = "google_drive" ]; then
+          if [ -n "${GOOGLE_DRIVE_CLIENT_ID:-}" ] && [ -n "${GOOGLE_DRIVE_CLIENT_SECRET:-}" ] && [ -n "${GOOGLE_DRIVE_FOLDER_ID:-}" ] && [ -n "${GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY:-}" ]; then
             settings+=(
               GOOGLE_DRIVE_CLIENT_ID="$GOOGLE_DRIVE_CLIENT_ID"
               GOOGLE_DRIVE_CLIENT_SECRET="$GOOGLE_DRIVE_CLIENT_SECRET"

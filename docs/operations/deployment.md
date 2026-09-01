@@ -55,7 +55,7 @@ Migration lỗi sẽ chặn deployment. API và worker luôn phải dùng cùng 
 
 ## Secret và variable
 
-Bắt buộc gồm Azure OIDC, ACR pull credential, database URL, Supabase secret/public config và datasource encryption key. Nếu `STORAGE_PROVIDER=google_drive`, Drive client ID, secret, folder và token encryption key cũng bắt buộc. Worker app name là repository variable, không phải secret.
+Bắt buộc gồm Azure OIDC, ACR pull credential, database URL, Supabase secret/public config, `CANONICAL_STORAGE_PROVIDER=supabase`, bucket và datasource encryption key. Drive client ID, secret, folder và token encryption key chỉ cần khi bật connector Google Drive; thiếu Drive không làm API/worker unhealthy. Worker app name là repository variable, không phải secret.
 
 LLM key là bắt buộc về mặt chức năng khi provider cần nó, dù bước validate hiện không đưa `LLM_API_KEY` vào danh sách hard-required. Hãy kiểm tra trước release.
 
@@ -76,7 +76,9 @@ Ngoài health, nên xác minh:
 - `GET /api/v1/status` không lộ secret;
 - auth Supabase và email confirmation;
 - tạo/upload một synthetic dataset;
+- finalize upload hai lần và xác nhận chỉ có một dataset/artifact;
 - worker claim và hoàn tất job;
 - SSE terminal event;
 - QA abstain/verified đúng contract;
 - browser role không đọc được bảng domain qua Data API.
+- chạy `python scripts/reconcile_storage.py --workspace-id <synthetic-workspace>` ở chế độ báo cáo.

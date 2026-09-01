@@ -39,7 +39,9 @@ def test_initial_nodes_profile_file_backed_source_without_dataframe_cache(
         "order_id,amount,email\n1,10.0,a@example.com\n2,25.0,b@example.com\n",
         encoding="utf-8",
     )
-    repo = _Repo(str(source))
+    # The dataset may have advanced after queueing. The graph must consume the
+    # immutable reference captured in its run state, not the mutable pointer.
+    repo = _Repo(str(tmp_path / "newer-dataset-version.csv"))
     audit = SimpleNamespace(log=lambda *_args, **_kwargs: None)
     monkeypatch.setattr(profiling_nodes, "get_repository", lambda: repo)
     monkeypatch.setattr(profiling_nodes, "get_audit", lambda: audit)
@@ -50,6 +52,7 @@ def test_initial_nodes_profile_file_backed_source_without_dataframe_cache(
     )
     state = {
         "dataset_id": "dataset-p1-08",
+        "dataset_ref": str(source),
         "profile_run_id": "run-p1-08",
         "scan_mode": "full",
         "sampling_config": None,

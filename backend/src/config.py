@@ -226,7 +226,7 @@ class Settings(BaseSettings):
     auth_allow_signup: bool = True
     auth_allow_guest: bool = False
     # Guest trials use a bounded, shared demo storage backend. Authenticated
-    # workspaces keep using the provider configured by STORAGE_PROVIDER.
+    # workspaces use CANONICAL_STORAGE_PROVIDER.
     guest_storage_provider: Literal["supabase", "local"] = "supabase"
     guest_max_upload_mb: int = Field(default=25, ge=1, le=100)
     guest_retention_hours: int = Field(default=24, ge=1, le=168)
@@ -346,6 +346,14 @@ class Settings(BaseSettings):
     supabase_storage_timeout_seconds: int = Field(default=300, ge=20, le=1800)
     supabase_storage_resumable_threshold_mb: int = Field(default=6, ge=1, le=100)
     supabase_storage_chunk_mb: int = Field(default=6, ge=1, le=20)
+    canonical_storage_provider: Literal["supabase", "local"] = Field(
+        default="supabase",
+        validation_alias=AliasChoices(
+            "CANONICAL_STORAGE_PROVIDER", "canonical_storage_provider"
+        ),
+    )
+    # Deprecated rollout input. Google Drive is now an import connector and
+    # never selects the canonical object-storage implementation.
     storage_provider: Literal["supabase", "google_drive", "local"] = "supabase"
     google_drive_client_id: str = ""
     google_drive_client_secret: str = ""
@@ -401,6 +409,16 @@ class Settings(BaseSettings):
                 raise ValueError("Production bắt buộc AUTH_MODE=supabase.")
             if not self.auth_require_email_confirmed:
                 raise ValueError("Production bắt buộc AUTH_REQUIRE_EMAIL_CONFIRMED=true.")
+        if (
+            self.storage_provider == "local"
+            and self.canonical_storage_provider == "supabase"
+            and not os.getenv("CANONICAL_STORAGE_PROVIDER")
+        ):
+            self.canonical_storage_provider = "local"
+        if self.app_env == "production" and self.canonical_storage_provider != "supabase":
+            raise ValueError(
+                "Production requires CANONICAL_STORAGE_PROVIDER=supabase."
+            )
         # The planner/verifier/queue switches are intentionally fail-closed
         # until their capability registry, deterministic evaluation and durable
         # execution phases have shipped. A truthy flag must never expose an
@@ -515,17 +533,12 @@ class Settings(BaseSettings):
                 missing.append("DATASOURCE_ENCRYPTION_KEY")
             if not self.supabase_url:
                 missing.append("SUPABASE_URL")
-            if self.storage_provider == "supabase" and not self.supabase_backend_key:
+            if self.canonical_storage_provider == "supabase" and not self.supabase_backend_key:
                 missing.append("SUPABASE_SECRET_KEY")
             if self.auth_mode != "supabase":
                 missing.append("AUTH_MODE=supabase")
             if not self.supabase_publishable_key:
                 missing.append("SUPABASE_PUBLISHABLE_KEY")
-            if (
-                self.storage_provider == "google_drive"
-                and not self.google_drive_configured
-            ):
-                missing.append("GOOGLE_DRIVE_* (storage provider google_drive)")
             if self.auth_allow_guest:
                 if (
                     self.guest_storage_provider == "supabase"
