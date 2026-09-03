@@ -118,7 +118,7 @@ export function CompareWorkspace() {
   }
 
   return <div className="compare-workspace">
-    <PageHeader eyebrow="DATA DRIFT" title="So sánh dữ liệu" description="Phát hiện thay đổi về phân phối, chất lượng và cấu trúc giữa hai Profile Run đã hoàn tất." action={<span className="compare-methodology"><span>Phương pháp đánh giá</span><MethodologyTip /></span>} />
+    <PageHeader eyebrow="DATA DRIFT" title="So sánh dữ liệu" description="Phát hiện thay đổi về phân phối, chất lượng và cấu trúc giữa hai Profile Run đã hoàn tất." action={<div className="page-action-group"><span className="compare-methodology"><span>Phương pháp đánh giá</span><MethodologyTip /></span><Link href="/reports" className="button primary" aria-label="Đi đến báo cáo cuối cùng">📖 Báo cáo cuối cùng →</Link></div>} />
     {catalogLoading && <LoadingBlock label="Đang tải các Profile Run trong workspace…" />}
     {catalogError && <ErrorNotice error={catalogError} retry={() => { void datasets.refetch(); void Promise.all(runQueries.map((query) => query.refetch())); }} />}
     {!catalogLoading && !catalogError && completedRuns.length < 2 && <EmptyState title={completedRuns.length === 0 ? "Chưa có Profile Run phù hợp" : "Cần thêm một Profile Run"} detail={completedRuns.length === 0 ? "Bạn cần ít nhất hai Profile Run đã hoàn tất để thực hiện so sánh drift." : "Workspace hiện chỉ có một Profile Run đã hoàn tất. Hãy hoàn tất thêm một phiên để bắt đầu so sánh."} action={<Link href="/datasets" className="button primary">Xem Profile Runs</Link>} />}

@@ -66,6 +66,9 @@ test("analyst compares two completed Profile Runs through the drift API", async 
   });
 
   await page.goto("/compare", { waitUntil: "networkidle" });
+  const finalReportLink = page.locator(".workspace-page-header .page-action a[href='/reports']");
+  await expect(finalReportLink).toHaveCount(1);
+  await expect(finalReportLink).toHaveAttribute("aria-label", "Đi đến báo cáo cuối cùng");
   await expect(page.locator("#compare-baseline option")).toHaveCount(3);
   await expect(page.locator("#compare-baseline option[value='pending-run']")).toHaveCount(0);
 

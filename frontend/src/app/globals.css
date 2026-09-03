@@ -1093,6 +1093,7 @@ small { color: var(--muted); }
 
 /* Data Drift Comparison workspace */
 .compare-workspace { display: grid; gap: 18px; max-width: 1440px; }
+.page-action-group { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .compare-methodology { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: .78rem; font-weight: 750; }
 .compare-selector-panel, .compare-table-panel, .compare-detail-panel { display: grid; gap: 18px; }
 .compare-selector-heading, .compare-results-heading, .compare-detail-heading, .compare-table-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
