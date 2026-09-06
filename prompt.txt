@@ -1,0 +1,217 @@
+Bạn là Senior Solution Architect đồng thời là Technical Information Designer.
+
+NHIỆM VỤ
+
+Hãy vẽ một master architecture diagram duy nhất cho hệ thống VDaAgent P-170. Sơ đồ phải thể hiện đầy đủ nhưng vẫn đọc được ở mức tổng quan: client, frontend, API, domain service, Agent, profiling worker, compute, data/storage, external integration, security, observability và Azure deployment.
+
+ĐẦU RA BẮT BUỘC
+
+- Tạo infographic kỹ thuật dạng vector, landscape 16:9, độ phân giải 3840 x 2160.
+- Tiêu đề chính: VDaAgent — Evidence-first Data Profiling and Analytics Platform.
+- Nhãn giải thích bằng tiếng Việt; tên công nghệ giữ nguyên tiếng Anh.
+- Chữ phải rõ, đúng chính tả, không bị biến dạng; ưu tiên box và connector thay vì hình minh họa.
+- Đây là sơ đồ solution architecture, không phải ảnh concept, không photorealistic và không dùng nhân vật 3D.
+- Nếu quá nhiều chi tiết, gom module liên quan trong container có tiêu đề và dùng callout đánh số; không bỏ luồng hoặc công nghệ cốt lõi.
+- Thêm legend cho loại mũi tên, trust boundary, async job, data store và external service.
+
+PHONG CÁCH
+
+- Nền trắng hoặc navy rất nhạt, phong cách enterprise cloud architecture hiện đại.
+- Client màu xanh dương; application màu teal; Agent/AI màu tím; compute màu cam; data/storage màu xanh lá; security màu đỏ; DevOps/observability màu xám.
+- Mũi tên liền cho REST/synchronous call.
+- Mũi tên nét đứt màu cyan cho SSE/progress stream.
+- Mũi tên màu cam cho durable async job.
+- Mũi tên màu tím cho LLM/embedding call.
+- Viền đỏ nét đứt cho trust/security boundary.
+- Data store dùng biểu tượng cylinder; external service dùng cloud; process/container dùng rounded rectangle.
+- Tránh đường nối cắt nhau; luồng chính đi từ trái sang phải, data store ở hàng dưới và deployment ở footer.
+
+BỐ CỤC TỔNG THỂ
+
+1. Góc trái: Actors và Data Sources.
+2. Trái-trung tâm: Client Layer.
+3. Trung tâm: Application Runtime.
+4. Phải-trung tâm: Agent, Compute và AI Providers.
+5. Hàng dưới: Data, Storage và Provenance.
+6. Footer: Security, Observability và Azure Deployment.
+
+ACTORS VÀ CLIENT LAYER
+
+- Actors: Analyst, Data Engineer, System Admin.
+- Browser chạy Next.js 15, React 19, TypeScript strict, TanStack Query và Zod.
+- AuthProvider quản lý Supabase session, guest trial, active workspace và API transport.
+- Frontend render dataset, Profile Review, Command Center, Chart, Chat, Drift và Report.
+- Hai SSE client riêng: profiling progress và chat_stream.v1.
+- Next.js server PDF route dùng Playwright Core/Chromium và pdf-lib.
+- Frontend middleware/component guard chỉ là UX boundary, không phải authorization boundary.
+
+APPLICATION RUNTIME
+
+Vẽ ba process/container độc lập:
+
+1. FastAPI API — Python 3.11, Pydantic, REST, SSE, middleware, CORS, correlation ID, validation và safe error mapping.
+2. Profiling Worker — claim lease, heartbeat, retry tối đa, stale-job recovery, graceful shutdown và LangGraph resume.
+3. Local MCP Server — FastMCP qua stdio, không phải public HTTP service.
+
+Bên trong FastAPI, nhóm các module:
+
+- API routers và dependencies.
+- Auth, workspace resolution và capability authorization.
+- Dataset ingestion và canonical artifact.
+- Profiling, statistics và drift.
+- Analysis Session, Chart Planner, QuerySpec và Quality Gate.
+- QA, retrieval, evidence validation và Answer Envelope V2.
+- Report Draft, immutable snapshot và export source.
+- Repository/persistence boundary dùng SQLAlchemy.
+
+Vẽ rõ request đi từ router → service/Agent → repository/provider. Mọi query tenant phải mang workspace_id predicate. System Admin dùng system context riêng và không phải workspace superuser.
+
+AGENT VÀ AI LAYER
+
+- LangGraph Profiling Graph:
+  ingest → compute_stats → propose_metadata → hitl_review;
+  reject/edit quay lại propose_metadata;
+  request_test đi qua deep_analysis rồi quay lại review;
+  confirm đi đến summarize → optional QA → finalize.
+- LangGraph QA Graph:
+  input guardrail → router → blocked refusal hoặc clarification hoặc deterministic fast path hoặc bounded tool hoặc scoped retrieval → evidence validator → output guardrail → AnswerEnvelopeV2.
+- Native skills: profile-dataset, diagnose-data-quality, compare-profile-drift, answer-business-question, generate-report.
+- Bounded Tool Registry được server inject profile_run_id và workspace context.
+- Không cho model arbitrary SQL, arbitrary Python, tự chọn workspace hoặc đọc raw PII.
+- LLM provider: OpenAI hoặc Gemini.
+- Embedding provider: local, OpenAI, Voyage hoặc none.
+- Hybrid retrieval: sparse + dense trên retrieval_documents; sparse fallback khi embedding lỗi.
+- Semantic answer cache chỉ trả sau khi revalidate evidence.
+- High-risk verifier hiện chạy shadow và không ghi đè answer canonical.
+- LangSmith chỉ nhận metadata-only sanitized projection, không nhận raw prompt/data.
+
+COMPUTE LAYER
+
+- DuckDB file-backed là compute engine chính.
+- pandas, NumPy, SciPy, statsmodels và scikit-learn cho projection/statistical test/forecast cần thiết.
+- Main profiling không nạp toàn bộ dataset vào pandas.
+- QuerySpec là allow-list có giới hạn column, dimension, filter, row/result và timeout.
+- Preview: approximate, bounded sample, có expiry, không phải official evidence.
+- Official: chạy lại full-source trong giới hạn sau context approval và quality gate; lưu query, hash, limitation và provenance.
+
+DATA SOURCES, STORAGE VÀ DATABASE
+
+Data Sources ở bên trái:
+
+- File upload: CSV, TSV, Parquet, JSON.
+- Google Drive OAuth/import.
+- MySQL, MongoDB và DuckDB datasource connector.
+
+Data stores ở hàng dưới:
+
+- Supabase Auth phát JWT và cung cấp JWKS.
+- Supabase Storage lưu canonical immutable raw object ở production.
+- Local storage adapter chỉ dùng development/test.
+- PostgreSQL 16-compatible lưu metadata, identity/workspace, durable queue, profile, analysis, evidence, conversation, report, audit, retrieval và LangGraph checkpoint.
+- Ephemeral bounded file nằm giữa storage/source và DuckDB, có byte limit và cleanup sau compute.
+
+Nhóm miền PostgreSQL:
+
+- Identity/workspace: user profile, workspace, membership, invitation, configuration version.
+- Ingestion: dataset, dataset_artifact, dataset_ingestion, connector và OAuth state.
+- Profiling: Profile Run, column stats, proposal, statistical test và drift report.
+- Analysis: session, semantic context version, quality gate, quality issue và query execution.
+- Agent/chat: run, plan, step, invocation, evidence, trace, verification, conversation, message, feedback và cache.
+- Reporting: report, version, section, item, visualization, review và snapshot.
+
+Vẽ provenance chain rõ ràng:
+
+workspace_id → dataset_id → artifact_id + content SHA-256 → profile_run_id + scan/sample metadata → tool/query execution + result hash + limitation → answer/report citation → immutable report snapshot hash.
+
+CÁC LUỒNG PHẢI ĐÁNH SỐ
+
+Luồng 1 — Authentication và workspace:
+
+Browser → Next.js/AuthProvider → Supabase Auth → JWT/JWKS verification tại FastAPI → load active membership từ PostgreSQL → capability check → workspace-scoped service/repository.
+
+Ghi trên đường request: Authorization Bearer token, X-Workspace-Id, X-Correlation-Id. Chỉ NEXT_PUBLIC variables được vào browser bundle.
+
+Luồng 2 — Upload và ingestion:
+
+Files/Drive/datasource → FastAPI ingestion → stream + sanitize filename + byte limit + SHA-256 → canonical object trong Supabase Storage → dataset/artifact/ingestion metadata trong PostgreSQL.
+
+Luồng 3 — Async profiling:
+
+Frontend POST profile + Idempotency-Key → FastAPI trả HTTP 202 → durable queue trong PostgreSQL → Worker claim lease → materialize source thành temporary file → DuckDB profiling → LangGraph metadata proposal → HITL review → resume cùng checkpoint → completed Profile Run → SSE progress về frontend.
+
+Ghi chú cạnh Worker: at-least-once delivery, không phải exactly-once.
+
+Luồng 4 — Command Center:
+
+Completed Profile Run → Analysis Session + semantic context → sanitized deterministic/structured chart plan → bounded Preview → context approval + Quality Gate → Official execution → verified chart/evidence.
+
+Luồng 5 — Evidence-first QA:
+
+Question → guardrail/router → deterministic fast path hoặc bounded tool hoặc hybrid retrieval → optional OpenAI/Gemini → deterministic evidence validator → output guardrail → AnswerEnvelopeV2 → chat_stream.v1 SSE và durable conversation.
+
+Ghi chú: validator kiểm tra workspace/Profile Run/artifact binding, source status, citation và numeric grounding; thiếu evidence thì abstain. Partial SSE output không phải canonical evidence.
+
+Luồng 6 — Report:
+
+Verified profile/tool/Official evidence + manual note → mutable Report Draft → optimistic version + idempotent pin/reorder → immutable snapshot + SHA-256 → PII-safe export source → Next.js server route → Chromium PDF.
+
+Ghi chú: manual note không trở thành quantitative evidence.
+
+Luồng 7 — Local MCP:
+
+Local MCP client → FastMCP stdio → permission-scoped bounded tool registry → profile read, chart plan, Preview và Official. Không vẽ MCP như public REST endpoint.
+
+Luồng 8 — Deployment:
+
+GitHub → GitHub Actions quality gates → Docker build theo commit SHA → Azure Container Registry → Alembic upgrade head → ba Azure App Service container: Frontend, API, Profiling Worker → health checks.
+
+API và Worker dùng cùng backend image SHA. Azure authentication dùng OIDC. PostgreSQL, Supabase và external AI là managed/external dependencies, không đặt bên trong App Service.
+
+SECURITY VÀ GOVERNANCE CALLOUT
+
+- Supabase JWT chỉ là identity; authorization domain nằm ở FastAPI/PostgreSQL.
+- Browser không truy cập trực tiếp domain table qua Supabase Data API.
+- RLS bật nhưng anon/authenticated không có domain policy/quyền.
+- PII pending hoặc confirmed bị chặn khỏi unsafe QuerySpec và output.
+- Secret server-only: DATABASE_URL, Supabase secret key, datasource encryption key, Google Drive secret và LLM key.
+- Idempotency-Key bảo vệ retryable mutation; transaction/optimistic version bảo vệ concurrent mutation.
+- Audit và trace không chứa bearer, credential, raw row, full prompt hoặc temporary path.
+- Error trả safe status/correlation ID; không lộ stack trace hoặc tài nguyên tenant khác.
+- Production schema do Alembic sở hữu; không dùng runtime create_all.
+
+OBSERVABILITY VÀ QUALITY
+
+- Structured logs + X-Correlation-Id.
+- Performance telemetry và AI latency ledger gồm router, planner, retrieval, tools, evidence, final LLM, validation, TTFT và token usage nếu provider trả.
+- Agent trace có mode off, shadow, required và luôn sanitize.
+- LangSmith metadata-only là best-effort projection, không phải audit/evidence source of truth.
+- Quality gates: pytest, Ruff, Vitest, Testing Library, TypeScript typecheck, ESLint, Next.js build, Playwright E2E và evaluation harness.
+
+TECHNOLOGY LABELS PHẢI XUẤT HIỆN
+
+Next.js 15; React 19; TypeScript; TanStack Query; Zod; FastAPI; Python 3.11; Pydantic; LangGraph; FastMCP; SQLAlchemy; Alembic; PostgreSQL 16; DuckDB; pandas; NumPy; SciPy; statsmodels; scikit-learn; Supabase Auth; Supabase Storage; Google Drive OAuth; OpenAI; Gemini; Voyage; Server-Sent Events; Playwright; Chromium; pdf-lib; SHA-256; Docker; GitHub Actions; Azure App Service; Azure Container Registry; OIDC; LangSmith.
+
+GHI CHÚ TRẠNG THÁI HIỆN TẠI
+
+Đặt một callout màu vàng nhỏ, tách khỏi architecture guarantee:
+
+Current repository note — Source đã chuyển vào src/backend và src/frontend nhưng Makefile, Alembic, một số test/script, Docker và CI vẫn còn tham chiếu layout cũ; clean build/deploy đang bị chặn cho đến khi đồng bộ đường dẫn.
+
+KHÔNG ĐƯỢC TỰ THÊM
+
+Không thêm Kubernetes, Kafka, Redis, Celery, Airflow, Spark, Elasticsearch, một vector database riêng, API Gateway, service mesh hoặc microservice không được mô tả. PostgreSQL đang giữ durable queue, retrieval metadata/document và checkpoint. Không vẽ browser nối trực tiếp domain database. Không vẽ Preview như Official evidence. Không vẽ MCP như public HTTP service. Không tuyên bố exactly-once.
+
+KIỂM TRA TRƯỚC KHI XUẤT
+
+1. Có đủ ba runtime process: Frontend, API, Worker; MCP được tách thành local stdio.
+2. Có đủ PostgreSQL, Supabase Auth, Supabase Storage, source connector, temporary file và DuckDB.
+3. Có đủ hai Agent graph, bounded tools, retrieval, validator và HITL.
+4. Có đủ Preview → Quality Gate → Official và provenance chain.
+5. Có đủ REST, hai SSE stream, idempotency và correlation.
+6. Có đủ Report Draft → snapshot SHA-256 → PII-safe PDF.
+7. Có đủ security boundary, observability và Azure CI/CD.
+8. Mọi mũi tên có hướng và nhãn; không có đường nối mơ hồ.
+9. Không có công nghệ bị cấm hoặc behavior chưa được triển khai.
+10. Sơ đồ vẫn đọc được khi hiển thị trên màn hình laptop ở chế độ toàn màn hình.
+
+Hãy tạo sơ đồ ngay theo yêu cầu trên. Không rút gọn thành một sơ đồ CRUD ba tầng và không thay thế bằng phần giải thích văn bản dài.
