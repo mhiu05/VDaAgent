@@ -1,6 +1,8 @@
 # Tổng quan hệ thống
 
-> Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-03.
+> Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-06.
+
+> Source ứng dụng hiện nằm dưới `src/backend` và `src/frontend`. Tooling build/run vẫn còn tham chiếu layout cũ nên working tree chưa được xem là releaseable; xem [giới hạn hiện tại](./known-limitations.md).
 
 ## Mục tiêu và nguyên tắc
 
@@ -55,7 +57,7 @@ flowchart TB
   M --> D
 ```
 
-Production chạy frontend, API và worker thành ba App Service container. Local MCP là stdio integration riêng; nó không được mount thành public HTTP endpoint. PostgreSQL giữ metadata, durable job, derived evidence, report, audit, retrieval và checkpoint. Storage giữ raw object; compute materialize source trong thời gian thao tác rồi cleanup.
+Production được thiết kế chạy frontend, API và worker thành ba App Service container. Local MCP là stdio integration riêng; nó không được mount thành public HTTP endpoint. PostgreSQL giữ metadata, durable job, derived evidence, report, audit, retrieval và checkpoint. Storage giữ raw object; compute materialize source trong thời gian thao tác rồi cleanup. Trạng thái Docker/CI sau relocation được tách khỏi topology thiết kế và ghi rõ trong known-limitations register.
 
 ## Request boundary
 
@@ -102,7 +104,7 @@ workspaces ──< datasource_connections / google_drive_connections
 workspaces ──< retrieval_documents / audit_events
 ```
 
-LangGraph checkpoint tables do runtime package tạo nhưng vẫn được phân loại backend-only. Danh sách bảng migration-managed và runtime-managed nằm trong [database access policy](../../backend/src/services/database_access_policy.py).
+LangGraph checkpoint tables do runtime package tạo nhưng vẫn được phân loại backend-only. Danh sách bảng migration-managed và runtime-managed nằm trong [database access policy](../../src/backend/src/services/database_access_policy.py).
 
 ## Health, docs và lỗi
 
@@ -117,11 +119,11 @@ Validation trả 422; input/compute `ValueError` trả 400; state conflict thư�
 
 | Phạm vi | Source |
 | --- | --- |
-| App/request/error | [`backend/src/main.py`](../../backend/src/main.py) |
-| API/Pydantic | [`backend/src/api/`](../../backend/src/api/), [`backend/src/models/`](../../backend/src/models/) |
-| Compute/storage | [`backend/src/services/compute.py`](../../backend/src/services/compute.py), [`storage.py`](../../backend/src/services/storage.py) |
-| Agent/QA | [`backend/src/agents/`](../../backend/src/agents/), [`qa_validation.py`](../../backend/src/services/qa_validation.py) |
-| Database | [`backend/src/services/repository.py`](../../backend/src/services/repository.py), [migrations](../../backend/migrations/) |
-| Frontend | [`frontend/src/app/`](../../frontend/src/app/), [`frontend/src/components/`](../../frontend/src/components/) |
+| App/request/error | [`src/backend/src/main.py`](../../src/backend/src/main.py) |
+| API/Pydantic | [`src/backend/src/api/`](../../src/backend/src/api/), [`src/backend/src/models/`](../../src/backend/src/models/) |
+| Compute/storage | [`src/backend/src/services/compute.py`](../../src/backend/src/services/compute.py), [`storage.py`](../../src/backend/src/services/storage.py) |
+| Agent/QA | [`src/backend/src/agents/`](../../src/backend/src/agents/), [`qa_validation.py`](../../src/backend/src/services/qa_validation.py) |
+| Database | [`src/backend/src/services/repository.py`](../../src/backend/src/services/repository.py), [migrations](../../src/backend/migrations/) |
+| Frontend | [`src/frontend/src/app/`](../../src/frontend/src/app/), [`src/frontend/src/components/`](../../src/frontend/src/components/) |
 
-Đọc tiếp [async profiling](./async-profiling-jobs.md), [bounded execution](./bounded-execution.md), [authentication](../security/authentication-and-authorization.md) và [privacy](../security/workspace-isolation-and-privacy.md).
+Đọc tiếp [cấu trúc codebase](./codebase-structure.md), [backend](./backend.md), [frontend](./frontend.md), [data/storage](./data-and-storage.md), [API/events](./api-and-events.md), [async profiling](./async-profiling-jobs.md), [bounded execution](./bounded-execution.md), [authentication](../security/authentication-and-authorization.md) và [privacy](../security/workspace-isolation-and-privacy.md).

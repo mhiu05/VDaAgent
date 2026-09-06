@@ -1,6 +1,6 @@
 # QA và evidence
 
-> Đã đối chiếu với QA routes, graph và evidence validator hiện tại ngày 2026-09-03.
+> Đã đối chiếu với QA routes, graph và evidence validator hiện tại ngày 2026-09-06.
 
 QA trả lời câu hỏi về profiling run theo nguyên tắc evidence-first: câu trả lời định lượng chỉ hợp lệ khi số liệu có thể truy về artifact hoặc tool result đúng workspace/run.
 
@@ -56,15 +56,24 @@ Insight từ biểu đồ chỉ được dùng khi execution là Official. Previ
 
 Fallback insight của Official execution cũng dùng cấu trúc sáu phần cố định và chỉ đọc giá trị trong result payload cùng limitation đã lưu.
 
+## Hội thoại, suggestion, cache và feedback
+
+Conversation/message được lưu bền vững theo workspace; answer đã hoàn tất giữ agent run và provenance bất biến. Suggestion chỉ sinh deterministic từ aggregate an toàn của Profile Run completed. Feedback lưu polarity/reason cho analytics và candidate evaluation, không tự sửa answer.
+
+Cache chỉ áp dụng cho tập intent deterministic hữu hạn như overview/row/column/duplicate count, không dùng embedding similarity để quyết định tái sử dụng. Cache hit phải chạy lại bounded aggregate, kiểm tra artifact/version và qua validator trước khi trả về. Verifier rủi ro cao hiện là deterministic shadow ledger; chưa enforce thay answer.
+
 ## Quan sát và đánh giá
 
 AI latency được ghi theo router, planner, retrieval, tools, evidence, final LLM, validation, TTFT, số call và token. Benchmark local chỉ kiểm tra wiring/performance trong môi trường đó, không phải production SLO.
 
 ## Nguồn triển khai
 
-- `backend/src/api/routes.py`
-- `backend/src/api/agent_routes.py`
-- `backend/src/agents/nodes/qa_nodes.py`
-- `backend/src/services/qa_validation.py`
-- `backend/src/services/retrieval.py`
-- `backend/src/agents/runtime/trace.py`
+- `src/backend/src/api/routes.py`
+- `src/backend/src/api/agent_routes.py`
+- `src/backend/src/agents/nodes/qa_nodes.py`
+- `src/backend/src/services/qa_validation.py`
+- `src/backend/src/services/retrieval.py`
+- `src/backend/src/services/chat_cache.py`
+- `src/backend/src/services/chat_suggestions.py`
+- `src/backend/src/services/chat_verifier.py`
+- `src/backend/src/agents/runtime/trace.py`

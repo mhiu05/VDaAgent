@@ -1,10 +1,10 @@
 # Agent, QA, retrieval và evidence
 
-> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-03.
+> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-06.
 
 ## Profiling graph
 
-LangGraph tại [`backend/src/agents/graph.py`](../../backend/src/agents/graph.py) điều phối workflow cố định:
+LangGraph tại [`src/backend/src/agents/graph.py`](../../src/backend/src/agents/graph.py) điều phối workflow cố định:
 
 ```text
 ingest → compute_stats → propose_metadata → hitl_review
@@ -57,7 +57,7 @@ Yêu cầu tổng quan như “Tóm tắt chất lượng dữ liệu hiện t�
 
 ## Evidence validation
 
-[`qa_validation.py`](../../backend/src/services/qa_validation.py) là trust boundary deterministic. Một answer chỉ được `verified` khi:
+[`qa_validation.py`](../../src/backend/src/services/qa_validation.py) là trust boundary deterministic. Một answer chỉ được `verified` khi:
 
 - có `profile_run_id` và tool result cùng run;
 - nếu có workspace context thì result/source cùng workspace;
@@ -83,6 +83,20 @@ Chart insight có thể dựa hoàn toàn vào Official execution được bind,
 
 Fallback chart insight khi LLM không khả dụng vẫn có cấu trúc cố định sáu phần: kết luận điều hành, bằng chứng định lượng, xu hướng/điểm nổi bật, diễn giải, giới hạn và khuyến nghị. Mọi giá trị lấy trực tiếp từ payload Official; không suy diễn thêm ngoài limitation đã lưu.
 
+## Answer contract và hội thoại durable
+
+Answer Envelope V2 tách `conclusion`, findings, citation/source, limitation, provenance, `evidence_status`, detail mode và answerability. `verified` chỉ được gắn sau validator; `profile_only` và `no_evidence` biểu diễn mức bằng chứng thấp hơn thay vì giả vờ chắc chắn.
+
+Chat P2 lưu `conversations`, `conversation_messages` và feedback theo workspace. Mỗi message agent gắn agent run/provenance của lượt tạo nó; answer hoàn tất là immutable projection, không nhận thêm context mới. Lịch sử cũ chỉ được gửi vào request mới trong giới hạn, browser không bulk-upload lại toàn bộ thread như nguồn sự thật.
+
+Conversation create/list/get/update/archive/delete đều dùng workspace predicate. Suggestion được sinh deterministic từ aggregate an toàn của Profile Run completed. Feedback chỉ lưu polarity/reason và projection cần cho analytics/evaluation candidate; nó không tự thay đổi answer hoặc train model trực tiếp.
+
+## Cache và verifier
+
+Semantic answer cache chỉ xét candidate cùng workspace, Profile Run, question/answer mode và version policy. Cache hit không trả payload cũ mù quáng: server phải chạy lại tool/aggregate cần thiết, rebuild source binding và qua cùng evidence validator trước khi phát hành.
+
+Verifier rủi ro cao hiện chạy ở chế độ shadow: đọc public projection đã sanitize, ghi verification result hash-bound và telemetry nhưng không ghi đè answer canonical. `enforce` chưa phải behavior mặc định; điều kiện bật được ghi ở [giới hạn hiện tại](./known-limitations.md).
+
 ## Trace và observability
 
 Agent runtime lưu run, plan, step, invocation, evidence và trace event. Trace mode:
@@ -97,7 +111,7 @@ AI latency ledger ghi một record an toàn cho QA/chart planner với `router_m
 
 ## Local MCP
 
-[`backend/src/mcp_server.py`](../../backend/src/mcp_server.py) chạy FastMCP qua stdio. Nó reuse read-only tool registry và bounded analysis engine để:
+[`src/backend/src/mcp_server.py`](../../src/backend/src/mcp_server.py) chạy FastMCP qua stdio. Nó reuse read-only tool registry và bounded analysis engine để:
 
 - đọc overview/columns/distribution/correlation/readiness;
 - lập ChartSpec/plan tối đa 12 chart;
@@ -108,8 +122,9 @@ MCP không phải public HTTP route, không cung cấp raw rows và không bỏ 
 
 ## Source và test
 
-- Graph/node: [`backend/src/agents/`](../../backend/src/agents/).
-- Tool/skill: [`backend/src/agents/tools/`](../../backend/src/agents/tools/), [`backend/src/agents/skills/`](../../backend/src/agents/skills/).
-- Guardrail/validation: [`guardrails.py`](../../backend/src/services/guardrails.py), [`qa_validation.py`](../../backend/src/services/qa_validation.py).
-- Retrieval/trace: [`retrieval.py`](../../backend/src/services/retrieval.py), [`runtime/trace.py`](../../backend/src/agents/runtime/trace.py).
+- Graph/node: [`src/backend/src/agents/`](../../src/backend/src/agents/).
+- Tool/skill: [`src/backend/src/agents/tools/`](../../src/backend/src/agents/tools/), [`src/backend/src/agents/skills/`](../../src/backend/src/agents/skills/).
+- Guardrail/validation: [`guardrails.py`](../../src/backend/src/services/guardrails.py), [`qa_validation.py`](../../src/backend/src/services/qa_validation.py).
+- Chat/cache/verifier: [`chat_answer.py`](../../src/backend/src/services/chat_answer.py), [`chat_cache.py`](../../src/backend/src/services/chat_cache.py), [`chat_verifier.py`](../../src/backend/src/services/chat_verifier.py).
+- Retrieval/trace: [`retrieval.py`](../../src/backend/src/services/retrieval.py), [`runtime/trace.py`](../../src/backend/src/agents/runtime/trace.py).
 - Test: `tests/test_agents/`, `tests/test_services/test_qa_validation.py`, `tests/test_ai_latency.py`.

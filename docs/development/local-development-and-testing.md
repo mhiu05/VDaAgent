@@ -1,6 +1,8 @@
 # Phát triển và kiểm thử local
 
-> Đã đối chiếu với Makefile, package scripts, test harness và CI hiện tại ngày 2026-09-03.
+> Đã đối chiếu với Makefile, package scripts, test harness và CI hiện tại ngày 2026-09-06.
+
+> **Trạng thái working tree:** source đã chuyển vào `src/backend` và `src/frontend`, nhưng Makefile, Alembic, test bootstrap, nhiều script, Docker và CI vẫn dùng layout cũ. Vì vậy clean local workflow đang bị chặn cho tới khi hoàn tất migration đường dẫn. Các lệnh dưới đây là contract mục tiêu theo layout mới; xem [giới hạn hiện tại](../architecture/known-limitations.md).
 
 ## Yêu cầu
 
@@ -19,10 +21,10 @@ Copy-Item .env.example .env
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
-Set-Location frontend
+Set-Location src/frontend
 pnpm install --frozen-lockfile
 pnpm exec playwright install chromium
-Set-Location ..
+Set-Location ../..
 ```
 
 Sửa `.env` cho local:
@@ -54,26 +56,26 @@ Khi máy dev có worker khác dùng test DB cấu hình sẵn, chạy suite tron
 
 Harness chỉ dùng server/credential từ `P170_TEST_DATABASE_URL`, không sửa database đó; nó tạo, migrate và drop một database tên `p170_test_*` trong `finally`.
 
-## Chạy ba process
+## Chạy ba process sau khi hoàn tất migration layout
 
 Terminal API:
 
 ```powershell
-Set-Location backend
-..\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+Set-Location src/backend
+..\..\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Terminal worker:
 
 ```powershell
-Set-Location backend
-..\.venv\Scripts\python.exe -m src.workers.profiling_worker
+Set-Location src/backend
+..\..\.venv\Scripts\python.exe -m src.workers.profiling_worker
 ```
 
 Terminal frontend:
 
 ```powershell
-Set-Location frontend
+Set-Location src/frontend
 pnpm dev
 ```
 
@@ -84,20 +86,22 @@ Frontend mặc định ở `http://localhost:3000`, API ở `http://localhost:80
 Backend từ repository root:
 
 ```powershell
-ruff check backend/src tests
+ruff check src/backend/src tests
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Frontend:
 
 ```powershell
-Set-Location frontend
+Set-Location src/frontend
 pnpm test
 pnpm typecheck
 pnpm lint
 pnpm build
 pnpm test:e2e
 ```
+
+Trước khi coi các lệnh trên là hợp lệ, `src/backend/src/config.py` và `src/backend/migrations/env.py` phải resolve `.env`/`config.yaml` về repository root; `tests/conftest.py`, `alembic.ini` và các script phải thêm `src/backend` vào import path. Không copy `.env` vào source tree như một workaround lâu dài.
 
 Playwright config có thể khởi động frontend test server ở port 3010; backend test target vẫn phải sẵn sàng theo cấu hình E2E.
 

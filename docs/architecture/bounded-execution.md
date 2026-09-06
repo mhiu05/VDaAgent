@@ -1,6 +1,6 @@
 # Phân tích và execution có giới hạn
 
-> Đã đối chiếu với analysis schemas/engine/planner hiện tại ngày 2026-09-03.
+> Đã đối chiếu với analysis schemas/engine/planner hiện tại ngày 2026-09-06.
 
 ## Mục đích
 
@@ -14,7 +14,7 @@ Preview không tự trở thành Official và Official không reuse result bytes
 
 ## QuerySpec
 
-[`analysis_schemas.py`](../../backend/src/models/analysis_schemas.py) cho phép các kind:
+[`analysis_schemas.py`](../../src/backend/src/models/analysis_schemas.py) cho phép các kind:
 
 `aggregate`, `histogram`, `scatter`, `box`, `heatmap`, `forecast`, `missing_bar`, `missing_heatmap`, `correlation_heatmap`, `cardinality`, `violin`, `donut`, `outlier`.
 
@@ -79,9 +79,9 @@ Execution lưu canonical query, result, SHA-256 hash, duration, approximation v�
 
 ## Source và test
 
-- Engine: [`backend/src/services/analysis_engine.py`](../../backend/src/services/analysis_engine.py).
-- Planner: [`backend/src/services/chart_planner.py`](../../backend/src/services/chart_planner.py).
-- Quality gate: [`backend/src/services/quality_gate.py`](../../backend/src/services/quality_gate.py).
-- API/schema: [`backend/src/api/analysis_routes.py`](../../backend/src/api/analysis_routes.py), [`analysis_schemas.py`](../../backend/src/models/analysis_schemas.py).
-- UI: [`frontend/src/app/charts/page.tsx`](../../frontend/src/app/charts/page.tsx), command-center components.
+- Engine: [`src/backend/src/services/analysis_engine.py`](../../src/backend/src/services/analysis_engine.py).
+- Planner: [`src/backend/src/services/chart_planner.py`](../../src/backend/src/services/chart_planner.py).
+- Quality gate: [`src/backend/src/services/quality_gate.py`](../../src/backend/src/services/quality_gate.py).
+- API/schema: [`src/backend/src/api/analysis_routes.py`](../../src/backend/src/api/analysis_routes.py), [`analysis_schemas.py`](../../src/backend/src/models/analysis_schemas.py).
+- UI: [`src/frontend/src/app/charts/page.tsx`](../../src/frontend/src/app/charts/page.tsx), command-center components.
 - Test: `tests/test_services/test_analysis_engine.py`, `tests/test_services/test_chart_planner.py`, `tests/test_services/test_quality_gate.py`.

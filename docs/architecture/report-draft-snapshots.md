@@ -1,6 +1,6 @@
 # Report Draft và snapshot bất biến
 
-> Đã đối chiếu với report routes/service và PDF renderer hiện tại ngày 2026-09-03.
+> Đã đối chiếu với report routes/service và PDF renderer hiện tại ngày 2026-09-06.
 
 ## Mô hình hai lớp
 
@@ -15,7 +15,7 @@ Pin item yêu cầu `Idempotency-Key`. Reorder gửi `expected_draft_version` c�
 
 ## Tạo snapshot
 
-[`ReportDraftRepository.snapshot`](../../backend/src/services/report_draft_repository.py) thực hiện:
+[`ReportDraftRepository.snapshot`](../../src/backend/src/services/report_draft_repository.py) thực hiện:
 
 1. đọc draft version hiện tại cùng item theo position;
 2. canonicalize JSON;
@@ -39,7 +39,7 @@ Next.js server route `/api/reports/profile/[runId]` chuyển bearer và workspac
 
 Update/delete còn phụ thuộc creator và state; review/publish/archive phụ thuộc capability + repository state check. Tuy nhiên behavior hiện tại có gap quan trọng: public `POST /reports/{id}/submit` gọi service rồi publish trực tiếp, không tạo một review step bắt buộc. Không mô tả endpoint này như separation-of-duties workflow.
 
-Role `analyst` hiện có cả submit/review/publish; flag `report_separation_of_duties` chưa được lifecycle code dùng. Xem [known gaps](../summary.md).
+Role `analyst` hiện có cả submit/review/publish; flag `report_separation_of_duties` chưa được lifecycle code dùng. Xem [giới hạn hiện tại](./known-limitations.md).
 
 ## API chính
 
@@ -56,8 +56,8 @@ List/get handler hiện không giới hạn tuyệt đối ở published report;
 
 ## Source và test
 
-- API: [`backend/src/api/authz_routes.py`](../../backend/src/api/authz_routes.py).
-- Draft/snapshot: [`backend/src/services/report_draft_repository.py`](../../backend/src/services/report_draft_repository.py).
-- Lifecycle: [`backend/src/services/report_service.py`](../../backend/src/services/report_service.py).
-- Persistence: [`backend/src/services/repository.py`](../../backend/src/services/repository.py).
-- Frontend/PDF: [`frontend/src/app/reports/`](../../frontend/src/app/reports/), [PDF route](../../frontend/src/app/api/reports/profile/[runId]/route.ts).
+- API: [`src/backend/src/api/authz_routes.py`](../../src/backend/src/api/authz_routes.py).
+- Draft/snapshot: [`src/backend/src/services/report_draft_repository.py`](../../src/backend/src/services/report_draft_repository.py).
+- Lifecycle: [`src/backend/src/services/report_service.py`](../../src/backend/src/services/report_service.py).
+- Persistence: [`src/backend/src/services/repository.py`](../../src/backend/src/services/repository.py).
+- Frontend/PDF: [`src/frontend/src/app/reports/`](../../src/frontend/src/app/reports/), [PDF route](../../src/frontend/src/app/api/reports/profile/[runId]/route.ts).

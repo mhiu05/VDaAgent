@@ -1,6 +1,6 @@
 # Báo cáo
 
-> Đã đối chiếu với report lifecycle API, repository và PDF route hiện tại ngày 2026-09-03.
+> Đã đối chiếu với report lifecycle API, repository và PDF route hiện tại ngày 2026-09-06.
 
 Báo cáo ghép các insight đã được kiểm chứng thành draft có thể chỉnh sửa, sau đó đóng băng thành snapshot để publish/export.
 
@@ -46,11 +46,11 @@ Vì vậy lifecycle hiện tại là API/workflow khả dụng, chưa phải ki�
 
 ## Nguồn triển khai
 
-- `backend/src/api/authz_routes.py`
-- `backend/src/api/routes.py`
-- `backend/src/services/report_service.py`
-- `backend/src/services/report_draft_repository.py`
-- `backend/src/models/auth_schemas.py`
-- `frontend/src/app/reports/`
-- `frontend/src/app/api/reports/profile/[runId]/route.ts`
-- `frontend/src/lib/pdf-report.ts`
+- `src/backend/src/api/authz_routes.py`
+- `src/backend/src/api/routes.py`
+- `src/backend/src/services/report_service.py`
+- `src/backend/src/services/report_draft_repository.py`
+- `src/backend/src/models/auth_schemas.py`
+- `src/frontend/src/app/reports/`
+- `src/frontend/src/app/api/reports/profile/[runId]/route.ts`
+- `src/frontend/src/lib/pdf-report.ts`

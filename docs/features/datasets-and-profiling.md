@@ -1,6 +1,6 @@
 # Dataset và profiling
 
-> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-03.
+> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-06.
 
 Dataset là metadata của một nguồn dạng bảng; profile run là một lần phân tích cụ thể trên dataset đó. Một dataset có thể có nhiều run để so sánh theo thời gian.
 
@@ -71,11 +71,11 @@ Dataset có thể list, xem lịch sử run, cập nhật collection hoặc soft
 
 ## Nguồn triển khai
 
-- `backend/src/api/routes.py`
-- `backend/src/workers/profiling_worker.py`
-- `backend/src/agents/graph.py`
-- `backend/src/services/compute.py`
-- `backend/src/services/profile_service.py`
-- `backend/src/services/storage.py`
-- `frontend/src/app/datasets/`
-- `frontend/src/app/profiles/`
+- `src/backend/src/api/routes.py`
+- `src/backend/src/workers/profiling_worker.py`
+- `src/backend/src/agents/graph.py`
+- `src/backend/src/services/compute.py`
+- `src/backend/src/services/profile_service.py`
+- `src/backend/src/services/storage.py`
+- `src/frontend/src/app/datasets/`
+- `src/frontend/src/app/profiles/`

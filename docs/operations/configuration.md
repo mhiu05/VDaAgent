@@ -1,12 +1,14 @@
 # Cấu hình
 
-> Đã đối chiếu với `config.yaml`, `.env.example` và `backend/src/config.py` ngày 2026-09-03.
+> Đã đối chiếu với `config.yaml`, `.env.example` và `src/backend/src/config.py` ngày 2026-09-06.
+
+> **Sai lệch hiện tại:** sau khi backend chuyển vào `src/backend`, logic `PROJECT_ROOT` vẫn đi lên theo layout cũ và có thể không tìm `.env`/`config.yaml` ở repository root. Thứ tự ưu tiên bên dưới là thiết kế của settings, nhưng phải sửa root discovery trước khi dùng làm guarantee runtime. Xem [giới hạn hiện tại](../architecture/known-limitations.md).
 
 Backend nạp cấu hình theo thứ tự ưu tiên:
 
 1. biến môi trường;
 2. `config.yaml`;
-3. default trong `backend/src/config.py`.
+3. default trong `src/backend/src/config.py`.
 
 Khi điều tra khác biệt giữa môi trường, hãy kiểm tra giá trị hiệu lực chứ không chỉ đọc một file.
 
@@ -87,5 +89,5 @@ LangSmith chấp nhận data mode `sanitized_content`, nhưng adapter hiện v�
 
 - `.env.example`
 - `config.yaml`
-- `backend/src/config.py`
+- `src/backend/src/config.py`
 - `.github/workflows/azure-container-deploy.yml`

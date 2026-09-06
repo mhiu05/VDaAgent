@@ -1,6 +1,6 @@
 # Xác thực và phân quyền
 
-> Đã đối chiếu với auth middleware và capability registry hiện tại ngày 2026-09-03.
+> Đã đối chiếu với auth middleware và capability registry hiện tại ngày 2026-09-06.
 
 Production dùng Supabase Auth để phát JWT, nhưng mọi quyết định truy cập domain được thực thi trong FastAPI/PostgreSQL.
 
@@ -61,8 +61,8 @@ Không trả chi tiết JWT, membership của tenant khác hoặc secret trong e
 
 ## Nguồn triển khai
 
-- `backend/src/services/auth.py`
-- `backend/src/api/dependencies.py`
-- `backend/src/services/permissions.py`
-- `backend/src/api/authz_routes.py`
-- `backend/src/api/admin_routes.py`
+- `src/backend/src/services/auth.py`
+- `src/backend/src/api/dependencies.py`
+- `src/backend/src/services/permissions.py`
+- `src/backend/src/api/authz_routes.py`
+- `src/backend/src/api/admin_routes.py`

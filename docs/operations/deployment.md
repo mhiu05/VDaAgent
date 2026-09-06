@@ -1,8 +1,10 @@
 # Triển khai Azure
 
-> Đã đối chiếu trực tiếp với `.github/workflows/azure-container-deploy.yml` ngày 2026-09-03.
+> Đã đối chiếu trực tiếp với `.github/workflows/azure-container-deploy.yml` ngày 2026-09-06.
 
-Production chạy ba Azure App Service container và một Azure Container Registry (ACR):
+> **Release blocker hiện tại:** workflow, Docker build context và path filter vẫn dùng `backend/`/`frontend/`, trong khi source đã chuyển vào `src/`. Topology và thứ tự release dưới đây vẫn là thiết kế triển khai, nhưng working tree hiện chưa build/deploy được từ clean checkout cho tới khi đồng bộ đường dẫn. Xem [giới hạn hiện tại](../architecture/known-limitations.md).
+
+Topology release được định nghĩa với ba Azure App Service container và một Azure Container Registry (ACR):
 
 | Thành phần | Tên hiện tại | Image/port |
 | --- | --- | --- |
@@ -16,10 +18,10 @@ Workflow đặt resource group `rg-p170-linh-260829`, ACR `p170linh260829acr` v�
 
 Nguồn sự thật là `.github/workflows/azure-container-deploy.yml`.
 
-- Pull request và `workflow_dispatch` chạy backend/frontend quality gate; manual run có thể chọn `skip_quality`.
+- Pull request và `workflow_dispatch` được thiết kế chạy backend/frontend quality gate; manual run có thể chọn `skip_quality`.
 - Push vào `main` deploy theo điều kiện workflow; hai quality job bị skip trên push trực tiếp. Branch protection/PR gate phải bảo đảm kiểm thử trước release.
 - Pull request không deploy.
-- Job `changes` chỉ bật deploy khi có thay đổi backend/frontend, Dockerfile, requirements Azure hoặc workflow.
+- Job `changes` hiện chỉ nhận diện layout cũ; sau migration phải theo dõi `src/backend/**`, `src/frontend/**`, Dockerfile, requirements Azure, Alembic và workflow.
 - Release dùng self-hosted runner, OIDC Azure, image tag bất biến theo commit SHA và thêm tag `latest`.
 
 ## Quality gate

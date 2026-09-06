@@ -1,6 +1,6 @@
 # Command Center và phân tích tương tác
 
-> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-03.
+> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-06.
 
 Command Center là giao diện phân tích một profiling run đã có dữ liệu. Tính năng này kết hợp phiên phân tích có trạng thái, planner an toàn, preview giới hạn, kết quả Official và các biểu đồ tái lập được.
 
@@ -61,10 +61,10 @@ Insight Official có fallback deterministic sáu phần khi model không sẵn s
 
 ## Nguồn triển khai
 
-- `frontend/src/app/profiles/[runId]/review/page.tsx`
-- `frontend/src/components/command-center/`
-- `backend/src/api/analysis_routes.py`
-- `backend/src/services/analysis_engine.py`
-- `backend/src/services/analysis_repository.py`
-- `backend/src/services/chart_planner.py`
-- `backend/src/models/analysis_schemas.py`
+- `src/frontend/src/app/profiles/[runId]/review/page.tsx`
+- `src/frontend/src/components/command-center/`
+- `src/backend/src/api/analysis_routes.py`
+- `src/backend/src/services/analysis_engine.py`
+- `src/backend/src/services/analysis_repository.py`
+- `src/backend/src/services/chart_planner.py`
+- `src/backend/src/models/analysis_schemas.py`

@@ -1,6 +1,6 @@
 # Workspace, membership và quản trị
 
-> Đã đối chiếu với authz/admin routes và capability policy hiện tại ngày 2026-09-03.
+> Đã đối chiếu với authz/admin routes và capability policy hiện tại ngày 2026-09-06.
 
 Workspace là ranh giới tenant chính. Mọi dataset, profile run, connector, analysis session, agent run, report và audit record phải được truy cập qua workspace đã xác thực.
 
@@ -46,9 +46,9 @@ System admin là phạm vi toàn hệ thống, tách khỏi workspace membership
 
 ## Nguồn triển khai
 
-- `backend/src/api/authz_routes.py`
-- `backend/src/api/admin_routes.py`
-- `backend/src/api/dependencies.py`
-- `backend/src/services/auth.py`
-- `backend/src/services/permissions.py`
-- `frontend/src/lib/auth/`
+- `src/backend/src/api/authz_routes.py`
+- `src/backend/src/api/admin_routes.py`
+- `src/backend/src/api/dependencies.py`
+- `src/backend/src/services/auth.py`
+- `src/backend/src/services/permissions.py`
+- `src/frontend/src/lib/auth/`

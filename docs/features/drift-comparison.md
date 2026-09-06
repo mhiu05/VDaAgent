@@ -1,6 +1,6 @@
 # So sánh drift
 
-> Đã đối chiếu với drift service/route và UI compare hiện tại ngày 2026-09-03.
+> Đã đối chiếu với drift service/route và UI compare hiện tại ngày 2026-09-06.
 
 Drift comparison đối chiếu hai profiling run bằng thống kê đã được lưu. Endpoint không đọc lại raw dataset và không gọi model.
 
@@ -38,8 +38,8 @@ Backend xác nhận cùng workspace nhưng chưa bắt buộc hai run thuộc c�
 
 ## Nguồn triển khai
 
-- `backend/src/api/routes.py`
-- `backend/src/services/drift.py`
-- `backend/src/models/schemas.py`
-- `frontend/src/app/compare/page.tsx`
-- `frontend/src/components/compare-workspace.tsx`
+- `src/backend/src/api/routes.py`
+- `src/backend/src/services/drift.py`
+- `src/backend/src/models/schemas.py`
+- `src/frontend/src/app/compare/page.tsx`
+- `src/frontend/src/components/compare-workspace.tsx`

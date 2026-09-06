@@ -1,6 +1,6 @@
 # Cô lập workspace và quyền riêng tư
 
-> Đã đối chiếu với policy/repository/migration hiện tại ngày 2026-09-03.
+> Đã đối chiếu với policy/repository/migration hiện tại ngày 2026-09-06.
 
 Hệ thống dùng defense in depth: auth/capability ở API, scope workspace trong repository, Data API đóng với browser role, storage private và redaction trước AI/telemetry.
 
@@ -10,7 +10,7 @@ Trình duyệt chỉ dùng Supabase Auth với publishable key. Nó không đư�
 
 Migration `20260831_0022_data_api_boundary` bật RLS trên mọi app table được inventory nhưng không tạo policy cho `anon` hoặc `authenticated`; đồng thời revoke quyền table, sequence, function và default privilege của `PUBLIC`, `anon`, `authenticated`. Vì không có policy, RLS fail closed; vì grant đã bị revoke, Data API còn bị chặn ở lớp privilege.
 
-Backend dùng connection/secret riêng và là nơi duy nhất thực thi domain access. `backend/src/services/database_access_policy.py` giữ inventory bảng hiện hành, optional runtime và legacy table để migration/test không bỏ sót.
+Backend dùng connection/secret riêng và là nơi duy nhất thực thi domain access. `src/backend/src/services/database_access_policy.py` giữ inventory bảng hiện hành, optional runtime và legacy table để migration/test không bỏ sót.
 
 ## Scope tenant
 
@@ -67,9 +67,9 @@ Security assertion thực sự đổi sang browser role để chứng minh truy 
 
 ## Nguồn triển khai
 
-- `backend/migrations/versions/20260831_0022_data_api_boundary.py`
-- `backend/src/services/database_access_policy.py`
+- `src/backend/migrations/versions/20260831_0022_data_api_boundary.py`
+- `src/backend/src/services/database_access_policy.py`
 - `scripts/assert_database_security.py`
-- `backend/src/services/security.py`
-- `backend/src/services/storage.py`
-- `backend/src/services/qa_validation.py`
+- `src/backend/src/services/security.py`
+- `src/backend/src/services/storage.py`
+- `src/backend/src/services/qa_validation.py`

@@ -1,6 +1,6 @@
 # Profiling Job bất đồng bộ
 
-> Đã đối chiếu với profiling routes, worker và queue repository hiện tại ngày 2026-09-03.
+> Đã đối chiếu với profiling routes, worker và queue repository hiện tại ngày 2026-09-06.
 
 ## Submission contract
 
@@ -76,10 +76,10 @@ Khi state không đổi, polling backoff theo 1, 2, 3 rồi tối đa 5 giây; s
 
 ## Vận hành và test
 
-- Worker: [`backend/src/workers/profiling_worker.py`](../../backend/src/workers/profiling_worker.py).
-- Service: [`backend/src/services/profile_service.py`](../../backend/src/services/profile_service.py).
-- Queue/recovery: [`backend/src/services/repository.py`](../../backend/src/services/repository.py).
-- API/SSE: [`backend/src/api/routes.py`](../../backend/src/api/routes.py).
+- Worker: [`src/backend/src/workers/profiling_worker.py`](../../src/backend/src/workers/profiling_worker.py).
+- Service: [`src/backend/src/services/profile_service.py`](../../src/backend/src/services/profile_service.py).
+- Queue/recovery: [`src/backend/src/services/repository.py`](../../src/backend/src/services/repository.py).
+- API/SSE: [`src/backend/src/api/routes.py`](../../src/backend/src/api/routes.py).
 - Test: `tests/test_services/test_profile_jobs.py`, `tests/test_api/test_profiling_events.py`.
 
 Xem [configuration](../operations/configuration.md) và [failure recovery](../operations/observability-and-failure-recovery.md).

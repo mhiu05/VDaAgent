@@ -1,6 +1,6 @@
 # Connector, upload và storage
 
-> Đã đối chiếu với connector, ingestion và canonical artifact implementation ngày 2026-09-03.
+> Đã đối chiếu với connector, ingestion và canonical artifact implementation ngày 2026-09-06.
 
 VDaAgent tách connector metadata, thông tin xác thực và dữ liệu nguồn. Trình duyệt không nhận database credential hoặc storage secret; backend là bên duy nhất kết nối nguồn và đọc object.
 
@@ -75,12 +75,12 @@ Xem [Cấu hình](../operations/configuration.md) cho thứ tự ưu tiên và c
 
 ## Nguồn triển khai
 
-- `backend/src/api/connector_routes.py`
-- `backend/src/api/google_drive_routes.py`
-- `backend/src/api/routes.py`
-- `backend/src/services/storage.py`
-- `backend/src/services/ingestion.py`
-- `backend/src/services/datasource.py`
-- `backend/src/services/tabular_source.py`
+- `src/backend/src/api/connector_routes.py`
+- `src/backend/src/api/google_drive_routes.py`
+- `src/backend/src/api/routes.py`
+- `src/backend/src/services/storage.py`
+- `src/backend/src/services/ingestion.py`
+- `src/backend/src/services/datasource.py`
+- `src/backend/src/services/tabular_source.py`
 - `scripts/migrate_storage_to_supabase.py`
 - `scripts/reconcile_storage.py`
