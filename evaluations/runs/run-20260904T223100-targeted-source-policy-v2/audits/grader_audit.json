@@ -1,0 +1,74 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Nên dùng biểu đồ cột cho doanh_thu tổng hợp theo tinh_thanh để so sánh mức giữa các tinh_thanh; nếu cần xem phân phối từng bản ghi, dùng thêm box plot doanh_thu theo tinh_thanh.",
+      "agreement": true,
+      "case_id": "P170-VI-030",
+      "category_vi": "Yêu cầu biểu đồ",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Nên dùng biểu đồ nào để so sánh doanh_thu theo tinh_thanh?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Hai điểm cần chú ý: 1) không có khả năng phân biệt vì là cột hằng ở cột trang_thai_on_dinh; 2) cardinality rất cao ở cột chi_tieu_truc_tuyen. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-031",
+      "category_vi": "Phân tích và insight",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Từ Profile Run, hãy nêu insight ưu tiên để đội dữ liệu kiểm tra tiếp.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Không nên ép cột ngay_co_the thành kiểu ngày chỉ từ mẫu giá trị: proposal hiện tại là categorical với trạng thái confirmed. Các giá trị ngày không hợp lệ phải được parse và kiểm tra riêng; proposal này chưa chứng minh toàn bộ cột hợp lệ. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-038",
+      "category_vi": "Khôi phục và xử lý lỗi",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Cột ngay_co_the chứa giá trị ngày không hợp lệ; hãy nêu giới hạn thay vì ép suy luận kiểu dữ liệu.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Nên dùng biểu đồ cột chồng 100%: trục x là tinh_thanh, phần chồng là nhom_khach_hang; cách này so sánh tỷ trọng giữa các tinh_thanh trực tiếp. Nếu có nhiều nhóm, bổ sung heatmap để tránh nhãn chồng lấn.",
+      "agreement": true,
+      "case_id": "P170-VI-055",
+      "category_vi": "Yêu cầu biểu đồ",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Hãy đề xuất biểu đồ phù hợp để theo dõi tỷ trọng nhom_khach_hang theo tinh_thanh.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Hệ số tương quan Pearson giữa doanh_thu và giam_gia là -0.404461. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-056",
+      "category_vi": "Phân tích và insight",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "So sánh doanh_thu và giam_gia: insight nào có thể kiểm chứng từ Profile Run?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 0,
+    "fail": 0,
+    "pass": 5,
+    "unique_audited": 5
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

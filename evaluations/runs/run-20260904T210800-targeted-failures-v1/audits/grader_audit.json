@@ -1,0 +1,122 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Các cột có giá trị không đổi trong toàn bộ Profile Run là trang_thai_on_dinh. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-024",
+      "category_vi": "Chất lượng dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là trang_thai_on_dinh và cần nêu bằng chứng từ Profile Run.",
+      "question": "Cột nào có giá trị không đổi trong toàn bộ tập dữ liệu?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Các cột có cardinality cao, gần một giá trị cho mỗi dòng gồm chi_tieu_truc_tuyen, doanh_thu, email, ma_khach_hang, ma_su_kien, so_dien_thoai, thoi_diem_cap_nhat. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-025",
+      "category_vi": "Chất lượng dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là ma_su_kien và cần nêu bằng chứng từ Profile Run.",
+      "question": "Cột nào có cardinality cao và gần như một giá trị cho mỗi dòng?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Có. Cột cot_hang_so là cột hằng vì mọi giá trị quan sát được đều giống nhau trong Profile Run. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-036",
+      "category_vi": "Chất lượng dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là Có và cần nêu bằng chứng từ Profile Run.",
+      "question": "Cột cot_hang_so có phải là cột hằng không?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Metric null_pct của diem_tin_cay thay đổi 13%. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-051",
+      "category_vi": "So sánh và drift dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là 0.13 và cần nêu bằng chứng từ Profile Run.",
+      "question": "Tỷ lệ thiếu của diem_tin_cay thay đổi bao nhiêu?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Giá trị phổ biến nhất của kenh_ban ở phiên bản baseline là `Website`. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-052",
+      "category_vi": "So sánh và drift dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là Website và cần nêu bằng chứng từ Profile Run.",
+      "question": "Kênh bán phổ biến nhất ở drift_v1 là gì?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Giá trị phổ biến nhất của kenh_ban ở phiên bản current là `Website`. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-053",
+      "category_vi": "So sánh và drift dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là Website và cần nêu bằng chứng từ Profile Run.",
+      "question": "Kênh bán phổ biến nhất ở drift_v2 là gì?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột tuoi có tỷ lệ thiếu là 2.5%. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-062",
+      "category_vi": "Ngữ cảnh nhiều lượt",
+      "evidence_observed": true,
+      "expected_answer": "Dựa trên lượt trước, tỷ lệ thiếu của cột tuoi phải khớp Profile Run.",
+      "question": "Tỷ lệ của cột đó là bao nhiêu?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột chứa giá trị trống được phát hiện là ghi_chu. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-078",
+      "category_vi": "Chất lượng dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là ghi_chu và cần nêu bằng chứng từ Profile Run.",
+      "question": "Cột nào chứa giá trị trống có chủ đích để kiểm tra missingness?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "",
+      "agreement": true,
+      "case_id": "P170-VI-060",
+      "category_vi": "Câu hỏi mơ hồ cần làm rõ",
+      "evidence_observed": false,
+      "expected_answer": "Cần hỏi lại nhóm, tập dữ liệu hoặc metric cụ thể trước khi kết luận.",
+      "question": "So sánh hai tập này giúp tôi.",
+      "recomputed_verdict": false,
+      "status_code": 200,
+      "stored_verdict": false
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 1,
+    "fail": 1,
+    "pass": 8,
+    "unique_audited": 9
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

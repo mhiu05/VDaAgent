@@ -1,0 +1,31 @@
+{
+  "dataset_version": "p170-vi-v2",
+  "run_id": "run-20260904T235200-full-openai-final-r1",
+  "runtime": "local_synthetic_api",
+  "schema_version": "p170-benchmark-scorecard-v1",
+  "summary": {
+    "critical_failures": [],
+    "failed_cases": [],
+    "metrics": {
+      "approximation_rate": 1.0,
+      "evidence_binding_rate": 1.0,
+      "evidence_source_policy_rate": 1.0,
+      "evidence_status_rate": 1.0,
+      "forecast_calibration_rate": null,
+      "hard_gate_pass_rate": 1.0,
+      "insufficient_evidence_rate": 1.0,
+      "numeric_grounding_rate": 1.0,
+      "planner_allowlist_rate": null,
+      "planner_kind_rate": null,
+      "privacy_safe_rate": 1.0,
+      "safety_outcome_rate": 1.0,
+      "schema_contract_rate": 1.0
+    },
+    "telemetry": {
+      "latency_ms": {
+        "p95": 16562.15,
+        "status": "available"
+      }
+    }
+  }
+}

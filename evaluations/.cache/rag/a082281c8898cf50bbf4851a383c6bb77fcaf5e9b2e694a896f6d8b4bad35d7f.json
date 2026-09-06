@@ -1,0 +1,63 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Không nên ép cột ngay_co_the thành kiểu ngày chỉ từ mẫu giá trị.",
+      "evidence_grounded": true,
+      "supported_by_context": false,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Proposal hiện tại của cột ngay_co_the là categorical với trạng thái confirmed.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Các giá trị ngày không hợp lệ phải được parse và kiểm tra riêng.",
+      "evidence_grounded": true,
+      "supported_by_context": false,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Proposal này chưa chứng minh toàn bộ cột hợp lệ.",
+      "evidence_grounded": true,
+      "supported_by_context": false,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [
+    "supported-only-for-categorical-confirmed",
+    "no-direct-support-for-datetime-or-validation-limitations"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Không ép ngay_co_the thành datetime.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Phải nêu giới hạn.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Yêu cầu parse/validate các giá trị ngày không hợp lệ trước.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ]
+}

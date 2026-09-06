@@ -120,14 +120,16 @@ export default function ProfilePreviewPage() {
   return (
     <>
       <main className="page profile-preview-page">
-        <div style={{ marginBottom: "1rem" }}>
-          <Link href={runsPath(data.dataset_id)} className="button secondary">Quay lại</Link>
-        </div>
         <PageHeader
           eyebrow={"BÁO CÁO PREVIEW · " + (data.run_name || "Phiên bản v" + (data.version ?? "—"))}
           title={data.dataset_name || "Báo cáo profile"}
-          description="Các số liệu được lấy trực tiếp từ engine xử lý. Preview bao gồm metrics, rủi ro, provenance, thống kê cột và diễn giải của Agent; mở không gian phân tích để tạo biểu đồ và đặt câu hỏi tiếp theo."
-          action={<Link className="button primary" href={chartsHref}>Mở biểu đồ & phân tích</Link>}
+          description="Preview hiển thị các metric đã được tính từ profile run, cùng rủi ro, nguồn và phạm vi dữ liệu, hồ sơ cột, phân phối, tương quan và tóm tắt từ Agent (nếu có). Mở không gian phân tích để tạo biểu đồ, đặt câu hỏi cho AI Agent và đưa kết quả vào báo cáo hoàn chỉnh."
+          action={
+            <div className="page-action-group">
+              <Link href={runsPath(data.dataset_id)} className="button secondary">Quay lại</Link>
+              <Link className="button primary" href={chartsHref}>Mở biểu đồ & phân tích</Link>
+            </div>
+          }
         />
 
         {data.error && (

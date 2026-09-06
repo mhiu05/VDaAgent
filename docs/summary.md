@@ -1,8 +1,12 @@
 # Tóm tắt bàn giao VDaAgent (P-170)
 
-> Snapshot implementation được kiểm tra ngày 2026-09-01. Nội dung phản ánh code/migration/test hiện có, không phải cam kết SLA hay trạng thái production.
+> Snapshot implementation được kiểm tra ngày 2026-09-03. Nội dung phản ánh code/migration/test hiện có, không phải cam kết SLA hay trạng thái production.
 
-Trang này chụp trạng thái implementation tại ngày 2026-09-01 để maintainer biết hệ thống thực sự làm gì và điểm nào chưa phải product guarantee. Cổng tài liệu là [docs/README.md](README.md), còn kiến trúc cấp cao ở [../ARCHITECTURE.md](../ARCHITECTURE.md).
+Trang này chụp trạng thái implementation tại ngày 2026-09-03 để maintainer biết hệ thống thực sự làm gì và điểm nào chưa phải product guarantee. Cổng tài liệu là [docs/README.md](README.md), còn kiến trúc cấp cao ở [../ARCHITECTURE.md](../ARCHITECTURE.md).
+
+## Tóm tắt problem → solution
+
+Pain point của sản phẩm là profiling phân mảnh và khoảng cách lớn từ metric tới insight: Analyst phải tự nối kiểm tra chất lượng, chọn phép phân tích, vẽ biểu đồ, diễn giải và kiểm chứng. VDaAgent gom chuỗi này thành workflow evidence-first: DuckDB profiling đa nguồn → đề xuất metadata có HITL → Chat Agent/tool có validator → Preview bounded → Official execution → drift và report snapshot. Các số liệu thời gian và benchmark được trình bày trong [Data profiling.pdf](../presentation/Data%20profiling.pdf); benchmark synthetic không phải SLA production.
 
 ## Luồng sản phẩm hiện tại
 
@@ -13,7 +17,7 @@ Trang này chụp trạng thái implementation tại ngày 2026-09-01 để main
 5. Analyst confirm/reject/edit/request test; resume cũng được đưa lại vào durable queue.
 6. Profile completed mở `/profiles/{runId}/preview` để xem tóm tắt Agent; từ preview có thể đi tới `/charts?runId={runId}` để tạo chart plan, Preview và Official execution.
 7. Chat Agent trả lời qua REST hoặc `chat_stream.v1` SSE. Fast path/tool/retrieval đều đi qua validator evidence; lịch sử server chỉ tạo khi analyst gửi một turn mới.
-8. Chat P2 lưu conversation/message theo workspace, sinh gợi ý deterministic từ aggregate an toàn và nhận feedback có reason code; cache đủ điều kiện phải tái chạy tool và tái validate trước khi trả lời.
+8. Chat P2 lưu conversation/message theo workspace, sinh gợi ý deterministic từ aggregate an toàn và nhận feedback có reason code; cache đủ điều kiện phải tái chạy tool và tái validate trước khi trả lời. Câu hỏi tổng quan chất lượng dữ liệu dùng quality-summary fast path, lấy readiness, overview, missingness, duplicate, quality issues và governance mà không hỏi lại run ID.
 9. Drift so sánh các thống kê đã lưu; report pin evidence vào draft, snapshot rồi export PDF.
 
 ## Stack và trạng thái kỹ thuật
@@ -52,6 +56,9 @@ Giá trị hiệu lực luôn là environment override → `config.yaml` → cod
 - Profiling CSV/TSV/Parquet/JSON chạy aggregate trực tiếp trong DuckDB trên file tạm; full DataFrame không còn được giữ cho pipeline chính.
 - Remote source được stream với byte limit và cleanup; statistical test chỉ reload các cột được yêu cầu.
 - Candidate-key và data-quality QA có deterministic prefetch/render path; validator fail-closed kiểm tra workspace/run, artifact, citation và số trong answer.
+- Quality-summary QA chạy bundle tool read-only song song tối đa hai worker, sau đó render câu trả lời sáu phần deterministic trước khi validator phát hành.
+- Official chart insight có fallback sáu phần lấy trực tiếp từ result payload khi LLM không khả dụng; Preview vẫn không được dùng làm evidence.
+- Supabase JWKS warm-up lúc startup cho phép trạng thái degraded khi lỗi mạng tạm thời, nhưng request bearer vẫn fail closed và JWKS rỗng/cấu hình sai vẫn chặn startup.
 - Retrieval profile/external có thể chạy song song; chart planner bỏ qua model khi intent an toàn có thể lập kế hoạch deterministic.
 - AI latency log tách router/planner/retrieval/tool/evidence/model/validation và TTFT.
 - Profiling SSE giảm query nền bằng adaptive backoff, reset khi state đổi và ngừng đọc khi client disconnect.

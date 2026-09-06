@@ -1,0 +1,60 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Không có khả năng phân biệt vì cột trang_thai_on_dinh là cột hằng.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Cột chi_tieu_truc_tuyen có cardinality rất cao.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân.",
+      "evidence_grounded": true,
+      "supported_by_context": false,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [
+    "SUPPORTED_BY_CONTEXT",
+    "UNSUPPORTED_CLAIM",
+    "REFERENCE_PARTIAL_COVERAGE"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Nêu caveat rằng trang_thai_on_dinh là cột hằng.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Nêu caveat rằng chi_tieu_truc_tuyen có cardinality rất cao (120/120 giá trị phân biệt).",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Không suy diễn nguyên nhân từ các tín hiệu Profile Run.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ]
+}

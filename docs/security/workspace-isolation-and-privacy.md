@@ -1,6 +1,6 @@
 # Cô lập workspace và quyền riêng tư
 
-> Đã đối chiếu với policy/repository/migration hiện tại ngày 2026-09-01.
+> Đã đối chiếu với policy/repository/migration hiện tại ngày 2026-09-03.
 
 Hệ thống dùng defense in depth: auth/capability ở API, scope workspace trong repository, Data API đóng với browser role, storage private và redaction trước AI/telemetry.
 

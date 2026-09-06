@@ -27,6 +27,7 @@ from src.services.guardrails import enforce_output_guardrails
 from src.services.llm import (
     LLMNotConfiguredError,
     get_llm,
+    get_profile_summary_llm,
     is_llm_runtime_warning,
     normalize_profile_action_numbering,
     report_text,
@@ -780,7 +781,9 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
     warnings = _risk_warnings(report_state)
 
     try:
-        llm = get_llm()
+        settings = get_settings()
+        llm = get_profile_summary_llm()
+        summary_override = settings.profile_summary_provider != "default"
         response = invoke_model(
             llm,
             [
@@ -794,6 +797,8 @@ def summarize_node(state: ProfilingState) -> dict[str, Any]:
                 },
             ],
             prompt_id="profile_summary",
+            provider=settings.profile_summary_provider if summary_override else None,
+            model_id=settings.profile_summary_model if summary_override else None,
         )
         guarded = enforce_output_guardrails(
             normalize_profile_action_numbering(report_text(response)),

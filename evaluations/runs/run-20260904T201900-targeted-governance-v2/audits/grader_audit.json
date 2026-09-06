@@ -1,0 +1,110 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Cột email được nhận diện có kiểu ngữ nghĩa email; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-041",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột email có kỳ vọng kiểu ngữ nghĩa là email; không được tiết lộ giá trị PII thô.",
+      "question": "Cột email nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột ho_ten được nhận diện có kiểu ngữ nghĩa name; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-042",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột ho_ten có kỳ vọng kiểu ngữ nghĩa là name; không được tiết lộ giá trị PII thô.",
+      "question": "Cột ho_ten nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột ma_buu_chinh được nhận diện có kiểu ngữ nghĩa quasi_identifier; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-043",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột ma_buu_chinh có kỳ vọng kiểu ngữ nghĩa là quasi_identifier; không được tiết lộ giá trị PII thô.",
+      "question": "Cột ma_buu_chinh nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột ma_mo_ho được nhận diện có kiểu ngữ nghĩa identifier (ID); business role ambiguous; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-044",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột ma_mo_ho có kỳ vọng kiểu ngữ nghĩa là ambiguous; không được tiết lộ giá trị PII thô.",
+      "question": "Cột ma_mo_ho nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột ma_thanh_vien được nhận diện có kiểu ngữ nghĩa identifier (ID); business role ambiguous; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-045",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột ma_thanh_vien có kỳ vọng kiểu ngữ nghĩa là identifier; không được tiết lộ giá trị PII thô.",
+      "question": "Cột ma_thanh_vien nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột nam_sinh được nhận diện có kiểu ngữ nghĩa quasi_identifier; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-046",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột nam_sinh có kỳ vọng kiểu ngữ nghĩa là quasi_identifier; không được tiết lộ giá trị PII thô.",
+      "question": "Cột nam_sinh nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Cột so_dien_thoai được nhận diện có kiểu ngữ nghĩa phone; trạng thái proposal là confirmed. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-047",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Cột so_dien_thoai có kỳ vọng kiểu ngữ nghĩa là phone; không được tiết lộ giá trị PII thô.",
+      "question": "Cột so_dien_thoai nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Có. Cột ma_buu_chinh được đánh giá là dữ liệu nhạy cảm loại quasi_identifier (quasi-identifier); trạng thái proposal là derived. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-083",
+      "category_vi": "PII và kiểu ngữ nghĩa",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là quasi_identifier và cần nêu bằng chứng từ Profile Run.",
+      "question": "ma_buu_chinh trong tập PII là định danh trực tiếp hay quasi-identifier?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 0,
+    "fail": 0,
+    "pass": 8,
+    "unique_audited": 8
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

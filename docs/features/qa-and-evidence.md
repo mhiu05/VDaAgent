@@ -1,6 +1,6 @@
 # QA và evidence
 
-> Đã đối chiếu với QA routes, graph và evidence validator hiện tại ngày 2026-09-01.
+> Đã đối chiếu với QA routes, graph và evidence validator hiện tại ngày 2026-09-03.
 
 QA trả lời câu hỏi về profiling run theo nguyên tắc evidence-first: câu trả lời định lượng chỉ hợp lệ khi số liệu có thể truy về artifact hoặc tool result đúng workspace/run.
 
@@ -21,6 +21,8 @@ Câu hỏi tối đa 2.000 ký tự, lịch sử tối đa 20 message; graph hi�
 1. kiểm tra workspace, run và trạng thái profile;
 2. phân loại ý định;
 3. với câu hỏi candidate key hoặc quality issue rộng, prefetch tool xác định;
+   câu hỏi tổng quan chất lượng được nhận diện deterministic, lấy đủ readiness,
+   overview, missingness, duplicate, quality issue và governance trước khi render;
 4. retrieval profile và nguồn ngoài chạy song song khi phù hợp;
 5. model soạn câu trả lời từ context đã giới hạn;
 6. validator kiểm tra evidence, con số, citation và nguồn;
@@ -46,9 +48,13 @@ Nếu không đủ bằng chứng, response phải abstain ổn định thay vì
 
 Citation là liên kết provenance có cấu trúc, không chỉ là văn bản do model tự chèn.
 
+Với câu hỏi tổng quan chất lượng, renderer deterministic tạo sáu phần (kết luận điều hành, chỉ số/bằng chứng, đánh giá, điểm cần chú ý, khuyến nghị và phạm vi/độ tin cậy). Path này không yêu cầu nhập lại run ID và không gọi LLM khi bundle evidence đã đủ; câu trả lời vẫn phải qua cùng validator fail-closed.
+
 ## Quy tắc với biểu đồ
 
 Insight từ biểu đồ chỉ được dùng khi execution là Official. Preview không được coi là evidence định lượng. Cột PII chưa bị reject không được gửi sang model hoặc dùng trong truy vấn.
+
+Fallback insight của Official execution cũng dùng cấu trúc sáu phần cố định và chỉ đọc giá trị trong result payload cùng limitation đã lưu.
 
 ## Quan sát và đánh giá
 

@@ -37,8 +37,9 @@ class GuardedOutput:
 
 _DISCLOSURE_ACTION = re.compile(
     r"\b(?:show|reveal|print|repeat|dump|expose|display|give\s+me|tell\s+me|"
-    r"hiển\s+thị|tiết\s+lộ|in\s+ra|lặp\s+lại|đọc\s+nguyên\s+văn|"
-    r"cho\s+(?:tôi|mình)\s+xem|cung\s+cấp)\b",
+    r"export|extract|hiển\s+thị|tiết\s+lộ|in\s+ra|xuất|trích\s+xuất|"
+    r"lặp\s+lại|đọc\s+nguyên\s+văn|"
+    r"cho\s+(?:tôi|mình)(?:\s+xem)?|cung\s+cấp)\b",
     re.IGNORECASE,
 )
 _INTERNAL_INSTRUCTION_TARGET = re.compile(
@@ -53,13 +54,13 @@ _SECRET_TARGET = re.compile(
     re.IGNORECASE,
 )
 _RAW_VALUE_TARGET = re.compile(
-    r"(?:\b(?:raw|giá\s+trị\s+thật|giá\s+trị\s+gốc|raw\s+values?|"
+    r"(?:\b(?:raw|unmasked|full|đầy\s+đủ|nguyên\s+vẹn|toàn\s+bộ|giá\s+trị\s+thật|giá\s+trị\s+gốc|raw\s+values?|"
     r"records?|rows?|bản\s+ghi|dòng\s+dữ\s+liệu)\b.{0,50}"
     r"\b(?:pii|email|e-mail|phone|số\s+điện\s+thoại|cccd|cmnd|"
     r"credit\s+card|thẻ\s+tín\s+dụng)\b|"
     r"\b(?:pii|email|e-mail|phone|số\s+điện\s+thoại|cccd|cmnd|"
     r"credit\s+card|thẻ\s+tín\s+dụng)\b.{0,50}"
-    r"\b(?:raw|giá\s+trị\s+thật|giá\s+trị\s+gốc|values?|records?|rows?|"
+    r"\b(?:raw|unmasked|full|đầy\s+đủ|nguyên\s+vẹn|toàn\s+bộ|giá\s+trị\s+thật|giá\s+trị\s+gốc|values?|records?|rows?|"
     r"bản\s+ghi|dòng\s+dữ\s+liệu)\b)",
     re.IGNORECASE,
 )
@@ -75,6 +76,13 @@ _INJECTION_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(r"\b(?:jailbreak|developer\s+mode|do\s+anything\s+now)\b", re.IGNORECASE),
+)
+_OUT_OF_SCOPE_INVESTMENT_ADVICE = re.compile(
+    r"\b(?:nên\s+(?:mua|bán|đầu\s+tư)|should\s+i\s+(?:buy|sell|invest))\b"
+    r".{0,80}\b(?:cổ\s+phiếu|chứng\s+khoán|stock|shares?|crypto|tiền\s+mã\s+hóa)\b|"
+    r"\b(?:cổ\s+phiếu|chứng\s+khoán|stock|shares?|crypto|tiền\s+mã\s+hóa)\b"
+    r".{0,80}\b(?:nào\s+nên\s+(?:mua|bán|đầu\s+tư)|which\s+.*\s+should\s+i\s+(?:buy|sell))\b",
+    re.IGNORECASE,
 )
 
 _EMAIL = re.compile(r"(?<![\w.+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![\w.-])", re.IGNORECASE)
@@ -156,6 +164,19 @@ def assess_question(value: str) -> QuestionAssessment:
                 "Hãy đặt câu hỏi trực tiếp về dataset, metrics hoặc metadata cần phân tích."
             ),
             signals=signals,
+        )
+
+    if _OUT_OF_SCOPE_INVESTMENT_ADVICE.search(question):
+        return QuestionAssessment(
+            normalized=question,
+            blocked=True,
+            reason="out_of_scope_investment_advice",
+            response=(
+                "Yêu cầu khuyến nghị mua hoặc bán tài sản nằm ngoài phạm vi phân tích "
+                "Profile Run của hệ thống. Mình có thể mô tả các thống kê đã profile, "
+                "nhưng không đưa ra khuyến nghị đầu tư cá nhân."
+            ),
+            signals=("out_of_scope_investment_advice",),
         )
 
     return QuestionAssessment(normalized=question, blocked=False)

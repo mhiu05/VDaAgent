@@ -1,0 +1,7 @@
+{
+  "environment": "local",
+  "phase": "smoke",
+  "status": "ABORTED_INFRASTRUCTURE_RETRY",
+  "summary": "The sequential profile-wait implementation was stopped before QA execution and replaced with a bounded submit-all/poll-all workflow. Any already submitted synthetic guest-workspace profiles remain isolated and are subject to normal guest cleanup.",
+  "timestamp": "2026-09-03T14:40:36.000000+00:00"
+}

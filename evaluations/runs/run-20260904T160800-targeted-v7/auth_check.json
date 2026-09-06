@@ -1,0 +1,16 @@
+{
+  "account_resolved": true,
+  "api_authentication": "PASS",
+  "auth_method": "local_guest",
+  "backend_health": {},
+  "backend_health_status_code": null,
+  "credentials_loaded": "NOT_APPLICABLE",
+  "environment": "local",
+  "frontend_status_code": null,
+  "local_guest_authentication": "PASS",
+  "status": "LOCAL_PREFLIGHT_OR_WORKSPACE_SCOPE_FAILED",
+  "supabase_authentication": "NOT_APPLICABLE",
+  "timestamp": "2026-09-04T09:08:00.583627+00:00",
+  "workspace_resolution": "PASS",
+  "workspace_scoped_read": "PASS"
+}

@@ -1,0 +1,559 @@
+{
+  "data_mode": "metadata_only",
+  "exact_case_trace_mapping_count": 27,
+  "exact_case_trace_mapping_coverage": 0.219512,
+  "language": "vi-VN",
+  "mapped_records": [
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "25ba9555dd294e279ceed2acc242f65a",
+      "attempt": 1,
+      "case_id": "P170-VI-043",
+      "duration_ms": 4101.28,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "25ba9555-dd29-4e27-9cee-d2acc242f65a",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "244b6ec5440648cda0c053ea6816efa2",
+      "attempt": 1,
+      "case_id": "P170-VI-044",
+      "duration_ms": 3209.824,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "244b6ec5-4406-48cd-a0c0-53ea6816efa2",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "eec903ce8d51434aae10216c499c871a",
+      "attempt": 1,
+      "case_id": "P170-VI-045",
+      "duration_ms": 2984.555,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "eec903ce-8d51-434a-ae10-216c499c871a",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "5310bbfd380e4bb0a13d5101eeb07d62",
+      "attempt": 1,
+      "case_id": "P170-VI-046",
+      "duration_ms": 5624.58,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "5310bbfd-380e-4bb0-a13d-5101eeb07d62",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "3d8283be90e3483fa5fed1eee3eb2fab",
+      "attempt": 1,
+      "case_id": "P170-VI-047",
+      "duration_ms": 3535.757,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "3d8283be-90e3-483f-a5fe-d1eee3eb2fab",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "ddb4cdfc743a4e518bd5f268da0de15d",
+      "attempt": 1,
+      "case_id": "P170-VI-048",
+      "duration_ms": 3786.723,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "ddb4cdfc-743a-4e51-8bd5-f268da0de15d",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "9b0cc342f63044c89c4d544455cd83dd",
+      "attempt": 2,
+      "case_id": "P170-VI-048",
+      "duration_ms": 4749.653,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "9b0cc342-f630-44c8-9c4d-544455cd83dd",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "56b87849d3974679a0ba15d0087a9da5",
+      "attempt": 3,
+      "case_id": "P170-VI-048",
+      "duration_ms": 6764.667,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "56b87849-d397-4679-a0ba-15d0087a9da5",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "b2611547209d4e459c98fc4aae88ac6f",
+      "attempt": 1,
+      "case_id": "P170-VI-049",
+      "duration_ms": 7537.417,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "b2611547-209d-4e45-9c98-fc4aae88ac6f",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "e5c1c2141a98472ca4bdf67c513808f8",
+      "attempt": 2,
+      "case_id": "P170-VI-049",
+      "duration_ms": 4838.074,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "e5c1c214-1a98-472c-a4bd-f67c513808f8",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "8b7d4a70fe9c466585ef4353441d87a3",
+      "attempt": 3,
+      "case_id": "P170-VI-049",
+      "duration_ms": 4289.563,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "8b7d4a70-fe9c-4665-85ef-4353441d87a3",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "7f61f9c604104a7a95562ad51e48cf54",
+      "attempt": 1,
+      "case_id": "P170-VI-050",
+      "duration_ms": 3183.139,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "7f61f9c6-0410-4a7a-9556-2ad51e48cf54",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "f21999b879624bf79d1f6d4869c77599",
+      "attempt": 2,
+      "case_id": "P170-VI-050",
+      "duration_ms": 3228.701,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "f21999b8-7962-4bf7-9d1f-6d4869c77599",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "c1f0e0beebdc4e37aaaa9a86d152cafb",
+      "attempt": 3,
+      "case_id": "P170-VI-050",
+      "duration_ms": 3166.303,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "c1f0e0be-ebdc-4e37-aaaa-9a86d152cafb",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "guardrail",
+      "agent_run_id": "b3cb9c5082d54f8e9331d21ba6020617",
+      "attempt": 3,
+      "case_id": "P170-VI-070",
+      "duration_ms": 709.38,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "b3cb9c50-82d5-4f8e-9331-d21ba6020617",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "8b41d937202b44f682cac2323796f717",
+      "attempt": 1,
+      "case_id": "P170-VI-072",
+      "duration_ms": 4451.263,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "8b41d937-202b-44f6-82ca-c2323796f717",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "4ca984f8f74547849c67e6eb1114bae6",
+      "attempt": 1,
+      "case_id": "P170-VI-073",
+      "duration_ms": 5128.836,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "4ca984f8-f745-4784-9c67-e6eb1114bae6",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "07905f052123464eae6ca0842eb465b0",
+      "attempt": 1,
+      "case_id": "P170-VI-074",
+      "duration_ms": 3299.809,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "07905f05-2123-464e-ae6c-a0842eb465b0",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "3afdd77c45fe462fadd8e9bee6896eee",
+      "attempt": 1,
+      "case_id": "P170-VI-075",
+      "duration_ms": 3369.279,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "3afdd77c-45fe-462f-add8-e9bee6896eee",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "e43bf855d81249309ad55c4f19709b11",
+      "attempt": 1,
+      "case_id": "P170-VI-076",
+      "duration_ms": 4027.14,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "e43bf855-d812-4930-9ad5-5c4f19709b11",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "cd41697e4ae847639b732dead666f65a",
+      "attempt": 1,
+      "case_id": "P170-VI-077",
+      "duration_ms": 2360.036,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_a",
+            "column_b"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_correlation"
+        }
+      ],
+      "trace_id": "cd41697e-4ae8-4763-9b73-2dead666f65a",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "clarify",
+      "agent_run_id": "0b429ab5fb184646b9d47a1066be49fb",
+      "attempt": 1,
+      "case_id": "P170-VI-078",
+      "duration_ms": 1069.57,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "0b429ab5-fb18-4646-b9d4-7a1066be49fb",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_tool",
+      "agent_run_id": "b2329de0bcf74bb1b841916b565ec3d5",
+      "attempt": 1,
+      "case_id": "P170-VI-079",
+      "duration_ms": 7637.99,
+      "retrieved_context_observable": false,
+      "tool_count": 2,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        },
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_candidate_keys"
+        }
+      ],
+      "trace_id": "b2329de0-bcf7-4bb1-b841-916b565ec3d5",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "clarify",
+      "agent_run_id": "ae7033bd27bd4f84ba17b3ac8e88dfa3",
+      "attempt": 1,
+      "case_id": "P170-VI-080",
+      "duration_ms": 1240.843,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "ae7033bd-27bd-4f84-ba17-b3ac8e88dfa3",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "c38b95a6f2604733bfffe8f7efe01ae0",
+      "attempt": 1,
+      "case_id": "P170-VI-081",
+      "duration_ms": 4932.497,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_outlier_summary"
+        }
+      ],
+      "trace_id": "c38b95a6-f260-4733-bfff-e8f7efe01ae0",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_tool",
+      "agent_run_id": "cede38a502854a8783e425838b879081",
+      "attempt": 1,
+      "case_id": "P170-VI-082",
+      "duration_ms": 6786.083,
+      "retrieved_context_observable": false,
+      "tool_count": 2,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        },
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_candidate_keys"
+        }
+      ],
+      "trace_id": "cede38a5-0285-4a87-83e4-25838b879081",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "2103109149a14d0fad9025634b71e7ad",
+      "attempt": 1,
+      "case_id": "P170-VI-083",
+      "duration_ms": 2770.166,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_pii_assessment"
+        }
+      ],
+      "trace_id": "21031091-49a1-4d0f-ad90-25634b71e7ad",
+      "trace_status": "completed"
+    }
+  ],
+  "mapping_status": "EXACT_AGENT_RUN_ID_MAPPING",
+  "project": "VDaAgents",
+  "raw_agent_run_id_count": 123,
+  "reason": "Root trace ID equals agent_run_id; no timestamp correlation is used.",
+  "retrieval_contexts_observable": false,
+  "root_trace_count_observed": 54,
+  "route_observable_count": 27,
+  "run_id": "run-20260904T204800-full-c1-v8",
+  "status": "EVALUATED",
+  "timestamp": "2026-09-04T13:57:12.086240+00:00",
+  "tool_events_observed": 24,
+  "tool_names_observed": {
+    "get_candidate_keys": 2,
+    "get_column_profile": 7,
+    "get_correlation": 1,
+    "get_drift_findings": 7,
+    "get_outlier_summary": 1,
+    "get_pii_assessment": 1,
+    "get_semantic_types": 5
+  },
+  "tool_params_observable": true
+}

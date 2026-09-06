@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Hệ số tương quan Pearson giữa so_don_hang và chi_tieu_truc_tuyen là 0.985823.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Kết quả kỳ vọng cho tương quan giữa so_don_hang và chi_tieu_truc_tuyen là 0.985823.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Command Center và phân tích tương tác
 
-> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-01.
+> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-03.
 
 Command Center là giao diện phân tích một profiling run đã có dữ liệu. Tính năng này kết hợp phiên phân tích có trạng thái, planner an toàn, preview giới hạn, kết quả Official và các biểu đồ tái lập được.
 
@@ -12,6 +12,8 @@ Command Center là giao diện phân tích một profiling run đã có dữ li�
 4. Backend tạo một context version bất biến cho lần phân tích.
 5. Preview chạy trên mẫu giới hạn; chỉ execution Official mới được dùng làm insight định lượng hoặc đưa vào báo cáo.
 6. Quality gate và provenance được lưu cùng session/execution để phục vụ kiểm tra sau này.
+
+Từ header Command Center, Analyst có thể quay lại Preview, mở Report Draft của run hiện tại hoặc chuyển thẳng sang Compare. Các liên kết này chỉ thay đổi navigation; authorization và scope vẫn do backend kiểm tra.
 
 ## API chính
 
@@ -54,6 +56,8 @@ Promotion tạo execution Official và đóng băng context liên quan. Luồng 
 ## Giao diện
 
 Frontend giới hạn tối đa 12 biểu đồ trong một plan. Trạng thái URL/session được dùng để giữ ngữ cảnh khi chuyển giữa profiling, QA, chart và report. Lỗi validation phải được hiển thị như lỗi hợp đồng, không tự động nới giới hạn hay đổi sang truy vấn tự do.
+
+Insight Official có fallback deterministic sáu phần khi model không sẵn sàng, nên chart vẫn có thể được review/pin nếu execution đã qua quality gate.
 
 ## Nguồn triển khai
 

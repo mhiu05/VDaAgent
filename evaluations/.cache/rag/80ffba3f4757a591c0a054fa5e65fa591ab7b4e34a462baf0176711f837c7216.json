@@ -1,0 +1,36 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Cột ma_buu_chinh được đánh giá là dữ liệu nhạy cảm loại quasi_identifier.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Trạng thái của đề xuất (proposal) là derived.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "ma_buu_chinh là quasi_identifier.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Cột doanh_thu có 3 giá trị bất thường theo phương pháp iqr. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-020",
+      "category_vi": "Giá trị bất thường",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Có dấu hiệu doanh_thu cực trị cần kiểm tra không?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 0,
+    "fail": 0,
+    "pass": 1,
+    "unique_audited": 1
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

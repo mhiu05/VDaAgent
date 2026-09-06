@@ -1,0 +1,51 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Cột trang_thai_on_dinh nên được ưu tiên kiểm tra vì là cột hằng (constant column).",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [
+    "supported_claims_directly_match_profile_issue_context",
+    "reference_contains_causal-avoidance_requirement_not_explicitly_supported_by_context"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Ưu tiên kiểm tra các tín hiệu chất lượng thật trong Profile Run.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Nêu cột cụ thể khi báo cáo insight.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Không biến tín hiệu thành kết luận nguyên nhân.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ]
+}

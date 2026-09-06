@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Cột tinh_thanh có số giá trị phân biệt là 6.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Kết quả kỳ vọng là 6 cho cột tinh_thanh.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

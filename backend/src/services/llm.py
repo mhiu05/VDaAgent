@@ -29,11 +29,12 @@ _LLM_FAILURE_MARKER = "không sinh được báo cáo bằng llm:"
 class LLMNotConfiguredError(RuntimeError):
     """Chưa điền API key — nêu rõ tên biến cần điền để user sửa được ngay."""
 
-    def __init__(self, settings: Settings) -> None:
-        key_env = LLM_PROVIDERS[settings.llm_provider]["key_env"]
+    def __init__(self, settings: Settings, *, provider: str | None = None) -> None:
+        provider = provider or settings.llm_provider
+        key_env = LLM_PROVIDERS[provider]["key_env"]
         super().__init__(
             f"Chưa cấu hình LLM. Điền {key_env} (hoặc LLM_API_KEY) trong file .env "
-            f"— provider hiện tại: {settings.llm_provider}."
+            f"— provider hiện tại: {provider}."
         )
         self.key_env = key_env
 
@@ -200,9 +201,27 @@ def get_llm(streaming: bool = False) -> BaseChatModel:
     return ChatOpenAI(**kwargs)
 
 
+@lru_cache
+def get_profile_summary_llm() -> BaseChatModel:
+    """Select the narrative model independently of the main agent provider."""
+    settings = get_settings()
+    if settings.profile_summary_provider == "default":
+        return get_llm()
+    if not settings.openai_api_key:
+        raise LLMNotConfiguredError(settings, provider="openai")
+    return ChatOpenAI(
+        model=settings.profile_summary_model,
+        api_key=settings.openai_api_key,
+        base_url=LLM_PROVIDERS["openai"]["base_url"],
+        temperature=settings.llm_temperature,
+        timeout=90,
+        max_retries=2,
+    )
+
+
 def llm_available() -> bool:
     """Kiểm tra không raise — dùng cho endpoint /health và /status."""
     return get_settings().llm_configured
 
 
-__all__ = ["LLMNotConfiguredError", "LLM_RUNTIME_NOTICE", "get_llm", "is_llm_runtime_warning", "llm_available", "normalize_profile_action_numbering", "report_text", "response_text", "safe_llm_warning"]
+__all__ = ["LLMNotConfiguredError", "LLM_RUNTIME_NOTICE", "get_llm", "get_profile_summary_llm", "is_llm_runtime_warning", "llm_available", "normalize_profile_action_numbering", "report_text", "response_text", "safe_llm_warning"]

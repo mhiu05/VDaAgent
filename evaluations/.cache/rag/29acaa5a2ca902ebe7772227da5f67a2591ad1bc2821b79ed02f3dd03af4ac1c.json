@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Hệ số tương quan Pearson giữa so_don_hang và doanh_thu là 0.404461.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Kết quả kỳ vọng là 0.404461.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

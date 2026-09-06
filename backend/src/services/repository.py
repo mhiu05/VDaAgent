@@ -45,7 +45,6 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
-from sqlalchemy.pool import NullPool
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import Settings, get_settings
 from src.services.permissions import canonical_role
@@ -2630,6 +2629,7 @@ class Repository:
         *,
         workspace_id: str,
         status: str,
+        duration_ms: int | None = None,
         output_hash: str | None = None,
         error_code: str | None = None,
         error_summary: str | None = None,
@@ -2681,7 +2681,11 @@ class Repository:
                     if status == "succeeded"
                     else (error_summary or "Bước workflow không hoàn thành.")
                 )[:240],
-                payload={"attempt_id": attempt_id, "error_code": error_code},
+                payload={
+                    "attempt_id": attempt_id,
+                    "error_code": error_code,
+                    "duration_ms": duration_ms,
+                },
             )
         return True
 
@@ -6247,15 +6251,51 @@ class Repository:
             )
         return report_id
 
-    def get_drift_reports(self, run_id: str) -> list[dict[str, Any]]:
+    def get_drift_reports(
+        self, run_id: str, *, workspace_id: str | None = None
+    ) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
-            rows = conn.execute(
-                select(drift_reports).where(
-                    (drift_reports.c.profile_run_id_a == run_id)
-                    | (drift_reports.c.profile_run_id_b == run_id)
+            condition = (
+                (drift_reports.c.profile_run_id_a == run_id)
+                | (drift_reports.c.profile_run_id_b == run_id)
+            )
+            if workspace_id:
+                scoped_run_ids = select(profile_runs.c.id).where(
+                    profile_runs.c.workspace_id == workspace_id
                 )
+                condition = (
+                    condition
+                    & drift_reports.c.profile_run_id_a.in_(scoped_run_ids)
+                    & drift_reports.c.profile_run_id_b.in_(scoped_run_ids)
+                )
+            rows = conn.execute(
+                select(drift_reports).where(condition)
             ).mappings()
             return [dict(r) for r in rows]
+
+    def get_profile_run_row_counts(
+        self, run_ids: list[str], *, workspace_id: str
+    ) -> dict[str, int | None]:
+        """Load row counts for a bounded set of tenant-scoped profile runs."""
+
+        unique_ids = sorted({str(run_id) for run_id in run_ids if run_id})[:100]
+        if not unique_ids:
+            return {}
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(profile_runs.c.id, profile_runs.c.row_count).where(
+                    profile_runs.c.workspace_id == workspace_id,
+                    profile_runs.c.id.in_(unique_ids),
+                )
+            ).mappings()
+            return {
+                str(row["id"]): (
+                    int(row["row_count"])
+                    if row.get("row_count") is not None
+                    else None
+                )
+                for row in rows
+            }
 
     # --- Tổng hợp cho báo cáo & QA -------------------------------------- #
     def full_profile(
@@ -7120,11 +7160,11 @@ def build_engine(settings: Settings | None = None) -> Engine:
     url = make_url(cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
         raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
-    # Supabase's session-mode pooler has a small hard client limit. Keeping an
-    # SQLAlchemy pool alive on top of that pooler makes every API/worker process
-    # reserve idle sessions and eventually produces EMAXCONNSESSION. Let the
-    # pooler own pooling for remote Supabase URLs; each request gets one short-
-    # lived connection which is returned immediately at transaction end.
+    # Supabase's session-mode endpoint has a small hard backend-session limit.
+    # Move it to transaction mode, then retain only three client connections
+    # locally. Supavisor releases the backend session after each transaction,
+    # while SQLAlchemy avoids a new TCP/TLS handshake for every repository
+    # method. max_overflow=0 keeps API and worker concurrency predictable.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
     if is_supabase_pooler:
         # Supabase's 5432 endpoint is session mode and has a small per-project
@@ -7136,8 +7176,11 @@ def build_engine(settings: Settings | None = None) -> Engine:
         engine = create_engine(
             url,
             future=True,
-            poolclass=NullPool,
             pool_pre_ping=True,
+            pool_size=3,
+            max_overflow=0,
+            pool_timeout=30,
+            pool_recycle=300,
             # Supavisor transaction pooling can hand the next query to a
             # different backend connection, where psycopg's generated named
             # prepared statement already exists. Disable client prepares just

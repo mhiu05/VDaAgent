@@ -1,0 +1,64 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Không có đủ bằng chứng trong Profile Run để kết luận chắc chắn.",
+      "evidence_grounded": false,
+      "supported_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Cần chạy hoặc bổ sung phép kiểm tra xác định phù hợp trước khi sử dụng kết quả.",
+      "evidence_grounded": false,
+      "supported_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    },
+    {
+      "citation_id": "S2",
+      "relevant": false
+    },
+    {
+      "citation_id": "S3",
+      "relevant": false
+    },
+    {
+      "citation_id": "S4",
+      "relevant": false
+    },
+    {
+      "citation_id": "S5",
+      "relevant": false
+    }
+  ],
+  "reason_codes": [
+    "answer_is_generic_and_unsupported",
+    "missing_specific_column_level_insight",
+    "context_contains_relevant_profile_signals_and_noncausal_warnings"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Cần ưu tiên kiểm tra các tín hiệu chất lượng thật trong Profile Run.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Cần nêu cột cụ thể khi đưa insight kiểm tra tiếp.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Không nên biến tín hiệu profiling thành kết luận nguyên nhân.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

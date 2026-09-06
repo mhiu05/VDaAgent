@@ -1,0 +1,41 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Có proposal candidate key phù hợp trong Profile Run.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S2"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    },
+    {
+      "citation_id": "S2",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "ma_khach_hang là một khóa định danh tiềm năng.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1",
+        "S2"
+      ]
+    }
+  ]
+}

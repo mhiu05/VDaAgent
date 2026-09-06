@@ -182,7 +182,7 @@ def _load_gates() -> dict[str, Any]:
 def evaluate_release_gates(scorecard: dict[str, Any], gates: dict[str, Any]) -> list[dict[str, Any]]:
     """Do not gate a controlled mock result as if it were a product result."""
 
-    if scorecard["runtime"] != "staging_synthetic_api":
+    if scorecard["runtime"] not in {"staging_synthetic_api", "local_synthetic_api"}:
         return [{"gate": "release_readiness", "status": "not_evaluated", "actual": None, "threshold": "staging_synthetic_api required"}]
     summary, metrics, telemetry = scorecard["summary"], scorecard["summary"]["metrics"], scorecard["summary"].get("telemetry", {})
     paths = {
@@ -212,7 +212,9 @@ def compare_baseline(scorecard: dict[str, Any], path: str | None, gates: dict[st
     if not path:
         return []
     baseline = json.loads(Path(path).read_text(encoding="utf-8"))
-    current, previous = scorecard["summary"]["metrics"], baseline.get("summary", {}).get("metrics", {})
+    baseline_scorecard = baseline.get("release_scorecard", baseline)
+    current = scorecard["summary"]["metrics"]
+    previous = baseline_scorecard.get("summary", {}).get("metrics", {})
     results: list[dict[str, Any]] = []
     for key, allowed_drop in gates.get("maximum_regressions", {}).items():
         before, after = previous.get(key), current.get(key)

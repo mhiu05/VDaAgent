@@ -1,0 +1,43 @@
+{
+  "answer_claims": [
+    {
+      "claim": "trang_thai_on_dinh là cột hằng.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Profile Run có tín hiệu chất lượng về trang_thai_on_dinh.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "trang_thai_on_dinh là cột hằng.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "chi_tieu_truc_tuyen có 120/120 giá trị phân biệt (cardinality rất cao).",
+      "covered_by_context": false,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "answer_claims": [
+    {
+      "claim": "The proposal for the column `ngay_co_the` is categorical.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "The proposal for `ngay_co_the` has status confirmed.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [
+    "partial_support",
+    "extra_reference_content_not_supported"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Profiling classifies the column `ngay_co_the` as categorical.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

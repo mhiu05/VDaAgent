@@ -230,6 +230,8 @@ describe("DraggableChatWidget", () => {
     fireEvent.submit(input.closest("form") as HTMLFormElement);
 
     await waitFor(() => expect(chatHistory.createConversation).toHaveBeenCalledTimes(1));
+    const requestPayload = api.streamQuestion.mock.calls[0][0];
+    expect(requestPayload.profile_run_id).toBe(run.id);
     const initialSnapshot = chatHistory.updateConversationSnapshot.mock.calls[0][1];
     expect(initialSnapshot.messages.some((message: { role: string; text: string }) => message.role === "user" && message.text === "Keep this question")).toBe(true);
     expect(initialSnapshot.messages.filter((message: { role: string }) => message.role === "agent")).toHaveLength(2);

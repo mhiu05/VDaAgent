@@ -1,0 +1,38 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Rủi ro chất lượng đáng chú ý nhất là cột có giá trị không đổi ở cột trang_thai_on_dinh theo rule deterministic của Profile Run. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-026",
+      "category_vi": "Chất lượng dữ liệu",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Hãy nêu một rủi ro chất lượng dữ liệu đáng chú ý nhất, dựa trên Profile Run.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Ưu tiên kiểm tra không có khả năng phân biệt vì là cột hằng ở cột trang_thai_on_dinh trước. Bước tiếp theo cho trang_thai_on_dinh: xác nhận với chủ sở hữu dữ liệu rằng cột này có chủ đích là hằng; nếu không, kiểm tra mapping và nguồn nạp. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-031",
+      "category_vi": "Phân tích và insight",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Từ Profile Run, hãy nêu insight ưu tiên để đội dữ liệu kiểm tra tiếp.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 0,
+    "fail": 0,
+    "pass": 2,
+    "unique_audited": 2
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

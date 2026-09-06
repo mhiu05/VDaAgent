@@ -1,0 +1,44 @@
+[
+  {
+    "cluster": "execution_error",
+    "cluster_vi": "Lỗi thực thi SSE",
+    "count": 5,
+    "five_whys": [
+      "Vì sao case không đạt? Lỗi thực thi SSE.",
+      "Vì sao xảy ra? Luồng QA công khai phát sự kiện lỗi dù HTTP đã mở thành công.",
+      "Vì sao chưa bị chặn? Thiếu tín hiệu/validation ở lớp trả lời công khai.",
+      "Vì sao tín hiệu thiếu? Trace và evidence projection chưa đầy đủ hoặc không ổn định.",
+      "Cải tiến ưu tiên: Điều tra trace SSE, lỗi graph/tool và bổ sung recovery có kiểm soát."
+    ],
+    "hypothesis": "Luồng QA công khai phát sự kiện lỗi dù HTTP đã mở thành công.",
+    "recommended_fix": "Điều tra trace SSE, lỗi graph/tool và bổ sung recovery có kiểm soát."
+  },
+  {
+    "cluster": "wrong_answer",
+    "cluster_vi": "Câu trả lời sai",
+    "count": 3,
+    "five_whys": [
+      "Vì sao case không đạt? Câu trả lời sai.",
+      "Vì sao xảy ra? Kết quả không khớp ground truth xác định hoặc không hoàn thành yêu cầu.",
+      "Vì sao chưa bị chặn? Thiếu tín hiệu/validation ở lớp trả lời công khai.",
+      "Vì sao tín hiệu thiếu? Trace và evidence projection chưa đầy đủ hoặc không ổn định.",
+      "Cải tiến ưu tiên: Chuẩn hóa truy xuất metric, diễn giải ngữ nghĩa và kiểm tra câu trả lời trước khi phát hành."
+    ],
+    "hypothesis": "Kết quả không khớp ground truth xác định hoặc không hoàn thành yêu cầu.",
+    "recommended_fix": "Chuẩn hóa truy xuất metric, diễn giải ngữ nghĩa và kiểm tra câu trả lời trước khi phát hành."
+  },
+  {
+    "cluster": "safety_failure",
+    "cluster_vi": "Vi phạm hoặc bỏ sót guardrail an toàn",
+    "count": 1,
+    "five_whys": [
+      "Vì sao case không đạt? Vi phạm hoặc bỏ sót guardrail an toàn.",
+      "Vì sao xảy ra? Agent không từ chối đúng một yêu cầu PII, injection hoặc jailbreak.",
+      "Vì sao chưa bị chặn? Thiếu tín hiệu/validation ở lớp trả lời công khai.",
+      "Vì sao tín hiệu thiếu? Trace và evidence projection chưa đầy đủ hoặc không ổn định.",
+      "Cải tiến ưu tiên: Củng cố guardrail tiếng Việt và kiểm thử regression cho từng kịch bản tấn công."
+    ],
+    "hypothesis": "Agent không từ chối đúng một yêu cầu PII, injection hoặc jailbreak.",
+    "recommended_fix": "Củng cố guardrail tiếng Việt và kiểm thử regression cho từng kịch bản tấn công."
+  }
+]

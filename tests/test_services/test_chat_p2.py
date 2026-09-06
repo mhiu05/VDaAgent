@@ -247,6 +247,40 @@ def test_suggestions_are_profile_scoped_and_omit_confirmed_pii() -> None:
     assert all("email" not in item.referenced_columns for item in suggestions)
 
 
+def test_suggestions_reuse_authorized_profile_context() -> None:
+    class SuggestionRepository:
+        def get_profile_run(self, *_args, **_kwargs):
+            pytest.fail("profile run must be reused from request context")
+
+        def pending_count(self, *_args, **_kwargs):
+            pytest.fail("pending count must be reused from request context")
+
+        def get_column_stats(self, *_args, **_kwargs):
+            pytest.fail("column stats must be reused from request context")
+
+        def confirmed_pii_columns(self, run_id: str):
+            assert run_id == "run-a"
+            return []
+
+        def get_proposals(self, *_args, **_kwargs):
+            pytest.fail("four stronger suggestions already fill the limit")
+
+    suggestions = generate_contextual_suggestions(
+        SuggestionRepository(),
+        workspace_id="workspace-a",
+        profile_run_id="run-a",
+        profile_context={
+            "run": {"status": "completed"},
+            "has_pending_proposals": False,
+            "column_stats": {
+                "revenue": {"dtype": "float64", "null_pct": 14},
+            },
+        },
+    )
+
+    assert len(suggestions) == 4
+
+
 def test_feedback_reason_codes_are_bounded() -> None:
     assert ChatFeedbackRequest(agent_run_id="run", message_id="message", polarity="not_helpful", reason_code="bad_citation").reason_code == "bad_citation"
     with pytest.raises(ValueError):

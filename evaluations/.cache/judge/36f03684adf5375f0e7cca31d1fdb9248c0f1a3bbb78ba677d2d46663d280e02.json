@@ -1,0 +1,13 @@
+{
+  "decision": "pass",
+  "groundedness": 5,
+  "helpfulness": 5,
+  "reason_codes": [
+    "matches_reference_value",
+    "uses_supplied_evidence_only",
+    "clear_concise"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 5
+}

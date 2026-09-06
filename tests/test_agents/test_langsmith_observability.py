@@ -69,7 +69,11 @@ def test_langsmith_payload_is_allow_listed_and_correlated() -> None:
     assert "workspace-secret" not in serialized
     assert "user-secret" not in serialized
     assert client.created[0]["id"].hex == agent_run_id
+    assert client.created[0]["dotted_order"].endswith(str(client.created[0]["id"]))
     assert client.created[1]["parent_run_id"] == client.created[0]["id"]
+    assert client.created[1]["dotted_order"].startswith(
+        client.created[0]["dotted_order"] + "."
+    )
     assert client.created[1]["inputs"] == {}
     assert client.updated[-1]["outputs"] == {}
 

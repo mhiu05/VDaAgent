@@ -6,9 +6,12 @@ import asyncio
 import json
 import logging
 
+from jwt.exceptions import PyJWKClientConnectionError
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
+import pytest
 from src.main import (
+    _preflight_supabase_jwks,
     _route_template,
     global_exception_handler,
     validation_exception_handler,
@@ -50,6 +53,45 @@ def test_unhandled_error_response_does_not_expose_exception_details(caplog) -> N
     assert "production-secret" not in response.body.decode()
     assert secret not in caplog.text
     assert payload["request_id"] == response.headers["x-correlation-id"]
+
+
+def test_supabase_jwks_preflight_allows_transient_connection_failure(
+    monkeypatch, caplog
+) -> None:
+    class Client:
+        def get_signing_keys(self):
+            raise PyJWKClientConnectionError("temporary timeout")
+
+    class Verifier:
+        def _jwks_client(self):
+            return Client()
+
+    monkeypatch.setattr(
+        "src.services.auth.get_jwt_verifier",
+        lambda _settings: Verifier(),
+    )
+    caplog.set_level(logging.WARNING, logger="p170")
+
+    assert _preflight_supabase_jwks(object()) is False
+    assert "degraded" in caplog.text
+
+
+def test_supabase_jwks_preflight_rejects_an_empty_key_set(monkeypatch) -> None:
+    class Client:
+        def get_signing_keys(self):
+            return []
+
+    class Verifier:
+        def _jwks_client(self):
+            return Client()
+
+    monkeypatch.setattr(
+        "src.services.auth.get_jwt_verifier",
+        lambda _settings: Verifier(),
+    )
+
+    with pytest.raises(RuntimeError, match="JWKS không có signing key"):
+        _preflight_supabase_jwks(object())
 
 
 def test_validation_error_response_does_not_echo_request_values() -> None:

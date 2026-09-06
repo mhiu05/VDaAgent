@@ -1,0 +1,31 @@
+{
+  "calibration": {
+    "status": "NOT_EVALUATED"
+  },
+  "judge_calls_attempted": 0,
+  "judge_cases": 0,
+  "judge_configuration": {
+    "api_key_configured": true,
+    "model": null,
+    "model_selection_policy": "Discover generateContent models; prefer stable Pro, then stable Flash, then highest version.",
+    "provider": "gemini",
+    "requested_model": null,
+    "response_format": "application/json",
+    "response_schema": "JudgeResult",
+    "rubric_version": "p170-llm-judge-rubric-v1",
+    "same_provider_model_family_as_agent": true,
+    "temperature": 0
+  },
+  "language": "vi-VN",
+  "model_catalog": {
+    "method": "Gemini Models API list",
+    "models": [],
+    "reason": "GEMINI_AUTH_FAILED",
+    "status": "FAILED"
+  },
+  "model_list_calls_attempted": 1,
+  "reason": "GEMINI_AUTH_FAILED",
+  "rubric_version": "p170-llm-judge-rubric-v1",
+  "scores": [],
+  "status": "FAILED"
+}

@@ -1,0 +1,26 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Cột tuoi có số giá trị thiếu là 3. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-057",
+      "category_vi": "Sử dụng công cụ",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là 3 và cần nêu bằng chứng từ Profile Run.",
+      "question": "Hãy dùng dữ liệu đã profile để kiểm tra missingness của tuoi và dẫn evidence.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 1,
+    "fail": 0,
+    "pass": 1,
+    "unique_audited": 1
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

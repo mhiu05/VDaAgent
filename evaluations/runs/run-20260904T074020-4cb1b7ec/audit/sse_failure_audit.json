@@ -1,0 +1,48 @@
+{
+  "classification_counts": {
+    "PRODUCT_SSE_ERROR": 1,
+    "TIMEOUT": 4
+  },
+  "language": "vi-VN",
+  "mo_ta": "Phân loại từ lỗi SSE quan sát được; không suy diễn nguyên nhân nội bộ khi trace không công bố error detail.",
+  "records": [
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-003",
+      "classification": "PRODUCT_SSE_ERROR",
+      "observed_error": "SERVER_ERROR",
+      "status_code": 200
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-059",
+      "classification": "TIMEOUT",
+      "observed_error": "CHAT_TIMEOUT",
+      "status_code": 200
+    },
+    {
+      "attempt": 2,
+      "case_id": "P170-VI-059",
+      "classification": "TIMEOUT",
+      "observed_error": "CHAT_TIMEOUT",
+      "status_code": 200
+    },
+    {
+      "attempt": 3,
+      "case_id": "P170-VI-059",
+      "classification": "TIMEOUT",
+      "observed_error": "CHAT_TIMEOUT",
+      "status_code": 200
+    },
+    {
+      "attempt": 2,
+      "case_id": "P170-VI-067",
+      "classification": "TIMEOUT",
+      "observed_error": "CHAT_TIMEOUT",
+      "status_code": 200
+    }
+  ],
+  "run_id": "run-20260904T074020-4cb1b7ec",
+  "thoi_diem": "2026-09-04T01:05:13.731333+00:00",
+  "total_sse_failures": 5
+}

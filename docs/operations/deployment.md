@@ -1,6 +1,6 @@
 # Triển khai Azure
 
-> Đã đối chiếu trực tiếp với `.github/workflows/azure-container-deploy.yml` ngày 2026-09-01.
+> Đã đối chiếu trực tiếp với `.github/workflows/azure-container-deploy.yml` ngày 2026-09-03.
 
 Production chạy ba Azure App Service container và một Azure Container Registry (ACR):
 

@@ -1,0 +1,14 @@
+[
+  {
+    "count": 3,
+    "failure_type": "wrong_answer",
+    "failure_type_vi": "Câu trả lời sai",
+    "mo_ta": "Kết quả không khớp ground truth xác định hoặc không hoàn thành yêu cầu."
+  },
+  {
+    "count": 2,
+    "failure_type": "execution_error",
+    "failure_type_vi": "Lỗi thực thi SSE",
+    "mo_ta": "Luồng QA công khai phát sự kiện lỗi dù HTTP đã mở thành công."
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "dataset_version": "p170-vi-v2",
+  "run_id": "run-20260904T175600-targeted-p026-v1",
+  "runtime": "local_synthetic_api",
+  "schema_version": "p170-benchmark-scorecard-v1",
+  "summary": {
+    "critical_failures": [],
+    "failed_cases": [],
+    "metrics": {
+      "approximation_rate": null,
+      "evidence_binding_rate": 1.0,
+      "evidence_source_policy_rate": 1.0,
+      "evidence_status_rate": 1.0,
+      "forecast_calibration_rate": null,
+      "hard_gate_pass_rate": 1.0,
+      "insufficient_evidence_rate": null,
+      "numeric_grounding_rate": null,
+      "planner_allowlist_rate": null,
+      "planner_kind_rate": null,
+      "privacy_safe_rate": null,
+      "safety_outcome_rate": null,
+      "schema_contract_rate": 1.0
+    },
+    "telemetry": {
+      "latency_ms": {
+        "p95": 10389.612,
+        "status": "available"
+      }
+    }
+  }
+}

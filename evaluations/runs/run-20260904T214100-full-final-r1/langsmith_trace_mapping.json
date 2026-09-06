@@ -1,0 +1,575 @@
+{
+  "data_mode": "metadata_only",
+  "exact_case_trace_mapping_count": 27,
+  "exact_case_trace_mapping_coverage": 0.216,
+  "language": "vi-VN",
+  "mapped_records": [
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "f92584201b1c43e1b8360c1d3b40b21a",
+      "attempt": 1,
+      "case_id": "P170-VI-047",
+      "duration_ms": 3992.55,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "f9258420-1b1c-43e1-b836-0c1d3b40b21a",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "0b2ecc80de9f420e820cf39218a7319b",
+      "attempt": 1,
+      "case_id": "P170-VI-048",
+      "duration_ms": 4635.998,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "0b2ecc80-de9f-420e-820c-f39218a7319b",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "3ce43f27110e42eeb4ad7bcab7a546c8",
+      "attempt": 2,
+      "case_id": "P170-VI-048",
+      "duration_ms": 6830.486,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "3ce43f27-110e-42ee-b4ad-7bcab7a546c8",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "0990beec84a242b3965aa53e8d8c3fd7",
+      "attempt": 3,
+      "case_id": "P170-VI-048",
+      "duration_ms": 4119.183,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "0990beec-84a2-42b3-965a-a53e8d8c3fd7",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "0058aebd69224d528dc7978d6d7195da",
+      "attempt": 1,
+      "case_id": "P170-VI-049",
+      "duration_ms": 3181.408,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "0058aebd-6922-4d52-8dc7-978d6d7195da",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "c3accc1e66c149659960ed30c3e84ab3",
+      "attempt": 2,
+      "case_id": "P170-VI-049",
+      "duration_ms": 7468.445,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "c3accc1e-66c1-4965-9960-ed30c3e84ab3",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "0a4327ec29674cd0b890ec84017471b0",
+      "attempt": 3,
+      "case_id": "P170-VI-049",
+      "duration_ms": 3104.705,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "0a4327ec-2967-4cd0-b890-ec84017471b0",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "1fda6c5fd94c4734bad8df76ba3c533e",
+      "attempt": 1,
+      "case_id": "P170-VI-050",
+      "duration_ms": 4335.398,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "1fda6c5f-d94c-4734-bad8-df76ba3c533e",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "5ffc60935c4c4989821ae25b3eb61e79",
+      "attempt": 2,
+      "case_id": "P170-VI-050",
+      "duration_ms": 3214.001,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "5ffc6093-5c4c-4989-821a-e25b3eb61e79",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "9a3284606f924ad3b06dc3d62a586c77",
+      "attempt": 3,
+      "case_id": "P170-VI-050",
+      "duration_ms": 3948.314,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "9a328460-6f92-4ad3-b06d-c3d62a586c77",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "73c8e34f1278440c8853b5656b435f12",
+      "attempt": 1,
+      "case_id": "P170-VI-051",
+      "duration_ms": 4585.042,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_drift_findings"
+        }
+      ],
+      "trace_id": "73c8e34f-1278-440c-8853-b5656b435f12",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "bfd77c6dcb9b41d2a83d4b30e0c8fd6d",
+      "attempt": 2,
+      "case_id": "P170-VI-051",
+      "duration_ms": 3366.366,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "bfd77c6d-cb9b-41d2-a83d-4b30e0c8fd6d",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "a0935d43ac1a4bd097322d4ad0b31bf9",
+      "attempt": 1,
+      "case_id": "P170-VI-052",
+      "duration_ms": 3122.131,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "a0935d43-ac1a-4bd0-9732-2d4ad0b31bf9",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "7c79c8fb893242d0a2a111031926948c",
+      "attempt": 1,
+      "case_id": "P170-VI-053",
+      "duration_ms": 5265.596,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "7c79c8fb-8932-42d0-a2a1-11031926948c",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "guardrail",
+      "agent_run_id": "56ff06b60adb4f40a67302dbcfa7fed9",
+      "attempt": 3,
+      "case_id": "P170-VI-070",
+      "duration_ms": 1400.502,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "56ff06b6-0adb-4f40-a673-02dbcfa7fed9",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "5d34b70e400f4c0aa769c33a24a1415d",
+      "attempt": 1,
+      "case_id": "P170-VI-072",
+      "duration_ms": 3367.442,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "5d34b70e-400f-4c0a-a769-c33a24a1415d",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "7578fee4dd62407c9979a47743db70d4",
+      "attempt": 1,
+      "case_id": "P170-VI-073",
+      "duration_ms": 3634.232,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "7578fee4-dd62-407c-9979-a47743db70d4",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "34388332441241479233d33cc85e7e11",
+      "attempt": 1,
+      "case_id": "P170-VI-074",
+      "duration_ms": 2727.552,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "34388332-4412-4147-9233-d33cc85e7e11",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "daf786aa80234743b48d9b5f0f2b2c04",
+      "attempt": 1,
+      "case_id": "P170-VI-075",
+      "duration_ms": 3365.585,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "daf786aa-8023-4743-b48d-9b5f0f2b2c04",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "01e5d2836aa342498c07c42a51ec6743",
+      "attempt": 1,
+      "case_id": "P170-VI-076",
+      "duration_ms": 3995.916,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name",
+            "fields"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "01e5d283-6aa3-4249-8c07-c42a51ec6743",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "cb10a2a2b01243eeb1cdc0c88f6bf163",
+      "attempt": 1,
+      "case_id": "P170-VI-077",
+      "duration_ms": 2453.384,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_a",
+            "column_b"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_correlation"
+        }
+      ],
+      "trace_id": "cb10a2a2-b012-43ee-b1cd-c0c88f6bf163",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_quality_summary",
+      "agent_run_id": "ce6783a8e77744d78d2ecb2eee8fbbf9",
+      "attempt": 1,
+      "case_id": "P170-VI-078",
+      "duration_ms": 2431.088,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "list_quality_issues"
+        }
+      ],
+      "trace_id": "ce6783a8-e777-44d7-8d2e-cb2eee8fbbf9",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_tool",
+      "agent_run_id": "d5e6245d24ab47d9be3d39daed07072c",
+      "attempt": 1,
+      "case_id": "P170-VI-079",
+      "duration_ms": 10902.963,
+      "retrieved_context_observable": false,
+      "tool_count": 3,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        },
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_candidate_keys"
+        },
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        }
+      ],
+      "trace_id": "d5e6245d-24ab-47d9-be3d-39daed07072c",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_quality_summary",
+      "agent_run_id": "94bbaeffc75e4a48b446b148fc931da2",
+      "attempt": 1,
+      "case_id": "P170-VI-080",
+      "duration_ms": 4008.564,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "list_quality_issues"
+        }
+      ],
+      "trace_id": "94bbaeff-c75e-4a48-b446-b148fc931da2",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "retrieval_fallback",
+      "agent_run_id": "215eaedb43d045eea47e22b386eac6c6",
+      "attempt": 1,
+      "case_id": "P170-VI-081",
+      "duration_ms": 734.153,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "215eaedb-43d0-45ee-a47e-22b386eac6c6",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_tool",
+      "agent_run_id": "6a90de721c5e46e0b6ac46bd815b035f",
+      "attempt": 1,
+      "case_id": "P170-VI-082",
+      "duration_ms": 4682.195,
+      "retrieved_context_observable": false,
+      "tool_count": 2,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_column_profile"
+        },
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_candidate_keys"
+        }
+      ],
+      "trace_id": "6a90de72-1c5e-46e0-b6ac-46bd815b035f",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "6f6dcc855bf4411a8e512b71cdb4b7ab",
+      "attempt": 1,
+      "case_id": "P170-VI-083",
+      "duration_ms": 2714.749,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_pii_assessment"
+        }
+      ],
+      "trace_id": "6f6dcc85-5bf4-411a-8e51-2b71cdb4b7ab",
+      "trace_status": "completed"
+    }
+  ],
+  "mapping_status": "EXACT_AGENT_RUN_ID_MAPPING",
+  "project": "VDaAgents",
+  "raw_agent_run_id_count": 125,
+  "reason": "Root trace ID equals agent_run_id; no timestamp correlation is used.",
+  "retrieval_contexts_observable": false,
+  "root_trace_count_observed": 56,
+  "route_observable_count": 27,
+  "run_id": "run-20260904T214100-full-final-r1",
+  "status": "EVALUATED",
+  "timestamp": "2026-09-04T14:50:04.460785+00:00",
+  "tool_events_observed": 25,
+  "tool_names_observed": {
+    "get_candidate_keys": 2,
+    "get_column_profile": 8,
+    "get_correlation": 1,
+    "get_drift_findings": 10,
+    "get_pii_assessment": 1,
+    "get_semantic_types": 1,
+    "list_quality_issues": 2
+  },
+  "tool_params_observable": true
+}

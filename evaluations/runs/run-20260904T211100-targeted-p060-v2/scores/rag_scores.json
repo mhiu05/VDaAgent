@@ -1,0 +1,98 @@
+{
+  "answer_relevancy": {
+    "aggregation": {
+      "by_category": {
+        "Câu hỏi mơ hồ cần làm rõ": {
+          "max": 0.364166,
+          "mean": 0.364166,
+          "median": 0.364166,
+          "min": 0.364166,
+          "n": 3,
+          "std": 0.0
+        }
+      },
+      "by_difficulty": {
+        "Khó": {
+          "max": 0.364166,
+          "mean": 0.364166,
+          "median": 0.364166,
+          "min": 0.364166,
+          "n": 3,
+          "std": 0.0
+        }
+      },
+      "overall": {
+        "max": 0.364166,
+        "mean": 0.364166,
+        "median": 0.364166,
+        "min": 0.364166,
+        "n": 3,
+        "std": 0.0
+      }
+    },
+    "eligible_requests": 3,
+    "evaluator_configuration": {
+      "api_key_configured": true,
+      "model": "voyage-3.5",
+      "provider": "voyage"
+    },
+    "method": "Voyage voyage-3.5 query-document cosine; không so sánh trực tiếp với thang RAGAS.",
+    "reason": "Đo semantic alignment trực tiếp giữa question và answer; không cần retrieved context.",
+    "records": [
+      {
+        "attempt": 1,
+        "case_id": "P170-VI-060",
+        "score": 0.364166
+      },
+      {
+        "attempt": 2,
+        "case_id": "P170-VI-060",
+        "score": 0.364166
+      },
+      {
+        "attempt": 3,
+        "case_id": "P170-VI-060",
+        "score": 0.364166
+      }
+    ],
+    "score": 0.364166,
+    "status": "EVALUATED"
+  },
+  "context_precision": {
+    "method": "Retrieved chunks + relevance labels",
+    "reason": "Trace đã map chính xác theo agent_run_id nhưng không công bố retrieved chunks/context content; không thể chấm claim-to-context fidelity hoặc relevance của chunk.",
+    "score": null,
+    "status": "NOT_EVALUATED"
+  },
+  "context_recall": {
+    "method": "Retrieved chunks + expected evidence",
+    "reason": "Trace đã map chính xác theo agent_run_id nhưng không công bố retrieved chunks/context content; không thể chấm claim-to-context fidelity hoặc relevance của chunk.",
+    "score": null,
+    "status": "NOT_EVALUATED"
+  },
+  "evidence_grounded_faithfulness": {
+    "method": "Tool/evidence content thực tế",
+    "reason": "answer_sources chỉ có tool metadata, không có nội dung evidence đã dùng để tạo claim; không coi metadata là grounding context.",
+    "score": null,
+    "status": "NOT_EVALUATED"
+  },
+  "evidence_source_coverage": {
+    "eligible_requests": 0,
+    "method": "Public answer source policy theo đúng case_id/attempt",
+    "observed_requests": 0,
+    "reason": "Tỷ lệ response bắt buộc evidence có nguồn công khai và evidence_status=verified; case abstain/clarify/guardrail không nằm trong mẫu số.",
+    "score": null,
+    "status": "NOT_EVALUATED"
+  },
+  "faithfulness": {
+    "method": "Retrieved context thực tế",
+    "reason": "Trace đã map chính xác theo agent_run_id nhưng không công bố retrieved chunks/context content; không thể chấm claim-to-context fidelity hoặc relevance của chunk.",
+    "score": null,
+    "status": "NOT_EVALUATED"
+  },
+  "judge_status": "FAILED",
+  "language": "vi-VN",
+  "mo_ta": "Mỗi metric có status và lý do riêng; missing context không được chuyển thành 0.",
+  "status": "PARTIALLY_EVALUATED",
+  "trace_mapping_status": "EXACT_AGENT_RUN_ID_MAPPING"
+}

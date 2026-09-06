@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Cột doanh_thu có 3 giá trị bất thường theo phương pháp iqr.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Theo phương pháp IQR, cột doanh_thu có 3 giá trị bất thường.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

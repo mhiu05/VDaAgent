@@ -63,7 +63,7 @@ function AnswerEvidence({ message }: { message: ChatMessage }) {
 
   return (
     <details className="chat-answer-evidence" open>
-      <summary>Bằng chứng và cách kết luận</summary>
+      <summary>Evidences</summary>
       <p className="chat-answer-evidence-intro">
         {noEvidence
           ? "Profile Run đã được dùng để xác định phạm vi, nhưng chưa có đủ bằng chứng đã kiểm chứng để kết luận."

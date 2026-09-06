@@ -1,0 +1,22 @@
+{
+  "account_resolved": true,
+  "api_authentication": "PASS",
+  "auth_method": "local_guest",
+  "backend_health": {
+    "app": "AI Data Profiling Agent",
+    "command_center_enabled": true,
+    "env": "production",
+    "llm_configured": true,
+    "status": "ok"
+  },
+  "backend_health_status_code": 200,
+  "credentials_loaded": "NOT_APPLICABLE",
+  "environment": "local",
+  "frontend_status_code": 200,
+  "local_guest_authentication": "PASS",
+  "status": "PASS",
+  "supabase_authentication": "NOT_APPLICABLE",
+  "timestamp": "2026-09-04T10:55:26.299710+00:00",
+  "workspace_resolution": "PASS",
+  "workspace_scoped_read": "PASS"
+}

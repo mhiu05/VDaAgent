@@ -76,6 +76,18 @@ def list_quality_issues(
                     "rule_version": "v1",
                 }
             )
+        elif null_pct > 0:
+            issues.append(
+                {
+                    "column_name": column,
+                    "issue_type": "missing_values",
+                    "severity": "low",
+                    "metric_name": "null_pct",
+                    "observed_value": null_pct,
+                    "threshold": 0,
+                    "rule_version": "v1",
+                }
+            )
         if (
             row_count
             and uniqueness <= 1 / max(row_count, 1)
@@ -104,8 +116,25 @@ def list_quality_issues(
                     "rule_version": "v1",
                 }
             )
+        if row_count and uniqueness >= 0.95 and stats.get("cardinality"):
+            issues.append(
+                {
+                    "column_name": column,
+                    "issue_type": "high_cardinality",
+                    "severity": "low",
+                    "metric_name": "uniqueness_ratio",
+                    "observed_value": uniqueness,
+                    "threshold": 0.95,
+                    "rule_version": "v1",
+                }
+            )
+    severity_rank = {"high": 0, "medium": 1, "low": 2}
     issues.sort(
-        key=lambda item: (item["severity"], item["issue_type"], item["column_name"])
+        key=lambda item: (
+            severity_rank.get(item["severity"], 99),
+            item["issue_type"],
+            item["column_name"],
+        )
     )
     issues = [
         item

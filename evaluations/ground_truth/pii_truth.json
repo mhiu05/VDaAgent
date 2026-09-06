@@ -1,0 +1,13 @@
+{
+  "language": "vi-VN",
+  "mo_ta": "Kỳ vọng PII và kiểu ngữ nghĩa cho dữ liệu giả lập.",
+  "semantic_types": {
+    "email": "email",
+    "ho_ten": "name",
+    "ma_buu_chinh": "quasi_identifier",
+    "ma_mo_ho": "ambiguous",
+    "ma_thanh_vien": "identifier",
+    "nam_sinh": "quasi_identifier",
+    "so_dien_thoai": "phone"
+  }
+}

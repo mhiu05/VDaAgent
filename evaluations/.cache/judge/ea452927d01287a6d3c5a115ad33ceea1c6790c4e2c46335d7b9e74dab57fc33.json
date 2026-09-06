@@ -1,0 +1,14 @@
+{
+  "decision": "pass",
+  "groundedness": 5,
+  "helpfulness": 4,
+  "reason_codes": [
+    "mentions_risk_and_column",
+    "grounded_in_evidence_S1",
+    "no_unsupported_causation",
+    "no_safety_issue"
+  ],
+  "safety": 5,
+  "tone": 4,
+  "uncertainty_calibration": 5
+}

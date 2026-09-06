@@ -1,76 +1,83 @@
-# VDaAgent (P-170) — Nền tảng profiling và phân tích dữ liệu
+# VDaAgent (P-170)
 
-VDaAgent là ứng dụng phân tích dữ liệu nhiều workspace theo nguyên tắc evidence-first. Hệ thống tiếp nhận dữ liệu dạng bảng, chạy profiling bất đồng bộ, hỗ trợ review metadata, phân tích/biểu đồ có giới hạn, Chat Agent có bằng chứng, so sánh drift và tạo báo cáo PII-safe.
+> Tóm tắt 1 câu: Profiling phân mảnh và khó kiểm chứng → nền tảng AI evidence-first cho Analyst, Data Engineer và nhóm ra quyết định.
 
-## Những gì dự án đang hỗ trợ
+VDaAgent biến một nguồn dữ liệu dạng bảng thành profile, phân tích, câu trả lời và báo cáo có provenance. Mỗi workspace được cô lập; profiling chạy bất đồng bộ; mọi claim định lượng phải gắn với evidence đã xác minh.
 
-- Upload CSV, TSV, Parquet và JSON lên Supabase Storage, Google Drive hoặc local storage ở development.
-- Kết nối nguồn chỉ đọc MySQL, MongoDB và DuckDB; lưu credential đã mã hóa và chỉ trả metadata an toàn cho browser.
-- Đưa Profile Run vào queue PostgreSQL; worker riêng claim lease, heartbeat, retry và khôi phục job stale.
-- Profile source bằng DuckDB trên file đã materialize tạm thời; chỉ nạp các cột cần thiết vào pandas khi chạy statistical test.
-- Lưu missingness, cardinality, uniqueness, distribution, outlier, correlation, duplicate, PII, quasi-identifier, candidate key và semantic type.
-- Review proposal bằng LangGraph HITL, gồm confirm, reject, edit và yêu cầu kiểm định sâu.
-- Tạo chart tại Command Center qua hai bước Preview (approximate) và Official (evidence), kèm quality gate.
-- Trả lời QA qua JSON hoặc `chat_stream.v1` SSE; claim định lượng phải qua tool evidence và validator deterministic, nếu thiếu bằng chứng hệ thống sẽ abstain.
-- Chat Agent P0–P2 có tiến trình trung thực, câu trả lời có cấu trúc/provenance bất biến, recovery có kiểu, lịch sử hội thoại bền vững theo workspace, gợi ý câu hỏi deterministic và feedback có giới hạn.
-- Với câu hỏi deterministic đủ điều kiện, cache chỉ được dùng sau khi chạy lại bounded tool và evidence validation; verifier rủi ro cao hiện chạy ở chế độ shadow, không tự sửa câu trả lời.
-- So sánh drift từ các thống kê đã lưu, không cần tải lại raw data.
-- Soạn Report Draft, ghim profile/chart/answer/note, tạo snapshot bất biến và export PDF phía Next.js server.
-- Cô lập dữ liệu theo workspace; mọi bảng ứng dụng trong PostgreSQL là backend-only đối với Supabase Data API.
-- Supabase Storage giữ canonical dataset artifact trong production; Google Drive và database connector chỉ là nguồn import, còn local adapter dành cho development/test.
+## Vấn đề (Problem)
 
-## Kiến trúc chạy
+Analyst thường phải nối nhiều bước thủ công trước khi có thể trả lời một câu hỏi dữ liệu: kiểm tra schema/data type, missing values, uniqueness/duplicates, distribution/outliers, correlation và PII. Workflow này dài, lặp lại và khó chuẩn hóa.
 
-Stack local và production có ba process chính:
+Ngay cả khi đã có metric, vẫn còn khoảng cách từ profile đến insight: người dùng phải tự đặt câu hỏi, chọn phép phân tích, tạo visualization rồi diễn giải và kiểm chứng kết quả. Chat AI tự do có thể rút ngắn thao tác nhưng tạo rủi ro hallucination, lộ dữ liệu nhạy cảm và khó truy nguyên.
 
-```text
-Browser / Next.js ── REST + SSE ── FastAPI ── PostgreSQL / Storage / LLM
-                                      │
-                                      └── Profiling Worker ── DuckDB compute
-```
+Theo các số liệu được trình bày trong [Data profiling.pdf](presentation/Data%20profiling.pdf), data preparation/cleansing chiếm 37,75% thời gian của Data Professional; Analyst được khảo sát dành khoảng 5,7 giờ/tuần cho chuẩn bị dữ liệu và 3,7 giờ/tuần để kiểm tra/sửa AI output. 46% ưu tiên Human-in-the-Loop, trong khi chỉ 3% ưu tiên AI hoàn toàn tự động. Điều đó cho thấy automation cần đáng tin cậy, grounded và reviewable.
 
-Frontend dùng Next.js 15, React 19 và TypeScript. Backend dùng Python 3.11, FastAPI, SQLAlchemy/Alembic, LangGraph, DuckDB và PostgreSQL. Production chạy ba container độc lập (frontend, API, profiling worker) trên Azure App Service qua GitHub Actions.
+## Giải pháp (Solution)
 
-## Bắt đầu nhanh trên Windows
+VDaAgent kết hợp compute deterministic, LangGraph và các quality gate để rút ngắn workflow nhưng vẫn giữ quyền kiểm soát cho con người:
 
-Yêu cầu: Python 3.11, Node.js 22, pnpm 11.0.8 và PostgreSQL 16-compatible. PostgreSQL là bắt buộc; dự án không hỗ trợ SQLite fallback.
+- **Profiling đa nguồn và chuyên sâu:** upload CSV/TSV/Parquet/JSON hoặc import MySQL, MongoDB, DuckDB và Google Drive; tính missingness, cardinality, uniqueness, distribution, outlier, correlation, duplicate, PII, quasi-identifier, candidate key và semantic type.
+- **Workflow bất đồng bộ có HITL:** PostgreSQL queue và worker có lease, heartbeat, retry, stale-job recovery; AI đề xuất metadata để Analyst confirm, reject, edit hoặc yêu cầu kiểm định sâu.
+- **AI Q&A evidence-first:** Chat Agent dùng tool/retrieval có scope theo Profile Run và workspace; validator deterministic kiểm tra artifact, citation và numeric grounding; thiếu evidence thì abstain thay vì đoán.
+- **Biểu đồ an toàn:** planner deterministic hoặc structured-output tạo `QuerySpec` allow-list; Preview bị giới hạn để khám phá, Official chạy lại trên nguồn đầy đủ trong quality gate và mới đủ điều kiện làm evidence/report.
+- **Drift và báo cáo tái lập:** so sánh drift từ statistic đã lưu, ghim profile/chart/answer/note vào Report Draft, tạo snapshot SHA-256 bất biến và export PDF PII-safe.
+
+Pitch deck ghi nhận các chỉ số privacy, evidence binding và groundedness 100% cho bộ benchmark được trình bày. Đây không phải cam kết production SLA: release evidence staging vẫn phải được chạy lại trên đúng commit trước khi tuyên bố sẵn sàng.
+
+## Target User
+
+- **Primary:** Analyst và Data Engineer cần kiểm tra chất lượng, hiểu nhanh dataset và tạo insight có thể giải thích.
+- **Secondary:** Product/Operations lead, nhóm BI và reviewer cần theo dõi drift, kiểm duyệt metadata và xuất báo cáo có provenance.
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| AI Agent | LangGraph + LLM cấu hình được (OpenAI/Gemini hoặc provider tương thích) |
+| Backend | FastAPI + Python 3.11 + Pydantic + SQLAlchemy/Alembic |
+| Compute | DuckDB file-backed + pandas/NumPy/SciPy/statsmodels/scikit-learn |
+| Frontend | Next.js 15 + React 19 + TypeScript + TanStack Query |
+| Database | PostgreSQL 16-compatible (bắt buộc; không có SQLite fallback) |
+| Storage | Supabase Storage (production), local adapter (development/test), Google Drive import |
+| DevOps | Docker + Azure App Service + Azure Container Registry + GitHub Actions |
+
+## Quick Start
 
 ```powershell
+# 1. Clone repo
+git clone <repository-url>
+cd P-170
+
+# 2. Tạo môi trường Python và cài dependency
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+
+# 3. Cấu hình local
 Copy-Item .env.example .env
+# Sửa tối thiểu: APP_ENV=development, AUTH_MODE=dual,
+# CANONICAL_STORAGE_PROVIDER=local và DATABASE_URL PostgreSQL local.
+
+# 4. Cài frontend
 cd frontend
-pnpm install
+corepack enable
+pnpm install --frozen-lockfile
 cd ..
-```
 
-Sau khi sao chép `.env.example`, tối thiểu hãy đổi cấu hình local sau trước khi chạy migration:
-
-```dotenv
-APP_ENV=development
-AUTH_MODE=dual
-CANONICAL_STORAGE_PROVIDER=local
-DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
-```
-
-Nếu `AUTH_MODE=dual` yêu cầu bearer dùng chung, đặt thêm `API_TOKEN`. LLM, embedding, Supabase Auth/Storage và Google Drive chỉ cần cấu hình khi kiểm thử các path tương ứng.
-
-```powershell
+# 5. Chạy migration
 alembic -c alembic.ini upgrade head
 ```
 
-Chạy ba terminal từ repository root:
+PostgreSQL phải chạy trước khi migrate. Mở ba terminal từ repository root:
 
 ```powershell
 # API
 cd backend
 ..\.venv\Scripts\python.exe -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
-# Worker
-$env:PYTHONPATH = "backend"
+# Profiling worker
+$env:PYTHONPATH = \backend\
 .\.venv\Scripts\python.exe -m src.workers.profiling_worker
 
 # Frontend
@@ -78,50 +85,68 @@ cd frontend
 pnpm dev --port 3000
 ```
 
-Nếu đã cài GNU Make trên Windows, có thể dùng `make backend`, `make worker`, `make frontend`, `make dev` và `make health`.
+Các shortcut tương đương là `make backend`, `make worker`, `make frontend`, `make dev` và `make health` (GNU Make trên Windows). Backend health ở `http://localhost:8000/health`, frontend health ở `http://localhost:3000/health`; OpenAPI chỉ bật ngoài production tại `/docs`.
 
-## Kiểm tra nhanh
-
-```powershell
-ruff check backend/src tests
-python -m pytest -q
-python scripts/migration_smoke.py
-
-cd frontend
-pnpm test
-pnpm typecheck
-pnpm lint
-pnpm build
-pnpm test:e2e
-```
-
-OpenAPI chỉ mở ở development/test tại `http://localhost:8000/docs`; backend health ở `/health`, frontend health ở `/health` của port frontend.
-
-## Tài liệu
-
-- [Cổng tài liệu](docs/README.md)
-- [Tổng quan kiến trúc](ARCHITECTURE.md)
-- [Agent system, QA, retrieval và evidence](docs/architecture/agent-system.md) (bao gồm Chat Agent P0–P2)
-- [Kiến trúc hệ thống chi tiết](docs/architecture/system-overview.md)
-- [Phát triển và kiểm thử local](docs/development/local-development-and-testing.md)
-- [Cấu hình vận hành](docs/operations/configuration.md)
-- [Migration và ranh giới Data API](docs/operations/database-migrations.md)
-- [Triển khai Azure](docs/operations/deployment.md)
-- [Tóm tắt bàn giao và known gaps](docs/summary.md)
-
-## Cấu trúc repository
+## Project Structure
 
 ```text
-backend/src/          FastAPI, agent graph, tool, service, worker và persistence
-backend/migrations/   Chuỗi migration Alembic cho PostgreSQL
-frontend/src/         Next.js routes, component, API client và PDF renderer
-tests/                Backend, integration và evaluation tests
-frontend/src/**/*.test.*  Frontend unit/component tests đặt cạnh source
-evaluations/          Scorecard/report đã sinh; không phải source của harness
-scripts/              Migration, security, benchmark và knowledge-base utilities
-config.yaml           Default runtime không chứa secret
-.env.example          Inventory biến môi trường
-.github/workflows/    Quality gate, build image và triển khai Azure
+├── backend/
+│   ├── src/api/             # FastAPI REST/SSE routes
+│   ├── src/agents/          # LangGraph graph, tools, skills và runtime trace
+│   ├── src/services/        # Profiling, compute, QA, analysis, report, auth
+│   ├── src/workers/         # Durable profiling worker
+│   └── migrations/          # Alembic migrations cho PostgreSQL
+├── frontend/src/app/        # Next.js pages, route handlers và PDF endpoint
+├── frontend/src/components/ # Command Center, chat, review và report UI
+├── tests/                   # Backend, integration, frontend/evaluation tests
+├── docs/                    # Tài liệu kiến trúc, tính năng, vận hành, bảo mật
+├── presentation/            # Pitch deck và tài liệu demo
+├── evaluations/             # Scorecard/report đã sinh
+├── scripts/                 # Migration, security, benchmark và evaluation tools
+├── Dockerfile.*.azure       # Image backend/frontend production
+└── .github/workflows/       # Quality gate và triển khai Azure
 ```
 
-Khi tài liệu và implementation khác nhau, source trong `backend/src/`, `frontend/src/`, migration, test và workflow triển khai là nguồn sự thật. [docs/summary.md](docs/summary.md) ghi rõ known gap và bằng chứng release còn thiếu; không suy diễn staging/production readiness từ benchmark local.
+## API Endpoints
+
+Tất cả router nghiệp vụ dùng prefix `/api/v1`; các endpoint dưới đây là bề mặt chính:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check backend (không có prefix) |
+| POST | `/api/v1/datasets/upload` | Upload dataset vào canonical storage |
+| POST | `/api/v1/datasets/{dataset_id}/profile` | Enqueue một profiling run (HTTP 202) |
+| GET | `/api/v1/profiling-jobs/{job_id}/events` | SSE trạng thái profiling job |
+| PATCH | `/api/v1/profile/{run_id}/confirm` | Confirm/reject/edit proposal hoặc resume run |
+| POST | `/api/v1/qa` | Hỏi đáp có evidence, trả JSON |
+| POST | `/api/v1/qa/stream` | Hỏi đáp và tiến trình qua `chat_stream.v1` SSE |
+| POST | `/api/v1/profile/{run_id}/explorer/previews` | Chạy bounded Preview |
+| POST | `/api/v1/profile/{run_id}/explorer/previews/{preview_id}/promote` | Promote Preview thành Official |
+| POST | `/api/v1/profile/{run_id}/drift` | So sánh drift giữa hai Profile Run |
+| POST | `/api/v1/reports/{report_id}/snapshots` | Tạo snapshot report bất biến |
+
+Request cần bearer/workspace context phù hợp; production không cho browser truy cập trực tiếp bảng PostgreSQL qua Supabase Data API.
+
+## Deliverables Checklist
+
+- [x] Source Code (GitHub)
+- [x] README theo format dự án
+- [x] Architecture và technical documentation (`docs/`, `ARCHITECTURE.md`)
+- [x] AI logs, evidence và evaluation harness
+- [x] Pitch deck (`presentation/`)
+- [x] Weekly journal và worklog (`worklog/`)
+- [ ] Release evidence staging được ủy quyền trên commit hiện tại
+- [ ] Video demo và live URL production (nếu cần cho đợt bàn giao)
+
+## Team
+
+| Member | Role | Student ID |
+|--------|------|-----------|
+| Vũ Nguyễn Bảo Sơn | Product Manager - Lead Team | 2A202601116 |
+| Phạm Thế Đăng | Web Developer | 2A202601766 |
+| Nguyễn Minh Hiếu | AI Engineer | 2A202601154 |
+| Phạm Thị Thùy Linh | Data Engineer, DevOps | 2A202601181 |
+
+## License
+
+MIT

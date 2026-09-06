@@ -1,6 +1,6 @@
 # Migration cơ sở dữ liệu
 
-> Đã kiểm tra theo chuỗi migration hiện có ngày 2026-09-01.
+> Đã kiểm tra theo chuỗi migration hiện có ngày 2026-09-03.
 
 Alembic là nguồn sự thật schema cho production. Migration hiện là một chuỗi tuyến tính từ baseline `20260812_0000` đến head `20260901_0026`.
 

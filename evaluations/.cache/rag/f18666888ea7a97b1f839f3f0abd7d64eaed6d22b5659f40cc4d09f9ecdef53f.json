@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Rủi ro chất lượng đáng chú ý nhất là cột trang_thai_on_dinh có giá trị không đổi.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Nêu một rủi ro nổi bật từ Profile Run, gắn đúng cột trang_thai_on_dinh.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

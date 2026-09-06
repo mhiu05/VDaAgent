@@ -82,9 +82,13 @@ class ProfilingState(TypedDict, total=False):
     question_type: QuestionType | None
     # Ngữ cảnh router thu được: cột được nhắc tên, danh sách cột khả dụng.
     qa_context: dict[str, Any]
+    # Request-scoped, already-authorized profile projection. It lets the API
+    # reuse one set of metadata reads while building the final envelope.
+    profile_context: dict[str, Any]
     selected_skill: str | None
     answer: str
     answer_sources: list[dict[str, Any]]
+    evidence_status: Literal["verified", "profile_only", "no_evidence"]
     # Request-local controls used only by the non-checkpointed QA graph.
     # They must never be persisted as conversation content.
     progress_callback: Any
@@ -155,7 +159,9 @@ def initial_profiling_state(
         risk_warnings=[],
         question=question,
         qa_context={},
+        profile_context={},
         answer_sources=[],
+        evidence_status="no_evidence",
         tool_calls=0,
         error=None,
         error_code=None,
@@ -189,8 +195,10 @@ def initial_qa_state(
         requested_by=requested_by,
         question_type=None,
         qa_context={},
+        profile_context={},
         answer="",
         answer_sources=[],
+        evidence_status="no_evidence",
         tool_calls=0,
         error=None,
         error_code=None,

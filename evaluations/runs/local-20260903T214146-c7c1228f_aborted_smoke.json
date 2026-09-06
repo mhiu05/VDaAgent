@@ -1,0 +1,7 @@
+{
+  "environment": "local",
+  "phase": "smoke",
+  "status": "ABORTED_INFRASTRUCTURE_RETRY",
+  "summary": "All four synthetic profiles completed. The runner was stopped during QA because SSE keepalive frames were not subject to an end-to-end case deadline. The harness now records a bounded timeout and checkpoints raw results after every case.",
+  "timestamp": "2026-09-03T14:53:31.000000+00:00"
+}

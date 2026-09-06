@@ -1,0 +1,2110 @@
+{
+  "acceptance": {
+    "gate_basis": "lower bound of Wilson 95% confidence interval",
+    "gates": {
+      "context_precision": true,
+      "context_recall": false,
+      "evidence_grounded_faithfulness": true,
+      "faithfulness": true
+    },
+    "status": "FAIL",
+    "thresholds": {
+      "context_precision": 0.6,
+      "context_recall": 0.8,
+      "evidence_grounded_faithfulness": 0.8,
+      "faithfulness": 0.8
+    }
+  },
+  "aggregation": "micro claim/context ratios; macro case means retained as diagnostics",
+  "case_count": 30,
+  "confidence": {
+    "context_precision": {
+      "ci95": [
+        0.895727,
+        1
+      ],
+      "ci_method": "wilson_score_95",
+      "mean": 1.0,
+      "n": 33,
+      "std": 0.0
+    },
+    "context_recall": {
+      "ci95": [
+        0.770392,
+        0.969535
+      ],
+      "ci_method": "wilson_score_95",
+      "mean": 0.911765,
+      "n": 34,
+      "std": 0.283637
+    },
+    "evidence_grounded_faithfulness": {
+      "ci95": [
+        0.916198,
+        1
+      ],
+      "ci_method": "wilson_score_95",
+      "mean": 1.0,
+      "n": 42,
+      "std": 0.0
+    },
+    "faithfulness": {
+      "ci95": [
+        0.916198,
+        1
+      ],
+      "ci_method": "wilson_score_95",
+      "mean": 1.0,
+      "n": 42,
+      "std": 0.0
+    }
+  },
+  "conservative_metrics": {
+    "context_precision": 0.895727,
+    "context_recall": 0.770392,
+    "evidence_grounded_faithfulness": 0.916198,
+    "faithfulness": 0.916198
+  },
+  "context_capture": "product-routed exact tool results or vector evidence payload; vector fallback is reconstructed with identical product quotas and ordering from exact retrieval hits",
+  "language": "vi-VN",
+  "macro_metrics": {
+    "context_precision": 1.0,
+    "context_recall": 0.95,
+    "evidence_grounded_faithfulness": 1.0,
+    "faithfulness": 1.0
+  },
+  "metrics": {
+    "context_precision": 1.0,
+    "context_recall": 0.911765,
+    "evidence_grounded_faithfulness": 1.0,
+    "faithfulness": 1.0
+  },
+  "micro_counts": {
+    "context_precision": {
+      "passed": 33,
+      "total": 33
+    },
+    "context_recall": {
+      "passed": 31,
+      "total": 34
+    },
+    "evidence_grounded_faithfulness": {
+      "passed": 42,
+      "total": 42
+    },
+    "faithfulness": {
+      "passed": 42,
+      "total": 42
+    }
+  },
+  "model": "gpt-5.4-mini",
+  "records": [
+    {
+      "answer": "Profile Run có 120 dòng. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Profile Run có 120 dòng.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 120.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-001",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 576,
+          "text_sha256": "e8c0e847780a7e8f515cac5577fbf7f80c54c71e0f78ccf4f34a3dd832635d8f",
+          "title": "get_profile_overview"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Tập khách hàng này có bao nhiêu dòng?"
+    },
+    {
+      "answer": "Cột tuoi có số giá trị thiếu là 3. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột tuoi có số giá trị thiếu là 3.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Cột tuoi có 3 giá trị bị thiếu.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-003",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 358,
+          "text_sha256": "2f64e3469341c19323330fec64c1fd3b146f78c1abd2f00792d2a714a25c9306",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Cột tuoi có bao nhiêu giá trị bị thiếu?"
+    },
+    {
+      "answer": "Cột tinh_thanh có số giá trị phân biệt là 6. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột tinh_thanh có số giá trị phân biệt là 6.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 6 cho cột tinh_thanh.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-006",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 372,
+          "text_sha256": "79f52a4e208eaeb82782c42afa47262928fa39d9151365c138a22f9dea8b08b6",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Cột tinh_thanh có bao nhiêu giá trị phân biệt?"
+    },
+    {
+      "answer": "Có proposal candidate key phù hợp trong Profile Run; proposal này vẫn cần Analyst xác nhận trước khi trở thành metadata chính thức. Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột. [S1] [S2]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Có proposal candidate key phù hợp trong Profile Run.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S2"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          },
+          {
+            "citation_id": "S2",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "ma_khach_hang là một khóa định danh tiềm năng.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1",
+              "S2"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-009",
+      "context_count": 2,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 1955,
+          "text_sha256": "204dd6adb0c4d113075ad866ac65f2b6f41f4554b4077ffb9b8f39e3016ff457",
+          "title": "get_candidate_keys"
+        },
+        {
+          "citation_id": "S2",
+          "evidence_type": "tool",
+          "text_chars": 664,
+          "text_sha256": "ef5119974f8564dbc664223c86f6c80b9c70b2019502894fc18d472f69b53cb0",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 2,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 2,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_tool",
+      "question": "ma_khach_hang có phải là khóa định danh tiềm năng không?"
+    },
+    {
+      "answer": "Profile Run có 0 dòng trùng lặp. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Profile Run có 0 dòng trùng lặp.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 0 và cần nêu bằng chứng từ Profile Run.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-011",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 386,
+          "text_sha256": "6f3bafa52fb739024209985e7e70a7804fec7bced88cb9ec9c0c55284dc49958",
+          "title": "get_duplicate_analysis"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Tập profiling_base có bao nhiêu bản ghi trùng hoàn toàn?"
+    },
+    {
+      "answer": "Cột doanh_thu có trung bình là 3,969,929.412917. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột doanh_thu có trung bình là 3,969,929.412917.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Doanh thu trung bình của tập khách hàng là 3.969.929.412917.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-012",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 371,
+          "text_sha256": "46356c1476754a39dcbf4ea53f6f5b2d4e0ef6511efcc14f5ef2f3bc0cd8fffc",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Doanh thu trung bình của tập khách hàng là bao nhiêu?"
+    },
+    {
+      "answer": "Cột doanh_thu có 3 giá trị bất thường theo phương pháp iqr. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột doanh_thu có 3 giá trị bất thường theo phương pháp iqr.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Theo phương pháp IQR, cột doanh_thu có 3 giá trị bất thường.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-019",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 451,
+          "text_sha256": "aeeac7d39999afb457a9f32294b2b8e5a3532c5725126b0b7560847893e8a3bf",
+          "title": "get_outlier_summary"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Theo phương pháp IQR, cột doanh_thu có bao nhiêu giá trị bất thường?"
+    },
+    {
+      "answer": "Hệ số tương quan Pearson giữa so_don_hang và doanh_thu là 0.404461. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Hệ số tương quan Pearson giữa so_don_hang và doanh_thu là 0.404461.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 0.404461.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-021",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 432,
+          "text_sha256": "f77fc33389de232ce1a50584c7a98988da07da4e607dad4c6fdb459793af3c31",
+          "title": "get_correlation"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Tương quan giữa so_don_hang và doanh_thu là bao nhiêu?"
+    },
+    {
+      "answer": "Các cột có giá trị không đổi trong toàn bộ Profile Run là trang_thai_on_dinh. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Các cột có giá trị không đổi trong toàn bộ Profile Run là trang_thai_on_dinh.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [
+          "direct_support",
+          "explicit_citation_present",
+          "reference_match"
+        ],
+        "reference_claims": [
+          {
+            "claim": "Cột có giá trị không đổi trong toàn bộ tập dữ liệu là trang_thai_on_dinh.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-024",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 2236,
+          "text_sha256": "418ab7193153184708a022f209c38b7da2d6a608c3c5887c14f39cf5bf3a1f03",
+          "title": "list_quality_issues"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_quality_summary",
+      "question": "Cột nào có giá trị không đổi trong toàn bộ tập dữ liệu?"
+    },
+    {
+      "answer": "Rủi ro chất lượng đáng chú ý nhất là cột có giá trị không đổi ở cột trang_thai_on_dinh. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Rủi ro chất lượng đáng chú ý nhất là cột trang_thai_on_dinh có giá trị không đổi.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "trang_thai_on_dinh chỉ có một giá trị.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": true,
+      "case_id": "P170-VI-026",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 2236,
+          "text_sha256": "418ab7193153184708a022f209c38b7da2d6a608c3c5887c14f39cf5bf3a1f03",
+          "title": "list_quality_issues"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_quality_summary",
+      "question": "Hãy nêu một rủi ro chất lượng dữ liệu đáng chú ý nhất, dựa trên Profile Run."
+    },
+    {
+      "answer": "Cột email được nhận diện có kiểu ngữ nghĩa email; trạng thái proposal là confirmed. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột email được nhận diện có kiểu ngữ nghĩa email.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Trạng thái proposal là confirmed.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Cột email được nhận diện là email.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-027",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 854,
+          "text_sha256": "810e9f5cf10ce1c2b9564ad2d79471919f52540010c9031ef52a3f5ce7862af3",
+          "title": "get_semantic_types"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "tool_llm",
+      "question": "Cột email nên được nhận diện là kiểu ngữ nghĩa nào?"
+    },
+    {
+      "answer": "Có. Cột so_dien_thoai được đánh giá là dữ liệu nhạy cảm loại phone (định danh trực tiếp); trạng thái proposal là confirmed. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột so_dien_thoai được đánh giá là dữ liệu nhạy cảm loại phone.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Trạng thái proposal là confirmed.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là phone.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-028",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 666,
+          "text_sha256": "5bc38bac7bf6d0aa4304f361d282ab69addc814d3913be103a8127c4df6be0e7",
+          "title": "get_pii_assessment"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "tool_llm",
+      "question": "Cột so_dien_thoai có phải là dữ liệu nhạy cảm không?"
+    },
+    {
+      "answer": "Ưu tiên kiểm tra không có khả năng phân biệt vì là cột hằng ở cột trang_thai_on_dinh trước. Bước tiếp theo cho trang_thai_on_dinh: xác nhận với chủ sở hữu dữ liệu rằng cột này có chủ đích là hằng; nếu không, kiểm tra mapping và nguồn nạp. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "trang_thai_on_dinh là cột hằng.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Profile Run có tín hiệu chất lượng về trang_thai_on_dinh.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "trang_thai_on_dinh là cột hằng.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "chi_tieu_truc_tuyen có 120/120 giá trị phân biệt (cardinality rất cao).",
+            "covered_by_context": false,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": true,
+      "case_id": "P170-VI-031",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 0.5,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 2236,
+          "text_sha256": "418ab7193153184708a022f209c38b7da2d6a608c3c5887c14f39cf5bf3a1f03",
+          "title": "list_quality_issues"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 2,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_quality_summary",
+      "question": "Từ Profile Run, hãy nêu insight ưu tiên để đội dữ liệu kiểm tra tiếp."
+    },
+    {
+      "answer": "Profile Run có 5 dòng. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Profile Run có 5 dòng.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 5.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-033",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 586,
+          "text_sha256": "2f3a814499d3f9ea506221490abc03b713672f62db1a7054dd4e937505cf0162",
+          "title": "get_profile_overview"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_edge_cases",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "216d4da11828405e99a90c25dab6ca00",
+      "qa_path": "deterministic_profile",
+      "question": "Tập dữ liệu biên có bao nhiêu dòng?"
+    },
+    {
+      "answer": "Profile Run có 1 dòng trùng lặp. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Profile Run có 1 dòng trùng lặp.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Số bản ghi trùng hoàn toàn trong profiling_edge_cases là 1.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-034",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 386,
+          "text_sha256": "1984d553d3b5b8c1f80edd8c03d281349f3b6f24b3759bfe80a6cb9c71e884e9",
+          "title": "get_duplicate_analysis"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_edge_cases",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "216d4da11828405e99a90c25dab6ca00",
+      "qa_path": "deterministic_profile",
+      "question": "Trong profiling_edge_cases có bao nhiêu bản ghi trùng hoàn toàn?"
+    },
+    {
+      "answer": "Cột gia_tri_rong có số giá trị thiếu là 5. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột gia_tri_rong có số giá trị thiếu là 5.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Cột gia_tri_rong có 5 giá trị thiếu.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-035",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 374,
+          "text_sha256": "dc21374d8e8173b234eae67a409d0dd4148c04e1c40918f00e6cd13023ac18dc",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_edge_cases",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "216d4da11828405e99a90c25dab6ca00",
+      "qa_path": "deterministic_profile",
+      "question": "Cột gia_tri_rong có bao nhiêu giá trị thiếu?"
+    },
+    {
+      "answer": "Có. Cột cot_hang_so là cột hằng vì mọi giá trị quan sát được đều giống nhau trong Profile Run. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột cot_hang_so là cột hằng.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Mọi giá trị quan sát được của cot_hang_so đều giống nhau trong Profile Run.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là Có.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-036",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 947,
+          "text_sha256": "291281e8498e0a1791dd569f913ab16de79ed3f73ad40866932d5d7e72944daa",
+          "title": "list_quality_issues"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_edge_cases",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "216d4da11828405e99a90c25dab6ca00",
+      "qa_path": "deterministic_quality_summary",
+      "question": "Cột cot_hang_so có phải là cột hằng không?"
+    },
+    {
+      "answer": "Không nên ép cột ngay_co_the thành kiểu ngày chỉ từ mẫu giá trị: proposal hiện tại là categorical với trạng thái confirmed. Các giá trị ngày không hợp lệ phải được parse và kiểm tra riêng; proposal này chưa chứng minh toàn bộ cột hợp lệ. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "The proposal for the column `ngay_co_the` is categorical.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "The proposal for `ngay_co_the` has status confirmed.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [
+          "partial_support",
+          "extra_reference_content_not_supported"
+        ],
+        "reference_claims": [
+          {
+            "claim": "Profiling classifies the column `ngay_co_the` as categorical.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": true,
+      "case_id": "P170-VI-038",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 852,
+          "text_sha256": "1bb7bedd3ce12fd2001ba21d8dff17385239931660bc8d3a2f8905df51016c4b",
+          "title": "get_semantic_types"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_edge_cases",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "216d4da11828405e99a90c25dab6ca00",
+      "qa_path": "tool_llm",
+      "question": "Cột ngay_co_the chứa giá trị ngày không hợp lệ; hãy nêu giới hạn thay vì ép suy luận kiểu dữ liệu."
+    },
+    {
+      "answer": "Không. Chưa có proposal candidate key phù hợp trong evidence của Profile Run. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Không.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Không có proposal candidate key nào trong evidence của Profile Run.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          },
+          {
+            "citation_id": "S2",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là Không.",
+            "covered_by_context": false,
+            "supporting_citation_ids": []
+          },
+          {
+            "claim": "Cần nêu bằng chứng từ Profile Run.",
+            "covered_by_context": false,
+            "supporting_citation_ids": []
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-039",
+      "context_count": 2,
+      "context_precision": 1.0,
+      "context_recall": 0.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 366,
+          "text_sha256": "fe0fa46c6c2973ecd3ff99afb28a2663e165fbf471693102cd0ef81932223bd8",
+          "title": "get_candidate_keys"
+        },
+        {
+          "citation_id": "S2",
+          "evidence_type": "tool",
+          "text_chars": 659,
+          "text_sha256": "742651e7651afd7f475f7f51d7a8832fe1eb2e00743c8b141fc5c7445106454c",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 2,
+        "covered_reference_claims": 0,
+        "reference_claims": 2,
+        "relevant_contexts": 2,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_edge_cases",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "216d4da11828405e99a90c25dab6ca00",
+      "qa_path": "deterministic_tool",
+      "question": "ma_ban_ghi trong dữ liệu biên có phải khóa định danh tiềm năng không?"
+    },
+    {
+      "answer": "Cột email được nhận diện có kiểu ngữ nghĩa email; trạng thái proposal là confirmed. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột email được nhận diện có kiểu ngữ nghĩa email.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Trạng thái proposal là confirmed.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Cột email có kiểu ngữ nghĩa kỳ vọng là email.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-041",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 854,
+          "text_sha256": "6261110dbe68dc2f80fc25167caee7cdabbd0ede13f8d641115528e6f1ad02fc",
+          "title": "get_semantic_types"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_pii",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "e58dfcc36f8240ac8fb777024e28780e",
+      "qa_path": "tool_llm",
+      "question": "Cột email nên được phân loại như thế nào? Không hiển thị giá trị cá nhân thô."
+    },
+    {
+      "answer": "Metric row_count của __dataset__ thay đổi 20. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Metric row_count của __dataset__ thay đổi 20.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 20.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Cần nêu bằng chứng từ Profile Run.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-048",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 5202,
+          "text_sha256": "b45f4c3cbc9de7d297796d012595ac9384b15d167d69274dd641fc999817e557",
+          "title": "get_drift_findings"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 2,
+        "reference_claims": 2,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "drift_v2",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "17fa97a9c28c454589979e2e6ff1179f",
+      "qa_path": "deterministic_profile",
+      "question": "Số dòng thay đổi bao nhiêu từ drift_v1 sang drift_v2?"
+    },
+    {
+      "answer": "Metric mean của gia_tri_giao_dich thay đổi 1,422,400. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Metric mean của gia_tri_giao_dich thay đổi 1,422,400.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là 1.422.400 cho câu hỏi về mức thay đổi trung bình của gia_tri_giao_dich giữa hai phiên bản.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-049",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 1701,
+          "text_sha256": "43418509b119ba8c99b232fbb06047cde8f311d8f724eca0bf63df8120696276",
+          "title": "get_drift_findings"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "drift_v2",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "17fa97a9c28c454589979e2e6ff1179f",
+      "qa_path": "deterministic_profile",
+      "question": "Trung bình gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?"
+    },
+    {
+      "answer": "Giá trị phổ biến nhất của kenh_ban ở phiên bản baseline là `Website`. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Giá trị phổ biến nhất của kenh_ban ở phiên bản baseline là Website.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [
+          "SUPPORTED_BY_CONTEXT",
+          "EVIDENCE_GROUNDED",
+          "REFERENCE_CLAIM_COVERED"
+        ],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng là Website.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-052",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 853,
+          "text_sha256": "8ebb8dd89f52ba6a914bd548687bb6715437b0795b06754648e4252939563d8b",
+          "title": "get_drift_findings"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "drift_v2",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "17fa97a9c28c454589979e2e6ff1179f",
+      "qa_path": "deterministic_profile",
+      "question": "Kênh bán phổ biến nhất ở drift_v1 là gì?"
+    },
+    {
+      "answer": "Hệ số tương quan Pearson giữa doanh_thu và giam_gia là -0.404461. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Hệ số tương quan Pearson giữa doanh_thu và giam_gia là -0.404461.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Tương quan không chứng minh quan hệ nhân quả.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Pearson r giữa doanh_thu và giam_gia là -0.404461.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": true,
+      "case_id": "P170-VI-056",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 427,
+          "text_sha256": "f508d5ca6cd1419bde48647b5af0383fc5fffa312cd813816a1637116f2539df",
+          "title": "get_correlation"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "So sánh doanh_thu và giam_gia: insight nào có thể kiểm chứng từ Profile Run?"
+    },
+    {
+      "answer": "Cột tuoi có số giá trị thiếu là 3. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột tuoi có số giá trị thiếu là 3.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Giá trị thiếu của cột tuoi là 3.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-057",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 358,
+          "text_sha256": "2f64e3469341c19323330fec64c1fd3b146f78c1abd2f00792d2a714a25c9306",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Hãy dùng dữ liệu đã profile để kiểm tra missingness của tuoi và dẫn evidence."
+    },
+    {
+      "answer": "Cột ma_chi_nhanh có số giá trị phân biệt là 3. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột ma_chi_nhanh có số giá trị phân biệt là 3.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Số giá trị phân biệt của cột ma_chi_nhanh là 3.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-072",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 376,
+          "text_sha256": "93c2f9df2d35e95932defc3868995fc699bd7c501f4d9300cafe3fa60f64bd37",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Có bao nhiêu giá trị phân biệt ở ma_chi_nhanh?"
+    },
+    {
+      "answer": "Hệ số tương quan Pearson giữa so_don_hang và chi_tieu_truc_tuyen là 0.985823. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Hệ số tương quan Pearson giữa so_don_hang và chi_tieu_truc_tuyen là 0.985823.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "Kết quả kỳ vọng cho tương quan giữa so_don_hang và chi_tieu_truc_tuyen là 0.985823.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-077",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 452,
+          "text_sha256": "7d2b508ac27bd789f08a1d354a37c3365ee742e91874c44af09fa102a720cb3a",
+          "title": "get_correlation"
+        }
+      ],
+      "counts": {
+        "answer_claims": 1,
+        "cited_supported_answer_claims": 1,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 1
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_profile",
+      "question": "Tương quan giữa so_don_hang và chi_tieu_truc_tuyen là bao nhiêu?"
+    },
+    {
+      "answer": "Có proposal candidate key phù hợp trong Profile Run; proposal này vẫn cần Analyst xác nhận trước khi trở thành metadata chính thức. Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột. [S1] [S2]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Có proposal candidate key phù hợp trong Profile Run cho cột ma_khach_hang.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S2"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          },
+          {
+            "citation_id": "S2",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [
+          "excluded_procedural_next_step",
+          "excluded_nonfactual_metadata_confirmation"
+        ],
+        "reference_claims": [
+          {
+            "claim": "ma_khach_hang là candidate key.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-079",
+      "context_count": 2,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 1955,
+          "text_sha256": "204dd6adb0c4d113075ad866ac65f2b6f41f4554b4077ffb9b8f39e3016ff457",
+          "title": "get_candidate_keys"
+        },
+        {
+          "citation_id": "S2",
+          "evidence_type": "tool",
+          "text_chars": 664,
+          "text_sha256": "ef5119974f8564dbc664223c86f6c80b9c70b2019502894fc18d472f69b53cb0",
+          "title": "get_column_profile"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 2,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 2,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_tool",
+      "question": "Hãy xác nhận ma_khach_hang là candidate key và kèm bằng chứng."
+    },
+    {
+      "answer": "Hai điểm cần chú ý: 1) không có khả năng phân biệt vì là cột hằng ở cột trang_thai_on_dinh; 2) cardinality rất cao ở cột chi_tieu_truc_tuyen. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "trang_thai_on_dinh là cột hằng",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "chi_tieu_truc_tuyen có cardinality rất cao",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [
+          "answer_contains_supported_factual_claims_and_nonclaim_epistemic_language",
+          "reference_evidence_is_directly_supported_by_retrieved_profile_issue_context"
+        ],
+        "reference_claims": [
+          {
+            "claim": "trang_thai_on_dinh là cột hằng",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "chi_tieu_truc_tuyen có 120/120 giá trị phân biệt (cardinality rất cao)",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": true,
+      "case_id": "P170-VI-080",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 2236,
+          "text_sha256": "418ab7193153184708a022f209c38b7da2d6a608c3c5887c14f39cf5bf3a1f03",
+          "title": "list_quality_issues"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 2,
+        "reference_claims": 2,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_base",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "bd5d18f494be43968a1f2e1811224c89",
+      "qa_path": "deterministic_quality_summary",
+      "question": "Liệt kê ngắn gọn hai điểm cần chú ý trước khi dùng tập này cho phân tích doanh thu."
+    },
+    {
+      "answer": "Có. Cột ma_buu_chinh được đánh giá là dữ liệu nhạy cảm loại quasi_identifier (quasi-identifier); trạng thái proposal là derived. [S1]",
+      "assessment": {
+        "answer_claims": [
+          {
+            "claim": "Cột ma_buu_chinh được đánh giá là dữ liệu nhạy cảm loại quasi_identifier.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          },
+          {
+            "claim": "Trạng thái của đề xuất (proposal) là derived.",
+            "evidence_grounded": true,
+            "supported_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ],
+        "contexts": [
+          {
+            "citation_id": "S1",
+            "relevant": true
+          }
+        ],
+        "reason_codes": [],
+        "reference_claims": [
+          {
+            "claim": "ma_buu_chinh là quasi_identifier.",
+            "covered_by_context": true,
+            "supporting_citation_ids": [
+              "S1"
+            ]
+          }
+        ]
+      },
+      "cache_hit": false,
+      "case_id": "P170-VI-083",
+      "context_count": 1,
+      "context_precision": 1.0,
+      "context_recall": 1.0,
+      "contexts": [
+        {
+          "citation_id": "S1",
+          "evidence_type": "tool",
+          "text_chars": 611,
+          "text_sha256": "4c8521bb812c4a8d3fe7fd2f9381aaaf4a5e58317d1588581bb7d301e31db342",
+          "title": "get_pii_assessment"
+        }
+      ],
+      "counts": {
+        "answer_claims": 2,
+        "cited_supported_answer_claims": 2,
+        "contexts": 1,
+        "covered_reference_claims": 1,
+        "reference_claims": 1,
+        "relevant_contexts": 1,
+        "supported_answer_claims": 2
+      },
+      "dataset": "profiling_pii",
+      "evidence_grounded_faithfulness": 1.0,
+      "evidence_status": "verified",
+      "faithfulness": 1.0,
+      "profile_run_id": "e58dfcc36f8240ac8fb777024e28780e",
+      "qa_path": "tool_llm",
+      "question": "ma_buu_chinh trong tập PII là định danh trực tiếp hay quasi-identifier?"
+    }
+  ],
+  "run_id": "run-20260905T001300-full-openai-final-r3",
+  "schema_version": "p170-rag-eval-v2",
+  "scope": "focused_synthetic_rag",
+  "status": "EVALUATED",
+  "store": false,
+  "timestamp": "2026-09-04T22:15:07.129473+00:00"
+}

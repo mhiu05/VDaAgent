@@ -1,0 +1,10 @@
+{
+  "attempted_at": "2026-09-03T11:08:07.261532+00:00",
+  "error_type": "HTTPStatusError",
+  "mode": "production",
+  "production_target": "https://vdaagent-api.azurewebsites.net/api/v1",
+  "requested_cases": 83,
+  "status": "FAILED_AUTH",
+  "summary": "A previously configured bearer token was rejected with HTTP 401 before any benchmark workspace or dataset was created.",
+  "workspace_name": "benchmark-prod-20260903"
+}

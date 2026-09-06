@@ -1,0 +1,9 @@
+{
+  "classification_counts": {},
+  "language": "vi-VN",
+  "mo_ta": "Phân loại từ lỗi SSE quan sát được; không suy diễn nguyên nhân nội bộ khi trace không công bố error detail.",
+  "records": [],
+  "run_id": "run-20260904T202200-targeted-p037-v1",
+  "thoi_diem": "2026-09-04T13:24:49.761013+00:00",
+  "total_sse_failures": 0
+}

@@ -1,0 +1,14 @@
+{
+  "decision": "pass",
+  "groundedness": 5,
+  "helpfulness": 5,
+  "reason_codes": [
+    "exact_citation_S1",
+    "states_no_causality",
+    "matches_verified_correlation",
+    "no_unsupported_claims"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 5
+}

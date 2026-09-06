@@ -1,0 +1,13 @@
+{
+  "datasets": [
+    "profiling_base.csv",
+    "profiling_edge_cases.csv",
+    "profiling_pii.csv",
+    "drift_v1.csv",
+    "drift_v2.csv"
+  ],
+  "language": "vi-VN",
+  "mo_ta": "Dữ liệu giả lập theo ngữ cảnh khách hàng và giao dịch tại Việt Nam; không dùng dữ liệu cá nhân thật.",
+  "seed": 1702026,
+  "synthetic_only": true
+}

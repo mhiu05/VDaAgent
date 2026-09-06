@@ -1,0 +1,953 @@
+{
+  "agentic": {
+    "agentic_request_count": 7,
+    "language": "vi-VN",
+    "mo_ta": "Trace LangSmith được map chính xác về case bằng agent_run_id. Tool/route metadata quan sát được được chấm tổng hợp; không quan sát không bị tính là FAIL. Tool Selection và parameter accuracy nghiêm ngặt vẫn NOT_EVALUATED khi case không có oracle tool/giá trị param chính xác.",
+    "route_observability_rate": 1.0,
+    "route_observable_requests": 7,
+    "routing_accuracy": 1.0,
+    "routing_eligible_requests": 7,
+    "scores": [
+      {
+        "case_id": "P170-VI-030",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": false,
+        "parameter_accuracy_pass": null,
+        "route": "retrieval_fallback",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": false,
+        "tool_observed": false,
+        "tool_parameter_observed": false,
+        "tool_selection_eligible": false,
+        "tool_selection_pass": null,
+        "tool_success": null
+      },
+      {
+        "case_id": "P170-VI-031",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": false,
+        "parameter_accuracy_pass": null,
+        "route": "deterministic_quality_summary",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": true,
+        "tool_observed": true,
+        "tool_parameter_observed": true,
+        "tool_selection_eligible": true,
+        "tool_selection_pass": true,
+        "tool_success": true
+      },
+      {
+        "case_id": "P170-VI-038",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": true,
+        "parameter_accuracy_pass": true,
+        "route": "tool_llm",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": true,
+        "tool_observed": true,
+        "tool_parameter_observed": true,
+        "tool_selection_eligible": true,
+        "tool_selection_pass": true,
+        "tool_success": true
+      },
+      {
+        "case_id": "P170-VI-055",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": false,
+        "parameter_accuracy_pass": null,
+        "route": "retrieval_fallback",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": false,
+        "tool_observed": false,
+        "tool_parameter_observed": false,
+        "tool_selection_eligible": false,
+        "tool_selection_pass": null,
+        "tool_success": null
+      },
+      {
+        "case_id": "P170-VI-056",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": true,
+        "parameter_accuracy_pass": true,
+        "route": "deterministic_profile",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": true,
+        "tool_observed": true,
+        "tool_parameter_observed": true,
+        "tool_selection_eligible": true,
+        "tool_selection_pass": true,
+        "tool_success": true
+      },
+      {
+        "case_id": "P170-VI-056",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": true,
+        "parameter_accuracy_pass": true,
+        "route": "deterministic_profile",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": true,
+        "tool_observed": true,
+        "tool_parameter_observed": true,
+        "tool_selection_eligible": true,
+        "tool_selection_pass": true,
+        "tool_success": true
+      },
+      {
+        "case_id": "P170-VI-056",
+        "mo_ta": "Không tính routing/tool selection là FAIL khi public response không cung cấp đủ telemetry.",
+        "parameter_accuracy_eligible": true,
+        "parameter_accuracy_pass": true,
+        "route": "deterministic_profile",
+        "routing_eligible": true,
+        "routing_pass": true,
+        "status": "EVALUATED",
+        "tool_observability_eligible": true,
+        "tool_observed": true,
+        "tool_parameter_observed": true,
+        "tool_selection_eligible": true,
+        "tool_selection_pass": true,
+        "tool_success": true
+      }
+    ],
+    "status": "EVALUATED",
+    "tool_correct_cases": 5,
+    "tool_observability_rate": 1.0,
+    "tool_observable_cases": 3,
+    "tool_observable_requests": 5,
+    "tool_parameter_accuracy": 1.0,
+    "tool_parameter_accuracy_eligible_requests": 4,
+    "tool_parameter_observability_rate": 1.0,
+    "tool_required_cases": 69,
+    "tool_required_requests": 5,
+    "tool_selection_accuracy": 1.0,
+    "tool_selection_eligible_requests": 5,
+    "tool_success_rate_given_observed": 1.0,
+    "trace_mapping_status": "EXACT_AGENT_RUN_ID_MAPPING",
+    "trajectory_efficiency": null
+  },
+  "answer_relevancy": {
+    "aggregation": {
+      "by_category": {
+        "Khôi phục và xử lý lỗi": {
+          "max": 0.567159,
+          "mean": 0.567159,
+          "median": 0.567159,
+          "min": 0.567159,
+          "n": 1,
+          "std": 0.0
+        },
+        "Phân tích và insight": {
+          "max": 0.528482,
+          "mean": 0.526767,
+          "median": 0.528482,
+          "min": 0.521622,
+          "n": 4,
+          "std": 0.00343
+        },
+        "Yêu cầu biểu đồ": {
+          "max": 0.722081,
+          "mean": 0.715747,
+          "median": 0.715747,
+          "min": 0.709413,
+          "n": 2,
+          "std": 0.008958
+        }
+      },
+      "by_difficulty": {
+        "Khó": {
+          "max": 0.528482,
+          "mean": 0.528482,
+          "median": 0.528482,
+          "min": 0.528482,
+          "n": 3,
+          "std": 0.0
+        },
+        "Trung bình": {
+          "max": 0.722081,
+          "mean": 0.630069,
+          "median": 0.638286,
+          "min": 0.521622,
+          "n": 4,
+          "std": 0.100797
+        }
+      },
+      "overall": {
+        "max": 0.722081,
+        "mean": 0.586532,
+        "median": 0.528482,
+        "min": 0.521622,
+        "n": 7,
+        "std": 0.089602
+      }
+    },
+    "eligible_requests": 7,
+    "evaluator_configuration": {
+      "api_key_configured": true,
+      "model": "voyage-3.5",
+      "provider": "voyage"
+    },
+    "method": "Voyage voyage-3.5 query-document cosine; không so sánh trực tiếp với thang RAGAS.",
+    "reason": "Đo semantic alignment trực tiếp giữa question và answer; không cần retrieved context.",
+    "records": [
+      {
+        "attempt": 1,
+        "case_id": "P170-VI-030",
+        "score": 0.709413
+      },
+      {
+        "attempt": 1,
+        "case_id": "P170-VI-031",
+        "score": 0.521622
+      },
+      {
+        "attempt": 1,
+        "case_id": "P170-VI-038",
+        "score": 0.567159
+      },
+      {
+        "attempt": 1,
+        "case_id": "P170-VI-055",
+        "score": 0.722081
+      },
+      {
+        "attempt": 1,
+        "case_id": "P170-VI-056",
+        "score": 0.528482
+      },
+      {
+        "attempt": 2,
+        "case_id": "P170-VI-056",
+        "score": 0.528482
+      },
+      {
+        "attempt": 3,
+        "case_id": "P170-VI-056",
+        "score": 0.528482
+      }
+    ],
+    "score": 0.586532,
+    "status": "EVALUATED"
+  },
+  "azure_production_execution": false,
+  "benchmark_case_count": 83,
+  "benchmark_quality": "production-grade",
+  "benchmark_version": "p170-vi-v2",
+  "cases_attempted": 5,
+  "environment": "local",
+  "evidence_source_coverage": {
+    "eligible_requests": 5,
+    "method": "Public answer source policy theo đúng case_id/attempt",
+    "observed_requests": 5,
+    "reason": "Tỷ lệ response bắt buộc evidence có nguồn công khai và evidence_status=verified; case abstain/clarify/guardrail không nằm trong mẫu số.",
+    "score": 1.0,
+    "status": "EVALUATED"
+  },
+  "execution_environment": "local",
+  "failure_count": 0,
+  "gemini_model_catalog": {
+    "method": "Gemini Models API list",
+    "models": [],
+    "reason": "GEMINI_AUTH_FAILED",
+    "status": "FAILED"
+  },
+  "gemini_selected_judge_model": null,
+  "grader_audit": {
+    "grader_agreement_rate": 1.0,
+    "language": "vi-VN",
+    "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+    "records": [
+      {
+        "actual_answer": "Nên dùng biểu đồ cột cho doanh_thu tổng hợp theo tinh_thanh để so sánh mức giữa các tinh_thanh; nếu cần xem phân phối từng bản ghi, dùng thêm box plot doanh_thu theo tinh_thanh.",
+        "agreement": true,
+        "case_id": "P170-VI-030",
+        "category_vi": "Yêu cầu biểu đồ",
+        "evidence_observed": true,
+        "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+        "question": "Nên dùng biểu đồ nào để so sánh doanh_thu theo tinh_thanh?",
+        "recomputed_verdict": true,
+        "status_code": 200,
+        "stored_verdict": true
+      },
+      {
+        "actual_answer": "Hai điểm cần chú ý: 1) không có khả năng phân biệt vì là cột hằng ở cột trang_thai_on_dinh; 2) cardinality rất cao ở cột chi_tieu_truc_tuyen. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [S1]",
+        "agreement": true,
+        "case_id": "P170-VI-031",
+        "category_vi": "Phân tích và insight",
+        "evidence_observed": true,
+        "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+        "question": "Từ Profile Run, hãy nêu insight ưu tiên để đội dữ liệu kiểm tra tiếp.",
+        "recomputed_verdict": true,
+        "status_code": 200,
+        "stored_verdict": true
+      },
+      {
+        "actual_answer": "Không nên ép cột ngay_co_the thành kiểu ngày chỉ từ mẫu giá trị: proposal hiện tại là categorical với trạng thái confirmed. Các giá trị ngày không hợp lệ phải được parse và kiểm tra riêng; proposal này chưa chứng minh toàn bộ cột hợp lệ. [S1]",
+        "agreement": true,
+        "case_id": "P170-VI-038",
+        "category_vi": "Khôi phục và xử lý lỗi",
+        "evidence_observed": true,
+        "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+        "question": "Cột ngay_co_the chứa giá trị ngày không hợp lệ; hãy nêu giới hạn thay vì ép suy luận kiểu dữ liệu.",
+        "recomputed_verdict": true,
+        "status_code": 200,
+        "stored_verdict": true
+      },
+      {
+        "actual_answer": "Nên dùng biểu đồ cột chồng 100%: trục x là tinh_thanh, phần chồng là nhom_khach_hang; cách này so sánh tỷ trọng giữa các tinh_thanh trực tiếp. Nếu có nhiều nhóm, bổ sung heatmap để tránh nhãn chồng lấn.",
+        "agreement": true,
+        "case_id": "P170-VI-055",
+        "category_vi": "Yêu cầu biểu đồ",
+        "evidence_observed": true,
+        "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+        "question": "Hãy đề xuất biểu đồ phù hợp để theo dõi tỷ trọng nhom_khach_hang theo tinh_thanh.",
+        "recomputed_verdict": true,
+        "status_code": 200,
+        "stored_verdict": true
+      },
+      {
+        "actual_answer": "Hệ số tương quan Pearson giữa doanh_thu và giam_gia là -0.404461. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+        "agreement": true,
+        "case_id": "P170-VI-056",
+        "category_vi": "Phân tích và insight",
+        "evidence_observed": true,
+        "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+        "question": "So sánh doanh_thu và giam_gia: insight nào có thể kiểm chứng từ Profile Run?",
+        "recomputed_verdict": true,
+        "status_code": 200,
+        "stored_verdict": true
+      }
+    ],
+    "sample_counts": {
+      "edge_safety_tool": 0,
+      "fail": 0,
+      "pass": 5,
+      "unique_audited": 5
+    },
+    "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+  },
+  "judge_calibration": {
+    "status": "NOT_EVALUATED"
+  },
+  "language": "vi-VN",
+  "llm_judge": {
+    "calibration": {
+      "status": "NOT_EVALUATED"
+    },
+    "judge_calls_attempted": 0,
+    "judge_cases": 0,
+    "judge_configuration": {
+      "api_key_configured": true,
+      "model": null,
+      "model_selection_policy": "Discover generateContent models; prefer stable Pro, then stable Flash, then highest version.",
+      "provider": "gemini",
+      "requested_model": null,
+      "response_format": "application/json",
+      "response_schema": "JudgeResult",
+      "rubric_version": "p170-llm-judge-rubric-v1",
+      "same_provider_model_family_as_agent": true,
+      "temperature": 0
+    },
+    "language": "vi-VN",
+    "model_catalog": {
+      "method": "Gemini Models API list",
+      "models": [],
+      "reason": "GEMINI_AUTH_FAILED",
+      "status": "FAILED"
+    },
+    "model_list_calls_attempted": 1,
+    "reason": "GEMINI_AUTH_FAILED",
+    "rubric_version": "p170-llm-judge-rubric-v1",
+    "scores": [],
+    "status": "FAILED"
+  },
+  "north_star": {
+    "eligible_cases": 5,
+    "verified_task_completion_pass_count": 5,
+    "verified_task_completion_rate": 1.0
+  },
+  "numeric_answer_accuracy": null,
+  "numeric_audit": {
+    "actual_wrong_number_count": 0,
+    "classification_counts": {},
+    "correct_numeric_requests": 0,
+    "corrected_numeric_accuracy": null,
+    "format_normalization_count": 0,
+    "language": "vi-VN",
+    "mo_ta": "Metric request-level giữ SSE tách khỏi câu trả lời sai; không rerun agent để audit parser.",
+    "numeric_answer_accuracy_given_successful_execution": null,
+    "numeric_eligible_cases": 0,
+    "numeric_eligible_requests": 0,
+    "numeric_evidence_consistency": null,
+    "numeric_evidence_consistency_eligible_requests": 0,
+    "numeric_evidence_consistent_requests": 0,
+    "numeric_exact_match_rate": null,
+    "numeric_extraction_coverage": null,
+    "numeric_extraction_coverage_given_successful_execution": null,
+    "numeric_task_success_rate": null,
+    "numeric_tolerance_match_rate": null,
+    "original_numeric_accuracy": null,
+    "parser_failure_count": 0,
+    "percentage_normalization_count": 0,
+    "records": [],
+    "run_id": "run-20260904T223100-targeted-source-policy-v2",
+    "sse_related_count": 0,
+    "thoi_diem": "2026-09-04T15:31:12.760232+00:00",
+    "unit_normalization_count": 0,
+    "wrong_binding_count": 0
+  },
+  "numeric_extraction_coverage": null,
+  "numeric_task_success_rate": null,
+  "overall_status": "DRAFT_NOT_APPROVED",
+  "performance": {
+    "error_rate": 0.0,
+    "language": "vi-VN",
+    "mean_latency_ms": 8557.873,
+    "mean_ttft_ms": 8044.384,
+    "mo_ta": "Chỉ đo latency QA trên local; không gồm upload, profiling setup hoặc khởi tạo benchmark.",
+    "p50_latency_ms": 8331.758,
+    "p95_latency_ms": 11456.239,
+    "request_count": 7,
+    "status": "EVALUATED"
+  },
+  "production_evidence": false,
+  "rag": {
+    "answer_relevancy": {
+      "aggregation": {
+        "by_category": {
+          "Khôi phục và xử lý lỗi": {
+            "max": 0.567159,
+            "mean": 0.567159,
+            "median": 0.567159,
+            "min": 0.567159,
+            "n": 1,
+            "std": 0.0
+          },
+          "Phân tích và insight": {
+            "max": 0.528482,
+            "mean": 0.526767,
+            "median": 0.528482,
+            "min": 0.521622,
+            "n": 4,
+            "std": 0.00343
+          },
+          "Yêu cầu biểu đồ": {
+            "max": 0.722081,
+            "mean": 0.715747,
+            "median": 0.715747,
+            "min": 0.709413,
+            "n": 2,
+            "std": 0.008958
+          }
+        },
+        "by_difficulty": {
+          "Khó": {
+            "max": 0.528482,
+            "mean": 0.528482,
+            "median": 0.528482,
+            "min": 0.528482,
+            "n": 3,
+            "std": 0.0
+          },
+          "Trung bình": {
+            "max": 0.722081,
+            "mean": 0.630069,
+            "median": 0.638286,
+            "min": 0.521622,
+            "n": 4,
+            "std": 0.100797
+          }
+        },
+        "overall": {
+          "max": 0.722081,
+          "mean": 0.586532,
+          "median": 0.528482,
+          "min": 0.521622,
+          "n": 7,
+          "std": 0.089602
+        }
+      },
+      "eligible_requests": 7,
+      "evaluator_configuration": {
+        "api_key_configured": true,
+        "model": "voyage-3.5",
+        "provider": "voyage"
+      },
+      "method": "Voyage voyage-3.5 query-document cosine; không so sánh trực tiếp với thang RAGAS.",
+      "reason": "Đo semantic alignment trực tiếp giữa question và answer; không cần retrieved context.",
+      "records": [
+        {
+          "attempt": 1,
+          "case_id": "P170-VI-030",
+          "score": 0.709413
+        },
+        {
+          "attempt": 1,
+          "case_id": "P170-VI-031",
+          "score": 0.521622
+        },
+        {
+          "attempt": 1,
+          "case_id": "P170-VI-038",
+          "score": 0.567159
+        },
+        {
+          "attempt": 1,
+          "case_id": "P170-VI-055",
+          "score": 0.722081
+        },
+        {
+          "attempt": 1,
+          "case_id": "P170-VI-056",
+          "score": 0.528482
+        },
+        {
+          "attempt": 2,
+          "case_id": "P170-VI-056",
+          "score": 0.528482
+        },
+        {
+          "attempt": 3,
+          "case_id": "P170-VI-056",
+          "score": 0.528482
+        }
+      ],
+      "score": 0.586532,
+      "status": "EVALUATED"
+    },
+    "context_precision": {
+      "method": "Retrieved chunks + relevance labels",
+      "reason": "Trace đã map chính xác theo agent_run_id nhưng không công bố retrieved chunks/context content; không thể chấm claim-to-context fidelity hoặc relevance của chunk.",
+      "score": null,
+      "status": "NOT_EVALUATED"
+    },
+    "context_recall": {
+      "method": "Retrieved chunks + expected evidence",
+      "reason": "Trace đã map chính xác theo agent_run_id nhưng không công bố retrieved chunks/context content; không thể chấm claim-to-context fidelity hoặc relevance của chunk.",
+      "score": null,
+      "status": "NOT_EVALUATED"
+    },
+    "evidence_grounded_faithfulness": {
+      "method": "Tool/evidence content thực tế",
+      "reason": "answer_sources chỉ có tool metadata, không có nội dung evidence đã dùng để tạo claim; không coi metadata là grounding context.",
+      "score": null,
+      "status": "NOT_EVALUATED"
+    },
+    "evidence_source_coverage": {
+      "eligible_requests": 5,
+      "method": "Public answer source policy theo đúng case_id/attempt",
+      "observed_requests": 5,
+      "reason": "Tỷ lệ response bắt buộc evidence có nguồn công khai và evidence_status=verified; case abstain/clarify/guardrail không nằm trong mẫu số.",
+      "score": 1.0,
+      "status": "EVALUATED"
+    },
+    "faithfulness": {
+      "method": "Retrieved context thực tế",
+      "reason": "Trace đã map chính xác theo agent_run_id nhưng không công bố retrieved chunks/context content; không thể chấm claim-to-context fidelity hoặc relevance của chunk.",
+      "score": null,
+      "status": "NOT_EVALUATED"
+    },
+    "judge_status": "FAILED",
+    "language": "vi-VN",
+    "mo_ta": "Mỗi metric có status và lý do riêng; missing context không được chuyển thành 0.",
+    "status": "PARTIALLY_EVALUATED",
+    "trace_mapping_status": "EXACT_AGENT_RUN_ID_MAPPING"
+  },
+  "release_gates": {
+    "all_gates_pass": false,
+    "approval_scope": "Synthetic staging acceptance policy for the current evidence-first Q&A and chart-planning surfaces. This is not a general production SLO or a substitute for security integration tests.",
+    "gate_version": "p170-eval-gates-v2",
+    "gates": [
+      {
+        "actual": 1.0,
+        "gate": "hard_gate_pass_rate",
+        "status": "pass",
+        "threshold": 1.0
+      },
+      {
+        "actual": 1.0,
+        "gate": "schema_contract_rate",
+        "status": "pass",
+        "threshold": 1.0
+      },
+      {
+        "actual": null,
+        "gate": "privacy_safe_rate",
+        "status": "not_available",
+        "threshold": 1.0
+      },
+      {
+        "actual": null,
+        "gate": "safety_outcome_rate",
+        "status": "not_available",
+        "threshold": 1.0
+      },
+      {
+        "actual": 1.0,
+        "gate": "evidence_binding_rate",
+        "status": "pass",
+        "threshold": 1.0
+      },
+      {
+        "actual": 1.0,
+        "gate": "evidence_source_policy_rate",
+        "status": "pass",
+        "threshold": 1.0
+      },
+      {
+        "actual": 1.0,
+        "gate": "evidence_status_rate",
+        "status": "pass",
+        "threshold": 1.0
+      },
+      {
+        "actual": null,
+        "gate": "numeric_grounding_rate",
+        "status": "not_available",
+        "threshold": 0.98
+      },
+      {
+        "actual": null,
+        "gate": "approximation_rate",
+        "status": "not_available",
+        "threshold": 0.98
+      },
+      {
+        "actual": null,
+        "gate": "insufficient_evidence_rate",
+        "status": "not_available",
+        "threshold": 0.95
+      },
+      {
+        "actual": null,
+        "gate": "forecast_calibration_rate",
+        "status": "not_available",
+        "threshold": 0.95
+      },
+      {
+        "actual": null,
+        "gate": "planner_allowlist_rate",
+        "status": "not_available",
+        "threshold": 1.0
+      },
+      {
+        "actual": null,
+        "gate": "planner_kind_rate",
+        "status": "not_available",
+        "threshold": 1.0
+      },
+      {
+        "actual": 11456.239,
+        "gate": "latency_p95_ms",
+        "status": "pass",
+        "threshold": 30000
+      },
+      {
+        "actual": 0,
+        "gate": "critical_failures",
+        "status": "pass",
+        "threshold": 0
+      }
+    ],
+    "policy_status": "draft_requires_project_owner_approval",
+    "regressions": [
+      {
+        "after": 1.0,
+        "allowed_drop": 0.0,
+        "before": 0.625,
+        "delta": 0.375,
+        "metric": "hard_gate_pass_rate",
+        "status": "pass"
+      },
+      {
+        "after": null,
+        "before": 0.571429,
+        "metric": "numeric_grounding_rate",
+        "status": "not_available"
+      },
+      {
+        "after": null,
+        "before": 0.6,
+        "metric": "insufficient_evidence_rate",
+        "status": "not_available"
+      },
+      {
+        "after": null,
+        "before": null,
+        "metric": "planner_allowlist_rate",
+        "status": "not_available"
+      }
+    ],
+    "release_approval": "NOT_APPROVED",
+    "runtime": "local_synthetic_api",
+    "status": "DRAFT_NOT_APPROVED"
+  },
+  "release_scorecard": {
+    "dataset_version": "p170-vi-v2",
+    "run_id": "run-20260904T223100-targeted-source-policy-v2",
+    "runtime": "local_synthetic_api",
+    "schema_version": "p170-benchmark-scorecard-v1",
+    "summary": {
+      "critical_failures": [],
+      "failed_cases": [],
+      "metrics": {
+        "approximation_rate": null,
+        "evidence_binding_rate": 1.0,
+        "evidence_source_policy_rate": 1.0,
+        "evidence_status_rate": 1.0,
+        "forecast_calibration_rate": null,
+        "hard_gate_pass_rate": 1.0,
+        "insufficient_evidence_rate": null,
+        "numeric_grounding_rate": null,
+        "planner_allowlist_rate": null,
+        "planner_kind_rate": null,
+        "privacy_safe_rate": null,
+        "safety_outcome_rate": null,
+        "schema_contract_rate": 1.0
+      },
+      "telemetry": {
+        "latency_ms": {
+          "p95": 11456.239,
+          "status": "available"
+        }
+      }
+    }
+  },
+  "requests": 7,
+  "route_observability_rate": 1.0,
+  "run_id": "run-20260904T223100-targeted-source-policy-v2",
+  "safety": {
+    "jailbreak_attack_success_rate": null,
+    "language": "vi-VN",
+    "over_refusal_rate": null,
+    "pii_leakage_rate": null,
+    "prompt_injection_attack_success_rate": null,
+    "safe_request_completion_rate": null,
+    "safety_refusal_rate": null,
+    "scores": [
+      {
+        "case_id": "P170-VI-030",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "case_id": "P170-VI-031",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "case_id": "P170-VI-038",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "case_id": "P170-VI-055",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "case_id": "P170-VI-056",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "case_id": "P170-VI-056",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      },
+      {
+        "case_id": "P170-VI-056",
+        "pass": null,
+        "status": "NOT_APPLICABLE"
+      }
+    ],
+    "status": "NOT_EVALUATED"
+  },
+  "scorecard": {
+    "clarification_accuracy": null,
+    "correct_abstention_rate": null,
+    "evidence_binding_accuracy": 1.0,
+    "numeric_accuracy": null
+  },
+  "sse_audit": {
+    "classification_counts": {},
+    "language": "vi-VN",
+    "mo_ta": "Phân loại từ lỗi SSE quan sát được; không suy diễn nguyên nhân nội bộ khi trace không công bố error detail.",
+    "records": [],
+    "run_id": "run-20260904T223100-targeted-source-policy-v2",
+    "thoi_diem": "2026-09-04T15:31:12.763013+00:00",
+    "total_sse_failures": 0
+  },
+  "timestamp": "2026-09-04T15:31:13.112035+00:00",
+  "tom_tat": "Báo cáo local vi-VN; không dùng raw tiếng Anh, không persist secret và không suy diễn metric không quan sát được.",
+  "tool_success_rate_given_observed": 1.0,
+  "top_failure_clusters": [],
+  "trace_observability": {
+    "data_mode": "metadata_only",
+    "exact_case_trace_mapping_count": 7,
+    "exact_case_trace_mapping_coverage": 1.0,
+    "language": "vi-VN",
+    "mapped_records": [
+      {
+        "actual_route": "retrieval_fallback",
+        "agent_run_id": "2e03e4b147e4483b843873a02d2df667",
+        "attempt": 1,
+        "case_id": "P170-VI-030",
+        "duration_ms": 2147.326,
+        "retrieved_context_observable": false,
+        "tool_count": 0,
+        "tools": [],
+        "trace_id": "2e03e4b1-47e4-483b-8438-73a02d2df667",
+        "trace_status": "completed"
+      },
+      {
+        "actual_route": "deterministic_quality_summary",
+        "agent_run_id": "93c9bf7f03a44e9e97c2c8487f1d1840",
+        "attempt": 1,
+        "case_id": "P170-VI-031",
+        "duration_ms": 2439.178,
+        "retrieved_context_observable": false,
+        "tool_count": 1,
+        "tools": [
+          {
+            "parameter_names": [
+              "limit"
+            ],
+            "parameter_values_observed": false,
+            "status": "completed",
+            "tool_name": "list_quality_issues"
+          }
+        ],
+        "trace_id": "93c9bf7f-03a4-4e9e-97c2-c8487f1d1840",
+        "trace_status": "completed"
+      },
+      {
+        "actual_route": "tool_llm",
+        "agent_run_id": "08ad833235164ab4b26377154cd93266",
+        "attempt": 1,
+        "case_id": "P170-VI-038",
+        "duration_ms": 4634.116,
+        "retrieved_context_observable": false,
+        "tool_count": 1,
+        "tools": [
+          {
+            "parameter_names": [
+              "column_name"
+            ],
+            "parameter_values_observed": false,
+            "status": "completed",
+            "tool_name": "get_semantic_types"
+          }
+        ],
+        "trace_id": "08ad8332-3516-4ab4-b263-77154cd93266",
+        "trace_status": "completed"
+      },
+      {
+        "actual_route": "retrieval_fallback",
+        "agent_run_id": "04f5cad21b384ceaba12349d15fab9a8",
+        "attempt": 1,
+        "case_id": "P170-VI-055",
+        "duration_ms": 1420.65,
+        "retrieved_context_observable": false,
+        "tool_count": 0,
+        "tools": [],
+        "trace_id": "04f5cad2-1b38-4cea-ba12-349d15fab9a8",
+        "trace_status": "completed"
+      },
+      {
+        "actual_route": "deterministic_profile",
+        "agent_run_id": "7259ba0e52a94a8cbc211cc69c82d724",
+        "attempt": 1,
+        "case_id": "P170-VI-056",
+        "duration_ms": 2464.205,
+        "retrieved_context_observable": false,
+        "tool_count": 1,
+        "tools": [
+          {
+            "parameter_names": [
+              "column_a",
+              "column_b"
+            ],
+            "parameter_values_observed": false,
+            "status": "completed",
+            "tool_name": "get_correlation"
+          }
+        ],
+        "trace_id": "7259ba0e-52a9-4a8c-bc21-1cc69c82d724",
+        "trace_status": "completed"
+      },
+      {
+        "actual_route": "deterministic_profile",
+        "agent_run_id": "be55e5e581a94d85889be20a8a00907d",
+        "attempt": 2,
+        "case_id": "P170-VI-056",
+        "duration_ms": 2440.401,
+        "retrieved_context_observable": false,
+        "tool_count": 1,
+        "tools": [
+          {
+            "parameter_names": [
+              "column_a",
+              "column_b"
+            ],
+            "parameter_values_observed": false,
+            "status": "completed",
+            "tool_name": "get_correlation"
+          }
+        ],
+        "trace_id": "be55e5e5-81a9-4d85-889b-e20a8a00907d",
+        "trace_status": "completed"
+      },
+      {
+        "actual_route": "deterministic_profile",
+        "agent_run_id": "c8b97a4e0d794f85bb1770eb6e7747bf",
+        "attempt": 3,
+        "case_id": "P170-VI-056",
+        "duration_ms": 2438.447,
+        "retrieved_context_observable": false,
+        "tool_count": 1,
+        "tools": [
+          {
+            "parameter_names": [
+              "column_a",
+              "column_b"
+            ],
+            "parameter_values_observed": false,
+            "status": "completed",
+            "tool_name": "get_correlation"
+          }
+        ],
+        "trace_id": "c8b97a4e-0d79-4f85-bb17-70eb6e7747bf",
+        "trace_status": "completed"
+      }
+    ],
+    "mapping_status": "EXACT_AGENT_RUN_ID_MAPPING",
+    "project": "VDaAgents",
+    "raw_agent_run_id_count": 7,
+    "reason": "Root trace ID equals agent_run_id; no timestamp correlation is used.",
+    "retrieval_contexts_observable": false,
+    "root_trace_count_observed": 14,
+    "route_observable_count": 7,
+    "run_id": "run-20260904T223100-targeted-source-policy-v2",
+    "status": "EVALUATED",
+    "timestamp": "2026-09-04T15:30:52.714213+00:00",
+    "tool_events_observed": 5,
+    "tool_names_observed": {
+      "get_correlation": 3,
+      "get_semantic_types": 1,
+      "list_quality_issues": 1
+    },
+    "tool_params_observable": true
+  }
+}

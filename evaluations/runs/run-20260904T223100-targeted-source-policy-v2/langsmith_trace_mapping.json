@@ -1,0 +1,157 @@
+{
+  "data_mode": "metadata_only",
+  "exact_case_trace_mapping_count": 7,
+  "exact_case_trace_mapping_coverage": 1.0,
+  "language": "vi-VN",
+  "mapped_records": [
+    {
+      "actual_route": "retrieval_fallback",
+      "agent_run_id": "2e03e4b147e4483b843873a02d2df667",
+      "attempt": 1,
+      "case_id": "P170-VI-030",
+      "duration_ms": 2147.326,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "2e03e4b1-47e4-483b-8438-73a02d2df667",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_quality_summary",
+      "agent_run_id": "93c9bf7f03a44e9e97c2c8487f1d1840",
+      "attempt": 1,
+      "case_id": "P170-VI-031",
+      "duration_ms": 2439.178,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "limit"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "list_quality_issues"
+        }
+      ],
+      "trace_id": "93c9bf7f-03a4-4e9e-97c2-c8487f1d1840",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "08ad833235164ab4b26377154cd93266",
+      "attempt": 1,
+      "case_id": "P170-VI-038",
+      "duration_ms": 4634.116,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "08ad8332-3516-4ab4-b263-77154cd93266",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "retrieval_fallback",
+      "agent_run_id": "04f5cad21b384ceaba12349d15fab9a8",
+      "attempt": 1,
+      "case_id": "P170-VI-055",
+      "duration_ms": 1420.65,
+      "retrieved_context_observable": false,
+      "tool_count": 0,
+      "tools": [],
+      "trace_id": "04f5cad2-1b38-4cea-ba12-349d15fab9a8",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "7259ba0e52a94a8cbc211cc69c82d724",
+      "attempt": 1,
+      "case_id": "P170-VI-056",
+      "duration_ms": 2464.205,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_a",
+            "column_b"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_correlation"
+        }
+      ],
+      "trace_id": "7259ba0e-52a9-4a8c-bc21-1cc69c82d724",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "be55e5e581a94d85889be20a8a00907d",
+      "attempt": 2,
+      "case_id": "P170-VI-056",
+      "duration_ms": 2440.401,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_a",
+            "column_b"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_correlation"
+        }
+      ],
+      "trace_id": "be55e5e5-81a9-4d85-889b-e20a8a00907d",
+      "trace_status": "completed"
+    },
+    {
+      "actual_route": "deterministic_profile",
+      "agent_run_id": "c8b97a4e0d794f85bb1770eb6e7747bf",
+      "attempt": 3,
+      "case_id": "P170-VI-056",
+      "duration_ms": 2438.447,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_a",
+            "column_b"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_correlation"
+        }
+      ],
+      "trace_id": "c8b97a4e-0d79-4f85-bb17-70eb6e7747bf",
+      "trace_status": "completed"
+    }
+  ],
+  "mapping_status": "EXACT_AGENT_RUN_ID_MAPPING",
+  "project": "VDaAgents",
+  "raw_agent_run_id_count": 7,
+  "reason": "Root trace ID equals agent_run_id; no timestamp correlation is used.",
+  "retrieval_contexts_observable": false,
+  "root_trace_count_observed": 14,
+  "route_observable_count": 7,
+  "run_id": "run-20260904T223100-targeted-source-policy-v2",
+  "status": "EVALUATED",
+  "timestamp": "2026-09-04T15:30:52.714213+00:00",
+  "tool_events_observed": 5,
+  "tool_names_observed": {
+    "get_correlation": 3,
+    "get_semantic_types": 1,
+    "list_quality_issues": 1
+  },
+  "tool_params_observable": true
+}

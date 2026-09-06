@@ -1,6 +1,6 @@
 # Phân tích và execution có giới hạn
 
-> Đã đối chiếu với analysis schemas/engine/planner hiện tại ngày 2026-09-01.
+> Đã đối chiếu với analysis schemas/engine/planner hiện tại ngày 2026-09-03.
 
 ## Mục đích
 

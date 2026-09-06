@@ -214,3 +214,31 @@ def test_time_or_filter_claim_needs_matching_scope_evidence() -> None:
 
     assert outcome.valid is False
     assert outcome.reason == "unsupported_time_or_filter_scope"
+
+
+def test_negative_correlation_is_bound_to_the_signed_evidence_value() -> None:
+    outcome = validate_answer_evidence(
+        question="Tương quan giữa orders và discount là bao nhiêu?",
+        profile_run_id="run-1",
+        sources=[_source(tool="get_correlation")],
+        tool_results=[
+            {
+                **_result(
+                    artifact="correlation_matrix",
+                    data={
+                        "column_a": "orders",
+                        "column_b": "discount",
+                        "pearson_r": -1.0,
+                    },
+                ),
+                "tool": "get_correlation",
+            }
+        ],
+        answer=(
+            "Hệ số tương quan Pearson giữa orders và discount là -1. "
+            "Tương quan không chứng minh quan hệ nhân quả. [S1]"
+        ),
+    )
+
+    assert outcome.valid is True
+    assert outcome.evidence_status == "verified"

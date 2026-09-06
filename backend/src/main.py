@@ -100,6 +100,30 @@ def _request_correlation_id(request: Request) -> str:
     return supplied if _CORRELATION_ID.fullmatch(supplied) else uuid4().hex
 
 
+def _preflight_supabase_jwks(current_settings: Any) -> bool:
+    """Warm the JWKS cache without making transient network outages fatal.
+
+    Authentication remains fail-closed at request time: if the keys cannot be
+    fetched then, bearer verification is denied. Startup only needs to avoid
+    coupling application availability to a single remote warm-up request.
+    """
+
+    from jwt.exceptions import PyJWKClientConnectionError
+    from src.services.auth import get_jwt_verifier
+
+    try:
+        keys = get_jwt_verifier(current_settings)._jwks_client().get_signing_keys()
+    except (PyJWKClientConnectionError, TimeoutError, OSError):
+        logger.warning(
+            "Supabase JWKS chưa truy cập được lúc khởi động; tiếp tục ở chế độ "
+            "degraded và sẽ thử lại khi xác thực request."
+        )
+        return False
+    if not keys:
+        raise RuntimeError("JWKS không có signing key.")
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> Any:
     """Khởi tạo DB và báo phần cấu hình còn thiếu.
@@ -159,11 +183,7 @@ async def lifespan(app: FastAPI) -> Any:
             )
         if settings.auth_mode == "supabase":
             try:
-                from src.services.auth import get_jwt_verifier
-
-                keys = get_jwt_verifier(settings)._jwks_client().get_signing_keys()
-                if not keys:
-                    raise RuntimeError("JWKS không có signing key.")
+                _preflight_supabase_jwks(settings)
             except Exception as exc:
                 raise RuntimeError(
                     "Không kiểm tra được Supabase JWKS khi khởi động production."

@@ -1,6 +1,6 @@
 # Dataset và profiling
 
-> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-01.
+> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-03.
 
 Dataset là metadata của một nguồn dạng bảng; profile run là một lần phân tích cụ thể trên dataset đó. Một dataset có thể có nhiều run để so sánh theo thời gian.
 

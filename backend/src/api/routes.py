@@ -44,6 +44,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from src.agents.graph import get_qa_graph
+from src.agents.nodes.qa_nodes import question_needs_column_context
 from src.agents.nodes.profiling_nodes import clear_dataframe_cache
 from src.agents.runtime.trace import (
     cancel_agent_run,
@@ -1289,7 +1290,9 @@ def _qa_state(
     agent_run_id: str | None = None,
 ) -> dict[str, Any]:
     columns: list[str] = []
+    column_stats: dict[str, Any] = {}
     execution: dict[str, Any] | None = None
+    profile_context: dict[str, Any] = {}
     if request.profile_run_id:
         repo = get_repository()
         run = repo.get_profile_run(
@@ -1311,7 +1314,21 @@ def _qa_state(
                 status_code=409,
                 detail=http_detail("PROFILE_NOT_READY"),
             )
-        columns = list(repo.get_column_stats(request.profile_run_id).keys())
+        if question_needs_column_context(request.question):
+            column_stats = repo.get_column_stats(request.profile_run_id)
+            columns = list(column_stats.keys())
+        get_dataset = getattr(repo, "get_dataset", None)
+        dataset = (
+            get_dataset(run.get("dataset_id"), workspace_id=context.workspace_id)
+            if run.get("dataset_id") and callable(get_dataset)
+            else {}
+        ) or {}
+        profile_context = {
+            "run": run,
+            "dataset": dataset,
+            "has_pending_proposals": bool(pending),
+            "column_stats": column_stats,
+        }
     if request.analysis_execution_id:
         if not request.profile_run_id:
             raise HTTPException(
@@ -1397,6 +1414,7 @@ def _qa_state(
                 "limitations": execution.get("limitations") or [],
             }
         }
+    state["profile_context"] = profile_context
     return state
 
 
@@ -1500,29 +1518,38 @@ def _qa_answer_envelope(
     deterministic_claims: list[dict[str, Any]] | None = None,
     answerability: str = "answerable",
     clarification: dict[str, Any] | None = None,
+    profile_context: dict[str, Any] | None = None,
 ):
     """Attach immutable context to the additive V2 answer contract."""
 
-    repository = get_repository()
-    run = (
-        repository.get_profile_run(
-            request.profile_run_id, workspace_id=context.workspace_id
+    resolved_context = profile_context or {}
+    if resolved_context:
+        run = resolved_context.get("run") or {}
+        dataset = resolved_context.get("dataset") or {}
+        has_pending_proposals = bool(
+            resolved_context.get("has_pending_proposals")
         )
-        if request.profile_run_id
-        else None
-    ) or {}
-    get_dataset = getattr(repository, "get_dataset", None)
-    dataset = (
-        get_dataset(run.get("dataset_id"), workspace_id=context.workspace_id)
-        if run.get("dataset_id") and callable(get_dataset)
-        else {}
-    ) or {}
-    pending_count = getattr(repository, "pending_count", None)
-    has_pending_proposals = bool(
-        pending_count(request.profile_run_id)
-        if request.profile_run_id and callable(pending_count)
-        else False
-    )
+    else:
+        repository = get_repository()
+        run = (
+            repository.get_profile_run(
+                request.profile_run_id, workspace_id=context.workspace_id
+            )
+            if request.profile_run_id
+            else None
+        ) or {}
+        get_dataset = getattr(repository, "get_dataset", None)
+        dataset = (
+            get_dataset(run.get("dataset_id"), workspace_id=context.workspace_id)
+            if run.get("dataset_id") and callable(get_dataset)
+            else {}
+        ) or {}
+        pending_count = getattr(repository, "pending_count", None)
+        has_pending_proposals = bool(
+            pending_count(request.profile_run_id)
+            if request.profile_run_id and callable(pending_count)
+            else False
+        )
     provenance = AnswerProvenance(
         workspace_id=context.workspace_id,
         dataset_id=run.get("dataset_id"),
@@ -1599,14 +1626,13 @@ async def _ask_question_impl(
         )
     state["agent_run_id"] = agent_run_id
     durable_message_id = _prepare_durable_turn(request, context, request_id=request_id)
-    cache_candidate_value = _cache_candidate_for_request(request, context)
+    profile_context = state.get("profile_context") or {}
+    run = profile_context.get("run") or {}
+    cache_candidate_value = _cache_candidate_for_request(
+        request, context, profile_run=run
+    )
     cached = _cached_answer_for_request(request, context, cache_candidate_value)
     if cached:
-        run = (
-            get_repository().get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
-            if request.profile_run_id
-            else {}
-        ) or {}
         evidence_metadata = _qa_evidence_metadata(
             request,
             agent_run_id=agent_run_id,
@@ -1622,6 +1648,7 @@ async def _ask_question_impl(
             deterministic_claims=cached.get("deterministic_claims"),
             answerability=str(cached.get("answerability") or "answerable"),
             clarification=cached.get("clarification"),
+            profile_context=profile_context,
         )
         verification = _run_independent_verifier(
             request=request, context=context, agent_run_id=agent_run_id, answer=answer,
@@ -1637,7 +1664,13 @@ async def _ask_question_impl(
             answer_envelope=envelope, answer_detail=request.answer_detail,
             answerability=str(cached.get("answerability") or "answerable"),
             clarification=cached.get("clarification"),
-            suggestions=_contextual_suggestions(request, context),
+            suggestions=_contextual_suggestions(
+                request,
+                context,
+                question_type=cached.get("question_type"),
+                answerability=str(cached.get("answerability") or "answerable"),
+                profile_context=profile_context,
+            ),
         )
         ai_latency.set_dimensions(execution_path="semantic_cache", intent=cache_candidate_value.intent, model=get_settings().llm_model, cache_status=str(cached.get("cache_status") or "semantic_hit"))
         ai_latency.set_outcome("success")
@@ -1655,12 +1688,7 @@ async def _ask_question_impl(
             detail=http_detail("SERVER_ERROR"),
         ) from exc
 
-    is_approximate = False
-    if request.profile_run_id:
-        run = get_repository().get_profile_run(
-            request.profile_run_id, workspace_id=context.workspace_id
-        )
-        is_approximate = bool((run or {}).get("is_approximate"))
+    is_approximate = bool(run.get("is_approximate"))
 
     if result.get("error_code"):
         error = chat_error(str(result["error_code"]))
@@ -1709,6 +1737,7 @@ async def _ask_question_impl(
         deterministic_claims=result.get("deterministic_claims"),
         answerability=str(result.get("answerability") or "answerable"),
         clarification=result.get("clarification"),
+        profile_context=profile_context,
     )
     verification = _run_independent_verifier(
         request=request, context=context, agent_run_id=agent_run_id, answer=guarded_answer,
@@ -1735,7 +1764,13 @@ async def _ask_question_impl(
         answer_detail=request.answer_detail,
         answerability=str(result.get("answerability") or ("insufficient_evidence" if evidence_metadata["evidence_status"] == "no_evidence" else "answerable")),
         clarification=result.get("clarification"),
-        suggestions=_contextual_suggestions(request, context),
+        suggestions=_contextual_suggestions(
+            request,
+            context,
+            question_type=result.get("question_type"),
+            answerability=str(result.get("answerability") or "answerable"),
+            profile_context=profile_context,
+        ),
     )
     _store_cached_answer(cache_candidate_value, request=request, context=context, routed=result, answer=guarded_answer, sources=sources)
     complete_agent_run(
@@ -1933,10 +1968,22 @@ def _complete_durable_turn(
         _audit(context, "conversation_message_persist_failed", resource_type="conversation", resource_id=request.conversation_id)
 
 
-def _contextual_suggestions(request: QARequest, context: RequestContext) -> list[ChatSuggestion]:
+def _contextual_suggestions(
+    request: QARequest,
+    context: RequestContext,
+    *,
+    question_type: str | None = None,
+    answerability: str = "answerable",
+    profile_context: dict[str, Any] | None = None,
+) -> list[ChatSuggestion]:
+    if question_type in {"clarify", "guardrail"} or answerability != "answerable":
+        return []
     try:
         return generate_contextual_suggestions(
-            get_repository(), workspace_id=context.workspace_id, profile_run_id=request.profile_run_id
+            get_repository(),
+            workspace_id=context.workspace_id,
+            profile_run_id=request.profile_run_id,
+            profile_context=profile_context,
         )
     except Exception:
         logger.warning("Could not build chat suggestions", exc_info=True)
@@ -1997,15 +2044,20 @@ def _run_independent_verifier(
     return payload
 
 
-def _cache_candidate_for_request(request: QARequest, context: RequestContext) -> Any | None:
+def _cache_candidate_for_request(
+    request: QARequest,
+    context: RequestContext,
+    *,
+    profile_run: dict[str, Any] | None = None,
+) -> Any | None:
     if not get_settings().qa_semantic_cache_enabled:
         return None
     try:
-        run = (
-            get_repository().get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
-            if request.profile_run_id
-            else None
-        )
+        run = profile_run
+        if run is None and request.profile_run_id:
+            run = get_repository().get_profile_run(
+                request.profile_run_id, workspace_id=context.workspace_id
+            )
         return cache_candidate(
             question=request.question,
             workspace_id=context.workspace_id,
@@ -2165,6 +2217,7 @@ async def _qa_stream_frames(
                     yield frame("suggestions", {"suggestions": recovery["suggestions"]})
                 yield frame("done", {
                     "question_type": recovery.get("question_type"),
+                    "execution_path": recovery.get("execution_path"),
                     "length": len(answer),
                     "agent_run_id": agent_run_id,
                     "message_id": recovery.get("message_id"),
@@ -2186,14 +2239,13 @@ async def _qa_stream_frames(
             return
         state["agent_run_id"] = agent_run_id
         durable_message_id = _prepare_durable_turn(request, context, request_id=request_id)
-        cache_candidate_value = _cache_candidate_for_request(request, context)
+        profile_context = state.get("profile_context") or {}
+        run = profile_context.get("run") or {}
+        cache_candidate_value = _cache_candidate_for_request(
+            request, context, profile_run=run
+        )
         cached = _cached_answer_for_request(request, context, cache_candidate_value)
         if cached:
-            run = (
-                get_repository().get_profile_run(request.profile_run_id, workspace_id=context.workspace_id)
-                if request.profile_run_id
-                else {}
-            ) or {}
             answer = _guard_qa_answer(str(cached.get("answer") or ""), profile_run_id=request.profile_run_id, context=context)
             raw_sources = list(cached.get("sources") or [])
             sources = _public_answer_sources(raw_sources)
@@ -2208,13 +2260,20 @@ async def _qa_stream_frames(
                 deterministic_claims=cached.get("deterministic_claims"),
                 answerability=str(cached.get("answerability") or "answerable"),
                 clarification=cached.get("clarification"),
+                profile_context=profile_context,
             )
             verification = _run_independent_verifier(
                 request=request, context=context, agent_run_id=agent_run_id, answer=answer,
                 sources=raw_sources, qa_path="semantic_cache", is_approximate=bool(run.get("is_approximate")),
                 answerability=str(cached.get("answerability") or "answerable"),
             )
-            suggestions = _contextual_suggestions(request, context)
+            suggestions = _contextual_suggestions(
+                request,
+                context,
+                question_type=cached.get("question_type"),
+                answerability=str(cached.get("answerability") or "answerable"),
+                profile_context=profile_context,
+            )
             recovery = {
                 "question_type": cached.get("question_type"), "answer": answer,
                 "execution_path": "semantic_cache",
@@ -2249,6 +2308,7 @@ async def _qa_stream_frames(
                 yield frame("suggestions", {"suggestions": [item.model_dump() for item in suggestions]})
             yield frame("done", {
                 "question_type": cached.get("question_type"), "length": len(answer),
+                "execution_path": "semantic_cache",
                 "agent_run_id": agent_run_id, "message_id": durable_message_id,
                 "answer_envelope": envelope.model_dump(mode="json"),
                 "answer_detail": request.answer_detail, "answerability": recovery["answerability"],
@@ -2329,13 +2389,6 @@ async def _qa_stream_frames(
             workspace_id=context.workspace_id,
             validated_status=routed.get("evidence_status"),
         )
-        run = (
-            get_repository().get_profile_run(
-                request.profile_run_id, workspace_id=context.workspace_id
-            )
-            if request.profile_run_id
-            else None
-        ) or {}
         envelope = _qa_answer_envelope(
             request=request,
             context=context,
@@ -2346,6 +2399,7 @@ async def _qa_stream_frames(
             deterministic_claims=routed.get("deterministic_claims"),
             answerability=str(routed.get("answerability") or "answerable"),
             clarification=routed.get("clarification"),
+            profile_context=profile_context,
         )
         verification = _run_independent_verifier(
             request=request, context=context, agent_run_id=agent_run_id, answer=answer,
@@ -2353,7 +2407,13 @@ async def _qa_stream_frames(
             is_approximate=bool(run.get("is_approximate")),
             answerability=str(routed.get("answerability") or "answerable"),
         )
-        suggestions = _contextual_suggestions(request, context)
+        suggestions = _contextual_suggestions(
+            request,
+            context,
+            question_type=routed.get("question_type"),
+            answerability=str(routed.get("answerability") or "answerable"),
+            profile_context=profile_context,
+        )
         ai_latency.set_dimensions(
             execution_path=routed.get("qa_path"),
             intent=routed.get("fast_path_intent") or routed.get("question_type"),
@@ -2394,6 +2454,7 @@ async def _qa_stream_frames(
             "meta",
             {
                 "question_type": routed.get("question_type"),
+                "execution_path": routed.get("qa_path"),
                 "agent_run_id": agent_run_id,
                 "message_id": durable_message_id,
                 "evidence_status": evidence_metadata["evidence_status"],
@@ -2425,6 +2486,7 @@ async def _qa_stream_frames(
             "done",
             {
                 "question_type": routed.get("question_type"),
+                "execution_path": routed.get("qa_path"),
                 "length": len(answer),
                 "agent_run_id": agent_run_id,
                 "message_id": durable_message_id,

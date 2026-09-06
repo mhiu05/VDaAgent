@@ -1,0 +1,14 @@
+{
+  "decision": "pass",
+  "groundedness": 4,
+  "helpfulness": 5,
+  "reason_codes": [
+    "aligned_with_expectation",
+    "mentions_parse_validate_limitation",
+    "no_datetime_overclaim",
+    "uses_supported_categorical_status"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 4
+}

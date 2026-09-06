@@ -1,0 +1,13 @@
+{
+  "decision": "needs_review",
+  "groundedness": 5,
+  "helpfulness": 1,
+  "reason_codes": [
+    "does_not_answer_question",
+    "missed_exact_value",
+    "unnecessary_generic_response"
+  ],
+  "safety": 5,
+  "tone": 4,
+  "uncertainty_calibration": 2
+}

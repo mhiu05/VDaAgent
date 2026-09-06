@@ -1,0 +1,14 @@
+{
+  "decision": "needs_review",
+  "groundedness": 1,
+  "helpfulness": 2,
+  "reason_codes": [
+    "unsupported_claim_proposal_status",
+    "unsupported_categorical_type",
+    "no_profile_evidence_available",
+    "fails_to_state_limit_from_evidence"
+  ],
+  "safety": 5,
+  "tone": 4,
+  "uncertainty_calibration": 2
+}

@@ -1,6 +1,6 @@
 # Agent, QA, retrieval và evidence
 
-> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-01.
+> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-03.
 
 ## Profiling graph
 
@@ -53,6 +53,8 @@ Question tối đa 2.000 ký tự; request nhận tối đa 20 history message v
 
 Candidate-key và broad data-quality intent được server prefetch tool bắt buộc. Với request đơn-intent, renderer deterministic có thể trả answer trực tiếp, tránh một model call không cần thiết. Các quantitative intent khác cho model chọn tool trong budget, nhưng calculator chỉ được dùng sau khi đã có metadata evidence trong cùng lượt.
 
+Yêu cầu tổng quan như “Tóm tắt chất lượng dữ liệu hiện tại” là một fast path riêng. Router nhận diện cả tiếng Việt/Anh, lấy readiness, overview, quality issues, missingness, duplicate và column governance song song tối đa hai worker, sau đó render câu trả lời sáu phần và vẫn chạy qua validator. Path này không yêu cầu Analyst nhập lại Dataset ID/Profile Run ID và không gọi LLM khi evidence deterministic đã đủ.
+
 ## Evidence validation
 
 [`qa_validation.py`](../../backend/src/services/qa_validation.py) là trust boundary deterministic. Một answer chỉ được `verified` khi:
@@ -78,6 +80,8 @@ Malformed/stale/fake evidence, wrong artifact, số không được hỗ trợ h
 - kết quả được giới hạn top-k, số chunk/source và context chars.
 
 Chart insight có thể dựa hoàn toàn vào Official execution được bind, kể cả không có profile-index hit. Preview không đủ điều kiện thay thế Official.
+
+Fallback chart insight khi LLM không khả dụng vẫn có cấu trúc cố định sáu phần: kết luận điều hành, bằng chứng định lượng, xu hướng/điểm nổi bật, diễn giải, giới hạn và khuyến nghị. Mọi giá trị lấy trực tiếp từ payload Official; không suy diễn thêm ngoài limitation đã lưu.
 
 ## Trace và observability
 

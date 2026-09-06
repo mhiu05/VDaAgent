@@ -37,7 +37,7 @@ describe("ChatAnswer", () => {
     expect(screen.getByText("Conclusion")).toBeTruthy();
     expect(screen.getByText("Key findings")).toBeTruthy();
     expect(screen.getByText("Verified")).toBeTruthy();
-    expect(screen.getByText("Bằng chứng và cách kết luận")).toBeTruthy();
+    expect(screen.getByText("Evidences")).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "Open evidence S1" }));
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     expect(screen.getAllByText("Profile Run: run-1")).toHaveLength(1);

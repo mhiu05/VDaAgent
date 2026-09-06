@@ -1,0 +1,14 @@
+{
+  "decision": "needs_review",
+  "groundedness": 1,
+  "helpfulness": 2,
+  "reason_codes": [
+    "unsupported_profile_claims",
+    "missing_evidence",
+    "insufficient_uncertainty",
+    "not_grounded_in_reference"
+  ],
+  "safety": 4,
+  "tone": 4,
+  "uncertainty_calibration": 2
+}

@@ -1,0 +1,50 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Có proposal candidate key phù hợp trong Profile Run; proposal này vẫn cần Analyst xác nhận trước khi trở thành metadata chính thức. Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột. [S1] [S2]",
+      "agreement": true,
+      "case_id": "P170-VI-007",
+      "category_vi": "Cardinality và tính duy nhất",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là Có và cần nêu bằng chứng từ Profile Run.",
+      "question": "Cột ma_khach_hang có duy nhất cho từng dòng không?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Có proposal candidate key phù hợp trong Profile Run; proposal này vẫn cần Analyst xác nhận trước khi trở thành metadata chính thức. Các chỉ số uniqueness và null được lấy trực tiếp từ profile cột. [S1] [S2]",
+      "agreement": true,
+      "case_id": "P170-VI-009",
+      "category_vi": "Khóa định danh tiềm năng",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là Có và cần nêu bằng chứng từ Profile Run.",
+      "question": "ma_khach_hang có phải là khóa định danh tiềm năng không?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Chưa có proposal candidate key phù hợp trong evidence của Profile Run. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-010",
+      "category_vi": "Khóa định danh tiềm năng",
+      "evidence_observed": true,
+      "expected_answer": "Kết quả kỳ vọng là Không và cần nêu bằng chứng từ Profile Run.",
+      "question": "ma_khong_hop_le có phải là khóa định danh tiềm năng không?",
+      "recomputed_verdict": false,
+      "status_code": 200,
+      "stored_verdict": false
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 0,
+    "fail": 1,
+    "pass": 2,
+    "unique_audited": 3
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

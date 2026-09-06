@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Cột doanh_thu có trung bình là 3,969,929.412917.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Doanh thu trung bình của tập khách hàng là 3.969.929.412917.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

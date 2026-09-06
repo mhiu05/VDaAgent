@@ -1,0 +1,39 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Không có đủ bằng chứng trong Profile Run để kết luận chắc chắn.",
+      "evidence_grounded": false,
+      "supported_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Hãy chạy hoặc bổ sung phép kiểm tra xác định phù hợp trước khi sử dụng kết quả.",
+      "evidence_grounded": false,
+      "supported_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [
+    "No direct support for the answer's insufficiency claim",
+    "Answer's procedural recommendation is not a factual claim",
+    "Context mentions ngay_co_the profiling but does not directly state invalid date values or parsing/validation requirements"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Không ép ngay_co_the thành datetime.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Phải nêu giới hạn và yêu cầu parse/validate các giá trị ngày không hợp lệ trước.",
+      "covered_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "method": "Gemini Models API list",
+  "model_selection": null,
+  "models": [],
+  "provider": "gemini",
+  "reason": "GEMINI_AUTH_FAILED",
+  "selected_model": null,
+  "status": "FAILED"
+}

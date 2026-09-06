@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Profile Run có 1 dòng trùng lặp.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Số bản ghi trùng hoàn toàn trong profiling_edge_cases là 1.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "attempted_at": "2026-09-04T01:20:21.886412+00:00",
+  "environment": "local",
+  "fingerprint": {
+    "agent_model": "gemini-3.6-flash",
+    "benchmark_case_count": 83,
+    "benchmark_version": "p170-vi-v2",
+    "configured_keys": [
+      "DATABASE_URL",
+      "GEMINI_API_KEY",
+      "LANGSMITH_API_KEY",
+      "SUPABASE_URL"
+    ],
+    "dataset_sha256": {
+      "drift_v1.csv": "8bfb032929f014792edfedbc6b627b9eb479961c58fbb9c2365d9282230dc776",
+      "drift_v2.csv": "14bab8e4904f55c3f4b3d7c5191692878d0fde2e25b37fa82e63c702d8580d26",
+      "profiling_base.csv": "e507122c3896567069b09b4077af0e30fef7783aeb5fb21f098eaf9ae6cb44e7",
+      "profiling_edge_cases.csv": "24327de0916c92d20ecea1de117c1a8696b643f4167255d2c2ce918a82dad79e",
+      "profiling_pii.csv": "1c2de60381fdfa9addb2335d15616bdb534bebca98420a6bed3a39e0f48dc723"
+    },
+    "environment": "local",
+    "git_dirty": true,
+    "git_sha": "dfdfffc86fb2e7d9f0d436f78bff3280d9dc53b7",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "provider": "gemini",
+    "python_executable": "python.exe",
+    "python_version": "3.11.0",
+    "target": "http://localhost:8000/api/v1"
+  },
+  "frontend": "http://localhost:3000/",
+  "language": "vi-VN",
+  "mode": "dry_run",
+  "phase": "full",
+  "production_evidence": false,
+  "reason": "Pass --execute after a successful environment preflight.",
+  "requested_cases": 3,
+  "run_id": "run-20260904T082021-7549cf1b",
+  "selected_case_ids": [
+    "P170-VI-001",
+    "P170-VI-002",
+    "P170-VI-003"
+  ],
+  "status": "NOT_EXECUTED",
+  "target": "http://localhost:8000/api/v1",
+  "updated_at": "2026-09-04T01:20:21.886412+00:00",
+  "workspace_name": "benchmark-run-20260904T082021-7549cf1b"
+}

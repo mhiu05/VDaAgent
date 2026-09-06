@@ -1,0 +1,6 @@
+ma_ban_ghi,gia_tri_rong,cot_hang_so,gia_tri_hon_hop,ngay_co_the,ma_khong_hop_le
+EDGE-001,,không đổi,1,2026-01-01,A01
+EDGE-002,,không đổi,một,không-phải-ngày,A01
+EDGE-003,,không đổi,,2026-01-03,A02
+EDGE-004,,không đổi,3.14,2026-01-04,A02
+EDGE-004,,không đổi,3.14,2026-01-04,A02

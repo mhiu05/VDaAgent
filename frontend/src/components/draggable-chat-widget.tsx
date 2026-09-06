@@ -364,8 +364,12 @@ export function DraggableChatWidget({
   } = {}) => {
     const query = (questionText || input).trim();
     const targetProfile = options.profileOverride;
-    const targetRunId = targetProfile?.profile_run_id || selectedRunId;
-    const targetDatasetId = targetProfile?.dataset_id || selectedDatasetId;
+    const loadedProfile = activeProfile.data?.profile_run_id === selectedRunId
+      ? activeProfile.data
+      : undefined;
+    const resolvedProfile = targetProfile || loadedProfile;
+    const targetRunId = resolvedProfile?.profile_run_id || selectedRunId;
+    const targetDatasetId = resolvedProfile?.dataset_id || selectedDatasetId;
     const targetAnswerDetail = options.answerDetailOverride || answerDetail;
     if (!query || isThinking) return;
     if (!targetRunId || (!targetProfile && !isSelectedRunReady)) {
@@ -386,7 +390,7 @@ export function DraggableChatWidget({
     }
 
     setInput("");
-    const context = widgetContext(targetDatasetId, targetRunId, targetProfile);
+    const context = widgetContext(targetDatasetId, targetRunId, resolvedProfile);
     const userMessage = {
       ...makeMessage("user", query),
       context,
@@ -425,9 +429,9 @@ export function DraggableChatWidget({
       updateConversationSnapshot(conversationId, {
         messages: nextMessages,
         profile: null,
-        datasetId: selectedDatasetId || null,
-        profileRunId: selectedRunId || null,
-        answerDetail,
+        datasetId: targetDatasetId || null,
+        profileRunId: targetRunId || null,
+        answerDetail: targetAnswerDetail,
       });
     };
 

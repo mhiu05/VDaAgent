@@ -231,8 +231,10 @@ export default function ReviewPage() {
           const items = pending.filter((item) => item.kind === kind);
           if (!items.length) return null;
           const canEdit = kind !== "candidate_key";
+          const showColumnHeader = kind === "candidate_key" || kind === "semantic_type";
           return <section className="panel proposal-group" key={kind}>
             <div className="panel-title"><div><h2>{toTitle(kind)}</h2><small>{canEdit ? "Có thể xác nhận, từ chối hoặc chỉnh phân loại." : "Xác nhận hoặc từ chối đây có phải khóa ứng viên."}</small></div><span className="chip">{items.length} chờ review</span></div>
+            {showColumnHeader && <div className="proposal-row-header"><span>Agent đề xuất</span><span>Lý do agent đề xuất</span><span>Quyết định của Analyst</span></div>}
             {items.map(({ proposal }) => {
               const selection = selections[proposal.id];
               const editing = selection?.decision === "edit";

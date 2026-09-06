@@ -146,6 +146,10 @@ class Settings(BaseSettings):
     llm_reasoning_effort: str = ""
     llm_base_url: str = ""
     llm_api_key: str = ""
+    # Override only the profile narrative; other agents keep the main provider.
+    profile_summary_provider: Literal["default", "openai"] = "default"
+    profile_summary_model: str = "gpt-4o-mini"
+    openai_api_key: str = Field(default="", repr=False)
 
     # --- profiling ---------------------------------------------------------
     profiling_default_scan_mode: Literal["full", "sample"] = "sample"

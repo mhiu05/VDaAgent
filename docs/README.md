@@ -1,8 +1,17 @@
 # Tài liệu kỹ thuật VDaAgent (P-170)
 
-> Đã đối chiếu với implementation trong repository ngày 2026-09-01. Route, schema, migration, test và workflow triển khai vẫn là nguồn sự thật cuối cùng.
+> Đã đối chiếu với implementation trong repository ngày 2026-09-03. Route, schema, migration, test và workflow triển khai vẫn là nguồn sự thật cuối cùng.
 
 Bộ tài liệu này mô tả implementation đang có trong repository, không phải roadmap. Nếu tài liệu khác code, hãy ưu tiên route/model, service, migration, test và workflow triển khai, sau đó cập nhật lại trang gần implementation nhất.
+
+## Bối cảnh sản phẩm
+
+VDaAgent giải quyết hai pain point được nêu trong [pitch deck Data profiling](../presentation/Data%20profiling.pdf):
+
+- Profiling thường phân mảnh qua schema, missingness, uniqueness/duplicate, distribution/outlier, correlation và PII; workflow dài, lặp lại và khó chuẩn hóa.
+- Có profile metric chưa đồng nghĩa có insight. Analyst vẫn phải nối câu hỏi → phép phân tích → visualization → diễn giải → kiểm chứng, trong khi AI tự do có nguy cơ hallucination và lộ dữ liệu.
+
+Giải pháp hiện tại là profiling đa nguồn chạy bằng DuckDB, queue/worker bất đồng bộ, HITL cho metadata, Chat Agent evidence-first, bounded Preview → Official, drift comparison và report snapshot SHA-256. Các tài liệu bên dưới mô tả behavior đã có; các mục chưa hoàn thiện được ghi rõ trong [summary/known gaps](./summary.md).
 
 ## Lộ trình đọc
 
@@ -16,6 +25,7 @@ Bộ tài liệu này mô tả implementation đang có trong repository, không
 | Vận hành database | [Database migrations](./operations/database-migrations.md) |
 | Triển khai Azure | [Deployment](./operations/deployment.md) |
 | Xem giới hạn/known gaps hiện tại | [Tóm tắt bàn giao](./summary.md) |
+| Đọc problem/solution và cách chạy nhanh | [README root](../README.md) |
 
 ## Kiến trúc
 
@@ -35,6 +45,7 @@ Bộ tài liệu này mô tả implementation đang có trong repository, không
 - [So sánh drift](./features/drift-comparison.md)
 - [Report](./features/reports.md)
 - [Workspace và quản trị](./features/workspaces-and-admin.md)
+- [Pitch deck và benchmark context](../presentation/Data%20profiling.pdf)
 
 ## Bảo mật
 
@@ -47,6 +58,7 @@ Bộ tài liệu này mô tả implementation đang có trong repository, không
 - [Database migrations](./operations/database-migrations.md)
 - [Quan sát và phục hồi lỗi](./operations/observability-and-failure-recovery.md)
 - [Triển khai Azure](./operations/deployment.md)
+- [Trang tương thích CI/CD Azure](./operations/azure-deploy-cicd.md)
 
 ## Phát triển và đánh giá
 

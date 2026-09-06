@@ -1,6 +1,6 @@
 # Report Draft và snapshot bất biến
 
-> Đã đối chiếu với report routes/service và PDF renderer hiện tại ngày 2026-09-01.
+> Đã đối chiếu với report routes/service và PDF renderer hiện tại ngày 2026-09-03.
 
 ## Mô hình hai lớp
 

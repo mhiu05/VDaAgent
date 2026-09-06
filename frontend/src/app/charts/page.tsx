@@ -69,6 +69,19 @@ export default function ChartsPage() {
       eyebrow="AI ANALYTICS WORKSPACE · PHÂN TÍCH TRỰC QUAN"
       title="Biểu đồ & Phân tích"
       description="Không gian tạo biểu đồ tự động bằng AI, phân tích trọn gói và ghim kết quả vào báo cáo."
+      action={
+        <div className="page-action-group">
+          <Link href="/compare" className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            ⚖️ So sánh dữ liệu
+          </Link>
+          <Link href={runId && reportDraft.data?.id ? `/reports/${reportDraft.data.id}` : "/reports"} className="button primary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            📖 {runId && reportDraft.data?.id ? "Xem báo cáo phiên này →" : "Xem tất cả báo cáo →"}
+          </Link>
+          <Link href={runId ? `/profiles/${encodeURIComponent(runId)}/preview` : "/charts"} className="button secondary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            ← Quay lại
+          </Link>
+        </div>
+      }
     />
 
     <section className="panel chart-dataset-selector" style={{ marginBottom: "1rem" }}>

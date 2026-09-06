@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -224,3 +225,12 @@ def test_latency_snapshot_records_budget_exhaustion_and_parallel_branch_policy()
         {"branch": "profile_retrieval", "duration_ms": 8.0, "required": True, "outcome": "completed"},
         {"branch": "external_retrieval", "duration_ms": 5.0, "required": False, "outcome": "timeout"},
     ]
+
+
+def test_reset_is_safe_when_stream_finalizes_in_a_copied_context() -> None:
+    context = contextvars.copy_context()
+    token = context.run(ai_latency.begin, "qa_stream")
+
+    ai_latency.reset(token)
+
+    assert ai_latency.current() is None

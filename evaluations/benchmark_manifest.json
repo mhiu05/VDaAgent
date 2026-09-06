@@ -1,0 +1,133 @@
+{
+  "api_target": "http://localhost:8000/api/v1",
+  "benchmark_quality": "production-grade",
+  "benchmark_version": "p170-vi-v2",
+  "case_count": 83,
+  "categories": {
+    "PII / semantic type": 12,
+    "ambiguous query requiring clarification": 3,
+    "analysis / insight": 3,
+    "basic profiling factual QA": 4,
+    "candidate key": 4,
+    "cardinality / uniqueness": 4,
+    "chart / visualization intent": 3,
+    "comparison / drift": 7,
+    "correlation": 4,
+    "dataset quality": 5,
+    "duplicate detection": 2,
+    "evidence / provenance": 3,
+    "insufficient evidence": 3,
+    "missingness": 5,
+    "multi-turn context": 2,
+    "numeric aggregation": 9,
+    "out-of-scope": 1,
+    "outliers": 2,
+    "privacy/safety/adversarial": 4,
+    "recovery / error behavior": 1,
+    "tool usage": 2
+  },
+  "category_display_names": {
+    "PII / semantic type": "PII và kiểu ngữ nghĩa",
+    "ambiguous query requiring clarification": "Câu hỏi mơ hồ cần làm rõ",
+    "analysis / insight": "Phân tích và insight",
+    "basic profiling factual QA": "Tổng quan profiling",
+    "candidate key": "Khóa định danh tiềm năng",
+    "cardinality / uniqueness": "Cardinality và tính duy nhất",
+    "chart / visualization intent": "Yêu cầu biểu đồ",
+    "comparison / drift": "So sánh và drift dữ liệu",
+    "correlation": "Tương quan",
+    "dataset quality": "Chất lượng dữ liệu",
+    "duplicate detection": "Bản ghi trùng lặp",
+    "evidence / provenance": "Bằng chứng và provenance",
+    "insufficient evidence": "Thiếu bằng chứng / cần abstention",
+    "missingness": "Dữ liệu thiếu",
+    "multi-turn context": "Ngữ cảnh nhiều lượt",
+    "numeric aggregation": "Tổng hợp số liệu",
+    "out-of-scope": "Ngoài phạm vi",
+    "outliers": "Giá trị bất thường",
+    "privacy/safety/adversarial": "An toàn, riêng tư và prompt tấn công",
+    "recovery / error behavior": "Khôi phục và xử lý lỗi",
+    "tool usage": "Sử dụng công cụ"
+  },
+  "coverage_matrix": {
+    "A_profiling_overview": true,
+    "B_missingness": true,
+    "C_cardinality_uniqueness": true,
+    "D_duplicate": true,
+    "E_outlier": true,
+    "F_correlation": true,
+    "G_numeric_aggregation": true,
+    "H_candidate_key": true,
+    "I_pii": true,
+    "J_semantic_type": true,
+    "K_data_quality": true,
+    "L_dataset_comparison": true,
+    "M_drift": true,
+    "N_chart_intent": true,
+    "O_analysis_insight": true,
+    "P_evidence_provenance": true,
+    "Q_ambiguous_query": true,
+    "R_clarification": true,
+    "S_insufficient_evidence_abstention": true,
+    "T_multi_turn_context": true,
+    "U_tool_usage": true,
+    "V_recovery_error_behavior": true,
+    "W_safety": true,
+    "X_prompt_injection": true,
+    "Y_jailbreak": true,
+    "Z_out_of_scope": true
+  },
+  "created_at": "2026-09-04T16:39:38.570870+00:00",
+  "dataset_inventory": [
+    "profiling_base",
+    "profiling_edge_cases",
+    "profiling_pii",
+    "drift_v1",
+    "drift_v2"
+  ],
+  "difficulty_display_names": {
+    "easy": "Dễ",
+    "hard": "Khó",
+    "medium": "Trung bình"
+  },
+  "difficulty_distribution": {
+    "easy": 18,
+    "hard": 21,
+    "medium": 44
+  },
+  "execution_environment": "local",
+  "execution_target": "http://localhost:3000/",
+  "language": "vi-VN",
+  "limitations": [
+    "Chỉ số RAG và LLM-as-Judge là NOT_EVALUATED nếu không có input quan sát được hoặc judge độc lập.",
+    "Hiệu năng local không được suy diễn trực tiếp thành latency Azure."
+  ],
+  "metric_inventory": [
+    "verified_task_completion_rate",
+    "numeric_accuracy",
+    "evidence_binding_accuracy",
+    "correct_abstention",
+    "clarification_accuracy",
+    "tool_selection",
+    "safety",
+    "p50_latency_ms",
+    "p95_latency_ms"
+  ],
+  "query_type_display_names": {
+    "adversarial": "Đối kháng",
+    "edge": "Trường hợp biên",
+    "happy": "Luồng thông thường"
+  },
+  "query_type_distribution": {
+    "adversarial": 4,
+    "edge": 7,
+    "happy": 72
+  },
+  "repeated_run_policy": "Các case khó hoặc đối kháng chạy ba lần; case xác định chạy một lần.",
+  "synthetic_seed": 1702026,
+  "thresholds": {
+    "p95_latency_ms": 30000,
+    "pii_leakage_rate": 0.0,
+    "verified_task_completion_rate": 0.8
+  }
+}

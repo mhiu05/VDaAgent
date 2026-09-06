@@ -1,0 +1,131 @@
+{
+  "all_gates_pass": false,
+  "approval_scope": "Synthetic staging acceptance policy for the current evidence-first Q&A and chart-planning surfaces. This is not a general production SLO or a substitute for security integration tests.",
+  "gate_version": "p170-eval-gates-v2",
+  "gates": [
+    {
+      "actual": 1.0,
+      "gate": "hard_gate_pass_rate",
+      "status": "pass",
+      "threshold": 1.0
+    },
+    {
+      "actual": 1.0,
+      "gate": "schema_contract_rate",
+      "status": "pass",
+      "threshold": 1.0
+    },
+    {
+      "actual": null,
+      "gate": "privacy_safe_rate",
+      "status": "not_available",
+      "threshold": 1.0
+    },
+    {
+      "actual": null,
+      "gate": "safety_outcome_rate",
+      "status": "not_available",
+      "threshold": 1.0
+    },
+    {
+      "actual": 1.0,
+      "gate": "evidence_binding_rate",
+      "status": "pass",
+      "threshold": 1.0
+    },
+    {
+      "actual": 1.0,
+      "gate": "evidence_source_policy_rate",
+      "status": "pass",
+      "threshold": 1.0
+    },
+    {
+      "actual": 1.0,
+      "gate": "evidence_status_rate",
+      "status": "pass",
+      "threshold": 1.0
+    },
+    {
+      "actual": 1.0,
+      "gate": "numeric_grounding_rate",
+      "status": "pass",
+      "threshold": 0.98
+    },
+    {
+      "actual": 1.0,
+      "gate": "approximation_rate",
+      "status": "pass",
+      "threshold": 0.98
+    },
+    {
+      "actual": null,
+      "gate": "insufficient_evidence_rate",
+      "status": "not_available",
+      "threshold": 0.95
+    },
+    {
+      "actual": null,
+      "gate": "forecast_calibration_rate",
+      "status": "not_available",
+      "threshold": 0.95
+    },
+    {
+      "actual": null,
+      "gate": "planner_allowlist_rate",
+      "status": "not_available",
+      "threshold": 1.0
+    },
+    {
+      "actual": null,
+      "gate": "planner_kind_rate",
+      "status": "not_available",
+      "threshold": 1.0
+    },
+    {
+      "actual": 8533.481,
+      "gate": "latency_p95_ms",
+      "status": "pass",
+      "threshold": 30000
+    },
+    {
+      "actual": 0,
+      "gate": "critical_failures",
+      "status": "pass",
+      "threshold": 0
+    }
+  ],
+  "policy_status": "draft_requires_project_owner_approval",
+  "regressions": [
+    {
+      "after": 1.0,
+      "allowed_drop": 0.0,
+      "before": 0.625,
+      "delta": 0.375,
+      "metric": "hard_gate_pass_rate",
+      "status": "pass"
+    },
+    {
+      "after": 1.0,
+      "allowed_drop": 0.01,
+      "before": 0.571429,
+      "delta": 0.428571,
+      "metric": "numeric_grounding_rate",
+      "status": "pass"
+    },
+    {
+      "after": null,
+      "before": 0.6,
+      "metric": "insufficient_evidence_rate",
+      "status": "not_available"
+    },
+    {
+      "after": null,
+      "before": null,
+      "metric": "planner_allowlist_rate",
+      "status": "not_available"
+    }
+  ],
+  "release_approval": "NOT_APPROVED",
+  "runtime": "local_synthetic_api",
+  "status": "DRAFT_NOT_APPROVED"
+}

@@ -1,0 +1,38 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Hai điểm cần chú ý: 1) không có khả năng phân biệt vì là cột hằng ở cột trang_thai_on_dinh; 2) cardinality rất cao ở cột chi_tieu_truc_tuyen. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [S1]",
+      "agreement": true,
+      "case_id": "P170-VI-080",
+      "category_vi": "Phân tích và insight",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Liệt kê ngắn gọn hai điểm cần chú ý trước khi dùng tập này cho phân tích doanh thu.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    },
+    {
+      "actual_answer": "Nên dùng box plot cho doanh_thu để nhìn trung vị, tứ phân vị và các điểm nằm ngoài whisker; bổ sung histogram để kiểm tra hình dạng phân phối. Đây là khuyến nghị cách trực quan hóa, chưa kết luận điểm nào là lỗi dữ liệu.",
+      "agreement": true,
+      "case_id": "P170-VI-081",
+      "category_vi": "Yêu cầu biểu đồ",
+      "evidence_observed": true,
+      "expected_answer": "Câu trả lời cần tổng hợp ngắn gọn, đúng phạm vi và gắn với bằng chứng từ Profile Run.",
+      "question": "Đề xuất biểu đồ để phát hiện outlier của doanh_thu.",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 0,
+    "fail": 0,
+    "pass": 2,
+    "unique_audited": 2
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

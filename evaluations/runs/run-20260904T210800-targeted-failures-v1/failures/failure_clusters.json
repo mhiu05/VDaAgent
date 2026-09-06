@@ -1,0 +1,8 @@
+[
+  {
+    "count": 1,
+    "failure_type": "execution_error",
+    "failure_type_vi": "Lỗi thực thi SSE",
+    "mo_ta": "Luồng QA công khai phát sự kiện lỗi dù HTTP đã mở thành công."
+  }
+]

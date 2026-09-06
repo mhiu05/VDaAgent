@@ -1,0 +1,51 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Không có đủ bằng chứng trong Profile Run để kết luận chắc chắn.",
+      "evidence_grounded": false,
+      "supported_by_context": false,
+      "supporting_citation_ids": []
+    },
+    {
+      "claim": "Cần chạy hoặc bổ sung phép kiểm tra xác định phù hợp trước khi sử dụng kết quả.",
+      "evidence_grounded": false,
+      "supported_by_context": false,
+      "supporting_citation_ids": []
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    },
+    {
+      "citation_id": "S2",
+      "relevant": false
+    },
+    {
+      "citation_id": "S3",
+      "relevant": false
+    }
+  ],
+  "reason_codes": [
+    "ANSWER_MISSES_REQUIRED_CAVEATS",
+    "ANSWER_NOT_EVIDENCE_GROUNDED",
+    "RELEVANT_CONTEXT_PRESENT"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Nêu ngắn gọn hai caveat đúng từ Profile Run trước khi phân tích doanh thu.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Không suy diễn nguyên nhân khi nêu các caveat.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

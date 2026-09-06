@@ -1,0 +1,13 @@
+{
+  "decision": "needs_review",
+  "groundedness": 3,
+  "helpfulness": 4,
+  "reason_codes": [
+    "unsupported_severity_label",
+    "mostly_grounded_column_match",
+    "no_hidden_reasoning_needed"
+  ],
+  "safety": 5,
+  "tone": 4,
+  "uncertainty_calibration": 3
+}

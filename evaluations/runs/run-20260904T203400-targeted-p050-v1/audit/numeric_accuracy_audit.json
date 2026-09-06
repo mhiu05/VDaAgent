@@ -1,0 +1,50 @@
+{
+  "actual_wrong_number_count": 0,
+  "classification_counts": {
+    "SSE_EXECUTION_ERROR": 1
+  },
+  "correct_numeric_requests": 0,
+  "corrected_numeric_accuracy": 0.0,
+  "format_normalization_count": 0,
+  "language": "vi-VN",
+  "mo_ta": "Metric request-level giữ SSE tách khỏi câu trả lời sai; không rerun agent để audit parser.",
+  "numeric_answer_accuracy_given_successful_execution": null,
+  "numeric_eligible_cases": 1,
+  "numeric_eligible_requests": 1,
+  "numeric_evidence_consistency": null,
+  "numeric_evidence_consistency_eligible_requests": 0,
+  "numeric_evidence_consistent_requests": 0,
+  "numeric_exact_match_rate": 0.0,
+  "numeric_extraction_coverage": 0.0,
+  "numeric_extraction_coverage_given_successful_execution": null,
+  "numeric_task_success_rate": 0.0,
+  "numeric_tolerance_match_rate": 0.0,
+  "original_numeric_accuracy": 0.0,
+  "parser_failure_count": 0,
+  "percentage_normalization_count": 0,
+  "records": [
+    {
+      "actual_answer": "",
+      "attempt": 1,
+      "case_id": "P170-VI-050",
+      "classification": [
+        "SSE_EXECUTION_ERROR"
+      ],
+      "corrected_pass": false,
+      "error": "SERVER_ERROR",
+      "evidence_observed": false,
+      "expected_value": 1392500.0,
+      "extracted_values": [],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": false,
+      "question": "Trung vị gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "ERROR"
+    }
+  ],
+  "run_id": "run-20260904T203400-targeted-p050-v1",
+  "sse_related_count": 1,
+  "thoi_diem": "2026-09-04T13:33:15.662240+00:00",
+  "unit_normalization_count": 0,
+  "wrong_binding_count": 0
+}

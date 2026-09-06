@@ -1,0 +1,11 @@
+{
+  "diem_tin_cay_missingness_change": 0.13,
+  "gia_tri_giao_dich_mean_change": 1422400.0,
+  "gia_tri_giao_dich_median_change": 1392500.0,
+  "kenh_ban_top_after": "Website",
+  "kenh_ban_top_before": "Website",
+  "language": "vi-VN",
+  "ma_chi_nhanh_cardinality_change": 4,
+  "mo_ta": "Các thay đổi drift được kiểm soát giữa hai phiên bản giao dịch.",
+  "row_count_change": 20
+}

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Any
 
@@ -29,8 +30,7 @@ from src.agents.prompts import (
 )
 from src.agents.fast_paths import (
     execute_fast_path,
-    is_distribution_question,
-    resolve_fast_path,
+    is_fast_path_question,
 )
 from src.agents.runtime.trace import invoke_model, record_retrieval_call
 from src.agents.skills.registry import select_skill_for_question, skill_guidance
@@ -114,6 +114,262 @@ _AMBIGUOUS_METRIC = re.compile(
     r"\b(metric|measure|value|revenue|sales|doanh thu|chỉ số|giá trị|average|trung bình|sum|tổng)\b",
     re.IGNORECASE,
 )
+
+
+def _plain_question(value: str) -> str:
+    """Normalize Vietnamese/English wording for intent checks."""
+
+    value = value.replace("đ", "d").replace("Đ", "D")
+    normalized = unicodedata.normalize("NFD", value.casefold())
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Mn"
+    )
+    return re.sub(r"[^a-z0-9%]+", " ", normalized).strip()
+
+
+def _requires_deterministic_abstention(question: str) -> bool:
+    """Detect requests that profile statistics cannot support safely.
+
+    A Profile Run contains descriptive aggregates, not causal attribution or a
+    calibrated forecast.  These intents therefore have a deterministic answer
+    and must never wait for retrieval or an LLM before abstaining.
+    """
+
+    normalized = _plain_question(question)
+    causal = any(
+        marker in f" {normalized} "
+        for marker in (
+            " vi sao ",
+            " tai sao ",
+            " nguyen nhan ",
+            " la do ",
+            " caused by ",
+            " cause of ",
+            " why ",
+        )
+    )
+    forecast = any(
+        marker in normalized
+        for marker in ("du bao", "forecast", "nam sau", "thang sau", "tuong lai")
+    )
+    forced_certainty = any(
+        marker in normalized
+        for marker in ("chac chan", "khang dinh", "cam ket", "ket luan ngay")
+    )
+    return causal or (forecast and forced_certainty)
+
+
+def _deterministic_abstention_answer(question: str) -> str:
+    normalized = _plain_question(question)
+    if any(
+        marker in f" {normalized} "
+        for marker in (
+            " vi sao ", " tai sao ", " nguyen nhan ", " la do ",
+            " caused by ", " cause of ", " why ",
+        )
+    ):
+        return (
+            "Profile Run chỉ chứa thống kê mô tả, chưa có đủ bằng chứng nhân quả "
+            "để xác định nguyên nhân. Hãy bổ sung dữ liệu hành vi theo thời gian "
+            "và một thiết kế phân tích nhân quả phù hợp trước khi kết luận."
+        )
+    return (
+        "Profile Run chưa có mô hình dự báo đã hiệu chỉnh hoặc khoảng bất định, "
+        "nên không thể khẳng định chắc chắn kết quả tương lai. Hãy chạy một phân "
+        "tích dự báo phù hợp và kiểm tra sai số trước khi sử dụng kết quả."
+    )
+
+
+def _is_single_quality_risk_question(question: str) -> bool:
+    """Recognize a request for the most notable persisted quality issue."""
+
+    normalized = _plain_question(question)
+    quality = any(
+        marker in normalized
+        for marker in ("chat luong", "data quality", "quality", "van de du lieu")
+    )
+    risk = any(
+        marker in normalized
+        for marker in (
+            "rui ro",
+            "dang chu y",
+            "noi bat",
+            "uu tien",
+            "most notable",
+            "highest risk",
+            "top risk",
+        )
+    )
+    return quality and risk
+
+
+def _quality_issue_lookup_intent(question: str) -> str | None:
+    """Recognize focused column-quality lookups answered by rule-v1 issues."""
+
+    normalized = _plain_question(question)
+    asks_column = "cot nao" in normalized or "which column" in normalized
+    if any(
+        marker in normalized
+        for marker in (
+            "gia tri khong doi",
+            "cot hang",
+            "constant column",
+        )
+    ):
+        return "constant_column"
+    if "cardinality" in normalized and any(
+        marker in normalized
+        for marker in (
+            "cao",
+            "moi dong",
+            "tung dong",
+            "high",
+            "each row",
+        )
+    ):
+        return "high_cardinality"
+    if asks_column and any(
+        marker in normalized
+        for marker in (
+            "gia tri trong",
+            "missingness",
+            "missing value",
+            "du lieu thieu",
+        )
+    ):
+        return "missing_values"
+    return None
+
+
+def _is_profile_quality_summary_question(question: str) -> bool:
+    """Recognize a broad quality request that is answerable by the bound run.
+
+    This is deliberately deterministic: asking for a summary does not require
+    a column choice, so an LLM must not turn it into a clarification request.
+    """
+
+    normalized = _plain_question(question)
+    quality = any(
+        marker in normalized
+        for marker in ("chat luong", "data quality", "quality", "van de du lieu")
+    )
+    summary = any(
+        marker in normalized
+        for marker in (
+            "tom tat",
+            "summarize",
+            "summarise",
+            "tong quan",
+            "summary",
+            "overview",
+            "hien tai",
+            "current",
+        )
+    )
+    return bool(
+        quality and (summary or _is_single_quality_risk_question(question))
+        or _quality_issue_lookup_intent(question)
+        or _is_profile_quality_advisory_question(question)
+    )
+
+
+def _is_profile_quality_advisory_question(question: str) -> bool:
+    """Recognize pre-analysis requests for a short list of dataset caveats."""
+
+    normalized = _plain_question(question)
+    asks_for_caveats = any(
+        marker in normalized
+        for marker in (
+            "diem can chu y",
+            "dieu can chu y",
+            "truoc khi dung",
+            "truoc khi su dung",
+            "caveat",
+            "watch out",
+        )
+    )
+    analysis_context = any(
+        marker in normalized
+        for marker in ("phan tich", "analysis", "doanh thu", "revenue", "sales")
+    )
+    asks_for_priority_follow_up = _is_priority_quality_follow_up(question)
+    return (asks_for_caveats and analysis_context) or asks_for_priority_follow_up
+
+
+def _is_priority_quality_follow_up(question: str) -> bool:
+    """Recognize requests that need one ordered issue and a concrete next check."""
+
+    normalized = _plain_question(question)
+    return any(
+        marker in normalized
+        for marker in ("insight uu tien", "priority insight", "uu tien")
+    ) and any(
+        marker in normalized
+        for marker in ("kiem tra tiep", "next check", "follow up", "follow-up")
+    )
+
+
+def _asks_candidate_key(question: str) -> bool:
+    """Recognize candidate-key intent across common vi-VN phrasings."""
+
+    normalized = _plain_question(question)
+    if any(
+        marker in normalized
+        for marker in (
+            "candidate key",
+            "unique key",
+            "khoa chinh",
+            "khoa dinh danh",
+            "dinh danh tiem nang",
+        )
+    ):
+        return True
+    return "duy nhat" in normalized and any(
+        marker in normalized
+        for marker in ("tung dong", "moi dong", "dinh danh", "identifier")
+    )
+
+
+def _governance_question_type(
+    question: str, mentioned_columns: list[str]
+) -> str | None:
+    """Map one-column governance questions to their persisted proposal tool."""
+
+    if len(mentioned_columns) != 1:
+        return None
+    normalized = _plain_question(question)
+    if any(
+        marker in normalized
+        for marker in (
+            "du lieu nhay cam",
+            "thong tin nhay cam",
+            "pii",
+            "quasi identifier",
+            "dinh danh truc tiep",
+            "personal data",
+            "sensitive data",
+        )
+    ):
+        return "pii"
+    if any(
+        marker in normalized
+        for marker in (
+            "kieu ngu nghia",
+            "semantic type",
+            "dac trung kieu du lieu",
+            "data type characteristic",
+            "phan loai nhu the nao",
+            "nen duoc phan loai",
+            "so thuan nhat",
+            "purely numeric",
+            "suy luan kieu du lieu",
+            "ep suy luan kieu",
+            "gia tri ngay khong hop le",
+            "invalid date",
+        )
+    ):
+        return "semantic_type"
+    return None
 
 
 def _progress(state: ProfilingState, stage: str, detail: str | None = None) -> None:
@@ -202,13 +458,32 @@ def _deterministic_qa_tool_specs(
     tools, but it is given this run-scoped evidence before it drafts wording.
     """
 
-    lowered = question.casefold()
-    normalized = re.sub(r"[-_]", " ", lowered)
     specs: list[tuple[str, dict[str, Any]]] = []
-    candidate_key = any(
-        marker in normalized
-        for marker in ("candidate key", "unique key", "khóa chính")
-    )
+    if _is_single_quality_risk_question(question):
+        return [("list_quality_issues", {"limit": 10})]
+    if _quality_issue_lookup_intent(question):
+        return [("list_quality_issues", {"limit": 10})]
+    if _is_profile_quality_advisory_question(question):
+        return [("list_quality_issues", {"limit": 10})]
+    if _is_profile_quality_summary_question(question):
+        # A summary is a decision request about the selected run, not a
+        # request for one ambiguous metric. Fetch bounded quality signals up
+        # front so the model cannot ask for an ID or a column again.
+        return [
+            ("get_profile_readiness", {}),
+            ("get_profile_overview", {}),
+            ("list_quality_issues", {"limit": 10}),
+            ("get_missingness_patterns", {"limit": 10}),
+            ("get_duplicate_analysis", {}),
+            ("list_columns", {"limit": 50}),
+        ]
+    governance_type = _governance_question_type(question, mentioned_columns)
+    if governance_type == "pii":
+        return [("get_pii_assessment", {"column_name": mentioned_columns[0]})]
+    if governance_type == "semantic_type":
+        return [("get_semantic_types", {"column_name": mentioned_columns[0]})]
+    candidate_key = _asks_candidate_key(question)
+    normalized = re.sub(r"[-_]", " ", question.casefold())
     quality_issue = any(
         marker in normalized
         for marker in ("quality issue", "vấn đề chất lượng", "data quality")
@@ -227,6 +502,56 @@ def _deterministic_qa_tool_specs(
     return specs
 
 
+def _run_quality_summary_tools(
+    specs: list[tuple[str, dict[str, Any]]],
+    *,
+    profile_run_id: str,
+    max_workers: int = 2,
+) -> list[dict[str, Any]]:
+    """Run independent summary reads concurrently without changing order.
+
+    Each quality tool is read-only and scoped by the dispatcher-injected
+    Profile Run. Running two at a time keeps the connection footprint small
+    for Supabase's transaction pooler while avoiding six serial network
+    round-trips (the source of the summary timeout).
+    """
+
+    if not specs:
+        return []
+    if len(specs) == 1:
+        name, args = specs[0]
+        result = run_tool(name, args, profile_run_id=profile_run_id)
+        return [result] if isinstance(result, dict) else []
+
+    # Keep the quality bundle at two concurrent DB connections even if the
+    # retrieval setting is raised for another workload.
+    workers = max(1, min(2, int(max_workers), len(specs)))
+    pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="qa-quality")
+    futures = [
+        pool.submit(run_tool, name, args, profile_run_id=profile_run_id)
+        for name, args in specs
+    ]
+    results: list[dict[str, Any]] = []
+    try:
+        # Collect in specification order so citations and the deterministic
+        # renderer remain stable even though the reads finish out of order.
+        for future in futures:
+            try:
+                result = future.result()
+            except Exception:  # pragma: no cover - run_tool already envelopes errors
+                result = {}
+            if isinstance(result, dict):
+                results.append(result)
+    finally:
+        shutdown = getattr(pool, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown(wait=False, cancel_futures=True)
+            except TypeError:  # pragma: no cover - older Python compatibility
+                shutdown(wait=False)
+    return results
+
+
 def _deterministic_evidence_answer(
     question: str,
     sources: list[dict[str, Any]],
@@ -243,16 +568,483 @@ def _deterministic_evidence_answer(
     metadata.
     """
 
-    lowered = question.casefold()
-    normalized = re.sub(r"[-_]", " ", lowered)
-    asks_candidate_key = any(
-        marker in normalized
-        for marker in ("candidate key", "unique key", "khóa chính")
-    )
+    normalized = re.sub(r"[-_]", " ", question.casefold())
+    asks_candidate_key = _asks_candidate_key(question)
+    asks_profile_summary = _is_profile_quality_summary_question(question)
+    asks_quality_advisory = _is_profile_quality_advisory_question(question)
+    asks_single_quality_risk = _is_single_quality_risk_question(question)
+    quality_lookup_intent = _quality_issue_lookup_intent(question)
+    governance_type = _governance_question_type(question, mentioned_columns)
     asks_quality_issue = any(
         marker in normalized
         for marker in ("quality issue", "vấn đề chất lượng", "data quality")
     )
+    if asks_quality_advisory:
+        quality = next(
+            (
+                item
+                for item in tool_results
+                if isinstance(item, dict)
+                and item.get("tool") == "list_quality_issues"
+                and not item.get("error_code")
+                and not item.get("error")
+            ),
+            None,
+        )
+        citation = next(
+            (
+                str(item.get("citation_id"))
+                for item in sources
+                if isinstance(item, dict)
+                and item.get("tool") == "list_quality_issues"
+                and str(item.get("status") or "").casefold() == "ok"
+            ),
+            "",
+        )
+        if not quality or not citation:
+            return None
+        issues = [
+            item
+            for item in (quality.get("data") or {}).get("issues") or []
+            if isinstance(item, dict)
+        ]
+        labels = {
+            "high_missingness": "thiếu dữ liệu cao",
+            "missing_values": "có dữ liệu thiếu",
+            "constant_column": "không có khả năng phân biệt vì là cột hằng",
+            "high_cardinality": "cardinality rất cao",
+            "high_outlier_rate": "có tỷ lệ outlier cao",
+        }
+        points = [
+            f"{labels.get(str(item.get('issue_type')), str(item.get('issue_type') or 'có vấn đề chất lượng'))} ở cột {item.get('column_name') or 'không xác định'}"
+            for item in issues[:2]
+        ]
+        if not points:
+            points = [
+                "chưa có issue từ rule deterministic, nhưng vẫn cần kiểm tra tính hợp lệ nghiệp vụ",
+                "kết quả chỉ áp dụng cho phạm vi của Profile Run hiện tại",
+            ]
+        elif len(points) == 1:
+            points.append("cần xác minh tính hợp lệ nghiệp vụ trước khi tổng hợp doanh thu")
+        if _is_priority_quality_follow_up(question):
+            first_issue = issues[0] if issues else {}
+            first_column = str(first_issue.get("column_name") or "cột được nêu")
+            first_type = str(first_issue.get("issue_type") or "quality_issue")
+            next_check = (
+                "xác nhận với chủ sở hữu dữ liệu rằng cột này có chủ đích là hằng; nếu không, "
+                "kiểm tra mapping và nguồn nạp"
+                if first_type == "constant_column"
+                else "đối chiếu giá trị nguồn và quy tắc nghiệp vụ trước khi sửa hoặc loại dữ liệu"
+            )
+            return (
+                f"Ưu tiên kiểm tra {points[0]} trước. Bước tiếp theo cho {first_column}: "
+                f"{next_check}. Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. "
+                f"[{citation}]"
+            )
+        return (
+            f"Hai điểm cần chú ý: 1) {points[0]}; 2) {points[1]}. "
+            f"Đây là tín hiệu từ Profile Run, không phải kết luận nguyên nhân. [{citation}]"
+        )
+    if asks_profile_summary and asks_single_quality_risk:
+        quality = next(
+            (
+                item
+                for item in tool_results
+                if isinstance(item, dict)
+                and item.get("tool") == "list_quality_issues"
+                and not item.get("error_code")
+                and not item.get("error")
+            ),
+            None,
+        )
+        citation = next(
+            (
+                str(item.get("citation_id"))
+                for item in sources
+                if isinstance(item, dict)
+                and item.get("tool") == "list_quality_issues"
+                and str(item.get("status") or "").casefold() == "ok"
+            ),
+            "",
+        )
+        if not quality or not citation:
+            return None
+        issues = (quality.get("data") or {}).get("issues")
+        if not isinstance(issues, list):
+            return None
+        if not issues:
+            return (
+                "Không phát hiện rủi ro chất lượng nổi bật theo các quy tắc "
+                f"deterministic hiện có trong Profile Run. [{citation}]"
+            )
+        issue = next((item for item in issues if isinstance(item, dict)), None)
+        if not issue:
+            return None
+        labels = {
+            "high_missingness": "tỷ lệ thiếu dữ liệu cao",
+            "constant_column": "cột có giá trị không đổi",
+            "high_outlier_rate": "tỷ lệ giá trị bất thường cao",
+        }
+        issue_type = str(issue.get("issue_type") or "quality_issue")
+        label = labels.get(issue_type, issue_type.replace("_", " "))
+        column = str(issue.get("column_name") or "không xác định")
+        return (
+            f"Rủi ro chất lượng đáng chú ý nhất là {label} ở cột {column}. "
+            f"[{citation}]"
+        )
+    if quality_lookup_intent:
+        quality = next(
+            (
+                item
+                for item in tool_results
+                if isinstance(item, dict)
+                and item.get("tool") == "list_quality_issues"
+                and not item.get("error_code")
+                and not item.get("error")
+            ),
+            None,
+        )
+        citation = next(
+            (
+                str(item.get("citation_id"))
+                for item in sources
+                if isinstance(item, dict)
+                and item.get("tool") == "list_quality_issues"
+                and str(item.get("status") or "").casefold() == "ok"
+            ),
+            "",
+        )
+        if not quality or not citation:
+            return None
+        issues = [
+            item
+            for item in (quality.get("data") or {}).get("issues") or []
+            if isinstance(item, dict)
+            and item.get("issue_type") == quality_lookup_intent
+        ]
+        if quality_lookup_intent == "constant_column":
+            requested = {str(column).casefold() for column in mentioned_columns}
+            matched = [
+                item
+                for item in issues
+                if not requested
+                or str(item.get("column_name") or "").casefold() in requested
+            ]
+            if requested:
+                column = mentioned_columns[0]
+                conclusion = "Có" if matched else "Không"
+                return (
+                    f"{conclusion}. Cột {column} "
+                    + (
+                        "là cột hằng vì mọi giá trị quan sát được đều giống nhau"
+                        if matched
+                        else "không được xác định là cột hằng"
+                    )
+                    + f" trong Profile Run. [{citation}]"
+                )
+            columns = [
+                str(item.get("column_name"))
+                for item in matched
+                if item.get("column_name")
+            ]
+            if columns:
+                return (
+                    "Các cột có giá trị không đổi trong toàn bộ Profile Run là "
+                    + ", ".join(columns)
+                    + f". [{citation}]"
+                )
+        elif quality_lookup_intent == "high_cardinality":
+            columns = [
+                str(item.get("column_name"))
+                for item in issues
+                if item.get("column_name")
+            ]
+            if columns:
+                return (
+                    "Các cột có cardinality cao, gần một giá trị cho mỗi dòng gồm "
+                    + ", ".join(columns)
+                    + f". [{citation}]"
+                )
+        elif quality_lookup_intent == "missing_values" and issues:
+            selected = max(
+                issues,
+                key=lambda item: float(item.get("observed_value") or 0),
+            )
+            column = str(selected.get("column_name") or "không xác định")
+            return (
+                f"Cột chứa giá trị trống được phát hiện là {column}. [{citation}]"
+            )
+        return (
+            "Không phát hiện cột phù hợp theo các quy tắc chất lượng deterministic "
+            f"hiện có. [{citation}]"
+        )
+    if asks_profile_summary:
+        by_tool = {
+            str(item.get("tool") or ""): item
+            for item in tool_results
+            if isinstance(item, dict)
+            and not item.get("error_code")
+            and not item.get("error")
+        }
+        citation_for = {
+            str(item.get("tool") or ""): str(item.get("citation_id") or "")
+            for item in sources
+            if isinstance(item, dict)
+            and str(item.get("status") or "").casefold() == "ok"
+        }
+        overview = by_tool.get("get_profile_overview")
+        quality = by_tool.get("list_quality_issues")
+        if not overview or not quality:
+            return None
+        overview_data = overview.get("data") or {}
+        quality_data = quality.get("data") or {}
+        readiness = by_tool.get("get_profile_readiness", {}).get("data") or {}
+        missingness = by_tool.get("get_missingness_patterns", {}).get("data") or {}
+        duplicates = by_tool.get("get_duplicate_analysis", {}).get("data") or {}
+        columns = by_tool.get("list_columns", {}).get("data") or {}
+        overview_citation = citation_for.get("get_profile_overview")
+        quality_citation = citation_for.get("list_quality_issues")
+        if not overview_citation or not quality_citation:
+            return None
+
+        row_count = overview_data.get("row_count")
+        column_count = overview_data.get("column_count")
+        warning_count = overview_data.get("warning_count")
+        dataset_name = overview_data.get("dataset_name") or "Dataset hiện tại"
+        issues = [item for item in quality_data.get("issues") or [] if isinstance(item, dict)]
+        missing_rows = [
+            item for item in missingness.get("per_column") or [] if isinstance(item, dict)
+        ]
+        column_rows = [
+            item for item in columns.get("columns") or [] if isinstance(item, dict)
+        ]
+
+        if issues:
+            conclusion = (
+                f"Profile Run đã hoàn tất cho **{dataset_name}** nhưng chưa nên xem dữ liệu là "
+                "sạch hoàn toàn: hệ thống ghi nhận các vấn đề theo bộ quy tắc "
+                f"chất lượng hiện tại. [S{quality_citation[1:]}]"
+            )
+        else:
+            conclusion = (
+                f"Profile Run đã hoàn tất cho **{dataset_name}** và chưa ghi nhận vấn đề chất "
+                f"lượng nào theo các quy tắc deterministic hiện tại. [S{quality_citation[1:]}]"
+            )
+
+        lines = [
+            "## 1. Kết luận điều hành",
+            "",
+            conclusion,
+            "Có thể dùng run này làm baseline phân tích; các giới hạn và cảnh báo bên dưới vẫn cần được kiểm tra trước khi dùng cho quyết định quan trọng.",
+            "",
+            "## 2. Chỉ số và bằng chứng chính",
+            "",
+        ]
+        if isinstance(row_count, (int, float)) and isinstance(column_count, (int, float)):
+            lines.append(
+                f"- Phạm vi: **{int(row_count):,} dòng**, **{int(column_count):,} cột**, "
+                f"scan **{overview_data.get('scan_mode') or 'không xác định'}**. "
+                f"[S{overview_citation[1:]}]"
+            )
+        if isinstance(warning_count, (int, float)):
+            lines.append(
+                f"- Cảnh báo profile: **{int(warning_count)}** cảnh báo được lưu cùng run. "
+                f"[S{overview_citation[1:]}]"
+            )
+        if readiness:
+            status = readiness.get("profile_status") or overview_data.get("status")
+            pending = readiness.get("pending_proposal_count")
+            readiness_citation = citation_for.get("get_profile_readiness", overview_citation)
+            lines.append(
+                f"- Readiness: trạng thái **{status or 'không xác định'}**"
+                + (f", còn **{int(pending)} proposal** chờ xử lý." if isinstance(pending, (int, float)) else ".")
+                + f" [S{readiness_citation[1:]}]"
+            )
+        if missing_rows:
+            top_missing = ", ".join(
+                f"**{item.get('column_name')}** ({float(item.get('null_pct') or 0):g}%)"
+                for item in missing_rows[:5]
+            )
+            missing_citation = citation_for.get("get_missingness_patterns", quality_citation)
+            lines.append(f"- Missingness nổi bật: {top_missing}. [S{missing_citation[1:]}]")
+        else:
+            missing_citation = citation_for.get("get_missingness_patterns", quality_citation)
+            lines.append(
+                f"- Missingness: không có cột có null_count dương trong kết quả kiểm tra hiện tại. [S{missing_citation[1:]}]"
+            )
+        if issues:
+            issue_text = "; ".join(
+                f"{item.get('issue_type', 'quality issue')} ở **{item.get('column_name', 'cột không xác định')}**"
+                + (
+                    f" (observed {item.get('observed_value')}, threshold {item.get('threshold')})"
+                    if item.get("observed_value") is not None and item.get("threshold") is not None
+                    else ""
+                )
+                for item in issues[:8]
+            )
+            lines.append(f"- Quality issues: {issue_text}. [S{quality_citation[1:]}]")
+        else:
+            lines.append(f"- Quality issues: không có issue nào. [S{quality_citation[1:]}]")
+        if duplicates:
+            duplicate_count = duplicates.get("duplicate_row_count")
+            duplicate_rate = duplicates.get("duplicate_row_rate")
+            duplicate_text = (
+                f"**{int(duplicate_count):,} dòng trùng**"
+                if isinstance(duplicate_count, (int, float))
+                else "chưa có số dòng trùng"
+            )
+            if isinstance(duplicate_rate, (int, float)):
+                duplicate_text += f" (rate {float(duplicate_rate):g})"
+            duplicate_citation = citation_for.get("get_duplicate_analysis", quality_citation)
+            lines.append(f"- Trùng bản ghi: {duplicate_text}. [S{duplicate_citation[1:]}]")
+
+        lines.extend(["", "## 3. Đánh giá và ý nghĩa", ""])
+        if issues:
+            lines.append(
+                "Các issue nên được ưu tiên theo severity và tác động đến phân tích: missingness cao "
+                "có thể làm lệch mẫu, cột hằng không mang thông tin phân biệt, còn outlier cần được "
+                "xác minh với nghiệp vụ trước khi loại bỏ. Đây là đánh giá rủi ro từ rule v1, không "
+                "phải kết luận nguyên nhân."
+            )
+        else:
+            lines.append(
+                "Kết quả hiện tại cho thấy các rule chất lượng đã chạy không phát hiện tín hiệu rủi ro "
+                "nổi bật. Điều đó không chứng minh dữ liệu đúng nghiệp vụ; nó chỉ xác nhận các kiểm tra "
+                "deterministic hiện có không tạo issue."
+            )
+        if column_rows:
+            pii_columns = [item.get("column_name") for item in column_rows if item.get("is_pii")]
+            outlier_columns = [item.get("column_name") for item in column_rows if item.get("has_outliers")]
+            if pii_columns:
+                lines.append("Governance: có cột được đánh dấu PII; không nên đưa raw value vào phân tích hoặc câu trả lời.")
+            if outlier_columns:
+                lines.append(
+                    "Outlier signal xuất hiện trong aggregate profile; cần review ngưỡng và bối cảnh."
+                )
+
+        lines.extend(
+            [
+                "",
+                "## 4. Điểm cần chú ý",
+                "",
+                "- Rule quality hiện tại là deterministic rule v1 trên aggregate đã lưu; không thay thế kiểm tra nghiệp vụ.",
+                "- Các cột không có missingness trong output này không đồng nghĩa mọi giá trị hợp lệ về mặt domain.",
+                "- Nếu run là sample hoặc có giới hạn profiling, mọi tỷ lệ cần được đọc như ước lượng theo scope của run.",
+                "",
+                "## 5. Khuyến nghị hành động",
+                "",
+                "1. Ưu tiên xử lý các issue severity cao, bắt đầu từ cột và metric được nêu ở trên.",
+                "2. Xác minh các issue với chủ sở hữu dữ liệu; quyết định impute, sửa nguồn hay loại bản ghi phải dựa trên nghiệp vụ.",
+                "3. Review proposal/governance còn chờ, sau đó chạy lại Profile Run nếu dữ liệu nguồn đã thay đổi.",
+                "",
+                "## 6. Phạm vi và độ tin cậy",
+                "",
+                f"- Kết luận chỉ áp dụng cho Profile Run hiện tại của **{dataset_name}**, không trộn với run khác. [S{overview_citation[1:]}]",
+                "- Các con số trong báo cáo lấy từ tool có citation; diễn giải rủi ro là khuyến nghị cần Analyst review.",
+            ]
+        )
+        return "\n".join(lines)
+    if governance_type:
+        tool_name = (
+            "get_pii_assessment"
+            if governance_type == "pii"
+            else "get_semantic_types"
+        )
+        result = next(
+            (
+                item
+                for item in tool_results
+                if isinstance(item, dict)
+                and item.get("tool") == tool_name
+                and not item.get("error_code")
+                and not item.get("error")
+            ),
+            None,
+        )
+        citation = next(
+            (
+                str(item.get("citation_id"))
+                for item in sources
+                if isinstance(item, dict)
+                and item.get("tool") == tool_name
+                and str(item.get("status") or "").casefold() == "ok"
+            ),
+            "",
+        )
+        if not result or not citation:
+            return None
+        column = mentioned_columns[0]
+        records = (result.get("data") or {}).get(governance_type)
+        if not isinstance(records, list):
+            return None
+        record = next((item for item in records if isinstance(item, dict)), None)
+        if not record:
+            return (
+                f"Chưa có proposal {governance_type} cho cột {column} trong "
+                f"Profile Run hiện tại. [{citation}]"
+            )
+        status = str(record.get("status") or "chưa xác định")
+        if governance_type == "semantic_type":
+            proposed = str(
+                record.get("semantic_role")
+                or record.get("final_type")
+                or record.get("proposed_type")
+                or "chưa xác định"
+            )
+            normalized_question = _plain_question(question)
+            if any(
+                marker in normalized_question
+                for marker in (
+                    "suy luan kieu du lieu",
+                    "ep suy luan kieu",
+                    "gia tri ngay khong hop le",
+                    "invalid date",
+                )
+            ):
+                return (
+                    f"Không nên ép cột {column} thành kiểu ngày chỉ từ mẫu giá trị: "
+                    f"proposal hiện tại là {proposed} với trạng thái {status}. "
+                    "Các giá trị ngày không hợp lệ phải được parse và kiểm tra riêng; "
+                    f"proposal này chưa chứng minh toàn bộ cột hợp lệ. [{citation}]"
+                )
+            if any(
+                marker in normalized_question
+                for marker in ("so thuan nhat", "purely numeric")
+            ):
+                numeric_roles = {
+                    "continuous",
+                    "decimal",
+                    "float",
+                    "integer",
+                    "numeric",
+                    "ordinal",
+                }
+                conclusion = "Có" if proposed.casefold() in numeric_roles else "Không"
+                return (
+                    f"{conclusion}. Cột {column} có kiểu ngữ nghĩa {proposed}; "
+                    f"trạng thái proposal là {status}. [{citation}]"
+                )
+            return (
+                f"Cột {column} được nhận diện có kiểu ngữ nghĩa {proposed}; "
+                f"trạng thái proposal là {status}. [{citation}]"
+            )
+        pii_type = str(
+            record.get("final_type") or record.get("pii_type") or "chưa xác định"
+        )
+        direct_types = {
+            "email",
+            "full_name",
+            "national_id",
+            "phone",
+            "phone_number",
+        }
+        classification = (
+            "định danh trực tiếp" if pii_type.casefold() in direct_types else "quasi-identifier"
+        )
+        return (
+            f"Có. Cột {column} được đánh giá là dữ liệu nhạy cảm loại {pii_type} "
+            f"({classification}); trạng thái proposal là {status}. [{citation}]"
+        )
     # Keep compound requests on the existing model path: the safe renderer is
     # intentionally limited to one deterministic intent at a time.
     if asks_candidate_key == asks_quality_issue:
@@ -302,7 +1094,7 @@ def _deterministic_evidence_answer(
                 f"cần Analyst xác nhận trước khi trở thành metadata chính thức.{detail} {citations}"
             )
         return (
-            "Chưa có proposal candidate key phù hợp trong evidence của Profile Run. "
+            "Không. Chưa có proposal candidate key phù hợp trong evidence của Profile Run. "
             f"[{citation}]"
         )
 
@@ -456,6 +1248,34 @@ def _resolve_column_from_history(state: ProfilingState, columns: list[str]) -> l
     return []
 
 
+def _resolve_metric_from_history(state: ProfilingState, question: str) -> str | None:
+    """Resolve a generic follow-up rate from the latest explicit user metric."""
+
+    normalized = _plain_question(question)
+    asks_generic_rate = any(
+        marker in normalized for marker in ("ty le", "rate", "percentage")
+    ) and not any(
+        marker in normalized
+        for marker in (
+            "missing",
+            "null",
+            "thieu",
+            "unique",
+            "outlier",
+            "duplicate",
+        )
+    )
+    if not asks_generic_rate:
+        return None
+    for message in reversed(state.get("messages") or []):
+        if message.get("role") != "user":
+            continue
+        previous = _plain_question(str(message.get("text") or ""))
+        if any(marker in previous for marker in ("missing", "null", "thieu")):
+            return "null_pct"
+    return None
+
+
 def _clarification_for_context_mismatch(
     state: ProfilingState, question: str
 ) -> dict[str, Any] | None:
@@ -486,7 +1306,7 @@ def _clarification_for_ambiguous_metric(
 ) -> dict[str, Any] | None:
     """Ask one deterministic question only when column choice changes a result."""
 
-    if mentioned or not columns or resolve_fast_path(question):
+    if mentioned or not columns or is_fast_path_question(question, mentioned):
         return None
     if not _AMBIGUOUS_METRIC.search(question):
         return None
@@ -500,6 +1320,133 @@ def _clarification_for_ambiguous_metric(
         "question": "Which profiled column should I use for this metric?",
         "options": [{"id": column, "label": column} for column in choices],
     }
+
+
+def _clarification_for_ambiguous_scope(question: str) -> dict[str, Any] | None:
+    """Clarify a referenced cohort that has no recoverable filter definition."""
+
+    normalized = _plain_question(question)
+    if any(marker in normalized for marker in ("so sanh", "compare")) and any(
+        marker in normalized
+        for marker in (
+            "hai tap nay",
+            "hai bo du lieu nay",
+            "two datasets",
+            "these datasets",
+        )
+    ):
+        return {
+            "reason": "scope",
+            "question": (
+                "Bạn muốn so sánh hai dataset hoặc Profile Run nào, và theo metric "
+                "cụ thể nào?"
+            ),
+            "options": [],
+        }
+    group_reference = any(
+        marker in normalized
+        for marker in ("nhom nay", "phan khuc nay", "this group", "this segment")
+    )
+    dataset_reference = any(
+        marker in normalized for marker in ("tap nay", "this dataset")
+    )
+    if not group_reference and not dataset_reference:
+        return None
+    if not any(marker in normalized for marker in ("doanh thu", "revenue", "sales", "metric", "chi so")):
+        return None
+    # A reference to "this dataset" in an advisory request is already bound
+    # by profile_run_id. Only ask for a cohort when the user is requesting an
+    # actual calculation whose result depends on the missing filter.
+    if dataset_reference and not any(
+        marker in normalized
+        for marker in (
+            "bao nhieu",
+            "tinh ",
+            "tong ",
+            "trung binh",
+            "ty le",
+            "theo nhom",
+            "how much",
+            "calculate",
+            "average",
+            "rate",
+        )
+    ):
+        return None
+    return {
+        "reason": "scope",
+        "question": "Bạn muốn dùng điều kiện hoặc nhóm khách hàng nào để tính chỉ số này?",
+        "options": [],
+    }
+
+
+def _is_chart_recommendation_question(question: str) -> bool:
+    normalized = _plain_question(question)
+    return any(
+        marker in normalized
+        for marker in ("bieu do", "chart", "visualization", "visualisation", "plot", "graph")
+    ) and any(
+        marker in normalized
+        for marker in ("de xuat", "goi y", "nen dung", "recommend", "suggest", "which")
+    )
+
+
+def _chart_recommendation_answer(question: str, columns: list[str]) -> str:
+    """Return a provider-independent recommendation without making data claims."""
+
+    normalized = _plain_question(question)
+    named = [str(column) for column in columns]
+    if any(marker in normalized for marker in ("outlier", "bat thuong", "cuc tri")):
+        target = named[0] if named else "cột số cần kiểm tra"
+        return (
+            f"Nên dùng box plot cho {target} để nhìn trung vị, tứ phân vị và các điểm "
+            "nằm ngoài whisker; bổ sung histogram để kiểm tra hình dạng phân phối. "
+            "Đây là khuyến nghị cách trực quan hóa, chưa kết luận điểm nào là lỗi dữ liệu."
+        )
+
+    group = next(
+        (
+            column
+            for column in named
+            if f" theo {_plain_question(column)} " in f" {normalized} "
+        ),
+        named[-1] if named else "nhóm",
+    )
+    value_columns = [column for column in named if column != group]
+    value = value_columns[0] if value_columns else "giá trị"
+    if any(
+        marker in normalized
+        for marker in ("ty trong", "proportion", "share", "composition")
+    ):
+        return (
+            f"Nên dùng biểu đồ cột chồng 100%: trục x là {group}, phần chồng là "
+            f"{value}; cách này so sánh tỷ trọng giữa các {group} trực tiếp. "
+            "Nếu có nhiều nhóm, bổ sung heatmap để tránh nhãn chồng lấn."
+        )
+    if any(marker in normalized for marker in ("so sanh", "compare")):
+        return (
+            f"Nên dùng biểu đồ cột cho {value} tổng hợp theo {group} để so sánh mức "
+            f"giữa các {group}; nếu cần xem phân phối từng bản ghi, dùng thêm box plot "
+            f"{value} theo {group}."
+        )
+    target = ", ".join(named) if named else "các biến được chọn"
+    return f"Nên bắt đầu bằng biểu đồ cột cho {target}, rồi chọn biến thể theo mục tiêu phân tích."
+
+
+def question_needs_column_context(question: str) -> bool:
+    """Whether routing can materially benefit from loading column metadata."""
+
+    assessment = assess_question(question)
+    normalized = assessment.normalized
+    if not normalized or assessment.blocked:
+        return False
+    if _requires_deterministic_abstention(normalized):
+        return False
+    if _clarification_for_ambiguous_scope(normalized):
+        return False
+    if _SOCIAL_GREETING.search(normalized) or _extract_name(normalized):
+        return False
+    return True
 
 
 def _profile_fallback_summary(run_id: str | None) -> str:
@@ -551,11 +1498,11 @@ def _profile_fallback_summary(run_id: str | None) -> str:
 
 
 def _official_chart_insight(execution: dict[str, Any]) -> str:
-    """Render a bounded insight directly from an authenticated Official result.
+    """Render a detailed, numbered insight directly from Official evidence.
 
-    Chart insight is already bound to immutable evidence by the API. A slow or
-    unavailable language model must not turn a valid chart result into a failed
-    chart workflow, and this fallback never invents values outside that result.
+    This safe fallback is used when the language model is unavailable. Every
+    claim is derived from the immutable execution payload and follows the same
+    six-section contract as the chart-insight prompt.
     """
 
     query = execution.get("query_spec") or {}
@@ -564,11 +1511,8 @@ def _official_chart_insight(execution: dict[str, Any]) -> str:
     dimensions = [str(item) for item in query.get("dimensions") or []]
     analysis_kind = str(query.get("analysis_kind") or "aggregate")
     column = str(query.get("column") or "rows")
-    if not rows:
-        return (
-            "## Kết luận điều hành\n\n"
-            "Official execution không trả về nhóm dữ liệu hợp lệ để viết insight."
-        )
+    row_count = int(result.get("row_count") or len(rows))
+    limitations = [str(item) for item in execution.get("limitations") or result.get("limitations") or []]
 
     def display_value(value: Any) -> str:
         try:
@@ -577,55 +1521,163 @@ def _official_chart_insight(execution: dict[str, Any]) -> str:
             return str(value)
         return f"{number:,.2f}" if number % 1 else f"{number:,.0f}"
 
-    if analysis_kind == "forecast_ranking":
-        dimension = dimensions[0] if dimensions else "group"
-        horizon = int(query.get("forecast_horizon", 12))
-        grain = str(query.get("time_grain") or "time")
-        lines = [
-            "## Kết luận điều hành",
-            "",
-            f"Official execution xếp hạng theo tổng **{column}** dự báo trong "
-            f"{horizon} kỳ {grain} tương lai. Đây là thứ hạng dự báo, không phải doanh số đã phát sinh.",
-            "",
-            "### Top nhóm theo dự báo",
+    def row_label(row: dict[str, Any]) -> str:
+        keys = dimensions or [key for key in row if key not in {"value", "lower", "upper", "forecast", "actual"}]
+        values = [
+            str(row.get(key)) if row.get(key) is not None else "(NULL)"
+            for key in keys
+            if row.get(key) is not None
         ]
-        for index, row in enumerate(rows, start=1):
-            label = str(row.get(dimension) or "(NULL)")
-            lines.append(f"{index}. **{label}** — {display_value(row.get('value'))}")
-        lines.extend(
+        return " · ".join(values) if values else "Kết quả tổng hợp"
+
+    def evidence_line(index: int, row: dict[str, Any]) -> str:
+        label = row_label(row)
+        value = row.get("value", row.get("forecast", row.get("actual")))
+        details = [f"giá trị **{display_value(value)}**"]
+        if row.get("actual") is not None and row.get("forecast") is not None:
+            details = [f"actual **{display_value(row['actual'])}**, forecast **{display_value(row['forecast'])}**"]
+        if row.get("lower") is not None or row.get("upper") is not None:
+            details.append(
+                f"khoảng **{display_value(row.get('lower'))}–{display_value(row.get('upper'))}**"
+            )
+        return f"{index}. **{label}** — " + "; ".join(details) + ". [Official execution]"
+
+    if not rows:
+        return "\n".join(
             [
+                "## 1. Kết luận điều hành",
                 "",
-                "## Điểm cần chú ý",
+                "Official execution không trả về nhóm dữ liệu hợp lệ để viết insight.",
                 "",
-                "- Khoảng lower/upper trong Official result cho biết độ bất định của dự báo; không nên đọc giá trị điểm như cam kết chắc chắn.",
-                "- Kết quả chỉ phản ánh lịch sử đã có trong Profile Run và các nhóm đủ lịch sử để fit model.",
+                "## 2. Bằng chứng định lượng",
                 "",
-                "## Khuyến nghị hành động",
+                "- Chưa có dòng dữ liệu trong Official result để đối chiếu.",
                 "",
-                f"Ưu tiên kiểm tra tồn kho và kế hoạch bán hàng của các nhóm đứng đầu **{dimension}**, sau đó đối chiếu với khoảng dự báo trước khi phân bổ nguồn lực.",
+                "## 3. Diễn giải & ý nghĩa kinh doanh",
+                "",
+                "Chưa thể đưa ra diễn giải khi execution không có quan sát hợp lệ.",
+                "",
+                "## 4. Điểm cần chú ý",
+                "",
+                "- Kiểm tra lại QuerySpec và phạm vi lọc trước khi sử dụng kết quả.",
+                "",
+                "## 5. Khuyến nghị hành động",
+                "",
+                "1. Chạy lại execution sau khi xác nhận dimension và measure.",
+                "2. Chỉ ghim insight sau khi Official result có dữ liệu.",
+                "",
+                "## 6. Phạm vi & độ tin cậy",
+                "",
+                "- Trạng thái: Official execution, nhưng không có quan sát để kết luận.",
             ]
         )
-        return "\n".join(lines)
 
     dimension = dimensions[0] if dimensions else None
     first = rows[0]
-    label = str(first.get(dimension) or "Kết quả") if dimension else "Kết quả tổng hợp"
+    first_label = row_label(first)
+    first_value = first.get("value", first.get("forecast", first.get("actual")))
+    ranking_phrase = (
+        f"Nhóm **{first_label}** đang đứng đầu trong các dòng được trả về, với "
+        f"giá trị **{display_value(first_value)}**."
+        if dimension
+        else f"Execution ghi nhận giá trị tổng hợp **{display_value(first_value)}**."
+    )
+    if analysis_kind == "forecast_ranking":
+        horizon = int(query.get("forecast_horizon") or 12)
+        grain = str(query.get("time_grain") or "time")
+        conclusion = (
+            f"{ranking_phrase} Đây là thứ hạng dự báo cho {horizon} kỳ {grain} tương lai, "
+            "không phải doanh số đã phát sinh."
+        )
+    elif analysis_kind == "forecast":
+        horizon = int(query.get("forecast_horizon") or 12)
+        conclusion = (
+            f"{ranking_phrase} Kết quả mô tả hướng dự báo trong {horizon} kỳ tiếp theo; "
+            "cần đọc cùng khoảng bất định nếu execution có lower/upper."
+        )
+    else:
+        conclusion = f"{ranking_phrase} Đây là kết luận mô tả từ Official evidence, không phải khẳng định quan hệ nhân quả."
+
+    evidence_rows = rows[:6]
+    evidence_lines = [evidence_line(index, row) for index, row in enumerate(evidence_rows, start=1)]
+    if row_count > len(evidence_rows):
+        evidence_lines.append(
+            f"- Official result có **{row_count}** dòng; phần trên hiển thị {len(evidence_rows)} dòng đầu để đọc nhanh."
+        )
+
+    interpretation = (
+        f"Official execution đang trả lời bài toán '{analysis_kind}'"
+        + (f" theo dimension **{dimension}**" if dimension else "")
+        + (f" trên measure **{column}**." if column != "rows" else ".")
+    )
+    if analysis_kind in {"forecast", "forecast_ranking"}:
+        interpretation += " Vì đây là forecast, nên dùng chênh lệch giữa actual và forecast cùng lower/upper để cân nhắc rủi ro; không đọc giá trị điểm như cam kết."
+    else:
+        interpretation += " Các nhóm ở đầu bảng là nơi nên ưu tiên kiểm tra nguyên nhân hoặc phân bổ nguồn lực; biểu đồ không tự chứng minh nguyên nhân."
+
+    attention = [
+        f"- Phạm vi quan sát: {row_count} dòng trong Official result; nhãn nhóm và giá trị được giữ nguyên từ execution.",
+    ]
+    if analysis_kind in {"forecast", "forecast_ranking"}:
+        attention.append("- Nếu có lower/upper, đó là khoảng bất định của dự báo; không nên dùng giá trị điểm như một cam kết chắc chắn.")
+    if limitations:
+        attention.extend(f"- {item}" for item in limitations[:4])
+    else:
+        attention.append("- Chưa có limitation bổ sung trong payload; vẫn cần đối chiếu với bối cảnh vận hành trước khi hành động.")
+
+    actions = [
+        f"1. Ưu tiên kiểm tra nhóm **{first_label}** và các nhóm kế tiếp trong Official result.",
+        f"2. Đối chiếu **{column}** với dữ liệu vận hành hoặc phân khúc liên quan trước khi thay đổi quyết định.",
+        "3. Nếu cần giải thích nguyên nhân, tạo một phân tích tiếp theo có dimension/measure cụ thể và review Official evidence mới.",
+    ]
+    if analysis_kind in {"forecast", "forecast_ranking"}:
+        actions[1] = "2. Đối chiếu forecast với actual gần nhất và khoảng lower/upper trước khi phân bổ nguồn lực."
+
+    scope = [
+        f"- Execution kind: **{execution.get('execution_kind') or 'official'}**.",
+        f"- Query: '{analysis_kind}'; {row_count} dòng được trả về trong phạm vi Profile Run hiện tại.",
+        "- Mức độ chắc chắn: verified cho các giá trị hiển thị; diễn giải kinh doanh vẫn cần Analyst review.",
+    ]
+    if limitations:
+        scope.append("- Limitations: " + "; ".join(limitations[:4]))
+
     return "\n".join(
         [
-            "## Kết luận điều hành",
+            "## 1. Kết luận điều hành",
             "",
-            f"Official execution ghi nhận **{label}** là nhóm đứng đầu với giá trị **{display_value(first.get('value'))}**.",
+            conclusion,
             "",
-            "## Khuyến nghị hành động",
+            "## 2. Bằng chứng định lượng",
             "",
-            "Dùng kết quả này làm cơ sở ưu tiên kiểm tra nguyên nhân và kế hoạch vận hành; mọi diễn giải vẫn bị giới hạn bởi phạm vi Official execution.",
+            *evidence_lines,
+            "",
+            "## 3. Diễn giải & ý nghĩa kinh doanh",
+            "",
+            interpretation,
+            "",
+            "## 4. Điểm cần chú ý",
+            "",
+            *attention,
+            "",
+            "## 5. Khuyến nghị hành động",
+            "",
+            *actions,
+            "",
+            "## 6. Phạm vi & độ tin cậy",
+            "",
+            *scope,
         ]
     )
 
 
 def _mentioned_columns(question: str, columns: list[str]) -> list[str]:
-    lowered = question.lower()
-    return [c for c in columns if c and c.lower() in lowered]
+    normalized_question = f" {_plain_question(question)} "
+    return [
+        column
+        for column in columns
+        if column
+        and f" {_plain_question(str(column))} " in normalized_question
+    ]
 
 
 def _legacy_social_response(question: str) -> str:
@@ -747,6 +1799,18 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
         }
 
+    if _requires_deterministic_abstention(question):
+        return {
+            "question": question,
+            "question_type": "qualitative",
+            "qa_context": {"deterministic_abstention": "unsupported_inference"},
+            "answer": _deterministic_abstention_answer(question),
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "answerability": "insufficient_evidence",
+            **_set_budget(state, "deterministic", get_settings()),
+        }
+
     remembered_name = _remembered_name(state)
     if remembered_name and (
         _NAME_RECALL_QUESTION.search(question)
@@ -760,25 +1824,56 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
         }
 
+    context_clarification = _clarification_for_context_mismatch(state, question)
+    if context_clarification:
+        return {
+            "question": question,
+            "question_type": "clarify",
+            "qa_context": {"columns_available": [], "clarification": context_clarification},
+            "answerability": "needs_clarification",
+            "clarification": context_clarification,
+            **_set_budget(state, "deterministic", get_settings()),
+        }
+
+    scope_clarification = _clarification_for_ambiguous_scope(question)
+    if scope_clarification:
+        return {
+            "question": question,
+            "question_type": "clarify",
+            "qa_context": {"columns_available": [], "clarification": scope_clarification},
+            "answerability": "needs_clarification",
+            "clarification": scope_clarification,
+            **_set_budget(state, "deterministic", get_settings()),
+        }
+
     columns = state.get("column_names") or []
     if not columns and state.get("profile_run_id"):
         stats = get_repository().get_column_stats(state["profile_run_id"])
         columns = list(stats.keys())
 
     mentioned = _mentioned_columns(question, columns)
-    has_direct_fast_path = bool(resolve_fast_path(question)) or (
-        is_distribution_question(question) and len(mentioned) == 1
-    )
+    resolved_metric: str | None = None
+    has_direct_fast_path = is_fast_path_question(question, mentioned)
 
-    context_clarification = _clarification_for_context_mismatch(state, question)
-    if context_clarification:
+    if state.get("profile_run_id") and _is_profile_quality_summary_question(question):
+        # The selected Profile Run is already the complete scope for a broad
+        # quality summary. Never ask the analyst to repeat its ID or choose a
+        # column for this intent.
         return {
             "question": question,
-            "question_type": "clarify",
-            "qa_context": {"columns_available": columns[:50], "clarification": context_clarification},
-            "answerability": "needs_clarification",
-            "clarification": context_clarification,
-            **_set_budget(state, "deterministic", get_settings()),
+            "question_type": "quantitative",
+            "selected_skill": select_skill_for_question(question),
+            "qa_context": {
+                "mentioned_columns": mentioned,
+                "columns_available": columns[:50],
+                "profile_quality_summary": True,
+            },
+            "tool_calls": state.get("tool_calls", 0) + 1,
+            # A quality summary reads several independent, persisted
+            # aggregates. It is still deterministic (no LLM call), but it
+            # needs the whole request budget because a remote Supabase
+            # connection may take longer than the small single-tool budget.
+            **_set_budget(state, "full_agent", get_settings()),
         }
 
     # Tham chiếu mơ hồ: thử resolve từ context trước khi hỏi lại (eval B-01).
@@ -791,6 +1886,11 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
                 "answerability": "needs_clarification",
                 **_set_budget(state, "deterministic", get_settings()),
             }
+        resolved_metric = _resolve_metric_from_history(state, question)
+
+    has_direct_fast_path = is_fast_path_question(question, mentioned) or bool(
+        resolved_metric
+    )
 
     metric_clarification = _clarification_for_ambiguous_metric(question, columns, mentioned)
     if metric_clarification:
@@ -807,7 +1907,13 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
     normalized_lowered = re.sub(r"[-_]", " ", lowered)
     if not state.get("profile_run_id"):
         heuristic = "qualitative"
+    elif _is_chart_recommendation_question(question):
+        heuristic = "qualitative"
     elif has_direct_fast_path:
+        heuristic = "quantitative"
+    elif _asks_candidate_key(question):
+        heuristic = "quantitative"
+    elif _governance_question_type(question, mentioned):
         heuristic = "quantitative"
     elif any(h in lowered for h in _CONCEPT_HINTS):
         heuristic = "qualitative"
@@ -853,6 +1959,8 @@ def _qa_router_node_impl(state: ProfilingState) -> dict[str, Any]:
         "mentioned_columns": mentioned,
         "columns_available": columns[:50],
     }
+    if resolved_metric:
+        routed_context["resolved_metric"] = resolved_metric
     return {
         "question": question,
         "question_type": question_type,
@@ -894,6 +2002,7 @@ def qa_guardrail_node(state: ProfilingState) -> dict[str, Any]:
         "answer_sources": [],
         "question_type": "guardrail",
         "evidence_status": "no_evidence",
+        "qa_path": "guardrail",
     }
 
 
@@ -917,6 +2026,7 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
             "answer_sources": [],
             "question_type": "clarify",
             "evidence_status": "no_evidence",
+            "qa_path": "clarify",
             "answerability": "needs_clarification",
             "clarification": structured,
         }
@@ -950,6 +2060,7 @@ def clarify_node(state: ProfilingState) -> dict[str, Any]:
         "answer_sources": [],
         "question_type": "clarify",
         "evidence_status": "no_evidence",
+        "qa_path": "clarify",
         "answerability": "needs_clarification",
         "clarification": {
             "reason": "column",
@@ -993,14 +2104,22 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     # Common profile questions are served by an explicit, bounded fast-path
     # registry. The answer still passes the same fail-closed validator below.
     _progress(state, "running_tool")
-    mentioned_columns = (state.get("qa_context") or {}).get("mentioned_columns") or []
+    qa_context = state.get("qa_context") or {}
+    mentioned_columns = qa_context.get("mentioned_columns") or []
+    fast_path_question = question
+    if qa_context.get("resolved_metric") == "null_pct":
+        # The current turn supplies "rate" while the immediately preceding
+        # user turn supplies "missingness". Keep the public question intact
+        # for validation, but make the recovered metric explicit to the
+        # deterministic resolver.
+        fast_path_question = f"{question} tỷ lệ thiếu"
     fast_path = execute_fast_path(
-        question=question,
+        question=fast_path_question,
         profile_run_id=run_id,
         workspace_id=state.get("workspace_id"),
         mentioned_columns=mentioned_columns,
     )
-    if fast_path:
+    if fast_path and not _is_profile_quality_summary_question(question):
         _progress(state, "validating")
         with ai_latency.timed("validation"):
             fast_validation = validate_answer_evidence(
@@ -1023,6 +2142,114 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                 "answerability": "answerable",
             }
 
+    # Broad quality summaries are fully answerable from the selected run.
+    # Resolve them before acquiring an LLM so a provider cannot reinterpret
+    # the request as a missing-ID clarification.
+    if _is_profile_quality_summary_question(question):
+        summary_sources: list[dict[str, Any]] = []
+        summary_results: list[dict[str, Any]] = []
+        max_calls = settings.guardrails_max_tool_calls_per_request
+        summary_specs = _deterministic_qa_tool_specs(question, mentioned_columns)
+        bounded_specs = summary_specs[:max_calls]
+        for (name, args), result in zip(
+            bounded_specs,
+            _run_quality_summary_tools(
+                bounded_specs,
+                profile_run_id=run_id,
+                max_workers=getattr(settings, "qa_parallel_retrieval_concurrency", 2),
+            ),
+            strict=False,
+        ):
+            if len(summary_sources) >= max_calls or _cancelled(state):
+                break
+            _progress(state, "running_tool")
+            if isinstance(result, dict):
+                summary_results.append(_workspace_bound_result(result, state.get("workspace_id")))
+            failed = isinstance(result, dict) and (result.get("error") or result.get("error_code"))
+            summary_sources.append(
+                {
+                    "type": "tool",
+                    "citation_id": f"S{len(summary_sources) + 1}",
+                    "tool": name,
+                    "args": args,
+                    "status": "error" if failed else "ok",
+                    "profile_run_id": run_id,
+                    "workspace_id": state.get("workspace_id"),
+                }
+            )
+        summary_answer = _deterministic_evidence_answer(
+            question, summary_sources, summary_results, mentioned_columns
+        )
+        if summary_answer:
+            _progress(state, "validating")
+            validation = validate_answer_evidence(
+                question=question,
+                profile_run_id=run_id,
+                sources=summary_sources,
+                tool_results=summary_results,
+                answer=summary_answer,
+                workspace_id=state.get("workspace_id"),
+            )
+            if validation.valid:
+                return {
+                    "answer": _guard_answer(summary_answer),
+                    "answer_sources": summary_sources,
+                    "evidence_status": validation.evidence_status,
+                    "tool_calls": state.get("tool_calls", 0) + len(summary_sources),
+                    "qa_path": "deterministic_quality_summary",
+                    "fast_path_intent": "profile_quality_summary",
+                    "answerability": "answerable",
+                }
+    governance_type = _governance_question_type(question, mentioned_columns)
+    if governance_type:
+        governance_specs = _deterministic_qa_tool_specs(question, mentioned_columns)
+        if governance_specs:
+            name, args = governance_specs[0]
+            _progress(state, "running_tool")
+            result = run_tool(name, args, profile_run_id=run_id)
+            failed = isinstance(result, dict) and (
+                result.get("error") or result.get("error_code")
+            )
+            source = {
+                "type": "tool",
+                "citation_id": "S1",
+                "tool": name,
+                "args": args,
+                "status": "error" if failed else "ok",
+                "profile_run_id": run_id,
+                "workspace_id": state.get("workspace_id"),
+            }
+            bound_results = (
+                [_workspace_bound_result(result, state.get("workspace_id"))]
+                if isinstance(result, dict)
+                else []
+            )
+            governance_answer = _deterministic_evidence_answer(
+                question, [source], bound_results, mentioned_columns
+            )
+            if governance_answer:
+                _progress(state, "validating")
+                validation = validate_answer_evidence(
+                    question=question,
+                    profile_run_id=run_id,
+                    sources=[source],
+                    tool_results=bound_results,
+                    answer=governance_answer,
+                    workspace_id=state.get("workspace_id"),
+                )
+                if validation.valid:
+                    return {
+                        "answer": _guard_answer(governance_answer),
+                        "answer_sources": [source],
+                        "evidence_status": validation.evidence_status,
+                        "tool_calls": state.get("tool_calls", 0) + 1,
+                        # Preserve the public route contract for governance
+                        # Q&A; telemetry separately records that no provider
+                        # call was necessary for this verified fallback.
+                        "qa_path": "tool_llm",
+                        "fast_path_intent": f"governance_{governance_type}",
+                        "answerability": "answerable",
+                    }
     if _budget_expired(state, stage="after_fast_path", fallback="timeout"):
         return _timeout_result()
 
@@ -1097,6 +2324,7 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
     evidence_available = False
     max_calls = settings.guardrails_max_tool_calls_per_request
     mentioned = mentioned_columns
+    governance_type = _governance_question_type(question, mentioned)
     prefetched_evidence: list[dict[str, Any]] = []
     for name, args in _deterministic_qa_tool_specs(question, mentioned):
         if _cancelled(state):
@@ -1167,7 +2395,10 @@ def qa_structured_node(state: ProfilingState) -> dict[str, Any]:
                 "answer_sources": sources,
                 "evidence_status": validation.evidence_status,
                 "tool_calls": state.get("tool_calls", 0) + calls_used,
-                "qa_path": "deterministic_tool",
+                "qa_path": "tool_llm" if governance_type else "deterministic_tool",
+                "fast_path_intent": (
+                    f"governance_{governance_type}" if governance_type else None
+                ),
             }
 
     evidence_started = time.perf_counter()
@@ -1415,6 +2646,14 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             "evidence_status": "no_evidence",
             "qa_path": "cancelled",
         }
+    if qa_context.get("deterministic_abstention"):
+        return {
+            "answer": _guard_answer(state.get("answer") or insufficient_evidence_answer()),
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "answerability": "insufficient_evidence",
+            "qa_path": "abstain",
+        }
     if chart_insight and official_execution and official_execution.get("execution_kind") == "official":
         return {
             "answer": _guard_answer(_official_chart_insight(official_execution)),
@@ -1438,6 +2677,16 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
             "answer": _guard_answer(state.get("answer") or _social_response(question)),
             "answer_sources": [],
             "evidence_status": "no_evidence",
+        }
+
+    if _is_chart_recommendation_question(question):
+        columns = qa_context.get("mentioned_columns") or []
+        return {
+            "answer": _guard_answer(_chart_recommendation_answer(question, columns)),
+            "answer_sources": [],
+            "evidence_status": "no_evidence",
+            "answerability": "answerable",
+            "qa_path": "retrieval_fallback",
         }
 
     _progress(state, "retrieving")
@@ -1575,15 +2824,13 @@ def qa_vector_node(state: ProfilingState) -> dict[str, Any]:
 
     # Causal explanations are not present in the persisted profile artifacts.
     # Abstain before the model can turn a correlation or warning into a cause.
-    normalized_question = question.casefold()
-    if not chart_insight and any(
-        marker in normalized_question
-        for marker in ("vì sao", "tại sao", "why", "causal", "nguyên nhân")
-    ):
+    if not chart_insight and _requires_deterministic_abstention(question):
         return {
             "answer": insufficient_evidence_answer(),
             "answer_sources": [],
             "evidence_status": "no_evidence",
+            "answerability": "insufficient_evidence",
+            "qa_path": "abstain",
         }
 
     evidence_started = time.perf_counter()

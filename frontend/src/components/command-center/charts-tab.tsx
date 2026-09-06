@@ -128,6 +128,25 @@ function chartDisplayTitle(chart: Pick<ChartDraft, "question" | "title">) {
   return chart.question.trim() || chart.title.trim() || "Bài phân tích mới";
 }
 
+const INSIGHT_SECTION_PATTERN = /(?:kết luận|bằng chứng|định lượng|diễn giải|ý nghĩa|điểm cần|lưu ý|khuyến nghị|hành động|phạm vi|tin cậy|conclusion|evidence|recommendation|scope|confidence)/i;
+
+/**
+ * Keep generated and cached insights readable even when a provider omits the
+ * numbering requested in the chart-insight contract. Only recognized section
+ * headings are touched; subheadings and analyst edits remain unchanged.
+ */
+function normalizeChartInsight(input: string): string {
+  let section = 0;
+  return normalizeMarkdownText(input).split("\n").map((line) => {
+    const match = line.match(/^(\s*#{1,3}\s+)(?:(\d+)[.)]\s+)?(.+)$/);
+    if (!match || !INSIGHT_SECTION_PATTERN.test(match[3])) return line;
+    section += 1;
+    if (section > 6) return line;
+    const title = match[3].trim();
+    return match[1] + section + ". " + title;
+  }).join("\n");
+}
+
 function chartFromPlan(plan: AutoChartPlan): ChartDraft {
   return {
     ...draftChart(),
@@ -361,7 +380,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
 }) {
   // Normalize cached/legacy insight content before it reaches the textarea.
   if (typeof chart.insight === "string") {
-    const insight = normalizeMarkdownText(chart.insight);
+    const insight = normalizeChartInsight(chart.insight);
     if (insight !== chart.insight) chart = { ...chart, insight };
   }
   const validation = analysisError(chart);
@@ -372,6 +391,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
   const official = chart.execution?.execution_kind === "official";
   const selectionExplanation = chartSelectionExplanation(chart);
   const displayTitle = chartDisplayTitle(chart);
+  const insightTitleId = chart.id + "-insight-title";
   return <article id={chart.id} className="panel chart-builder-card chart-workflow-card">
     <header className="chart-card-header">
       <div>
@@ -443,7 +463,7 @@ function ChartWorkflowCard({ chart, dimensions, measures, forecastAlgorithms, en
         <div><b>Sinh biểu đồ và Agent viết insight</b><p>Chart được render từ aggregate result; Agent đọc toàn bộ Official evidence để viết phân tích sâu gồm kết luận, bằng chứng, diễn giải, điểm cần chú ý và hành động.</p></div>
         <button type="button" className="button primary" disabled={!official || !chart.chart_type || !chart.renderer || chart.insight_busy} onClick={onGenerate}>{chart.insight_busy ? "Agent đang viết insight…" : "Sinh biểu đồ & viết insight"}</button>
       </div>
-      {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel"><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
+      {chart.generated && chart.execution && chart.chart_type && chart.renderer && <div className="chart-generated-grid"><div className="chart-result-canvas"><div className="chart-result-heading"><div className="chart-result-heading-main"><strong>{displayTitle}</strong><div className="chart-selected-meta"><span className={`chart-fit-badge ${selectionExplanation.confidence}`}>{selectionExplanation.confidence === "high" ? "✓ Phù hợp với dữ liệu" : "Cần xem lại"}</span><span className="chart-type-badge">{CHART_LABELS[chart.chart_type]}</span></div></div><small>{RENDERER_LABELS[chart.renderer]}</small></div><div className={`chart-selection-note ${selectionExplanation.confidence}`}><span className="chart-selection-note-icon" aria-hidden="true">i</span><div><b>Recommended: {CHART_LABELS[chart.chart_type]}</b><span>Analysis: {chart.problem}</span></div><details><summary>Why?</summary><ul>{chart.rationale ? <li>{chart.rationale}</li> : selectionExplanation.checks.map((check) => <li key={check}>{check}</li>)}</ul></details></div><ChartEvidenceView chartSpec={chartSpec(chart)} result={chart.execution.result} querySpec={chart.execution.query_spec} title={displayTitle} /></div><section className="chart-insight-panel" aria-labelledby={insightTitleId}><header className="chart-insight-header"><div><span className="eyebrow">AGENT INSIGHT · CẦN DUYỆT</span><h4 id={insightTitleId}>Phân tích chi tiết từ Official evidence</h4><p>Các mục chính được đánh số để dễ đối chiếu trước khi ghim vào báo cáo.</p></div><div className="chart-insight-facts"><span>{chart.execution.result.row_count ?? chart.execution.result.data.length} dòng evidence</span><span className={chart.insight_evidence_status === "verified" ? "verified" : ""}>{chart.insight_evidence_status === "verified" ? "Đã xác thực" : "Cần đối chiếu"}</span></div></header>{chart.insight ? <><MarkdownContent text={chart.insight} className="report report-markdown" /><label className="chart-insight-editor">Chỉnh sửa insight trước khi ghim<textarea value={chart.insight} maxLength={20000} rows={7} onChange={(event) => onChange({ insight: event.target.value, insight_reviewed: false })} /></label><label className="chart-insight-review"><input type="checkbox" checked={chart.insight_reviewed} onChange={(event) => onChange({ insight_reviewed: event.target.checked })} /> Tôi đã đối chiếu insight với biểu đồ và Official evidence.</label></> : <p className="muted">Agent chưa tạo được insight.</p>}{chart.insight_evidence_status && <small className="muted">Evidence: {chart.insight_evidence_status}</small>}</section></div>}
     </fieldset>
   </article>;
 }
@@ -479,7 +499,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed.map((item) => ({
             ...item,
-            insight: typeof item?.insight === "string" ? normalizeMarkdownText(item.insight) : item?.insight,
+            insight: typeof item?.insight === "string" ? normalizeChartInsight(item.insight) : item?.insight,
           }));
         }
       }
@@ -521,7 +541,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       let changed = false;
       const normalized = current.map((item) => {
         if (typeof item.insight !== "string") return item;
-        const insight = normalizeMarkdownText(item.insight);
+        const insight = normalizeChartInsight(item.insight);
         if (insight === item.insight) return item;
         changed = true;
         return { ...item, insight };
@@ -716,7 +736,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
     }
     let insight = ""; let agentRunId: string | null = null; let evidenceStatus = "unverified";
     await streamQuestion({
-      question: `Câu hỏi nghiệp vụ cần trả lời: "${chartDisplayTitle(chart)}". Hãy tự viết insight chuyên sâu dựa trên toàn bộ Official evidence đã gắn với biểu đồ. Không hỏi lại Analyst hay yêu cầu chọn thêm metric/dimension. Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Nêu kết luận điều hành, bằng chứng định lượng, diễn giải ý nghĩa kinh doanh, điểm cần chú ý, khuyến nghị hành động và phạm vi/độ tin cậy. Trình bày bằng Markdown, không bịa số hoặc suy đoán ngoài Official execution.`,
+      question: `Câu hỏi nghiệp vụ cần trả lời: "${chartDisplayTitle(chart)}". Hãy viết insight chuyên sâu dựa trên toàn bộ Official evidence đã gắn với biểu đồ. Không hỏi lại Analyst hay yêu cầu chọn thêm metric/dimension. Bài toán: ${chart.problem}. Thuật toán: ${chart.algorithm}. Chart: ${chart.chart_type}. Bắt buộc trình bày đúng 6 mục Markdown có đánh số: "## 1. Kết luận điều hành", "## 2. Bằng chứng định lượng", "## 3. Diễn giải & ý nghĩa kinh doanh", "## 4. Điểm cần chú ý", "## 5. Khuyến nghị hành động", "## 6. Phạm vi & độ tin cậy". Mục 2 cần 3–6 quan sát gắn với giá trị trong evidence; mục 5 cần 2–4 hành động có bước kiểm chứng tiếp theo. Viết đủ chi tiết nhưng không lặp bảng dữ liệu, không bịa số hoặc suy đoán ngoài Official execution.`,
       profile_run_id: runId,
       analysis_execution_id: chart.execution.id,
       workspace_context_version_id: chart.execution.context_version_id,
@@ -726,7 +746,7 @@ export function ChartsTab({ runId, profile, onExplain }: Props) {
       if (event.event === "done" && event.data && typeof event.data === "object") { const done = event.data as { agent_run_id?: unknown; evidence_status?: unknown }; agentRunId = String(done.agent_run_id || "") || null; evidenceStatus = String(done.evidence_status || evidenceStatus); }
       if (event.event === "error") throw new Error(String((event.data as { detail?: unknown })?.detail || "Agent không thể viết insight."));
     });
-    return { generated: true, insight: normalizeMarkdownText(insight || "Agent không trả về insight."), insight_agent_run_id: agentRunId, insight_evidence_status: evidenceStatus, insight_reviewed: false };
+    return { generated: true, insight: normalizeChartInsight(insight || "Agent không trả về insight."), insight_agent_run_id: agentRunId, insight_evidence_status: evidenceStatus, insight_reviewed: false };
   }
 
   async function generateAndWriteInsight(chart: ChartDraft) {

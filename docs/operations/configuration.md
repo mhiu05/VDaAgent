@@ -1,6 +1,6 @@
 # Cấu hình
 
-> Đã đối chiếu với `config.yaml`, `.env.example` và `backend/src/config.py` ngày 2026-09-01.
+> Đã đối chiếu với `config.yaml`, `.env.example` và `backend/src/config.py` ngày 2026-09-03.
 
 Backend nạp cấu hình theo thứ tự ưu tiên:
 

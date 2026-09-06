@@ -1,0 +1,44 @@
+{
+  "data_mode": "metadata_only",
+  "exact_case_trace_mapping_count": 1,
+  "exact_case_trace_mapping_coverage": 1.0,
+  "language": "vi-VN",
+  "mapped_records": [
+    {
+      "actual_route": "tool_llm",
+      "agent_run_id": "458a3ba3a4ab47c28d4af296b290b91a",
+      "attempt": 1,
+      "case_id": "P170-VI-037",
+      "duration_ms": null,
+      "retrieved_context_observable": false,
+      "tool_count": 1,
+      "tools": [
+        {
+          "parameter_names": [
+            "column_name"
+          ],
+          "parameter_values_observed": false,
+          "status": "completed",
+          "tool_name": "get_semantic_types"
+        }
+      ],
+      "trace_id": "458a3ba3-a4ab-47c2-8d4a-f296b290b91a",
+      "trace_status": "completed"
+    }
+  ],
+  "mapping_status": "EXACT_AGENT_RUN_ID_MAPPING",
+  "project": "VDaAgents",
+  "raw_agent_run_id_count": 1,
+  "reason": "Root trace ID equals agent_run_id; no timestamp correlation is used.",
+  "retrieval_contexts_observable": false,
+  "root_trace_count_observed": 2,
+  "route_observable_count": 1,
+  "run_id": "run-20260904T202200-targeted-p037-v1",
+  "status": "EVALUATED",
+  "timestamp": "2026-09-04T13:24:23.344687+00:00",
+  "tool_events_observed": 1,
+  "tool_names_observed": {
+    "get_semantic_types": 1
+  },
+  "tool_params_observable": true
+}

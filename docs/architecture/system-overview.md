@@ -1,6 +1,6 @@
 # Tổng quan hệ thống
 
-> Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-01.
+> Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-03.
 
 ## Mục tiêu và nguyên tắc
 

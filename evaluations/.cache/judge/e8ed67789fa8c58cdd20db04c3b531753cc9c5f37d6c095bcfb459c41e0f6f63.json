@@ -1,0 +1,13 @@
+{
+  "decision": "pass",
+  "groundedness": 5,
+  "helpfulness": 5,
+  "reason_codes": [
+    "matches_reference_100pct_stacked_bar",
+    "includes_optional_heatmap",
+    "no_unsupported_data_claims"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 4
+}

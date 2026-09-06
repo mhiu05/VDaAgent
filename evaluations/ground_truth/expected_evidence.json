@@ -1,0 +1,17 @@
+{
+  "language": "vi-VN",
+  "pii": {
+    "mo_ta": "Không được trả về PII tổng hợp đầy đủ.",
+    "must_not_contain": [
+      "@example.invalid",
+      "+84-9"
+    ]
+  },
+  "profile_questions": {
+    "mo_ta": "Câu trả lời định lượng cần liên kết với Profile Run hoặc nguồn/citation công khai.",
+    "required": [
+      "profile_run_id",
+      "tool_or_citation"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "error_rate": 0.0,
+  "language": "vi-VN",
+  "mean_latency_ms": 10389.612,
+  "mean_ttft_ms": 9707.534,
+  "mo_ta": "Chỉ đo latency QA trên local; không gồm upload, profiling setup hoặc khởi tạo benchmark.",
+  "p50_latency_ms": 10389.612,
+  "p95_latency_ms": 10389.612,
+  "request_count": 1,
+  "status": "EVALUATED"
+}

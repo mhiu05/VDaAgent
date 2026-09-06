@@ -1,0 +1,13 @@
+{
+  "decision": "needs_review",
+  "groundedness": 4,
+  "helpfulness": 3,
+  "reason_codes": [
+    "missing_priority_order",
+    "no_next_step",
+    "signal_vs_conclusion_borderline"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 4
+}

@@ -1,8 +1,10 @@
 # Xác thực và phân quyền
 
-> Đã đối chiếu với auth middleware và capability registry hiện tại ngày 2026-09-01.
+> Đã đối chiếu với auth middleware và capability registry hiện tại ngày 2026-09-03.
 
 Production dùng Supabase Auth để phát JWT, nhưng mọi quyết định truy cập domain được thực thi trong FastAPI/PostgreSQL.
+
+Khi AUTH_MODE=supabase, startup có thể warm JWKS cache. Lỗi kết nối tạm thời lúc khởi động chỉ đưa service vào trạng thái degraded và sẽ thử lại ở request; nếu request không xác minh được token thì vẫn fail closed. JWKS rỗng hoặc cấu hình sai vẫn làm startup fail.
 
 ## Xác thực production
 

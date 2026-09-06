@@ -1,0 +1,13 @@
+{
+  "decision": "pass",
+  "groundedness": 5,
+  "helpfulness": 5,
+  "reason_codes": [
+    "matches_reference_boxplot_histogram",
+    "preserves_uncertainty_no_business_judgment",
+    "no_unsupported_claims"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 5
+}

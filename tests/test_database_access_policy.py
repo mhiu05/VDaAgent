@@ -36,7 +36,7 @@ STORAGE_MIGRATION_PATH = (
     / "backend"
     / "migrations"
     / "versions"
-    / "20260901_0025_canonical_dataset_artifacts.py"
+    / "20260901_0026_canonical_dataset_artifacts.py"
 )
 
 

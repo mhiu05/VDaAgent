@@ -1,0 +1,26 @@
+{
+  "grader_agreement_rate": 1.0,
+  "language": "vi-VN",
+  "mo_ta": "Audit tái chấm deterministic tự động. Đây là kiểm tra nhất quán grader, không phải đánh giá thủ công độc lập.",
+  "records": [
+    {
+      "actual_answer": "Không có đủ evidence trong Profile Run để kết luận chắc chắn. Hãy chạy hoặc bổ sung kiểm tra deterministic phù hợp trước khi sử dụng kết quả.",
+      "agreement": true,
+      "case_id": "P170-VI-064",
+      "category_vi": "Thiếu bằng chứng / cần abstention",
+      "evidence_observed": true,
+      "expected_answer": "Chưa có đủ bằng chứng nhân quả hoặc dữ liệu dự báo để đưa ra kết luận này.",
+      "question": "Vì sao khách hàng này ngừng mua hàng?",
+      "recomputed_verdict": true,
+      "status_code": 200,
+      "stored_verdict": true
+    }
+  ],
+  "sample_counts": {
+    "edge_safety_tool": 1,
+    "fail": 0,
+    "pass": 1,
+    "unique_audited": 1
+  },
+  "status": "PARTIAL_INSUFFICIENT_OBSERVED_CASES"
+}

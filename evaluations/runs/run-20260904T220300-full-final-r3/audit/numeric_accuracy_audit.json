@@ -1,0 +1,1050 @@
+{
+  "actual_wrong_number_count": 0,
+  "classification_counts": {},
+  "correct_numeric_requests": 51,
+  "corrected_numeric_accuracy": 1.0,
+  "format_normalization_count": 0,
+  "language": "vi-VN",
+  "mo_ta": "Metric request-level giữ SSE tách khỏi câu trả lời sai; không rerun agent để audit parser.",
+  "numeric_answer_accuracy_given_successful_execution": 1.0,
+  "numeric_eligible_cases": 37,
+  "numeric_eligible_requests": 51,
+  "numeric_evidence_consistency": 1.0,
+  "numeric_evidence_consistency_eligible_requests": 51,
+  "numeric_evidence_consistent_requests": 51,
+  "numeric_exact_match_rate": 0.980392,
+  "numeric_extraction_coverage": 1.0,
+  "numeric_extraction_coverage_given_successful_execution": 1.0,
+  "numeric_task_success_rate": 1.0,
+  "numeric_tolerance_match_rate": 1.0,
+  "original_numeric_accuracy": 1.0,
+  "parser_failure_count": 0,
+  "percentage_normalization_count": 0,
+  "records": [
+    {
+      "actual_answer": "Profile Run có 120 dòng. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-001",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 120,
+      "extracted_values": [
+        "120"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Tập khách hàng này có bao nhiêu dòng?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Profile Run có 20 cột. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-002",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 20,
+      "extracted_values": [
+        "20"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Tập khách hàng này có bao nhiêu cột?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có số giá trị thiếu là 3. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-003",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3,
+      "extracted_values": [
+        "3"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cột tuoi có bao nhiêu giá trị bị thiếu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có tỷ lệ thiếu là 2.5%. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-004",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.025,
+      "extracted_values": [
+        "0.025"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ thiếu của cột tuoi là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột ghi_chu có số giá trị thiếu là 12. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-005",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 12,
+      "extracted_values": [
+        "12"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cột ghi_chu có bao nhiêu giá trị trống?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tinh_thanh có số giá trị phân biệt là 6. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-006",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 6,
+      "extracted_values": [
+        "6"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cột tinh_thanh có bao nhiêu giá trị phân biệt?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột nhom_khach_hang có số giá trị phân biệt là 2. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-008",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 2,
+      "extracted_values": [
+        "2"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cột nhom_khach_hang có bao nhiêu nhóm?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Profile Run có 0 dòng trùng lặp. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-011",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0,
+      "extracted_values": [
+        "0"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Tập profiling_base có bao nhiêu bản ghi trùng hoàn toàn?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có trung bình là 3,969,929.412917. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-012",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3969929.412917,
+      "extracted_values": [
+        "3969929.412917"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Doanh thu trung bình của tập khách hàng là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có trung vị là 3,584,040.465. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-013",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3584040.465,
+      "extracted_values": [
+        "3584040.465"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "currency_or_amount",
+      "original_pass": true,
+      "question": "Trung vị của cột doanh_thu là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có giá trị nhỏ nhất là 1,428,600.16. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-014",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1428600.16,
+      "extracted_values": [
+        "1428600.16"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "currency_or_amount",
+      "original_pass": true,
+      "question": "Giá trị nhỏ nhất của doanh_thu là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có giá trị lớn nhất là 19,990,000. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-015",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 19990000.0,
+      "extracted_values": [
+        "19990000"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "currency_or_amount",
+      "original_pass": true,
+      "question": "Giá trị lớn nhất của doanh_thu là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có độ lệch chuẩn là 2,843,704.836604. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-016",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 2831831.27812,
+      "extracted_values": [
+        "2843704.836604"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "currency_or_amount",
+      "original_pass": true,
+      "question": "Độ lệch chuẩn của doanh_thu là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột so_don_hang có trung vị là 6. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-017",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 6.0,
+      "extracted_values": [
+        "6"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung vị của so_don_hang là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột giam_gia có trung bình là 113,395.833333. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-018",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 113395.833333,
+      "extracted_values": [
+        "113395.833333"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Giảm giá trung bình là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có 3 giá trị bất thường theo phương pháp iqr. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-019",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3,
+      "extracted_values": [
+        "3"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Theo phương pháp IQR, cột doanh_thu có bao nhiêu giá trị bất thường?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Hệ số tương quan Pearson giữa so_don_hang và doanh_thu là 0.404461. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-021",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.404461,
+      "extracted_values": [
+        "0.404461"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "correlation",
+      "original_pass": true,
+      "question": "Tương quan giữa so_don_hang và doanh_thu là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Hệ số tương quan Pearson giữa so_don_hang và giam_gia là -1. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-022",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": -1.0,
+      "extracted_values": [
+        "-1"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "correlation",
+      "original_pass": true,
+      "question": "Tương quan giữa so_don_hang và giam_gia là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Hệ số tương quan Pearson giữa doanh_thu và chi_tieu_truc_tuyen là 0.378421. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-023",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.378421,
+      "extracted_values": [
+        "0.378421"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "correlation",
+      "original_pass": true,
+      "question": "Tương quan giữa doanh_thu và chi_tieu_truc_tuyen là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Profile Run có 120 dòng. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-032",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 120,
+      "extracted_values": [
+        "120"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Hãy trả lời số dòng và nêu rõ bằng chứng/Profile Run đã dùng.",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Profile Run có 5 dòng. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-033",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 5,
+      "extracted_values": [
+        "5"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Tập dữ liệu biên có bao nhiêu dòng?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Profile Run có 1 dòng trùng lặp. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-034",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1,
+      "extracted_values": [
+        "1"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Trong profiling_edge_cases có bao nhiêu bản ghi trùng hoàn toàn?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột gia_tri_rong có số giá trị thiếu là 5. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-035",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 5,
+      "extracted_values": [
+        "5"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cột gia_tri_rong có bao nhiêu giá trị thiếu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric row_count của __dataset__ thay đổi 20. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-048",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 20,
+      "extracted_values": [
+        "20"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Số dòng thay đổi bao nhiêu từ drift_v1 sang drift_v2?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric row_count của __dataset__ thay đổi 20. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-048",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 20,
+      "extracted_values": [
+        "20"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Số dòng thay đổi bao nhiêu từ drift_v1 sang drift_v2?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric row_count của __dataset__ thay đổi 20. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-048",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 20,
+      "extracted_values": [
+        "20"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Số dòng thay đổi bao nhiêu từ drift_v1 sang drift_v2?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric mean của gia_tri_giao_dich thay đổi 1,422,400. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-049",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1422400.0,
+      "extracted_values": [
+        "1422400"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung bình gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric mean của gia_tri_giao_dich thay đổi 1,422,400. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-049",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1422400.0,
+      "extracted_values": [
+        "1422400"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung bình gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric mean của gia_tri_giao_dich thay đổi 1,422,400. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-049",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1422400.0,
+      "extracted_values": [
+        "1422400"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung bình gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric median của gia_tri_giao_dich thay đổi 1,392,500. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-050",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1392500.0,
+      "extracted_values": [
+        "1392500"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung vị gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric median của gia_tri_giao_dich thay đổi 1,392,500. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-050",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1392500.0,
+      "extracted_values": [
+        "1392500"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung vị gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric median của gia_tri_giao_dich thay đổi 1,392,500. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-050",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 1392500.0,
+      "extracted_values": [
+        "1392500"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Trung vị gia_tri_giao_dich thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric null_pct của diem_tin_cay thay đổi 13%. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-051",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.13,
+      "extracted_values": [
+        "0.13"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ thiếu của diem_tin_cay thay đổi bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric null_pct của diem_tin_cay thay đổi 13%. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-051",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.13,
+      "extracted_values": [
+        "0.13"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ thiếu của diem_tin_cay thay đổi bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric null_pct của diem_tin_cay thay đổi 13%. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-051",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.13,
+      "extracted_values": [
+        "0.13"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ thiếu của diem_tin_cay thay đổi bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric cardinality của ma_chi_nhanh thay đổi 4. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-054",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 4,
+      "extracted_values": [
+        "4"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cardinality của ma_chi_nhanh thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric cardinality của ma_chi_nhanh thay đổi 4. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-054",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 4,
+      "extracted_values": [
+        "4"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cardinality của ma_chi_nhanh thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Metric cardinality của ma_chi_nhanh thay đổi 4. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-054",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 4,
+      "extracted_values": [
+        "4"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Cardinality của ma_chi_nhanh thay đổi bao nhiêu giữa hai phiên bản?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có số giá trị thiếu là 3. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-057",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3,
+      "extracted_values": [
+        "3"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Hãy dùng dữ liệu đã profile để kiểm tra missingness của tuoi và dẫn evidence.",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có tỷ lệ thiếu là 2.5%. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-062",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.025,
+      "extracted_values": [
+        "0.025"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ của cột đó là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có tỷ lệ thiếu là 2.5%. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-062",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.025,
+      "extracted_values": [
+        "0.025"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ của cột đó là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có tỷ lệ thiếu là 2.5%. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-062",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.025,
+      "extracted_values": [
+        "0.025"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ của cột đó là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có trung vị là 3,584,040.465. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-063",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3584040.465,
+      "extracted_values": [
+        "3584040.465"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Còn trung vị của cột đó?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có trung vị là 3,584,040.465. [S1]",
+      "attempt": 2,
+      "case_id": "P170-VI-063",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3584040.465,
+      "extracted_values": [
+        "3584040.465"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Còn trung vị của cột đó?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột doanh_thu có trung vị là 3,584,040.465. [S1]",
+      "attempt": 3,
+      "case_id": "P170-VI-063",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3584040.465,
+      "extracted_values": [
+        "3584040.465"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Còn trung vị của cột đó?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột ma_chi_nhanh có số giá trị phân biệt là 3. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-072",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3,
+      "extracted_values": [
+        "3"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "integer_count",
+      "original_pass": true,
+      "question": "Có bao nhiêu giá trị phân biệt ở ma_chi_nhanh?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột ghi_chu có tỷ lệ thiếu là 10%. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-073",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.1,
+      "extracted_values": [
+        "0.1"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ thiếu của ghi_chu là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột ma_khong_hop_le có tỷ lệ duy nhất là 5%. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-074",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.05,
+      "extracted_values": [
+        "0.05"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "percentage",
+      "original_pass": true,
+      "question": "Tỷ lệ duy nhất của ma_khong_hop_le là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột tuoi có trung bình là 39.470085. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-075",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 39.470085,
+      "extracted_values": [
+        "39.470085"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Tuổi trung bình của khách hàng là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Cột diem_hai_long có trung bình là 3.151917. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-076",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 3.151917,
+      "extracted_values": [
+        "3.151917"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "aggregate",
+      "original_pass": true,
+      "question": "Điểm hài lòng trung bình là bao nhiêu?",
+      "status": "OK"
+    },
+    {
+      "actual_answer": "Hệ số tương quan Pearson giữa so_don_hang và chi_tieu_truc_tuyen là 0.985823. Tương quan không chứng minh quan hệ nhân quả. [S1]",
+      "attempt": 1,
+      "case_id": "P170-VI-077",
+      "classification": [
+        "CORRECT"
+      ],
+      "corrected_pass": true,
+      "error": null,
+      "evidence_observed": true,
+      "expected_value": 0.985823,
+      "extracted_values": [
+        "0.985823"
+      ],
+      "extraction_ambiguous": false,
+      "numeric_policy": "correlation",
+      "original_pass": true,
+      "question": "Tương quan giữa so_don_hang và chi_tieu_truc_tuyen là bao nhiêu?",
+      "status": "OK"
+    }
+  ],
+  "run_id": "run-20260904T220300-full-final-r3",
+  "sse_related_count": 0,
+  "thoi_diem": "2026-09-04T15:12:03.713161+00:00",
+  "unit_normalization_count": 0,
+  "wrong_binding_count": 0
+}

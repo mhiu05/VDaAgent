@@ -147,7 +147,18 @@ def current() -> AILatency | None:
 
 
 def reset(token: contextvars.Token) -> None:
-    _latency_context.reset(token)
+    """Clear telemetry even when an async stream is finalized elsewhere.
+
+    Starlette can finalize a disconnected streaming response in a copied
+    context. A ContextVar token may only be reset in the exact context that
+    created it, so clear the current context instead of leaking an unhandled
+    ``async_generator_athrow`` exception.
+    """
+
+    try:
+        _latency_context.reset(token)
+    except ValueError:
+        _latency_context.set(None)
 
 
 @contextmanager

@@ -52,6 +52,18 @@ def trace_enabled() -> bool:
     return get_settings().agent_trace_mode != "off"
 
 
+def durable_step_trace_enabled() -> bool:
+    """Persist per-node step rows only for the explicitly required mode.
+
+    Shadow mode still creates the root run and keeps execution context around
+    tool/model calls. It must not add synchronous remote-DB transactions to
+    every graph edge because observability in shadow mode cannot change the
+    request latency or outcome.
+    """
+
+    return get_settings().agent_trace_mode == "required"
+
+
 def _is_sensitive(key: str) -> bool:
     lowered = key.casefold()
     return lowered in _SENSITIVE_KEYS or any(
@@ -259,6 +271,9 @@ def traced_node(
         context = _node_context(state)
         if context is None or not trace_enabled():
             return node(state)
+        if not durable_step_trace_enabled():
+            with execution_scope(context):
+                return node(state)
         attempt_id: str | None = None
         started = time.perf_counter()
         try:
@@ -281,6 +296,7 @@ def traced_node(
                 attempt_id,
                 workspace_id=context.workspace_id,
                 status="failed" if failed else "succeeded",
+                duration_ms=round((time.perf_counter() - started) * 1000),
                 output_hash=stable_hash(
                     {"keys": sorted(result), "error": bool(result.get("error"))}
                 ),
@@ -295,32 +311,13 @@ def traced_node(
                         attempt_id,
                         workspace_id=context.workspace_id,
                         status="failed",
+                        duration_ms=round((time.perf_counter() - started) * 1000),
                         error_code="node_exception",
                         error_summary="Node phát sinh lỗi không thể tiếp tục.",
                     )
                 except Exception:  # noqa: BLE001 - preserve the node failure
                     _trace_failure(exc)
             raise
-        finally:
-            # Duration is deliberately only a trace projection; it never
-            # includes node input or output.
-            if attempt_id:
-                try:
-                    get_repository().append_agent_trace(
-                        context.agent_run_id,
-                        workspace_id=context.workspace_id,
-                        event_type="step",
-                        reason_code="duration_recorded",
-                        reason_summary="Đã ghi thời lượng bước.",
-                        payload={
-                            "step_key": step_key,
-                            "duration_ms": round(
-                                (time.perf_counter() - started) * 1000
-                            ),
-                        },
-                    )
-                except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
-                    _trace_failure(exc)
 
     return wrapped
 
@@ -336,9 +333,14 @@ def _usage(response: Any) -> tuple[int | None, int | None, str]:
     return input_tokens, output_tokens, "exact" if usage else "unknown"
 
 
-def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
+def invoke_model(
+    llm: Any, messages: Any, *, prompt_id: str,
+    provider: str | None = None, model_id: str | None = None,
+) -> Any:
     """Call a model while recording hashes, version IDs, usage and latency."""
 
+    provider = provider or get_settings().llm_provider
+    model_id = model_id or get_settings().llm_model
     context = get_execution_context()
     started = time.perf_counter()
     try:
@@ -351,8 +353,8 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
                 "prompt_id": trace_spec.id,
                 "prompt_version": trace_spec.version,
                 "prompt_hash": trace_spec.template_hash,
-                "provider": get_settings().llm_provider,
-                "model_id": get_settings().llm_model,
+                "provider": provider,
+                "model_id": model_id,
             },
         ) as langsmith_span:
             response = llm.invoke(messages)
@@ -378,8 +380,8 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
                         "agent_run_id": context.agent_run_id,
                         "workspace_id": context.workspace_id,
                         "step_attempt_id": None,
-                        "provider": cfg.llm_provider,
-                        "model_id": cfg.llm_model,
+                        "provider": provider,
+                        "model_id": model_id,
                         "parameters_hash": stable_hash(
                             {"temperature": cfg.llm_temperature}
                         ),
@@ -411,8 +413,8 @@ def invoke_model(llm: Any, messages: Any, *, prompt_id: str) -> Any:
                     "agent_run_id": context.agent_run_id,
                     "workspace_id": context.workspace_id,
                     "step_attempt_id": None,
-                    "provider": cfg.llm_provider,
-                    "model_id": cfg.llm_model,
+                    "provider": provider,
+                    "model_id": model_id,
                     "parameters_hash": stable_hash(
                         {
                             "temperature": cfg.llm_temperature,
@@ -567,6 +569,19 @@ def record_tool_result(
                 "created_at": datetime.now(UTC),
             },
             evidence,
+        )
+        get_langsmith_observability().observation(
+            context,
+            name=f"tool.{tool_name}",
+            run_type="tool",
+            metadata={
+                "tool_name": tool_name,
+                "tool_status": "failed" if result.get("error_code") else "completed",
+                "duration_ms": duration_ms,
+                "parameter_names": sorted(str(key) for key in args),
+                "evidence_count": len(evidence),
+                "is_approximate": bool(result.get("is_approximate")),
+            },
         )
     except Exception as exc:  # noqa: BLE001 - trace failure policy is centralized
         _trace_failure(exc)

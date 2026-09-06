@@ -1,0 +1,28 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Cột ma_chi_nhanh có số giá trị phân biệt là 3.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Số giá trị phân biệt của cột ma_chi_nhanh là 3.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

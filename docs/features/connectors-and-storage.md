@@ -1,6 +1,6 @@
 # Connector, upload và storage
 
-> Đã đối chiếu với connector, ingestion và canonical artifact implementation ngày 2026-09-01.
+> Đã đối chiếu với connector, ingestion và canonical artifact implementation ngày 2026-09-03.
 
 VDaAgent tách connector metadata, thông tin xác thực và dữ liệu nguồn. Trình duyệt không nhận database credential hoặc storage secret; backend là bên duy nhất kết nối nguồn và đọc object.
 

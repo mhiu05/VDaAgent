@@ -15,8 +15,8 @@ from typing import Any
 
 
 ABSTENTION_MESSAGE = (
-    "Không có đủ evidence trong Profile Run để kết luận chắc chắn. "
-    "Hãy chạy hoặc bổ sung kiểm tra deterministic phù hợp trước khi sử dụng kết quả."
+    "Không có đủ bằng chứng trong Profile Run để kết luận chắc chắn. "
+    "Hãy chạy hoặc bổ sung phép kiểm tra xác định phù hợp trước khi sử dụng kết quả."
 )
 
 _SUCCESS_STATUSES = frozenset({"ok", "completed", "success", "verified"})
@@ -35,7 +35,10 @@ _PROFILE_ARTIFACTS = frozenset(
     }
 )
 _CITATION_RE = re.compile(r"\[S(\d+)\]", re.IGNORECASE)
-_NUMBER_RE = re.compile(r"(?<![\w])\d+(?:[.,]\d+)*(?:\s*(?:%|percent(?:age)?|phan\s+tram))?", re.IGNORECASE)
+_NUMBER_RE = re.compile(
+    r"(?<![\w])[+-]?\d+(?:[.,]\d+)*(?:\s*(?:%|percent(?:age)?|phan\s+tram))?",
+    re.IGNORECASE,
+)
 _PERCENT_SUFFIX_RE = re.compile(r"(?:%|percent(?:age)?|phan\s+tram)\s*$", re.IGNORECASE)
 _FRACTION_CONTEXT_RE = re.compile(r"\b(?:fraction|ratio|proportion|ty\s*le)\b", re.IGNORECASE)
 _APPROXIMATE_RE = re.compile(r"\b(?:approx(?:imate(?:ly)?)?|estimated|sampled?|uoc\s*tinh|mau)\b", re.IGNORECASE)
@@ -56,6 +59,7 @@ class EvidenceValidation:
 
 
 def _plain(value: str) -> str:
+    value = value.replace("đ", "d").replace("Đ", "D")
     normalized = unicodedata.normalize("NFD", value.casefold())
     normalized = "".join(
         char for char in normalized if unicodedata.category(char) != "Mn"
@@ -149,20 +153,38 @@ def _metric_fields(question: str) -> tuple[str, ...]:
     text = _plain(question)
     if any(token in text for token in ("null", "missing", "thieu")):
         return ("null_pct",) if any(token in text for token in ("pct", "percent", "phan tram", "ty le")) else ("null_pct", "null_count")
-    if any(token in text for token in ("row", "dong", "record")):
-        return ("row_count", "duplicate_row_count", "duplicate_row_rate")
-    if any(token in text for token in ("column", "cot")):
-        return ("column_count",)
+    if any(token in text for token in ("correlation", "tuong quan")):
+        return ("pearson_r",)
+    if any(token in text for token in ("outlier", "bat thuong", "cuc tri")):
+        return ("outlier_count", "outlier_rate")
+    if "thay doi" in text and any(token in text for token in ("average", "mean", "trung binh")):
+        return ("mean_change", "mean")
+    if "thay doi" in text and any(token in text for token in ("trung vi", "median")):
+        return ("median_change", "median")
+    if "thay doi" in text and any(token in text for token in ("ty le", "null", "missing", "thieu")):
+        return ("null_pct_change", "null_pct")
+    if "thay doi" in text and any(token in text for token in ("cardinality", "phan biet")):
+        return ("cardinality_change", "cardinality")
     if any(token in text for token in ("average", "mean", "trung binh")):
         return ("mean",)
     if any(token in text for token in ("median", "trung vi")):
         return ("median",)
+    if any(token in text for token in ("standard deviation", "do lech chuan")):
+        return ("std",)
+    if any(token in text for token in ("minimum", "nho nhat")):
+        return ("min_value", "min")
+    if any(token in text for token in ("maximum", "lon nhat")):
+        return ("max_value", "max")
+    if any(token in text for token in ("cardinality", "phan biet", "bao nhieu nhom")):
+        return ("cardinality",)
+    if any(token in text for token in ("unique", "uniqueness", "candidate key", "khoa chinh", "duy nhat")):
+        return ("uniqueness_ratio", "candidate_key")
+    if any(token in text for token in ("row count", "number of rows", "bao nhieu dong", "so dong", "ban ghi trung", "dong trung")):
+        return ("row_count", "duplicate_row_count", "duplicate_row_rate")
+    if any(token in text for token in ("column count", "number of columns", "bao nhieu cot", "so cot")):
+        return ("column_count",)
     if any(token in text for token in ("sum", "total", "tong")):
         return ("sum", "total")
-    if "cardinality" in text:
-        return ("cardinality",)
-    if any(token in text for token in ("unique", "uniqueness", "candidate key", "khoa chinh")):
-        return ("uniqueness_ratio", "candidate_key")
     return ()
 
 

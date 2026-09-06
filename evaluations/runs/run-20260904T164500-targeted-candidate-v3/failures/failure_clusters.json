@@ -1,0 +1,8 @@
+[
+  {
+    "count": 1,
+    "failure_type": "wrong_answer",
+    "failure_type_vi": "Câu trả lời sai",
+    "mo_ta": "Kết quả không khớp ground truth xác định hoặc không hoàn thành yêu cầu."
+  }
+]

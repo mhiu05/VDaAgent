@@ -1,0 +1,43 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Hệ số tương quan Pearson giữa doanh_thu và giam_gia là -0.404461.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Tương quan không chứng minh quan hệ nhân quả.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [],
+  "reference_claims": [
+    {
+      "claim": "Nêu quan hệ có thể kiểm chứng giữa doanh_thu và giam_gia, cụ thể là tương quan Pearson r=-0.404461.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    },
+    {
+      "claim": "Kèm giới hạn rằng tương quan không chứng minh nhân quả.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

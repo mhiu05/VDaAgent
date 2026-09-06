@@ -18,6 +18,9 @@ from src.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 _stack: ContextVar[tuple[UUID, ...]] = ContextVar("langsmith_span_stack", default=())
+_order_stack: ContextVar[tuple[str, ...]] = ContextVar(
+    "langsmith_dotted_order_stack", default=()
+)
 _ALLOWED = frozenset(
     {
         "status",
@@ -33,6 +36,7 @@ _ALLOWED = frozenset(
         "usage_status",
         "tool_name",
         "tool_status",
+        "parameter_names",
         "evidence_count",
         "is_approximate",
         "planning_mode",
@@ -77,6 +81,12 @@ def _error_code(error: BaseException | str | None) -> str | None:
     return value.lower().replace(" ", "_")[:64]
 
 
+def _dotted_order(start_time: datetime, run_id: UUID) -> str:
+    """Build the ordering token required by current LangSmith trace ingestion."""
+
+    return start_time.astimezone(UTC).strftime("%Y%m%dT%H%M%S%fZ") + str(run_id)
+
+
 class LangSmithObservability:
     """Allow-listed metadata projection; no SaaS failure affects the request."""
 
@@ -86,6 +96,7 @@ class LangSmithObservability:
         self.settings = settings or get_settings()
         self._provided_client = client
         self._client_instance: LangSmithClient | None = None
+        self._root_orders: dict[UUID, str] = {}
 
     @property
     def enabled(self) -> bool:
@@ -159,6 +170,8 @@ class LangSmithObservability:
             return
         try:
             run_id = _uuid(agent_run_id)
+            start_time = datetime.now(UTC)
+            dotted_order = _dotted_order(start_time, run_id)
             model = version_snapshot.get("model") or {}
             metadata = self._metadata(
                 agent_run_id,
@@ -172,11 +185,13 @@ class LangSmithObservability:
                 inputs={},
                 id=run_id,
                 trace_id=run_id,
+                dotted_order=dotted_order,
                 project_name=self.settings.langsmith_project_name,
-                start_time=datetime.now(UTC),
+                start_time=start_time,
                 extra={"metadata": metadata},
                 tags=["p170", self.settings.app_env, run_type, "metadata-only"],
             )
+            self._root_orders[run_id] = dotted_order
         except Exception:
             logger.warning("LangSmith root trace export failed.", exc_info=True)
 
@@ -191,6 +206,7 @@ class LangSmithObservability:
         if not self._active(agent_run_id) or (client := self._client()) is None:
             return
         try:
+            run_id = _uuid(agent_run_id)
             code = _error_code(error)
             metadata = self._metadata(
                 agent_run_id,
@@ -199,12 +215,13 @@ class LangSmithObservability:
                 {"status": status, "error_code": code},
             )
             client.update_run(
-                _uuid(agent_run_id),
+                run_id,
                 end_time=datetime.now(UTC),
                 outputs={},
                 error=code,
                 extra={"metadata": metadata},
             )
+            self._root_orders.pop(run_id, None)
         except Exception:
             logger.warning("LangSmith terminal trace export failed.", exc_info=True)
 
@@ -226,10 +243,21 @@ class LangSmithObservability:
             return
         span = Span(uuid4())
         stack = _stack.get()
+        order_stack = _order_stack.get()
+        root_id = _uuid(context.agent_run_id)
+        start_time = datetime.now(UTC)
+        own_order = _dotted_order(start_time, span.run_id)
+        parent_order = (
+            order_stack[-1]
+            if order_stack
+            else self._root_orders.get(root_id, _dotted_order(start_time, root_id))
+        )
+        dotted_order = f"{parent_order}.{own_order}"
         span.metadata = self._metadata(
             context.agent_run_id, context.workspace_id, run_type, metadata
         )
         token = _stack.set((*stack, span.run_id))
+        order_token = _order_stack.set((*order_stack, dotted_order))
         exported = False
         try:
             client.create_run(
@@ -237,10 +265,11 @@ class LangSmithObservability:
                 run_type=run_type,
                 inputs={},
                 id=span.run_id,
-                trace_id=_uuid(context.agent_run_id),
-                parent_run_id=stack[-1] if stack else _uuid(context.agent_run_id),
+                trace_id=root_id,
+                parent_run_id=stack[-1] if stack else root_id,
+                dotted_order=dotted_order,
                 project_name=self.settings.langsmith_project_name,
-                start_time=datetime.now(UTC),
+                start_time=start_time,
                 extra={"metadata": span.metadata},
             )
             exported = True
@@ -253,6 +282,7 @@ class LangSmithObservability:
             raise
         finally:
             _stack.reset(token)
+            _order_stack.reset(order_token)
             if not exported:
                 pass
             try:

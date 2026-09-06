@@ -1,6 +1,6 @@
 # Báo cáo
 
-> Đã đối chiếu với report lifecycle API, repository và PDF route hiện tại ngày 2026-09-01.
+> Đã đối chiếu với report lifecycle API, repository và PDF route hiện tại ngày 2026-09-03.
 
 Báo cáo ghép các insight đã được kiểm chứng thành draft có thể chỉnh sửa, sau đó đóng băng thành snapshot để publish/export.
 

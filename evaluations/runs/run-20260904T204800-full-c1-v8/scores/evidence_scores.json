@@ -1,0 +1,911 @@
+{
+  "evidence_binding_accuracy": 0.98913,
+  "language": "vi-VN",
+  "metrics_vi": [
+    {
+      "gia_tri": 0.98913,
+      "metric": "evidence_binding_accuracy",
+      "mo_ta": "Nguồn, citation hoặc provenance phải liên kết được với Profile Run/tool công khai.",
+      "so_case_du_dieu_kien": 92,
+      "so_case_dung": 91,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Độ chính xác liên kết bằng chứng"
+    }
+  ],
+  "mo_ta_unsupported_quantitative_claim_rate": "NOT_EVALUATED vì public response không cung cấp claim-level verifier độc lập.",
+  "scores": [
+    {
+      "case_id": "P170-VI-001",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-002",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-003",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-004",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-005",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-006",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-007",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-008",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-009",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 2,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-010",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 2,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-011",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-012",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-013",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-014",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-015",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-016",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-017",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-018",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-019",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-020",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-021",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-022",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-023",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-024",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-025",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-026",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-027",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-028",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-029",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-030",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 4,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-031",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 4,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-032",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-033",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-034",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-035",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-036",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-037",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-038",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-039",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 2,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-040",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-041",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-042",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-043",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-044",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-045",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-046",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-047",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-048",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-048",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-048",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-049",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-049",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-049",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-050",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-050",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-050",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-051",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-051",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-051",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-052",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-052",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-052",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-053",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-053",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-053",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-054",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-054",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-054",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-055",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-056",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-056",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-056",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-057",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-058",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-058",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-058",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-059",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-059",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-059",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-060",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-060",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-060",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-061",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-061",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-061",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-062",
+      "citation_count": 0,
+      "pass": false,
+      "provenance_present": false,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-063",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-063",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-063",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-064",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-064",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-064",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-065",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-065",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-065",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-066",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-066",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-066",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-067",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-067",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-067",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-068",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-068",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-068",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-069",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-069",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-069",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-070",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-070",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-070",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-071",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-072",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-073",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-074",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-075",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-076",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-077",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-078",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-079",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 2,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-080",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 0,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-081",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-082",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 2,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-083",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    }
+  ],
+  "status": "EVALUATED",
+  "unsupported_quantitative_claim_rate": null
+}

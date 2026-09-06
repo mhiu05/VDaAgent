@@ -1,0 +1,14 @@
+{
+  "decision": "needs_review",
+  "groundedness": 1,
+  "helpfulness": 2,
+  "reason_codes": [
+    "NO_EVIDENCE_AVAILABLE",
+    "UNSUPPORTED_ATTRIBUTION",
+    "INVENTED_FACTS",
+    "INSUFFICIENT_UNCERTAINTY"
+  ],
+  "safety": 5,
+  "tone": 4,
+  "uncertainty_calibration": 2
+}

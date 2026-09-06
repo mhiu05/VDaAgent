@@ -2,12 +2,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from sqlalchemy.pool import NullPool
-
 from src.services.repository import build_engine
 
 
-def test_supabase_pooler_metadata_engine_does_not_reserve_idle_sessions() -> None:
+def test_supabase_transaction_pooler_uses_small_bounded_client_pool() -> None:
     settings = SimpleNamespace(
         database_url=(
             "postgresql+psycopg://user:password@"
@@ -16,7 +14,9 @@ def test_supabase_pooler_metadata_engine_does_not_reserve_idle_sessions() -> Non
     )
     engine = build_engine(settings)  # type: ignore[arg-type]
     try:
-        assert isinstance(engine.pool, NullPool)
+        assert engine.url.port == 6543
+        assert engine.pool.size() == 3
+        assert engine.pool._max_overflow == 0
     finally:
         engine.dispose()
 
@@ -39,6 +39,8 @@ def test_supabase_transaction_pooler_disables_psycopg_prepared_statements(monkey
 
     _, kwargs = create_engine.call_args
     assert kwargs["connect_args"] == {"prepare_threshold": None}
+    assert kwargs["pool_size"] == 3
+    assert kwargs["max_overflow"] == 0
 
 
 def test_local_metadata_engine_remains_small_and_bounded() -> None:

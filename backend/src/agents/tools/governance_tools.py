@@ -2,11 +2,64 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 from langchain_core.tools import tool
 from src.agents.tools.common import DEFAULT_LIMIT, active_run, clean, error, ok, page
 from src.services.repository import get_repository
+
+
+def _plain(value: str) -> str:
+    value = value.replace("đ", "d").replace("Đ", "D")
+    normalized = unicodedata.normalize("NFD", value.casefold())
+    return "".join(
+        char for char in normalized if unicodedata.category(char) != "Mn"
+    ).replace("-", "_")
+
+
+def _quasi_identifier_role(column_name: str) -> str | None:
+    """Classify common indirect identifiers without reading raw values."""
+
+    normalized = _plain(column_name)
+    markers = (
+        "postal",
+        "zip_code",
+        "buu_chinh",
+        "birth_year",
+        "year_of_birth",
+        "nam_sinh",
+        "date_of_birth",
+        "ngay_sinh",
+    )
+    return "quasi_identifier" if any(marker in normalized for marker in markers) else None
+
+
+def _semantic_role(
+    proposal: dict[str, Any], pii_type: str | None = None
+) -> str:
+    """Expose a privacy-safe business role alongside the statistical type."""
+
+    direct_roles = {
+        "email": "email",
+        "full_name": "name",
+        "phone": "phone",
+        "phone_number": "phone",
+    }
+    if pii_type and pii_type.casefold() in direct_roles:
+        return direct_roles[pii_type.casefold()]
+    column_name = str(proposal.get("column_name") or "")
+    quasi_role = _quasi_identifier_role(column_name)
+    if quasi_role:
+        return quasi_role
+    proposed = str(
+        proposal.get("final_type") or proposal.get("proposed_type") or "unknown"
+    )
+    if proposed.casefold() == "id":
+        # Aggregate uniqueness establishes an identifier-like field, but a
+        # data dictionary is still required to disambiguate its business role.
+        return "identifier (ID); business role ambiguous"
+    return proposed
 
 
 def _proposals(
@@ -68,6 +121,23 @@ def get_semantic_types(
         limit=limit,
         cursor=cursor,
     )
+    rows = (result.get("data") or {}).get("semantic_type")
+    if isinstance(rows, list):
+        pii_rows = get_repository().get_proposals(
+            str(result.get("profile_run_id") or ""), kind="pii"
+        ).get("pii", [])
+        pii_by_column = {
+            str(item.get("column_name") or "").casefold(): str(
+                item.get("final_type") or item.get("pii_type") or ""
+            )
+            for item in pii_rows
+            if isinstance(item, dict)
+        }
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            pii_type = pii_by_column.get(str(item.get("column_name") or "").casefold())
+            item["semantic_role"] = _semantic_role(item, pii_type)
     result["tool"] = "get_semantic_types"
     return result
 
@@ -87,6 +157,21 @@ def get_pii_assessment(
         limit=limit,
         cursor=cursor,
     )
+    rows = (result.get("data") or {}).get("pii")
+    quasi_role = _quasi_identifier_role(column_name) if column_name else None
+    if isinstance(rows, list) and not rows and quasi_role:
+        rows.append(
+            {
+                "column_name": column_name,
+                "pii_type": quasi_role,
+                "confidence_score": 0.8,
+                "detection_method": "aggregate_metadata_policy",
+                "evidence": (
+                    "Tên cột khớp nhóm định danh gián tiếp; không đọc hoặc trả về giá trị thô."
+                ),
+                "status": "derived",
+            }
+        )
     result["tool"] = "get_pii_assessment"
     return result
 

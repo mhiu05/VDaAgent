@@ -1,0 +1,16 @@
+[
+  {
+    "cluster": "execution_error",
+    "cluster_vi": "Lỗi thực thi SSE",
+    "count": 1,
+    "five_whys": [
+      "Vì sao case không đạt? Lỗi thực thi SSE.",
+      "Vì sao xảy ra? Luồng QA công khai phát sự kiện lỗi dù HTTP đã mở thành công.",
+      "Vì sao chưa bị chặn? Thiếu tín hiệu/validation ở lớp trả lời công khai.",
+      "Vì sao tín hiệu thiếu? Trace và evidence projection chưa đầy đủ hoặc không ổn định.",
+      "Cải tiến ưu tiên: Điều tra trace SSE, lỗi graph/tool và bổ sung recovery có kiểm soát."
+    ],
+    "hypothesis": "Luồng QA công khai phát sự kiện lỗi dù HTTP đã mở thành công.",
+    "recommended_fix": "Điều tra trace SSE, lỗi graph/tool và bổ sung recovery có kiểm soát."
+  }
+]

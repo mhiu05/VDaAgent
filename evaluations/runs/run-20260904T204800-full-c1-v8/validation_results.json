@@ -1,0 +1,63 @@
+{
+  "kiem_tra": [
+    {
+      "chi_tiet": "Đủ 5 dataset CSV/JSON tổng hợp cho ngữ cảnh khách hàng và giao dịch Việt Nam.",
+      "kiem_tra": "Dữ liệu tổng hợp tiếng Việt",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Đủ artifact truth độc lập cho profiling, PII, drift và evidence.",
+      "kiem_tra": "Ground truth mới",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "83 golden case khớp case_id, có câu hỏi và đáp án kỳ vọng tiếng Việt.",
+      "kiem_tra": "Golden dataset tiếng Việt",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Manifest, case file và case_id duy nhất đều xác nhận 83 case.",
+      "kiem_tra": "Đủ 83 case",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Raw/normalized result của đúng run_id hiện hành chỉ chứa case vi-VN local.",
+      "kiem_tra": "Thực thi local tiếng Việt",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Đủ deterministic, evidence, safety, agentic, performance, RAG, Judge và Gemini model catalog.",
+      "kiem_tra": "Score artifact",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Numeric audit tách SSE khỏi sai số câu trả lời, ghi rõ mẫu số và giữ NOT_EVALUATED khi run lọc không có case số.",
+      "kiem_tra": "Audit numeric và SSE",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Judge artifact chỉ lưu catalog/cấu hình an toàn và trạng thái gọi, không lưu secret.",
+      "kiem_tra": "Gemini Judge/Models API đã thử gọi",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Trace được map chính xác về case bằng agent_run_id; chỉ suy luận các field metadata quan sát được.",
+      "kiem_tra": "LangSmith trace mapping",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Đo semantic question-answer bằng Voyage; source coverage chỉ EVALUATED khi run có case bắt buộc evidence, còn groundedness thiếu context giữ NOT_EVALUATED.",
+      "kiem_tra": "Answer Relevancy embedding",
+      "trang_thai": "PASS"
+    },
+    {
+      "chi_tiet": "Tiêu đề bắt buộc và 38 mục báo cáo đều hiện diện.",
+      "kiem_tra": "Báo cáo 38 mục",
+      "trang_thai": "PASS"
+    }
+  ],
+  "language": "vi-VN",
+  "run_id": "run-20260904T204800-full-c1-v8",
+  "thoi_diem": "2026-09-04T13:57:27.731244+00:00",
+  "trang_thai": "PASS"
+}

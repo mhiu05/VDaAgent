@@ -222,6 +222,9 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           DATASOURCE_ENCRYPTION_KEY: ${{ secrets.DATASOURCE_ENCRYPTION_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROFILE_SUMMARY_PROVIDER: ${{ vars.PROFILE_SUMMARY_PROVIDER || 'openai' }}
+          PROFILE_SUMMARY_MODEL: ${{ vars.PROFILE_SUMMARY_MODEL || 'gpt-4o-mini' }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           CANONICAL_STORAGE_PROVIDER: supabase
@@ -240,6 +243,9 @@ jobs:
             NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
             test -n "${!name}" || missing+=("$name")
           done
+          if [ "$PROFILE_SUMMARY_PROVIDER" = "openai" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+            missing+=("OPENAI_API_KEY (profile summary)")
+          fi
           # Report every gap at once so a release is not retried one secret at a time.
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "Missing production configuration: ${missing[*]}"
@@ -400,6 +406,9 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           DATASOURCE_ENCRYPTION_KEY: ${{ secrets.DATASOURCE_ENCRYPTION_KEY }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROFILE_SUMMARY_PROVIDER: ${{ vars.PROFILE_SUMMARY_PROVIDER || 'openai' }}
+          PROFILE_SUMMARY_MODEL: ${{ vars.PROFILE_SUMMARY_MODEL || 'gpt-4o-mini' }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
           LANGSMITH_PROJECT: ${{ vars.LANGSMITH_PROJECT }}
@@ -456,6 +465,8 @@ jobs:
             SUPABASE_STORAGE_PREFIX=datasets
             LLM_PROVIDER="$LLM_PROVIDER"
             LLM_MODEL="$LLM_MODEL"
+            PROFILE_SUMMARY_PROVIDER="$PROFILE_SUMMARY_PROVIDER"
+            PROFILE_SUMMARY_MODEL="$PROFILE_SUMMARY_MODEL"
             AGENT_TRACE_MODE=shadow
             UX_COMMAND_CENTER_ENABLED=true
           )
@@ -464,7 +475,7 @@ jobs:
           # An empty optional value is skipped so App Service keeps the setting it already holds.
           for name in \
             DATABASE_URL DATABASE_CHECKPOINTER_URL SUPABASE_SECRET_KEY \
-            DATASOURCE_ENCRYPTION_KEY LLM_API_KEY \
+            DATASOURCE_ENCRYPTION_KEY LLM_API_KEY OPENAI_API_KEY \
             LANGSMITH_TRACING LANGSMITH_API_KEY LANGSMITH_PROJECT; do
             if [ -n "${!name:-}" ]; then
               settings+=("$name=${!name}")

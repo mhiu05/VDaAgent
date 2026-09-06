@@ -1,0 +1,24 @@
+{
+  "deterministic_task_completion": {
+    "ci95": [
+      0.970184,
+      1
+    ],
+    "ci_method": "wilson_score_95",
+    "mean": 1.0,
+    "n": 125,
+    "std": 0.0
+  },
+  "language": "vi-VN",
+  "mo_ta": "Khoảng tin cậy nhị thức 95% cho kết quả của run hiện hành.",
+  "verified_task_completion": {
+    "ci95": [
+      0.955763,
+      1
+    ],
+    "ci_method": "wilson_score_95",
+    "mean": 1.0,
+    "n": 83,
+    "std": 0.0
+  }
+}

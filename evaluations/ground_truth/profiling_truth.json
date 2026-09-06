@@ -1,0 +1,926 @@
+{
+  "profiling_base": {
+    "column_count": 20,
+    "columns": {
+      "chi_tieu_truc_tuyen": {
+        "candidate_key": true,
+        "distinct_count": 120,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 1709634.17,
+        "mean": 1037391.952167,
+        "median": 1030521.75,
+        "min": 363360.89,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 737632.3200000001,
+        "q3": 1343607.0799999998,
+        "row_count": 120,
+        "std": 366003.513558,
+        "uniqueness_ratio": 1.0
+      },
+      "diem_hai_long": {
+        "candidate_key": false,
+        "distinct_count": 82,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 4.18,
+        "mean": 3.151917,
+        "median": 3.155,
+        "min": 2.15,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 2.8475,
+        "q3": 3.435,
+        "row_count": 120,
+        "std": 0.414235,
+        "uniqueness_ratio": 0.683333
+      },
+      "doanh_thu": {
+        "candidate_key": false,
+        "distinct_count": 118,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 19990000.0,
+        "mean": 3969929.412917,
+        "median": 3584040.465,
+        "min": 1428600.16,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 3,
+        "q1": 2513435.8925,
+        "q3": 4680456.865,
+        "row_count": 120,
+        "std": 2831831.27812,
+        "uniqueness_ratio": 0.983333
+      },
+      "email": {
+        "candidate_key": true,
+        "distinct_count": 120,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "khach.hang000@example.invalid",
+            1
+          ],
+          [
+            "khach.hang001@example.invalid",
+            1
+          ],
+          [
+            "khach.hang002@example.invalid",
+            1
+          ],
+          [
+            "khach.hang003@example.invalid",
+            1
+          ],
+          [
+            "khach.hang004@example.invalid",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "ghi_chu": {
+        "candidate_key": false,
+        "distinct_count": 1,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 12,
+        "null_pct": 0.1,
+        "row_count": 120,
+        "top_values": [
+          [
+            "Giao dịch tổng hợp phục vụ benchmark",
+            108
+          ]
+        ],
+        "uniqueness_ratio": 0.009259
+      },
+      "giam_gia": {
+        "candidate_key": false,
+        "distinct_count": 11,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 160500.0,
+        "mean": 113395.833333,
+        "median": 113000.0,
+        "min": 65500.0,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 84500.0,
+        "q3": 141500.0,
+        "row_count": 120,
+        "std": 29850.662739,
+        "uniqueness_ratio": 0.091667
+      },
+      "gioi_tinh": {
+        "candidate_key": false,
+        "distinct_count": 3,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "Nữ",
+            40
+          ],
+          [
+            "Nam",
+            40
+          ],
+          [
+            "Khác",
+            40
+          ]
+        ],
+        "uniqueness_ratio": 0.025
+      },
+      "ho_ten": {
+        "candidate_key": false,
+        "distinct_count": 40,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "Nguyễn Văn An",
+            3
+          ],
+          [
+            "Trần Thị Bình",
+            3
+          ],
+          [
+            "Lê Minh Chi",
+            3
+          ],
+          [
+            "Phạm Ngọc Dũng",
+            3
+          ],
+          [
+            "Hoàng Gia Hà",
+            3
+          ]
+        ],
+        "uniqueness_ratio": 0.333333
+      },
+      "ma_chi_nhanh": {
+        "candidate_key": false,
+        "distinct_count": 3,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "CN-HN",
+            40
+          ],
+          [
+            "CN-DN",
+            40
+          ],
+          [
+            "CN-HCM",
+            40
+          ]
+        ],
+        "uniqueness_ratio": 0.025
+      },
+      "ma_khach_hang": {
+        "candidate_key": true,
+        "distinct_count": 120,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "KH-000",
+            1
+          ],
+          [
+            "KH-001",
+            1
+          ],
+          [
+            "KH-002",
+            1
+          ],
+          [
+            "KH-003",
+            1
+          ],
+          [
+            "KH-004",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "ma_khong_hop_le": {
+        "candidate_key": false,
+        "distinct_count": 6,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "NHOM-0",
+            20
+          ],
+          [
+            "NHOM-1",
+            20
+          ],
+          [
+            "NHOM-2",
+            20
+          ],
+          [
+            "NHOM-3",
+            20
+          ],
+          [
+            "NHOM-4",
+            20
+          ]
+        ],
+        "uniqueness_ratio": 0.05
+      },
+      "ma_su_kien": {
+        "candidate_key": true,
+        "distinct_count": 120,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "SK-000",
+            1
+          ],
+          [
+            "SK-001",
+            1
+          ],
+          [
+            "SK-002",
+            1
+          ],
+          [
+            "SK-003",
+            1
+          ],
+          [
+            "SK-004",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "ngay_dang_ky": {
+        "candidate_key": false,
+        "distinct_count": 84,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "2025-01-01",
+            2
+          ],
+          [
+            "2025-02-02",
+            2
+          ],
+          [
+            "2025-03-03",
+            2
+          ],
+          [
+            "2025-04-04",
+            2
+          ],
+          [
+            "2025-05-05",
+            2
+          ]
+        ],
+        "uniqueness_ratio": 0.7
+      },
+      "nhom_khach_hang": {
+        "candidate_key": false,
+        "distinct_count": 2,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "Thân thiết",
+            76
+          ],
+          [
+            "Mới",
+            44
+          ]
+        ],
+        "uniqueness_ratio": 0.016667
+      },
+      "so_dien_thoai": {
+        "candidate_key": true,
+        "distinct_count": 120,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "+84-900-000-00",
+            1
+          ],
+          [
+            "+84-900-001-01",
+            1
+          ],
+          [
+            "+84-900-002-02",
+            1
+          ],
+          [
+            "+84-900-003-03",
+            1
+          ],
+          [
+            "+84-900-004-04",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "so_don_hang": {
+        "candidate_key": false,
+        "distinct_count": 11,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 11.0,
+        "mean": 5.958333,
+        "median": 6.0,
+        "min": 1.0,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 3.0,
+        "q3": 9.0,
+        "row_count": 120,
+        "std": 3.142175,
+        "uniqueness_ratio": 0.091667
+      },
+      "thoi_diem_cap_nhat": {
+        "candidate_key": true,
+        "distinct_count": 120,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "2026-01-01T08:30:00",
+            1
+          ],
+          [
+            "2026-01-02T09:30:00",
+            1
+          ],
+          [
+            "2026-01-03T10:30:00",
+            1
+          ],
+          [
+            "2026-01-04T11:30:00",
+            1
+          ],
+          [
+            "2026-01-05T12:30:00",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "tinh_thanh": {
+        "candidate_key": false,
+        "distinct_count": 6,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "Hà Nội",
+            20
+          ],
+          [
+            "Đà Nẵng",
+            20
+          ],
+          [
+            "TP. Hồ Chí Minh",
+            20
+          ],
+          [
+            "Cần Thơ",
+            20
+          ],
+          [
+            "Hải Phòng",
+            20
+          ]
+        ],
+        "uniqueness_ratio": 0.05
+      },
+      "trang_thai_on_dinh": {
+        "candidate_key": false,
+        "distinct_count": 1,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 120,
+        "top_values": [
+          [
+            "Đang hoạt động",
+            120
+          ]
+        ],
+        "uniqueness_ratio": 0.008333
+      },
+      "tuoi": {
+        "candidate_key": false,
+        "distinct_count": 6,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 57.0,
+        "mean": 39.470085,
+        "median": 43.0,
+        "min": 22.0,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 3,
+        "null_pct": 0.025,
+        "outlier_count_iqr": 0,
+        "q1": 29.0,
+        "q3": 50.0,
+        "row_count": 120,
+        "std": 11.954738,
+        "uniqueness_ratio": 0.051282
+      }
+    },
+    "correlations": {
+      "chi_tieu_truc_tuyen__diem_hai_long": -0.005182,
+      "doanh_thu__chi_tieu_truc_tuyen": 0.378421,
+      "doanh_thu__diem_hai_long": -0.122155,
+      "doanh_thu__giam_gia": -0.404461,
+      "giam_gia__chi_tieu_truc_tuyen": -0.985823,
+      "giam_gia__diem_hai_long": 0.028941,
+      "so_don_hang__chi_tieu_truc_tuyen": 0.985823,
+      "so_don_hang__diem_hai_long": -0.028941,
+      "so_don_hang__doanh_thu": 0.404461,
+      "so_don_hang__giam_gia": -1.0,
+      "tuoi__chi_tieu_truc_tuyen": -0.029999,
+      "tuoi__diem_hai_long": 0.012748,
+      "tuoi__doanh_thu": 0.210242,
+      "tuoi__giam_gia": 0.022945,
+      "tuoi__so_don_hang": -0.022945
+    },
+    "dataset": "profiling_base.csv",
+    "duplicate_row_count": 0,
+    "language": "vi-VN",
+    "mo_ta": "Ground truth độc lập cho benchmark tiếng Việt.",
+    "row_count": 120
+  },
+  "profiling_edge_cases": {
+    "column_count": 6,
+    "columns": {
+      "cot_hang_so": {
+        "candidate_key": false,
+        "distinct_count": 1,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 5,
+        "top_values": [
+          [
+            "không đổi",
+            5
+          ]
+        ],
+        "uniqueness_ratio": 0.2
+      },
+      "gia_tri_hon_hop": {
+        "candidate_key": false,
+        "distinct_count": 3,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 1,
+        "null_pct": 0.2,
+        "row_count": 5,
+        "top_values": [
+          [
+            "3.14",
+            2
+          ],
+          [
+            "1",
+            1
+          ],
+          [
+            "một",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 0.75
+      },
+      "gia_tri_rong": {
+        "candidate_key": false,
+        "distinct_count": 0,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 5,
+        "null_pct": 1.0,
+        "row_count": 5,
+        "top_values": [],
+        "uniqueness_ratio": 0
+      },
+      "ma_ban_ghi": {
+        "candidate_key": false,
+        "distinct_count": 4,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 5,
+        "top_values": [
+          [
+            "EDGE-004",
+            2
+          ],
+          [
+            "EDGE-001",
+            1
+          ],
+          [
+            "EDGE-002",
+            1
+          ],
+          [
+            "EDGE-003",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 0.8
+      },
+      "ma_khong_hop_le": {
+        "candidate_key": false,
+        "distinct_count": 2,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 5,
+        "top_values": [
+          [
+            "A02",
+            3
+          ],
+          [
+            "A01",
+            2
+          ]
+        ],
+        "uniqueness_ratio": 0.4
+      },
+      "ngay_co_the": {
+        "candidate_key": false,
+        "distinct_count": 4,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 5,
+        "top_values": [
+          [
+            "2026-01-04",
+            2
+          ],
+          [
+            "2026-01-01",
+            1
+          ],
+          [
+            "không-phải-ngày",
+            1
+          ],
+          [
+            "2026-01-03",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 0.8
+      }
+    },
+    "correlations": {},
+    "dataset": "profiling_edge_cases.csv",
+    "duplicate_row_count": 1,
+    "language": "vi-VN",
+    "mo_ta": "Ground truth độc lập cho benchmark tiếng Việt.",
+    "row_count": 5
+  },
+  "profiling_pii": {
+    "column_count": 8,
+    "columns": {
+      "email": {
+        "candidate_key": true,
+        "distinct_count": 60,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 60,
+        "top_values": [
+          [
+            "thanh.vien000@example.invalid",
+            1
+          ],
+          [
+            "thanh.vien001@example.invalid",
+            1
+          ],
+          [
+            "thanh.vien002@example.invalid",
+            1
+          ],
+          [
+            "thanh.vien003@example.invalid",
+            1
+          ],
+          [
+            "thanh.vien004@example.invalid",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "ho_ten": {
+        "candidate_key": false,
+        "distinct_count": 30,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 60,
+        "top_values": [
+          [
+            "Nguyễn Văn An",
+            2
+          ],
+          [
+            "Trần Thị Bình",
+            2
+          ],
+          [
+            "Lê Minh Chi",
+            2
+          ],
+          [
+            "Phạm Ngọc Dũng",
+            2
+          ],
+          [
+            "Võ Thu Hà",
+            2
+          ]
+        ],
+        "uniqueness_ratio": 0.5
+      },
+      "ma_buu_chinh": {
+        "candidate_key": false,
+        "distinct_count": 10,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 10009.0,
+        "mean": 10004.5,
+        "median": 10004.5,
+        "min": 10000.0,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 10002.0,
+        "q3": 10007.0,
+        "row_count": 60,
+        "std": 2.872281,
+        "uniqueness_ratio": 0.166667
+      },
+      "ma_mo_ho": {
+        "candidate_key": true,
+        "distinct_count": 60,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 60,
+        "top_values": [
+          [
+            "A0000",
+            1
+          ],
+          [
+            "A0001",
+            1
+          ],
+          [
+            "A0002",
+            1
+          ],
+          [
+            "A0003",
+            1
+          ],
+          [
+            "A0004",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "ma_thanh_vien": {
+        "candidate_key": true,
+        "distinct_count": 60,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 60,
+        "top_values": [
+          [
+            "TV-000",
+            1
+          ],
+          [
+            "TV-001",
+            1
+          ],
+          [
+            "TV-002",
+            1
+          ],
+          [
+            "TV-003",
+            1
+          ],
+          [
+            "TV-004",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "nam_sinh": {
+        "candidate_key": false,
+        "distinct_count": 35,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 2004.0,
+        "mean": 1984.916667,
+        "median": 1984.5,
+        "min": 1970.0,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 1977.0,
+        "q3": 1992.0,
+        "row_count": 60,
+        "std": 9.340399,
+        "uniqueness_ratio": 0.583333
+      },
+      "so_dien_thoai": {
+        "candidate_key": true,
+        "distinct_count": 60,
+        "kind": "string",
+        "kind_vi": "Chuỗi/phân loại",
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "row_count": 60,
+        "top_values": [
+          [
+            "+84-901-000-00",
+            1
+          ],
+          [
+            "+84-901-001-01",
+            1
+          ],
+          [
+            "+84-901-002-02",
+            1
+          ],
+          [
+            "+84-901-003-03",
+            1
+          ],
+          [
+            "+84-901-004-04",
+            1
+          ]
+        ],
+        "uniqueness_ratio": 1.0
+      },
+      "tong_chi_tieu": {
+        "candidate_key": true,
+        "distinct_count": 60,
+        "kind": "numeric",
+        "kind_vi": "Số",
+        "max": 8375000.0,
+        "mean": 4687500.0,
+        "median": 4687500.0,
+        "min": 1000000.0,
+        "mo_ta": "Thống kê độc lập được tính trực tiếp từ dữ liệu tổng hợp.",
+        "null_count": 0,
+        "null_pct": 0.0,
+        "outlier_count_iqr": 0,
+        "q1": 2843750.0,
+        "q3": 6531250.0,
+        "row_count": 60,
+        "std": 2164762.785311,
+        "uniqueness_ratio": 1.0
+      }
+    },
+    "correlations": {
+      "ma_buu_chinh__nam_sinh": 0.035721,
+      "ma_buu_chinh__tong_chi_tieu": 0.165854,
+      "nam_sinh__tong_chi_tieu": 0.27639
+    },
+    "dataset": "profiling_pii.csv",
+    "duplicate_row_count": 0,
+    "language": "vi-VN",
+    "mo_ta": "Ground truth độc lập cho benchmark tiếng Việt.",
+    "row_count": 60
+  }
+}

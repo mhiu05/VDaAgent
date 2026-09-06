@@ -1,0 +1,13 @@
+{
+  "decision": "needs_review",
+  "groundedness": 1,
+  "helpfulness": 2,
+  "reason_codes": [
+    "unsupported_claim",
+    "no_evidence_available",
+    "missing_uncertainty"
+  ],
+  "safety": 5,
+  "tone": 4,
+  "uncertainty_calibration": 1
+}

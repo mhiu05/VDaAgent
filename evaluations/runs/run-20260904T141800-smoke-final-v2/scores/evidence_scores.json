@@ -1,0 +1,111 @@
+{
+  "evidence_binding_accuracy": 1.0,
+  "language": "vi-VN",
+  "metrics_vi": [
+    {
+      "gia_tri": 1.0,
+      "metric": "evidence_binding_accuracy",
+      "mo_ta": "Nguồn, citation hoặc provenance phải liên kết được với Profile Run/tool công khai.",
+      "so_case_du_dieu_kien": 7,
+      "so_case_dung": 7,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Độ chính xác liên kết bằng chứng"
+    }
+  ],
+  "mo_ta_unsupported_quantitative_claim_rate": "NOT_EVALUATED vì public response không cung cấp claim-level verifier độc lập.",
+  "scores": [
+    {
+      "case_id": "P170-VI-001",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-003",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-012",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-032",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-059",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-059",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-059",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-064",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-048",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-048",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-048",
+      "citation_count": 0,
+      "pass": true,
+      "provenance_present": true,
+      "source_count": 1,
+      "status": "EVALUATED"
+    },
+    {
+      "case_id": "P170-VI-067",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-067",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    },
+    {
+      "case_id": "P170-VI-067",
+      "pass": null,
+      "status": "NOT_APPLICABLE"
+    }
+  ],
+  "status": "EVALUATED",
+  "unsupported_quantitative_claim_rate": null
+}

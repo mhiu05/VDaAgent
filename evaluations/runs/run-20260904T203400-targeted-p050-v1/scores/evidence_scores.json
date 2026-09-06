@@ -1,0 +1,28 @@
+{
+  "evidence_binding_accuracy": 0.0,
+  "language": "vi-VN",
+  "metrics_vi": [
+    {
+      "gia_tri": 0.0,
+      "metric": "evidence_binding_accuracy",
+      "mo_ta": "Nguồn, citation hoặc provenance phải liên kết được với Profile Run/tool công khai.",
+      "so_case_du_dieu_kien": 1,
+      "so_case_dung": 0,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Độ chính xác liên kết bằng chứng"
+    }
+  ],
+  "mo_ta_unsupported_quantitative_claim_rate": "NOT_EVALUATED vì public response không cung cấp claim-level verifier độc lập.",
+  "scores": [
+    {
+      "case_id": "P170-VI-050",
+      "citation_count": 0,
+      "pass": false,
+      "provenance_present": false,
+      "source_count": 0,
+      "status": "EVALUATED"
+    }
+  ],
+  "status": "EVALUATED",
+  "unsupported_quantitative_claim_rate": null
+}

@@ -101,9 +101,19 @@ export function MarkdownContent({ text, className = "markdown-message" }: { text
 
     if (/^#{1,3}\s+/.test(line)) {
       inDetailSection = false;
+      const headingLevel = line.match(/^#{1,3}/)?.[0].length ?? 1;
       const heading = line.replace(/^#{1,3}\s*/, "");
       const headingId = `heading-${getCleanId(heading)}`;
-      blocks.push(<h3 id={headingId} key={`heading-${index}`}>{renderInlineMarkdown(heading)}</h3>);
+      const Heading = headingLevel === 1 ? "h2" : headingLevel === 2 ? "h3" : "h4";
+      blocks.push(
+        <Heading
+          id={headingId}
+          className={`report-markdown-heading report-markdown-heading-${headingLevel}`}
+          key={`heading-${index}`}
+        >
+          {renderInlineMarkdown(heading)}
+        </Heading>,
+      );
       index += 1;
       continue;
     }

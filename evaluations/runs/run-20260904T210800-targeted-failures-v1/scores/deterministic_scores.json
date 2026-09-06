@@ -1,0 +1,231 @@
+{
+  "clarification_accuracy": 0.0,
+  "correct_abstention_or_clarification_rate": 0.0,
+  "correct_abstention_rate": null,
+  "executed_requests": 17,
+  "language": "vi-VN",
+  "metrics_vi": [
+    {
+      "gia_tri": 0.888889,
+      "metric": "verified_task_completion_rate",
+      "mo_ta": "Case chỉ đạt khi câu trả lời, bằng chứng và an toàn cùng đạt ở lần thử đầu.",
+      "so_case_du_dieu_kien": 9,
+      "so_case_dung": 8,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Tỷ lệ hoàn thành tác vụ có xác minh"
+    },
+    {
+      "gia_tri": 1.0,
+      "metric": "numeric_accuracy",
+      "mo_ta": "Số trong câu trả lời khớp ground truth trong sai số cho phép.",
+      "so_case_du_dieu_kien": 6,
+      "so_case_dung": 6,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Độ chính xác giá trị số"
+    },
+    {
+      "gia_tri": null,
+      "metric": "correct_abstention_rate",
+      "mo_ta": "Không kết luận khi dữ liệu không đủ bằng chứng.",
+      "so_case_du_dieu_kien": 0,
+      "so_case_dung": 0,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Tỷ lệ abstention đúng"
+    },
+    {
+      "gia_tri": 0.0,
+      "metric": "clarification_accuracy",
+      "mo_ta": "Yêu cầu thông tin còn thiếu thay vì tự suy đoán.",
+      "so_case_du_dieu_kien": 1,
+      "so_case_dung": 0,
+      "so_case_khong_danh_gia": null,
+      "ten_hien_thi": "Độ chính xác yêu cầu làm rõ"
+    }
+  ],
+  "numeric_accuracy": 1.0,
+  "scores": [
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-024",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-025",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-036",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-051",
+      "eligible": true,
+      "numeric": true,
+      "numeric_candidate_count": 1,
+      "numeric_extraction_ambiguous": false,
+      "numeric_matched_format": "PERCENT_NORMALIZATION",
+      "numeric_policy": "percentage",
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 2,
+      "case_id": "P170-VI-051",
+      "eligible": true,
+      "numeric": true,
+      "numeric_candidate_count": 1,
+      "numeric_extraction_ambiguous": false,
+      "numeric_matched_format": "PERCENT_NORMALIZATION",
+      "numeric_policy": "percentage",
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 3,
+      "case_id": "P170-VI-051",
+      "eligible": true,
+      "numeric": true,
+      "numeric_candidate_count": 1,
+      "numeric_extraction_ambiguous": false,
+      "numeric_matched_format": "PERCENT_NORMALIZATION",
+      "numeric_policy": "percentage",
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-052",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 2,
+      "case_id": "P170-VI-052",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 3,
+      "case_id": "P170-VI-052",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-053",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 2,
+      "case_id": "P170-VI-053",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 3,
+      "case_id": "P170-VI-053",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-060",
+      "eligible": true,
+      "numeric": false,
+      "pass": false,
+      "reason": "không_khớp_hoặc_lỗi",
+      "status": "ERROR"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-062",
+      "eligible": true,
+      "numeric": true,
+      "numeric_candidate_count": 1,
+      "numeric_extraction_ambiguous": false,
+      "numeric_matched_format": "PERCENT_NORMALIZATION",
+      "numeric_policy": "percentage",
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 2,
+      "case_id": "P170-VI-062",
+      "eligible": true,
+      "numeric": true,
+      "numeric_candidate_count": 1,
+      "numeric_extraction_ambiguous": false,
+      "numeric_matched_format": "PERCENT_NORMALIZATION",
+      "numeric_policy": "percentage",
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 3,
+      "case_id": "P170-VI-062",
+      "eligible": true,
+      "numeric": true,
+      "numeric_candidate_count": 1,
+      "numeric_extraction_ambiguous": false,
+      "numeric_matched_format": "PERCENT_NORMALIZATION",
+      "numeric_policy": "percentage",
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    },
+    {
+      "attempt": 1,
+      "case_id": "P170-VI-078",
+      "eligible": true,
+      "numeric": false,
+      "pass": true,
+      "reason": "khớp_ground_truth",
+      "status": "OK"
+    }
+  ],
+  "status": "EVALUATED",
+  "task_completion_rate": 0.941176,
+  "unique_cases": 9,
+  "verified_task_completion_eligible_cases": 9,
+  "verified_task_completion_pass_count": 8,
+  "verified_task_completion_rate": 0.888889
+}

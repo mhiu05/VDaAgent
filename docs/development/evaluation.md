@@ -1,6 +1,6 @@
 # Đánh giá AI và agent
 
-> Đã đối chiếu với evaluation harness, fixtures và workflow quality gate hiện tại ngày 2026-09-01.
+> Đã đối chiếu với evaluation harness, fixtures và workflow quality gate hiện tại ngày 2026-09-03.
 
 Evaluation v2 dùng dữ liệu synthetic và tập case có version để đo contract, evidence, planner, privacy, latency và regression. Harness chuẩn nằm trong `tests/evaluations/`; artifact chạy nằm trong `evaluations/results/`.
 

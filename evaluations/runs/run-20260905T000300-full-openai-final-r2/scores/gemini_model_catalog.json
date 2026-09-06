@@ -1,0 +1,7 @@
+{
+  "method": "Gemini Models API list",
+  "models": [],
+  "provider": "gemini",
+  "reason": "GEMINI_AUTH_FAILED",
+  "status": "FAILED"
+}

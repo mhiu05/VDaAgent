@@ -1,0 +1,13 @@
+{
+  "decision": "pass",
+  "groundedness": 5,
+  "helpfulness": 4,
+  "reason_codes": [
+    "NO_SEGMENT_REVENUE_EVIDENCE",
+    "CORRECT_UNCERTAINTY",
+    "USEFUL_NEXT_STEP"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 5
+}

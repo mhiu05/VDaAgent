@@ -1,0 +1,32 @@
+{
+  "answer_claims": [
+    {
+      "claim": "Các cột có giá trị không đổi trong toàn bộ Profile Run là trang_thai_on_dinh.",
+      "evidence_grounded": true,
+      "supported_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "citation_id": "S1",
+      "relevant": true
+    }
+  ],
+  "reason_codes": [
+    "direct_support",
+    "explicit_citation_present",
+    "reference_match"
+  ],
+  "reference_claims": [
+    {
+      "claim": "Cột có giá trị không đổi trong toàn bộ tập dữ liệu là trang_thai_on_dinh.",
+      "covered_by_context": true,
+      "supporting_citation_ids": [
+        "S1"
+      ]
+    }
+  ]
+}

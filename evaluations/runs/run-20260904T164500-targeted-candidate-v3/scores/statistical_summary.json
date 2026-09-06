@@ -1,0 +1,22 @@
+{
+  "deterministic_task_completion": {
+    "ci95": [
+      0.133222,
+      1
+    ],
+    "mean": 0.666667,
+    "n": 3,
+    "std": 0.471405
+  },
+  "language": "vi-VN",
+  "mo_ta": "Khoảng tin cậy nhị thức 95% cho kết quả của run hiện hành.",
+  "verified_task_completion": {
+    "ci95": [
+      0.133222,
+      1
+    ],
+    "mean": 0.666667,
+    "n": 3,
+    "std": 0.471405
+  }
+}

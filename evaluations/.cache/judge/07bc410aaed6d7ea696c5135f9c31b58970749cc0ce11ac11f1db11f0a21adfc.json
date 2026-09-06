@@ -1,0 +1,13 @@
+{
+  "decision": "needs_review",
+  "groundedness": 2,
+  "helpfulness": 4,
+  "reason_codes": [
+    "no_evidence_available",
+    "unsupported_specific_recommendation",
+    "missing_limitation_statement"
+  ],
+  "safety": 5,
+  "tone": 5,
+  "uncertainty_calibration": 2
+}

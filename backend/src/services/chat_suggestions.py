@@ -29,6 +29,7 @@ def generate_contextual_suggestions(
     workspace_id: str,
     profile_run_id: str | None,
     limit: int = 4,
+    profile_context: dict[str, Any] | None = None,
 ) -> list[ChatSuggestion]:
     """Return a small validated set of useful next questions.
 
@@ -39,10 +40,20 @@ def generate_contextual_suggestions(
 
     if not profile_run_id or limit < 1:
         return []
-    run = repository.get_profile_run(profile_run_id, workspace_id=workspace_id)
-    if not run or run.get("status") != "completed" or repository.pending_count(profile_run_id):
+    context = profile_context or {}
+    run = context.get("run") or repository.get_profile_run(
+        profile_run_id, workspace_id=workspace_id
+    )
+    pending = (
+        bool(context["has_pending_proposals"])
+        if "has_pending_proposals" in context
+        else bool(repository.pending_count(profile_run_id))
+    )
+    if not run or run.get("status") != "completed" or pending:
         return []
-    stats = repository.get_column_stats(profile_run_id)
+    stats = context.get("column_stats")
+    if not isinstance(stats, dict):
+        stats = repository.get_column_stats(profile_run_id)
     pii = {str(value).casefold() for value in repository.confirmed_pii_columns(profile_run_id)}
     known_columns = {str(name) for name in stats}
     choices: list[ChatSuggestion] = []
@@ -101,10 +112,12 @@ def generate_contextual_suggestions(
             reason="numeric_outliers",
         )
 
-    try:
-        keys = repository.get_proposals(profile_run_id, kind="candidate_key").get("candidate_key", [])
-    except Exception:  # Optional profile signal must not affect answer delivery.
-        keys = []
+    keys: list[dict[str, Any]] = []
+    if len(choices) < limit:
+        try:
+            keys = repository.get_proposals(profile_run_id, kind="candidate_key").get("candidate_key", [])
+        except Exception:  # Optional profile signal must not affect answer delivery.
+            keys = []
     for proposal in keys:
         column = proposal.get("column_name") if isinstance(proposal, dict) else None
         if isinstance(column, str) and column in known_columns and column.casefold() not in pii:
