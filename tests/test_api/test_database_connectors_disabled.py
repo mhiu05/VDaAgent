@@ -33,6 +33,7 @@ def _legacy_connection(client: TestClient, kind: str) -> str:
         kind=kind,
         # The guard must reject without attempting to decrypt this sentinel.
         config_encrypted="must-not-decrypt",
+        fingerprint=f"fingerprint-to-purge-{connection_id}",
     )
     return connection_id
 
@@ -80,6 +81,41 @@ def test_analyst_cannot_reach_any_database_connector_route(
 ) -> None:
     response = client.post(path, json=payload, headers=_analyst_headers(client, monkeypatch))
     assert response.status_code == 403, response.text
+
+
+def test_analyst_cannot_update_a_database_connector(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = client.patch(
+        "/api/v1/connectors/datasource:not-a-connection",
+        json={"kind": "mysql", "name": "blocked", "config": {}},
+        headers=_analyst_headers(client, monkeypatch),
+    )
+    assert response.status_code == 403, response.text
+
+
+def test_database_connector_rejection_writes_auditable_event(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    audit = Mock()
+    monkeypatch.setattr("src.api.connector_routes.get_audit", lambda: audit)
+    workspace_id, user_id = _owner_scope(client)
+
+    response = client.post(
+        "/api/v1/connectors/datasource",
+        json={"kind": "mysql", "name": "blocked", "config": {}},
+    )
+
+    assert response.status_code == 403, response.text
+    audit.log.assert_called_once_with(
+        "database_connector.rejected",
+        workspace_id=workspace_id,
+        actor_user_id=user_id,
+        provider="mysql",
+        route="connector.create",
+        error_code="database_connectors_disabled",
+        outcome="denied",
+    )
 
 
 @pytest.mark.parametrize("kind", DATABASE_KINDS)
@@ -132,3 +168,27 @@ def test_legacy_connection_is_redacted_disabled_and_cannot_be_reused_or_material
     deleted = client.delete(f"/api/v1/connectors/datasource:{connection_id}")
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["deleted"] is True
+    deleted_row = get_repository().get_datasource_connection(
+        connection_id, workspace_id=_owner_scope(client)[0]
+    )
+    assert deleted_row is not None
+    assert deleted_row["config_encrypted"] is None
+    assert deleted_row["fingerprint"] is None
+
+
+def test_database_connector_rollout_purges_credentials_idempotently(
+    client: TestClient,
+) -> None:
+    connection_id = _legacy_connection(client, "mysql")
+    workspace_id, _ = _owner_scope(client)
+    repository = get_repository()
+
+    assert repository.disable_database_connectors(purge_credentials=True) >= 1
+    retired = repository.get_datasource_connection(
+        connection_id, workspace_id=workspace_id
+    )
+    assert retired is not None
+    assert retired["status"] == "disabled"
+    assert retired["config_encrypted"] is None
+    assert retired["fingerprint"] is None
+    assert repository.disable_database_connectors(purge_credentials=True) == 0

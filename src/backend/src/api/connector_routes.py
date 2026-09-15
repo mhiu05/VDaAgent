@@ -232,6 +232,7 @@ async def delete_datasource(
             resource_type="connector",
             resource_id=raw_id,
             provider=str(row.get("kind")),
+            credentials_purged=True,
             outcome="success",
         )
     return {"id": connection_id, "deleted": deleted}

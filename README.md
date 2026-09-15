@@ -12,7 +12,7 @@ VDaAgent kết hợp compute xác định, workflow bất đồng bộ và AI Ag
 - **Command Center:** chạy truy vấn và biểu đồ theo hai cấp độ — Preview có giới hạn để khám phá nhanh và Official được chạy lại trên nguồn đầy đủ sau quality gate.
 - **AI Q&A evidence-first:** LangGraph Agent sử dụng tool và retrieval trong đúng Profile Run/workspace; câu trả lời phải vượt qua kiểm tra citation và numeric grounding, nếu thiếu bằng chứng hệ thống sẽ từ chối suy đoán.
 - **Drift và kiểm định thống kê:** so sánh các Profile Run, chạy statistical test và lưu kết quả có provenance.
-- **Báo cáo tái lập:** ghim profile, biểu đồ, câu trả lời và ghi chú vào Report Draft; tạo snapshot SHA-256 bất biến và xuất PDF an toàn với PII.
+- **Báo cáo tái lập:** ghim profile, biểu đồ, câu trả lời và ghi chú vào Report Draft; tạo snapshot SHA-256 bất biến. Báo cáo chỉ xuất hiện trong thư viện/export published sau khi tác giả submit, Owner khác người submit review/approve và Owner publish.
 - **Workspace và phân quyền:** xác thực bằng Supabase, kiểm tra capability ở backend và cô lập tài nguyên giữa các workspace.
 - **MCP local:** cung cấp MCP server qua stdio cho các thao tác profile, chart, Preview và Official; không mở MCP thành endpoint HTTP công khai.
 
@@ -32,7 +32,8 @@ flowchart LR
   F -->|REST + SSE| A[FastAPI API]
   F -->|Session| AU[Supabase Auth]
   A --> DB[(PostgreSQL)]
-  A --> ST[Supabase Storage / Google Drive / local]
+  A --> ST[Supabase Storage / local canonical objects]
+  A --> GD[Google Drive import]
   A --> AI[LLM / embedding provider]
   W[Profiling Worker] --> DB
   W --> ST
@@ -41,7 +42,7 @@ flowchart LR
   M --> C
 ```
 
-Production được thiết kế với ba process/container độc lập: Next.js, FastAPI và Profiling Worker. PostgreSQL lưu metadata, durable job, evidence, report, audit, retrieval và checkpoint; storage lưu raw object; DuckDB và scientific Python đảm nhiệm phần compute có giới hạn.
+Workflow Azure định nghĩa ba App Service container độc lập: Next.js, FastAPI và Profiling Worker. PostgreSQL lưu metadata, durable job, evidence, report, audit, retrieval và checkpoint; Supabase Storage lưu object canonical trong production, Google Drive chỉ là nguồn import; DuckDB và scientific Python đảm nhiệm compute có giới hạn. Local MCP stdio là process tùy chọn, không thuộc ba App Service này.
 
 ## Tech stack
 
@@ -49,7 +50,7 @@ Production được thiết kế với ba process/container độc lập: Next.j
 | --- | --- |
 | AI Agent | LangGraph, OpenAI/Gemini hoặc provider tương thích |
 | Backend | FastAPI, Python 3.11, Pydantic, SQLAlchemy, Alembic |
-| Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
+| Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn; backend Azure không cài các forecast adapter lớn tùy chọn |
 | Frontend | Next.js 15, React 19, TypeScript, TanStack Query |
 | Database | PostgreSQL 16-compatible; không hỗ trợ SQLite runtime |
 | Auth và storage | Supabase Auth, Supabase Storage; local storage cho development/test |
@@ -60,6 +61,8 @@ Production được thiết kế với ba process/container độc lập: Next.j
 Source luôn nằm tại `src/backend` và `src/frontend`. Cấu hình, Alembic, Makefile, Docker, script và CI dùng cùng path contract; chạy `python scripts/check_repository_layout.py` để phát hiện sai lệch trước khi build hoặc deploy.
 
 Không tạo symlink hoặc sao chép `.env` vào source tree để che lỗi đường dẫn.
+
+Repository không có `docker-compose`/Compose manifest; hai Dockerfile Azure và workflow là đường triển khai container hiện có.
 ## Bắt đầu nhanh
 
 ### Yêu cầu
@@ -96,10 +99,12 @@ AUTH_MODE=dual
 AUTH_ALLOW_GUEST=true
 AUTH_REQUIRE_EMAIL_CONFIRMED=false
 CANONICAL_STORAGE_PROVIDER=local
+GUEST_STORAGE_PROVIDER=local
+NEXT_PUBLIC_AUTH_ALLOW_GUEST=true
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
 ```
 
-Không commit `.env` hoặc secret thật. Chỉ các biến `NEXT_PUBLIC_*` được phép đưa vào browser bundle.
+Không commit `.env` hoặc secret thật. `NEXT_PUBLIC_AUTH_ALLOW_GUEST=true` hiển thị luồng guest trial local; tắt lại trong production. Chỉ các biến `NEXT_PUBLIC_*` được phép đưa vào browser bundle. Xem [cấu hình](docs/operations/configuration.md) cho các biến Auth/Storage/LLM, direct upload và PDF route; `.env.example` có placeholder, không phải cấu hình chạy nguyên trạng.
 
 ### 3. Chuẩn bị database
 
@@ -152,15 +157,15 @@ Tất cả router nghiệp vụ dùng prefix `/api/v1`. Request theo workspace s
 | Nhóm | Endpoint tiêu biểu |
 | --- | --- |
 | Health và chẩn đoán | `GET /health`, `GET /api/v1/status` |
-| Session và workspace | `/api/v1/session`, `/workspace-bootstrap`, `/workspaces/*` |
-| Dataset và ingestion | `/api/v1/datasets`, `/datasets/upload`, `/datasets/upload-sessions/*` |
-| Profiling | `/api/v1/profile`, `/datasets/{id}/profile`, `/profiling-jobs/{id}` |
-| Analysis và biểu đồ | `/api/v1/analysis-sessions/*`, `/profile/{run_id}/explorer/*`, `/charts/*` |
-| QA và chat | `/api/v1/qa`, `/qa/stream`, `/conversations/*` |
-| Drift và statistical test | `/api/v1/profile/{run_id}/drift`, `/profile/{run_id}/test` |
-| Report | `/api/v1/reports/*`, `/profile/{run_id}/report-draft` |
-| Connector | `/api/v1/connectors/*`, `/google-drive/*` |
-| Agent và skill | `/api/v1/agent-runs/{id}/*`, `/agent-skills/*` |
+| Session và workspace | `/api/v1/session`, `/api/v1/workspace-bootstrap`, `/api/v1/workspaces/*` |
+| Dataset và ingestion | `/api/v1/datasets`, `/api/v1/datasets/upload`, `/api/v1/datasets/upload-sessions/*` |
+| Profiling | `/api/v1/profile`, `/api/v1/datasets/{id}/profile`, `/api/v1/profiling-jobs/{id}` |
+| Analysis và biểu đồ | `/api/v1/analysis-sessions/*`, `/api/v1/profile/{run_id}/explorer/*`, `/api/v1/profile/{run_id}/charts/*` |
+| QA và chat | `/api/v1/qa`, `/api/v1/qa/stream`, `/api/v1/conversations/*` |
+| Drift và statistical test | `/api/v1/profile/{run_id}/drift`, `/api/v1/profile/{run_id}/test` |
+| Report | `/api/v1/reports/*` (published reads, Owner review queue và lifecycle), `/api/v1/profile/{run_id}/report-draft` |
+| Connector | `/api/v1/connectors/*`, `/api/v1/google-drive/*` |
+| Agent và skill | `/api/v1/agent-runs/{id}/*`, `/api/v1/agent-skills/*` |
 
 Profiling tuân theo luồng `HTTP 202 → worker → status/SSE`. Chỉ Official execution hoặc terminal answer đã qua evidence validation mới được dùng làm bằng chứng canonical. Xem [API và event contract](docs/architecture/api-and-events.md) để biết chi tiết auth, SSE, idempotency và error contract.
 
@@ -193,7 +198,7 @@ Khi có process khác dùng chung test database, sử dụng harness tạo datab
 ## Cấu trúc dự án
 
 ```text
-P-170/
+VDaAgent/
 ├── src/
 │   ├── backend/
 │   │   ├── src/
@@ -227,16 +232,3 @@ P-170/
 - [Triển khai](docs/operations/deployment.md)
 - [Authentication và authorization](docs/security/authentication-and-authorization.md)
 - [Workspace isolation và privacy](docs/security/workspace-isolation-and-privacy.md)
-
-## Thành viên
-
-| Thành viên | Vai trò |
-| --- | --- |
-| Nguyễn Minh Hiếu | AI Engineer, Team Lead |
-| Vũ Nguyễn Bảo Sơn | Product Manager |
-| Phạm Thế Đăng | Web Developer |
-| Phạm Thị Thùy Linh | Data Engineer, DevOps |
-
-## License
-
-MIT.

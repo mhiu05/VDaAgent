@@ -1,6 +1,6 @@
 # Tổng quan hệ thống
 
-> Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-06.
+> Đã đối chiếu với topology, API mount và data flow trong working tree ngày 2026-09-15. Deployment thực tế phải được xác nhận riêng.
 
 > Source ứng dụng, tooling build/run và release manifest dùng thống nhất `src/backend` và `src/frontend`. `python scripts/check_repository_layout.py` kiểm tra contract này trước khi build hoặc deploy.
 
@@ -34,7 +34,8 @@ flowchart TB
 
   subgraph Data
     DB[(PostgreSQL)]
-    S[Supabase Storage / Google Drive / local]
+    S[Canonical Supabase Storage / local development]
+    G[Google Drive import source]
   end
 
   subgraph Compute
@@ -48,6 +49,8 @@ flowchart TB
   W --> DB
   A --> S
   W --> S
+  A --> G
+  W --> G
   W --> D
   D --> PY
   D --> DB
@@ -57,7 +60,7 @@ flowchart TB
   M --> D
 ```
 
-Production được thiết kế chạy frontend, API và worker thành ba App Service container. Local MCP là stdio integration riêng; nó không được mount thành public HTTP endpoint. PostgreSQL giữ metadata, durable job, derived evidence, report, audit, retrieval và checkpoint. Storage giữ raw object; compute materialize source trong thời gian thao tác rồi cleanup. Trạng thái Docker/CI sau relocation được tách khỏi topology thiết kế và ghi rõ trong known-limitations register.
+Workflow Azure định nghĩa frontend, API và worker thành ba App Service container. Local MCP là stdio integration riêng; source file được copy vào backend image cùng backend, nhưng dependency MCP không có trong `requirements.azure.txt` và workflow không chạy MCP process. Nó không được mount thành public HTTP endpoint. PostgreSQL giữ metadata, durable job, derived evidence, report, audit, retrieval và checkpoint. Supabase Storage giữ canonical raw object trong production; Google Drive là nguồn import, không phải canonical storage. Compute materialize source trong thời gian thao tác rồi cleanup. Xem [runbook triển khai](../operations/deployment.md) để phân biệt target topology với release/health thực tế.
 
 ## Request boundary
 
@@ -78,10 +81,10 @@ Upload stream theo chunk và tính content SHA-256. Metadata dataset giữ stabl
 
 - `supabase://bucket/object`;
 - `gdrive://workspace/file/filename`;
-- `datasource://connection_id`;
+- `datasource://connection_id` chỉ là provenance legacy và bị chặn materialize;
 - local path chỉ cho development/test.
 
-Worker materialize source với byte limit. CSV/TSV legacy encoding được chuyển tạm sang UTF-8. DuckDB inspect schema, project tối đa số cột cấu hình, tạo sample table khi cần và tính aggregate trực tiếp. Main profiling path không materialize full dataset vào pandas; statistical test chỉ reload các cột được yêu cầu. Temporary path không được lưu vào evidence; executed query được thay bằng stable source reference.
+Worker chỉ materialize canonical upload/Google Drive với byte limit. CSV/TSV legacy encoding được chuyển tạm sang UTF-8. DuckDB inspect schema, project tối đa số cột cấu hình, tạo sample table khi cần và tính aggregate trực tiếp; DuckDB không là datasource connector do người dùng chọn. Main profiling path không materialize full dataset vào pandas; statistical test chỉ reload các cột được yêu cầu. Temporary path không được lưu vào evidence; executed query được thay bằng stable source reference.
 
 ## Data flow analysis và QA
 

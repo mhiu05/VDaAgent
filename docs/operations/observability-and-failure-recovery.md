@@ -1,17 +1,17 @@
 # Quan sát và khôi phục lỗi
 
-> Đã đối chiếu với health route, telemetry và worker recovery hiện tại ngày 2026-09-06.
+> Đã đối chiếu với health route, telemetry và worker recovery hiện tại ngày 2026-09-15.
 
 Observability của VDaAgent dựa trên structured log, request correlation, audit record, agent trace và health endpoint. Không ghi raw dataset, credential, bearer token hoặc prompt chứa PII vào log.
 
 ## Health và trạng thái
 
 - API: `GET /health`.
-- Worker: `GET /health` trên health port của process worker.
+- Worker: `GET /health` khi process được chạy với `--health-port` (Azure dùng 8000).
 - Frontend: `GET /health`.
 - Trạng thái ứng dụng: `GET /api/v1/status`.
 
-OpenAPI bị tắt trong production. Health chỉ nên phản ánh readiness cần thiết, không trả cấu hình nhạy cảm.
+OpenAPI bị tắt trong production. `/health` của API/frontend và worker trả trạng thái process; HTTP 200 không tự xác nhận database, storage, queue consumer hay auth đã sẵn sàng. Kiểm tra readiness nghiệp vụ riêng bằng scoped synthetic checks và log startup, không trả cấu hình nhạy cảm trong health.
 
 ## Telemetry backend
 
@@ -30,6 +30,8 @@ Theo dõi tối thiểu:
 ## Database connector rejection
 
 Mỗi request bị chặn cho MySQL, MongoDB hoặc DuckDB ghi audit event `database_connector.rejected` với workspace, actor, provider, route, outcome `denied` và error code `database_connectors_disabled`. Không ghi config, URI, hostname, filesystem path hoặc credential. Theo dõi tỷ lệ event này trong rollout để phát hiện client cũ và cleanup connection legacy; không coi một lỗi 403 là lý do bật lại connector.
+
+Khi Owner xóa connector legacy, event `connector.deleted` có `credentials_purged: true`. CLI rollout chỉ in metadata redacted và cờ `credential_present`; lưu inventory JSON-lines trước/sau cùng release evidence, không ghi ciphertext hay config đã giải mã.
 
 ## AI và agent
 

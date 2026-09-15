@@ -1,11 +1,11 @@
 # Cấu trúc codebase
 
-> Bản đồ module được đối chiếu với working tree ngày 2026-09-14. Repository dùng layout ứng dụng và entrypoint vận hành dưới `src/`; `scripts/check_repository_layout.py` kiểm tra contract này.
+> Bản đồ module được đối chiếu với working tree ngày 2026-09-15. Repository dùng layout ứng dụng và entrypoint vận hành dưới `src/`; `scripts/check_repository_layout.py` kiểm tra contract này.
 
 ## Cây thư mục
 
 ```text
-P-170/
+VDaAgent/
 ├── src/
 │   ├── backend/
 │   │   ├── src/
@@ -30,7 +30,7 @@ P-170/
 ├── tests/                     # backend/integration/agent/API tests
 ├── tests/evaluations/         # evaluation harness và fixtures
 ├── tests/benchmark/           # release benchmark/grader harness
-├── evaluations/               # kết quả evaluation đã sinh
+├── evaluations/               # artifact benchmark; evaluation v2 có thể tạo results/ khi chạy
 ├── scripts/                   # migration, security, storage, benchmark tools
 ├── docs/                      # tài liệu kỹ thuật này
 ├── config.yaml                # cấu hình không bí mật
@@ -62,7 +62,7 @@ flowchart TD
   MCP --> Services
 ```
 
-Hướng phụ thuộc mong muốn là từ delivery layer vào domain/service rồi tới adapter. Router không sở hữu SQL hay connector credential; frontend không truy cập domain table; model không được cấp raw SQL/Python. `repository.py` hiện là persistence facade lớn dùng chung, còn các repository chuyên biệt bọc phần analysis, report draft và workspace configuration.
+Luồng chính đi từ delivery layer vào domain/service rồi tới adapter. Router không sở hữu SQL hay connector credential; frontend không truy cập domain table; model không được cấp raw SQL/Python. `repository.py` hiện là persistence facade lớn dùng chung, còn các repository chuyên biệt bọc phần analysis, report draft/lifecycle và workspace configuration.
 
 ## Backend ownership
 

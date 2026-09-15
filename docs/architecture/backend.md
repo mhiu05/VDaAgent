@@ -1,6 +1,6 @@
 # Kiến trúc backend
 
-> Đối chiếu với `src/backend/src/` ngày 2026-09-06. Trang này mô tả boundary và ownership; Pydantic/OpenAPI, migration và test vẫn quyết định contract chi tiết.
+> Đối chiếu với `src/backend/src/` ngày 2026-09-15. Trang này mô tả boundary và ownership; Pydantic/OpenAPI, migration và test vẫn quyết định contract chi tiết.
 
 ## Runtime process
 
@@ -79,8 +79,9 @@ sequenceDiagram
 | --- | --- | --- |
 | `api/routes.py` | `/api/v1` | ingestion/dataset/profile/test/drift, conversation, QA REST/SSE, status/audit |
 | `api/analysis_routes.py` | `/api/v1/analysis-sessions` và `/api/v1/profile` | session/context/gate/execution, chart plan, Preview/Official |
+| `api/analysis_routes.py` (`profile_router`) | `/api/v1/profile` | Command Center và auto-plan/auto-profile chart endpoints; router riêng trong cùng file |
 | `api/authz_routes.py` | `/api/v1` | session/bootstrap, workspace, member/invitation, report/draft/dashboard |
-| `api/connector_routes.py` | `/api/v1/connectors` | datasource connector lifecycle/probe |
+| `api/connector_routes.py` | `/api/v1/connectors` | connector status/legacy redacted delete; database provider create/probe/use bị từ chối fail-closed |
 | `api/google_drive_routes.py` | `/api/v1/google-drive` | OAuth, list, import và disconnect |
 | `api/agent_routes.py` | `/api/v1` | đọc agent run/plan/evidence/trace |
 | `api/skill_routes.py` | `/api/v1/agent-skills` | native skill catalog và inspect |
@@ -98,7 +99,7 @@ Router thực hiện transport concerns: parse header/body, dependency authoriza
 | Analysis | `analysis_engine.py`, `analysis_repository.py`, `chart_planner.py`, `quality_gate.py`, `forecasting.py` | QuerySpec, planner, Preview/Official, gate, forecast adapter |
 | QA/evidence | `guardrails.py`, `retrieval.py`, `qa_validation.py`, `chat_answer.py` | routing support, hybrid retrieval, grounding, answer envelope |
 | Chat P2 | `chat_cache.py`, `chat_suggestions.py`, `chat_verifier.py`, `ai_latency.py` | safe cache, suggestion, shadow verification, latency ledger |
-| Report | `report_service.py`, `report_draft_repository.py` | lifecycle, optimistic draft, immutable snapshot/export source |
+| Report | `report_service.py`, `report_lifecycle.py`, `report_draft_repository.py` | version review/publish, optimistic draft, immutable snapshot/export source |
 | Persistence | `repository.py`, `workspace_configuration_repository.py` | SQLAlchemy table inventory và scoped data access |
 
 ## Agent boundary

@@ -899,11 +899,11 @@ async def create_profile_report(
         context,
         "profile_report_submitted",
         resource_type="report",
-        resource_id=submitted["id"],
+        resource_id=submitted.report["id"],
         profile_run_id=run_id,
-        report_status=submitted.get("status"),
+        report_status=submitted.report.get("status"),
     )
-    return submitted
+    return submitted.report
 
 
 @router.get("/profile/{run_id}/report")

@@ -7,4 +7,4 @@ description: Tạo report an toàn với privacy từ profile và analysis evide
 
 Dùng report workflow API với section key rõ ràng. Chỉ xây dựng từ profile, test, drift, agent-summary và analysis evidence đã lưu; giữ lại từng execution ID và limitation.
 
-Không đưa raw row, PII value, proposal chưa review hoặc narrative claim không có hỗ trợ vào report. Tuân thủ permission và lifecycle check hiện có; không giả định `submit` tạo bước review thủ công vì endpoint này hiện publish trực tiếp.
+Không đưa raw row, PII value, proposal chưa review hoặc narrative claim không có hỗ trợ vào report. Tuân thủ permission và lifecycle check hiện có: `submit` chuyển draft sang `in_review`, Owner khác submitter review/approve, rồi Owner publish. Capture `snapshot` không tự publish; PDF profile-scoped không có `reportId` không phải PDF của published report.

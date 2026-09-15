@@ -1,6 +1,6 @@
 # Kiến trúc dữ liệu và lưu trữ
 
-> Đối chiếu với SQLAlchemy metadata, Alembic head `20260901_0026` và storage/ingestion service ngày 2026-09-06.
+> Đối chiếu với SQLAlchemy metadata, Alembic head trong working tree `20260915_0029` và storage/ingestion service ngày 2026-09-15. Các revision `0028`/`0029` hiện chưa được commit.
 
 ## Nguyên tắc ownership
 
@@ -8,13 +8,13 @@ VDaAgent tách ba lớp dữ liệu:
 
 1. **PostgreSQL:** identity projection, workspace, metadata, durable workflow, derived evidence, report, audit, retrieval và checkpoint.
 2. **Object storage:** bytes gốc/canonical của dataset; Supabase Storage ở production, local adapter ở development/test.
-3. **Ephemeral compute files:** file tạm được materialize từ storage/Drive/datasource để DuckDB xử lý rồi cleanup.
+3. **Ephemeral compute files:** file tạm được materialize từ canonical storage hoặc Google Drive import để DuckDB xử lý rồi cleanup. `datasource://` legacy bị từ chối trước materialization.
 
-Google Drive, MySQL, MongoDB và DuckDB connector là nguồn ingest, không trở thành database metadata chính. Browser không được dùng Supabase Data API để truy cập domain table.
+Upload canonical và Google Drive import là nguồn ingest duy nhất trong pilot. MySQL, MongoDB và DuckDB database connector đã nghỉ hưu; DuckDB chỉ là compute engine cho file canonical, không phải nguồn do người dùng kết nối. Browser không được dùng Supabase Data API để truy cập domain table.
 
 ```mermaid
 flowchart LR
-  Source[Upload / Drive / datasource] --> Ingest[Dataset ingestion]
+  Source[Upload / Google Drive import] --> Ingest[Dataset ingestion]
   Ingest --> Object[(Canonical object)]
   Ingest --> Meta[(PostgreSQL metadata)]
   Meta --> Bind[Profile Run binds artifact_id]
@@ -33,7 +33,7 @@ flowchart LR
 | Identity | `user_profiles` | projection authoritative cho role/status ứng dụng |
 | Workspace | `workspaces`, `workspace_memberships`, `workspace_invitations`, context/theme versions | tenant root, membership và cấu hình versioned |
 | Ingestion | `datasets`, `dataset_artifacts`, `dataset_ingestions` | logical dataset, immutable object metadata và ingest attempt |
-| Connector | `datasource_connections`, `connector_idempotency`, `google_drive_connections`, `google_drive_oauth_states` | encrypted config/token và lifecycle connection |
+| Connector | `datasource_connections`, `connector_idempotency`, `google_drive_connections`, `google_drive_oauth_states` | database connection legacy chỉ còn metadata disabled/credential cleanup; Google Drive giữ OAuth/import |
 | Profiling | `profile_runs`, `column_stats`, proposal tables, `statistical_test_results`, `drift_reports` | durable job + profile state và derived aggregate |
 | Analysis | `analysis_sessions`, `analysis_sources`, `semantic_context_versions`, `quality_gate_runs`, `quality_issues`, `query_executions` | bounded query context, gate và Preview/Official result |
 | Agent | `agent_runs`, plans/steps/attempts, model/tool invocations, evidence, verification, approval, trace | execution/provenance ledger |
@@ -79,7 +79,8 @@ Stable source reference:
 - `supabase://<bucket>/<object>` cho canonical production object;
 - `local-object://...` hoặc local path chỉ cho adapter development/test;
 - `gdrive://<workspace>/<file>/<name>` cho reference Drive legacy/import;
-- `datasource://<connection_id>` cho connector materialization.
+- `datasource://<connection_id>` chỉ là provenance của dataset legacy; mọi lần
+  materialization bị từ chối fail-closed vì database connector không thuộc pilot.
 
 Object key canonical chứa workspace, dataset và artifact identity. Filename được sanitize; content SHA-256, size, media/source format và provider metadata cho phép verify/reconcile.
 
@@ -87,7 +88,7 @@ Profile Run bind `artifact_id` tại lúc enqueue. Retry hoặc resume phải đ
 
 ## Materialization và compute
 
-`materialize_source` chọn adapter theo scheme, stream xuống file tạm với byte limit, verify metadata phù hợp và cleanup trong context manager. CSV/TSV legacy encoding có thể được chuyển tạm sang UTF-8. Temporary path không được persist vào evidence/trace; executed query phải dùng stable source reference.
+`materialize_source` chỉ chọn adapter canonical/local-test/Google Drive được hỗ trợ, stream xuống file tạm với byte limit, verify metadata phù hợp và cleanup trong context manager. `datasource://` bị từ chối trước khi đọc config, mở socket hoặc chạm filesystem. CSV/TSV legacy encoding có thể được chuyển tạm sang UTF-8. Temporary path không được persist vào evidence/trace; executed query phải dùng stable source reference.
 
 DuckDB đọc file-backed source, inspect schema, project số cột có giới hạn và tính aggregate trực tiếp. Pipeline chính không nạp full dataset vào pandas. Statistical test chỉ materialize projection cột được yêu cầu; forecast adapter chỉ chạy dependency/algorithm khả dụng.
 
@@ -137,11 +138,14 @@ Job `succeeded` có thể tương ứng profile `pending_review`; consumer phả
 ### Report
 
 ```text
-report: draft → in_review → published → archived
-version: draft → snapshot → in_review → approved|changes_requested|rejected → published
+version: draft → in_review → approved → published → archived
+                        ├→ changes_requested → draft sau khi tác giả edit
+                        └→ rejected (terminal)
+draft capture: draft → snapshot (bất biến, không publish trực tiếp)
+                          └→ tạo draft version mới để tiếp tục edit/submit
 ```
 
-Behavior submit/review hiện chưa nhất quán hoàn toàn với state model; xem [giới hạn hiện tại](./known-limitations.md).
+`reports.status` theo version đang xử lý, nhưng vẫn là `published` khi đã có `current_published_version_id` hợp lệ và draft mới đang review. Published read chỉ hydrate version mà pointer chỉ định; report đã archived không còn trong published API.
 
 ## Workspace isolation và Data API
 
@@ -157,7 +161,7 @@ Mọi domain table hiện được phân loại backend-only trong `src/backend/
 
 ## Schema ownership và migration
 
-- Alembic là nguồn sự thật production; head hiện tại `20260901_0026`.
+- Alembic là nguồn sự thật production; head trong working tree hiện là `20260915_0029` (chuỗi `0026 → 0027` Owner/Analyst → `0028` nullable legacy credential → `0029` preflight published pointer).
 - SQLAlchemy metadata phục vụ query và parity check.
 - `database_access_policy.py` phải bao phủ mọi table mới.
 - LangGraph checkpoint table là runtime-managed nhưng vẫn backend-only.

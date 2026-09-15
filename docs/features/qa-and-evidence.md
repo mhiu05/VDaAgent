@@ -1,6 +1,6 @@
 # QA và evidence
 
-> Đã đối chiếu với QA routes, graph và evidence validator hiện tại ngày 2026-09-06.
+> Đã đối chiếu với QA routes, graph và evidence validator hiện tại ngày 2026-09-15.
 
 QA trả lời câu hỏi về profiling run theo nguyên tắc evidence-first: câu trả lời định lượng chỉ hợp lệ khi số liệu có thể truy về artifact hoặc tool result đúng workspace/run.
 

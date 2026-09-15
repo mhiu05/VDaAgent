@@ -7,4 +7,6 @@ description: Kiểm tra profile drift evidence đã lưu. Dùng khi user hỏi d
 
 Chỉ tạo drift qua `POST /api/v1/profile/{run_id}/drift` sau khi API validate hai run đã completed, khác nhau và cùng workspace. Chỉ đọc evidence đã lưu bằng `get_drift_summary`, `get_drift_findings` và `get_schema_diff`.
 
+Backend hiện không bắt buộc hai run cùng `dataset_id`. Trước khi gọi một comparison là drift của cùng nguồn, kiểm tra dataset/source/provenance tương thích và nêu limitation nếu khác nhau.
+
 Không suy ra drift từ raw row và không so sánh run giữa các workspace. Nêu rõ khi chưa có report đã lưu.

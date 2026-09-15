@@ -1,6 +1,6 @@
 # Cô lập workspace và quyền riêng tư
 
-> Đã đối chiếu với policy/repository/migration hiện tại ngày 2026-09-06.
+> Đã đối chiếu với policy/repository/migration hiện tại ngày 2026-09-15.
 
 Hệ thống dùng defense in depth: auth/capability ở API, scope workspace trong repository, Data API đóng với browser role, storage private và redaction trước AI/telemetry.
 
@@ -48,7 +48,7 @@ Không gửi raw row, PII, bearer token, DB URI hoặc secret tới LLM/LangSmit
 ```powershell
 python scripts/migration_smoke.py
 python scripts/assert_database_security.py
-python -m pytest -q tests/test_database_access_policy.py tests/test_database_security.py
+python -m pytest -q tests/test_database_access_policy.py tests/test_workspace_role_migration.py
 python -m pytest -q tests/test_auth.py tests/test_permissions.py tests/test_services/test_security.py
 ```
 

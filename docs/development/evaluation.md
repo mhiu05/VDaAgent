@@ -1,8 +1,8 @@
 # Đánh giá AI và agent
 
-> Đã đối chiếu với evaluation harness, fixtures và workflow quality gate hiện tại ngày 2026-09-06.
+> Đã đối chiếu với evaluation harness, benchmark artifact và workflow quality gate trong working tree ngày 2026-09-15.
 
-Evaluation v2 dùng dữ liệu synthetic và tập case có version để đo contract, evidence, planner, privacy, latency và regression. Harness chuẩn nằm trong `tests/evaluations/`; artifact chạy nằm trong `evaluations/results/`.
+Có hai bộ đánh giá khác nhau: harness evaluation v2 ở `tests/evaluations/` (mặc định **ghi output khi chạy** vào `evaluations/results/`, thư mục này chưa có trong checkout), và benchmark 83 case vi-VN ở `tests/benchmark/` (artifact đã có trong `evaluations/runs/<run_id>/`, alias `evaluations/report.md`). Không dùng scorecard của bộ này thay cho release decision của bộ kia.
 
 ## Ba chế độ
 
@@ -33,7 +33,7 @@ python tests/evaluations/run_evaluation.py `
   --sample-profile-run-id "<sample-run-id>"
 ```
 
-Chỉ mode gọi authenticated staging API mới đánh giá release gate. Token/header tạm không được commit. Dataset và profile run phải synthetic.
+Chỉ mode gọi authenticated staging API mới đánh giá release gate của harness này. Token/header tạm không được commit. Dataset và profile run phải synthetic. Truyền `--output-dir evaluations/results/<timestamp-or-sha>` để giữ lịch sử khi chạy lại, thay vì ghi đè file `latest_scorecard.*` mặc định.
 
 `scripts/run_evaluation_v2_staging.py` tự provision guest workspace/dataset, chạy profiling/evaluation và dọn tài nguyên. `scripts/run_evaluation_repeats.py` chạy lặp trên workspace/run đã chuẩn bị để đo tính ổn định. Xem tùy chọn trợ giúp trước khi chạy vì cả hai có thao tác lên môi trường mục tiêu.
 
@@ -54,22 +54,15 @@ Hard gate được định nghĩa trong fixture/config evaluation, không sửa 
 
 ## Trạng thái artifact hiện tại
 
-`evaluations/results/latest_scorecard.md` là staging run ở commit `67172545e54b616d82cee3e3c161afd7d4e136c4`, không phải code hiện tại. Run có 17/17 response HTTP thành công nhưng release decision là **FAIL**:
+Checkout không có `evaluations/results/latest_scorecard.md` hay `evaluations/results/repeats/`; các nhận định từ đường dẫn lịch sử đó không phải bằng chứng hiện tại. [Benchmark report mới nhất](../../evaluations/report.md) trỏ đến run `run-20260905T001300-full-openai-final-r3`: 83 case/125 request synthetic **LOCAL**; deterministic assertion đạt 83/83, nhưng Focused RAG Context Recall dùng cận dưới Wilson 95% chỉ đạt 77,0% so với gate 80%, nên acceptance **FAIL**. Release status vẫn `DRAFT_NOT_APPROVED`; không suy từ các điểm deterministic sang tuyên bố readiness production. Run này cũng cũ hơn các thay đổi trong working tree ngày 2026-09-15, cần chạy lại và review trên đúng SHA/môi trường mục tiêu.
 
-- hard-gate pass 82,35%;
-- evidence binding/source/status 50%;
-- numeric grounding 50%;
-- planner allow-list 75%;
-- latency p95 86.012 ms;
-- 8 critical failures.
-
-Ba lần lặp trong `evaluations/results/repeats/account-20260829/` cùng thất bại ở candidate-key evidence, quality evidence và PII planner; hai run vượt latency gate 30 giây. Các thay đổi mới hơn đã sửa đường evidence/planning, nhưng chưa có staging rerun mới trong repository. Vì vậy không được tuyên bố hệ thống hiện “pass evaluation” trước khi chạy lại trên SHA mới.
+CI chạy harness `--dry-run` và `--offline`, không chạy benchmark authenticated staging/production; một quality job xanh không phải release evidence cho AI.
 
 ## Quy trình release evidence
 
 1. ghi SHA, config provider/model và dataset version;
 2. provision synthetic full/sample runs;
-3. chạy staging benchmark ít nhất một lần, chạy lặp khi thay agent/model;
+3. chạy evaluation staging và/hoặc [benchmark vi-VN](../../tests/benchmark/README.md) phù hợp gate được chọn; chạy lặp khi thay agent/model;
 4. giữ JSON và Markdown artifact có timestamp, không ghi đè lịch sử;
 5. so với baseline tương thích;
 6. review diagnostic đã redact;
@@ -85,5 +78,6 @@ Ba lần lặp trong `evaluations/results/repeats/account-20260829/` cùng thấ
 - `tests/evaluations/evaluation_core.py`
 - `tests/evaluations/fixtures/`
 - `tests/evaluations/judge_rubric.py`
-- `evaluations/results/`
+- `evaluations/runs/` và `evaluations/report.md` (benchmark đã ghi trong checkout); `evaluations/results/` là output mặc định của evaluation v2 **sau khi chạy**, không phải artifact đang tồn tại
+- `tests/benchmark/README.md`
 - `.github/workflows/azure-container-deploy.yml`

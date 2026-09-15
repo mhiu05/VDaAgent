@@ -1,6 +1,6 @@
 # Profiling Job bất đồng bộ
 
-> Đã đối chiếu với profiling routes, worker và queue repository hiện tại ngày 2026-09-06.
+> Đã đối chiếu với profiling routes, worker và queue repository hiện tại ngày 2026-09-15.
 
 ## Submission contract
 
@@ -10,7 +10,7 @@ Ba endpoint tạo job:
 - `POST /api/v1/datasets/{dataset_id}/profile`;
 - `POST /api/v1/datasets/profile` cho batch 1–20 dataset ID duy nhất.
 
-Request đơn yêu cầu `Idempotency-Key` dài 8–255 ký tự. API hash request; dùng lại key với cùng payload trả job cũ và đánh dấu duplicate, dùng lại với payload khác trả 409 `idempotency_conflict`. Production chỉ nhận `dataset_id` hoặc stable storage/datasource reference đã được tạo qua API.
+Request đơn yêu cầu `Idempotency-Key` dài 8–255 ký tự. API hash request; dùng lại key với cùng payload trả job cũ và đánh dấu duplicate, dùng lại với payload khác trả 409 `idempotency_conflict`. Production chỉ nhận dataset/source reference đã được tạo qua API và có thể materialize an toàn; `datasource://` của database connector legacy bị từ chối trước khi mở kết nối.
 
 API validate quyền/source, insert durable record rồi trả HTTP 202. Nó không chạy profiling trong request.
 

@@ -26,12 +26,14 @@ const roleCopy = {
 };
 
 const reportStatusLabel: Record<string, string> = {
-  draft: "B\u1ea3n nh\u00e1p",
-  in_review: "\u0110\u00e3 xu\u1ea5t b\u1ea3n",
-  published: "\u0110\u00e3 xu\u1ea5t b\u1ea3n",
-  archived: "\u0110\u00e3 l\u01b0u tr\u1eef",
+  draft: "Bản nháp",
+  in_review: "Đang chờ duyệt",
+  approved: "Đã duyệt",
+  changes_requested: "Cần chỉnh sửa",
+  rejected: "Đã từ chối",
+  published: "Đã xuất bản",
+  archived: "Đã lưu trữ",
 };
-
 export default function DashboardPage() {
   const { me, loading, error } = useAuth();
   const dashboard = useQuery({

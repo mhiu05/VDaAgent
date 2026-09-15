@@ -40,4 +40,4 @@ Khi profiling, worker materialize canonical artifact hoặc Google Drive import 
 - `APP_DATA_DIR`, `SECURITY_MAX_UPLOAD_MB`
 - `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REDIRECT_URI`
 
-`DATASOURCE_ENCRYPTION_KEY` vẫn được giữ trong production để đọc/xóa metadata legacy an toàn trong giai đoạn cleanup. `DATABASE_CONNECTORS_ENABLED=true` làm process không khởi động; tái mở connector phải có security design riêng với egress, sandbox, TLS, resource limit và test độc lập.
+Runtime không giải mã metadata database legacy. Dù rollout CLI xác nhận không còn credential, `Settings.missing_required()` và workflow Azure vẫn yêu cầu `DATASOURCE_ENCRYPTION_KEY` ở production; không revoke/remove key cho deployment hiện tại trước khi có application/release change gỡ yêu cầu này. `DATABASE_CONNECTORS_ENABLED=true` làm process không khởi động; tái mở connector phải có security design riêng với egress, sandbox, TLS, resource limit và test độc lập.

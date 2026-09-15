@@ -167,12 +167,14 @@ def test_completed_profile_can_create_report_workspace_entry(
     assert report["versions"][0]["status"] == "in_review"
     assert report["versions"][0]["sections"]
 
-    detail = client.get(f"/api/v1/reports/{report['id']}")
-    assert detail.status_code == 200, detail.text
-    assert detail.json()["versions"][0]["scope"]["profile_run_id"] == run_id
+    assert client.get(f"/api/v1/reports/{report['id']}").status_code == 404
+    assert client.get(f"/api/v1/reports/{report['id']}/export-source").status_code == 404
+    listed = client.get("/api/v1/reports")
+    assert listed.status_code == 200, listed.text
+    assert report["id"] not in {item["id"] for item in listed.json()}
 
 
-def test_report_author_cannot_delete_published_report(
+def test_report_author_cannot_publish_before_owner_approval(
     client: TestClient, reviewed_profile_run: dict
 ) -> None:
     created = client.post(
@@ -182,29 +184,21 @@ def test_report_author_cannot_delete_published_report(
     report_id = created.json()["id"]
 
     published = client.post(f"/api/v1/reports/{report_id}/publish", json={})
-    assert published.status_code == 200, published.text
-
-    deleted = client.delete(f"/api/v1/reports/{report_id}")
-    assert deleted.status_code == 409, deleted.text
-    assert client.get(f"/api/v1/reports/{report_id}").status_code == 200
+    assert published.status_code == 409, published.text
+    assert published.json()["detail"]["code"] == "invalid_report_version_transition"
+    assert client.get(f"/api/v1/reports/{report_id}").status_code == 404
 
 
-def test_report_export_source_uses_current_draft_before_first_snapshot(
+def test_report_export_source_hides_current_draft_before_publication(
     client: TestClient, reviewed_profile_run: dict
 ) -> None:
-    """A report detail page must be readable before the first snapshot exists."""
     run_id = reviewed_profile_run["profile_run_id"]
     draft_response = client.get(f"/api/v1/profile/{run_id}/report-draft")
     assert draft_response.status_code == 200, draft_response.text
     draft = draft_response.json()
 
     export_response = client.get(f"/api/v1/reports/{draft['id']}/export-source")
-    assert export_response.status_code == 200, export_response.text
-    snapshot = export_response.json()["report_snapshot"]
-    assert snapshot["id"] == draft["id"]
-    assert snapshot["snapshot_hash"] == "draft"
-    assert snapshot["version"] == draft["draft_version"]
-    assert snapshot["items"] == draft["items"]
+    assert export_response.status_code == 404, export_response.text
 
 
 def test_command_center_draft_title_update_is_narrow_and_versioned(

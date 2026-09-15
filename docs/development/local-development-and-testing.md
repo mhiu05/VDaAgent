@@ -1,6 +1,6 @@
 # Phát triển và kiểm thử local
 
-> Đã đối chiếu với Makefile, package scripts, test harness và CI hiện tại ngày 2026-09-06.
+> Đã đối chiếu với Makefile, package scripts, test harness và CI hiện tại ngày 2026-09-15.
 
 > **Path contract:** source ở `src/backend` và `src/frontend`; mọi lệnh trong trang này chạy từ repository root hoặc các working directory được nêu rõ. Chạy `python scripts/check_repository_layout.py` trước khi chạy test/build để phát hiện entry point cũ.
 ## Yêu cầu
@@ -34,10 +34,13 @@ AUTH_MODE=dual
 AUTH_ALLOW_GUEST=true
 AUTH_REQUIRE_EMAIL_CONFIRMED=false
 CANONICAL_STORAGE_PROVIDER=local
+GUEST_STORAGE_PROVIDER=local
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/p170
 ```
 
 Không dùng nguyên các placeholder production trong `.env.example`.
+
+Nếu thử frontend guest flow, đặt `NEXT_PUBLIC_AUTH_ALLOW_GUEST=true` và cấu hình API URL cho local. Chỉ bật guest ở development; production từ chối guest/compatibility auth.
 
 ## Chuẩn bị database
 
@@ -100,7 +103,7 @@ pnpm build
 pnpm test:e2e
 ```
 
-Trước khi coi các lệnh trên là hợp lệ, `src/backend/src/config.py` và `src/backend/migrations/env.py` phải resolve `.env`/`config.yaml` về repository root; `tests/conftest.py`, `alembic.ini` và các script phải thêm `src/backend` vào import path. Không copy `.env` vào source tree như một workaround lâu dài.
+`src/backend/src/config.py`, Alembic và script hiện resolve repo root/import path; không copy `.env` vào source tree. Nếu lệnh thất bại, kiểm tra Python/Node, PostgreSQL, DSN, biến môi trường hiệu lực và worker thay vì đổi path theo tài liệu cũ.
 
 Playwright config có thể khởi động frontend test server ở port 3010; backend test target vẫn phải sẵn sàng theo cấu hình E2E.
 

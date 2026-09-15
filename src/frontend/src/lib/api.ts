@@ -500,6 +500,10 @@ export function listPublishedReports<T>(): Promise<T> {
   return request<T>("/reports");
 }
 
+export function listReportReviewQueue<T>(): Promise<T> {
+  return request<T>("/reports/review-queue");
+}
+
 export function getPublishedReport<T>(reportId: string): Promise<T> {
   return request<T>(`/reports/${encodeURIComponent(reportId)}`);
 }
@@ -517,6 +521,12 @@ export function publishReport<T = unknown>(reportId: string, payload: { reason?:
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export function archiveReport<T = unknown>(reportId: string): Promise<T> {
+  return request<T>(`/reports/${encodeURIComponent(reportId)}/archive`, {
+    method: "POST",
   });
 }
 
@@ -1114,7 +1124,7 @@ export type ReportDraftItem = {
   query_execution_id?: string | null; query_spec?: QuerySpec | null; result_hash?: string | null;
   content_json?: { result?: AnalysisExecution["result"]; chart_spec?: ChartSpec; answer?: string; insight?: string; insight_reviewed?: boolean } | null; limitations?: string[] | null;
 };
-export type ReportDraft = { id: string; title: string; profile_run_id: string; status: "empty" | "draft" | "stale" | "snapshot" | string; draft_version: number; version_id: string; items: ReportDraftItem[]; stale_reasons: string[]; snapshot_hash?: string | null };
+export type ReportDraft = { id: string; title: string; profile_run_id: string; status: "empty" | "draft" | "changes_requested" | "stale" | "snapshot" | string; draft_version: number; version_id: string; items: ReportDraftItem[]; stale_reasons: string[]; snapshot_hash?: string | null };
 
 export function getProfileReportDraft(runId: string): Promise<ReportDraft> {
   return request<ReportDraft>(`/profile/${encodeURIComponent(runId)}/report-draft`);

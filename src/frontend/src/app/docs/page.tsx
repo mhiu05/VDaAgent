@@ -31,7 +31,7 @@ const statuses = [
   ["Job: queued / running / succeeded / failed", "Trạng thái của profiling job trong worker. Job có thể succeeded nhưng Profile Run còn chờ quyết định proposal."],
   ["Profile Run: created / pending_review / resuming / completed / failed", "created là vừa tạo; pending_review cần quyết định proposal; resuming đang tiếp tục sau review; completed sẵn sàng cho phân tích; failed không sẵn sàng."],
   ["Proposal: pending / confirmed / rejected / edited / auto_confirmed", "pending cần Analyst; confirmed chấp nhận; rejected loại bỏ; edited dùng giá trị chính thức khác; auto_confirmed do pipeline xác nhận theo rule."],
-  ["Report: empty / draft / stale / snapshot", "Draft còn chỉnh sửa; stale có lý do cần xem lại; snapshot là phiên bản bất biến dùng ưu tiên cho chia sẻ/export."],
+  ["Report: draft / in_review / approved / changes_requested / rejected / published / archived", "Draft được tác giả chỉnh sửa; Owner duyệt rồi publish; chỉ version published mà report trỏ tới mới hiện trong thư viện, chi tiết và export."],
   ["Approximate / uncertainty", "Nhãn cho sample scan hoặc kết quả có ước lượng. Đọc cùng margin of error/limitations thay vì coi là số liệu đầy đủ."],
 ];
 

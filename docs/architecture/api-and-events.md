@@ -1,6 +1,6 @@
 # API và event contract
 
-> Đối chiếu với FastAPI router, Pydantic schema và frontend transport ngày 2026-09-06. OpenAPI sinh từ app là contract field-level; trang này mô tả pattern tích hợp và ownership.
+> Đối chiếu với FastAPI router, Pydantic schema và frontend transport ngày 2026-09-15. OpenAPI sinh từ app là contract field-level; trang này mô tả pattern tích hợp và ownership.
 
 ## Quy ước chung
 
@@ -20,14 +20,14 @@ Không dùng workspace ID trong payload để thay thế header/context đã xá
 | Nhóm | Endpoint chính | Auth/capability điển hình |
 | --- | --- | --- |
 | Session/workspace | `/session`, `/workspace-bootstrap`, `/me`, `/workspaces/*`, `/onboarding/provision` | active user/system hoặc workspace lifecycle capability |
-| Dataset/ingestion | `/datasets`, `/datasets/upload`, `/datasets/upload-sessions/*`, `/datasets/datasource/*` | dataset read/upload/delete |
-| Connector | `/connectors/*`, `/google-drive/*` | workspace storage connect + dataset upload/read |
+| Dataset/ingestion | `/datasets`, `/datasets/upload`, `/datasets/upload-sessions/*` | dataset read/upload/delete; legacy `/datasets/datasource/*` ẩn OpenAPI và trả fail-closed |
+| Connector | `/connectors/*`, `/google-drive/*` | Google Drive import và legacy metadata/delete; database connector create/probe/use trả fail-closed, legacy routes không quảng bá trong OpenAPI |
 | Profiling | `/profile`, `/datasets/{id}/profile`, `/datasets/profile`, `/profiling-jobs/{id}` | profile run/read/review |
 | Profile result | `/profile/{run_id}`, `/summary`, `/export`, `/test`, `/drift`, `/report` | profile/stats/drift/report capability |
-| Analysis | `/analysis-sessions/*`, `/profile/{run_id}/explorer/*`, `/charts/*` | analysis run |
+| Analysis | `/analysis-sessions/*`, `/profile/{run_id}/explorer/*`, `/profile/{run_id}/charts/*` | analysis run |
 | QA/chat | `/qa`, `/qa/stream`, `/conversations/*`, `/profile/{run_id}/chat-suggestions`, `/qa/feedback` | QA profile/published capability |
 | Agent evidence | `/agent-runs/{id}/*`, `/agent-skills/*` | agent run/trace/profile read |
-| Report | `/reports/*`, `/profile/{run_id}/report-draft` | report read/write/lifecycle capability |
+| Report | `/reports/*`, `/reports/review-queue`, `/profile/{run_id}/report-draft` | author draft/submit; Owner khác submitter review/approve; Owner publish/archive; published read chỉ dùng đúng version pointer |
 | Admin | `/admin/users/*` | system admin context, không dùng workspace context |
 | Diagnostics | `/status`, `/audit` | authenticated scoped capability |
 

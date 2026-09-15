@@ -5,7 +5,7 @@ import { PublicNavbar } from "@/components/public-navbar";
 export const metadata = { title: "Giới thiệu · VDaAgent" };
 
 const capabilities = [
-  ["Dataset & nguồn dữ liệu", "Tải CSV, TSV, Parquet hoặc JSON; kết nối MongoDB Atlas qua datasource đã kiểm tra. Khi Workspace dùng Google Drive làm storage provider, nút OAuth kết nối xuất hiện trước khi upload và file được lưu ở Drive."],
+  ["Dataset & nguồn dữ liệu", "Tải CSV, TSV, Parquet hoặc JSON; hoặc import một file từ Google Drive vào canonical storage. MySQL, MongoDB và DuckDB database connector không được hỗ trợ trong pilot."],
   ["Profiling", "Profile Run tính schema, kiểu dữ liệu, số dòng/cột, null rate, cardinality, uniqueness, top values, thống kê mô tả, outlier, duplicate rows, correlation và cảnh báo chất lượng."],
   ["Review proposal", "Candidate key, semantic type và PII là các proposal có thể cần Analyst xác nhận. Chọn xác nhận, từ chối hoặc chỉnh sửa (kèm lý do khi chỉnh sửa) trước khi pipeline tiếp tục."],
   ["Command Center", "Đặt câu hỏi phân tích, tạo plan, chạy Preview bounded, xem visualization và Promote thành Official Evidence sau khi kiểm tra kết quả và limitations."],

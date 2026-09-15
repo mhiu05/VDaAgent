@@ -1,6 +1,6 @@
 # Kiến trúc frontend
 
-> Đối chiếu với `src/frontend/` ngày 2026-09-06. Frontend là Next.js 15 App Router, React 19 và TypeScript strict.
+> Đối chiếu với `src/frontend/` ngày 2026-09-15. Frontend là Next.js 15 App Router, React 19 và TypeScript strict.
 
 ## Vai trò và ranh giới
 
@@ -51,7 +51,7 @@ QueryClientProvider
 | Profile | `/profiles/[runId]/review`, `/profiles/[runId]/preview` | HITL và profile summary |
 | Analysis | `/charts`, `/compare` | Command Center và drift |
 | Chat | `/chat` và draggable widget | conversation, streaming answer và feedback |
-| Report | `/reports`, `/reports/[reportId]` | draft/snapshot/export |
+| Report | `/reports`, `/reports/[reportId]` | draft/snapshot, Owner review queue, published detail/export |
 | System | `/admin`, `/health` | system user management và health route |
 
 Phần lớn trang nội bộ là client component vì phụ thuộc browser token, workspace context và TanStack Query. Route `/api/reports/profile/[runId]` là server route để lấy export source đã authorize và render PDF.
@@ -122,11 +122,15 @@ flowchart LR
   Official --> Chat[Chart insight]
   Official --> Draft[Report draft]
   Chat --> Draft
-  Draft --> Snapshot[Snapshot]
-  Snapshot --> PDF[Server PDF]
+  Draft --> Snapshot[Internal snapshot]
+  Draft --> Submit[Submit]
+  Submit --> OwnerReview[Owner reviewer khác submitter]
+  OwnerReview --> Publish[Owner publish]
+  Publish --> PDF[Published PDF reportId]
+  Preview --> ProfilePDF[Profile-scoped PDF không có reportId]
 ```
 
-`profile-state.ts` tách job status khỏi profile status và sinh next action. Command Center chỉ cho pin/insight từ Official execution. Report edit dùng optimistic version/idempotency để tránh ghi đè; export lấy payload đã lọc từ backend rồi render bằng `pdf-report.ts` và Chromium.
+`profile-state.ts` tách job status khỏi profile status và sinh next action. Command Center chỉ cho pin/insight từ Official execution. Report edit dùng optimistic version/idempotency để tránh ghi đè; published export có `reportId` lấy đúng published version từ backend, trong khi route profile PDF không có `reportId` dùng source profile-scoped. Cả hai render phía server bằng `pdf-report.ts` và Chromium; PDF profile không chứng minh report đã publish.
 
 ## Security header và secret boundary
 

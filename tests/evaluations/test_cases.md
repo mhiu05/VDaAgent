@@ -3,7 +3,7 @@
 > **Hướng dẫn sử dụng file này:**
 > - Mỗi câu ghi rõ: đưa vào gì (Đầu vào) và phải trả lời thế nào (Kết quả kỳ vọng).
 > - Đây là checklist kiểm thử thủ công có từ trước, không phải fixture mà harness hiện tại tự chạy. Harness thực thi nằm ở [`run_evaluation.py`](run_evaluation.py).
-> - Sau khi chạy thủ công, ghi kết quả thực tế dưới từng case hoặc tạo artifact mới có timestamp trong `evaluations/results/`; không ghi đè scorecard hiện có.
+> - Sau khi chạy thủ công, ghi kết quả thực tế dưới từng case hoặc tạo artifact mới có timestamp; `evaluations/results/` là output mặc định do harness v2 tạo khi chạy, hiện không có trong checkout. Benchmark vi-VN dùng `evaluations/runs/<run_id>/`.
 > - Cần ít nhất **20 câu**, bao gồm đủ 4 kiểu tình huống (mỗi kiểu ≥ 2 câu).
 
 ---
@@ -33,7 +33,7 @@
 
 ### A-02
 - **Đầu vào:** Dataset đã profiling. Câu hỏi: "Mối quan hệ giữa cột `age` và cột `salary` như thế nào theo mô hình hồi quy?"
-- **Kết quả kỳ vọng:** Profiling chỉ tính tương quan Pearson, không có hồi quy. AI phải thông báo không có kết quả hồi quy trong profiling result, và gợi ý chạy thêm kiểm định nếu cần.
+- **Kết quả kỳ vọng:** Nếu chỉ có profiling result mà chưa có Official analysis/hồi quy được duyệt cho run này, AI phải nói rõ chưa có evidence hồi quy và có thể gợi ý chạy bounded analysis phù hợp; không bịa hệ số. Hệ thống có bounded execution, nên không được nói chung rằng sản phẩm không hỗ trợ hồi quy.
 - **Nguồn:** Tự nghĩ
 
 ### A-03
@@ -96,12 +96,12 @@
 
 ### D-02
 - **Đầu vào:** Câu hỏi: "null% của cột `revenue` là bao nhiêu?"
-- **Kết quả kỳ vọng:** Trả lời đúng con số trong `column_stats`. Nếu có uncertainty (sampling mode) phải ghi rõ "≈" và margin of error. Sai con số null% có thể khiến Analyst đưa ra quyết định làm sạch dữ liệu sai.
+- **Kết quả kỳ vọng:** Trả lời đúng con số trong `column_stats`. Nếu sampling mode phải ghi rõ đây là ước lượng; chỉ nêu margin of error nếu artifact có metric đó. Sai con số null% có thể khiến Analyst đưa ra quyết định làm sạch dữ liệu sai.
 - **Nguồn:** Quan sát khi tự dùng thử
 
 ### D-03
 - **Đầu vào:** Dataset sampling mode (10k dòng trên 10M). Câu hỏi: "Có bao nhiêu giá trị unique ở cột `product_id`?"
-- **Kết quả kỳ vọng:** AI phải nêu rõ đây là **ước lượng** (≈), không phải con số chính xác, kèm khoảng tin cậy nếu có. Không được trả lời như con số chính xác.
+- **Kết quả kỳ vọng:** AI phải nêu rõ đây là **ước lượng** (≈), không phải con số chính xác; kèm khoảng tin cậy chỉ nếu profile artifact cung cấp. Không được trả lời như con số chính xác.
 - **Nguồn:** Quan sát khi tự dùng thử
 
 ### D-04
@@ -142,7 +142,7 @@
 
 ### R-06
 - **Đầu vào:** "mấy cái confident score đó tin được không"
-- **Kết quả kỳ vọng:** AI giải thích confidence score tính dựa trên uniqueness ratio, null%, pattern matching — không phải LLM tự đoán. Với confidence < 95% cần Analyst xem xét thủ công.
+- **Kết quả kỳ vọng:** AI giải thích score và các signal theo proposal/evidence thực tế, không nói LLM tự đoán và không tự đặt một ngưỡng review cố định cho mọi proposal; các loại rủi ro/low-risk policy quyết định bước review.
 - **Nguồn:** Câu hỏi từ người dùng khi khảo sát
 
 ### R-07 *(ô trống — nhóm điền từ thực tế)*

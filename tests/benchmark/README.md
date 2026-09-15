@@ -19,14 +19,14 @@ Backend và frontend local phải sẵn sàng ở các endpoint mặc định:
 
 ```powershell
 cd src/backend
-..\.venv\Scripts\python.exe -m uvicorn src.main:app --host 127.0.0.1 --port 8000
+..\..\.venv\Scripts\python.exe -m uvicorn src.main:app --host 127.0.0.1 --port 8000
 ```
 
 ```powershell
 pnpm --dir src/frontend dev
 ```
 
-Giữ secret trong `.env`. Không truyền mật khẩu/token trực tiếp trên command line
+Chạy profiling worker riêng theo [hướng dẫn local](../../docs/development/local-development-and-testing.md) và cấu hình guest storage local nếu dùng guest identity. Giữ secret trong `.env`. Không truyền mật khẩu/token trực tiếp trên command line
 và không đưa chúng vào artifact. Local benchmark dùng guest identity ổn định,
 được lưu dưới dạng pseudonym không phải credential.
 

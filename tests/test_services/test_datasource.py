@@ -8,7 +8,9 @@ from unittest.mock import Mock
 import duckdb
 import pytest
 import sqlalchemy
+from pydantic import ValidationError
 
+from src.config import Settings
 from src.services.datasource import (
     DatabaseConnectorsDisabledError,
     materialize_connection,
@@ -46,4 +48,12 @@ def test_database_connector_guard_precedes_all_network_and_filesystem_clients(
 
 def test_unknown_datasource_kind_is_also_rejected() -> None:
     with pytest.raises(Exception, match="not supported"):
-        normalize_config("postgres" , {})  # type: ignore[arg-type]
+        normalize_config("postgres", {})  # type: ignore[arg-type]
+
+
+def test_database_connector_enable_flag_is_rejected_at_settings_load() -> None:
+    with pytest.raises(ValidationError, match="DATABASE_CONNECTORS_ENABLED=true"):
+        Settings(
+            database_url="postgresql://localhost/test",
+            database_connectors_enabled=True,
+        )

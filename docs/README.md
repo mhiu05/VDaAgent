@@ -1,6 +1,6 @@
 # Tài liệu kỹ thuật VDaAgent
 
-> Cập nhật và đối chiếu với source, migration, test và workflow trong working tree ngày 2026-09-06. Code và migration vẫn là nguồn sự thật cuối cùng khi tài liệu có sai lệch.
+> Cập nhật và đối chiếu với source, migration, test và workflow trong working tree ngày 2026-09-15. Code và migration vẫn là nguồn sự thật cuối cùng; head working tree không chứng minh đã deploy.
 
 Thư mục này mô tả kiến trúc và behavior đang có của VDaAgent, không phải roadmap hay cam kết SLA. Hệ thống biến nguồn dữ liệu dạng bảng thành profile, phân tích, câu trả lời có bằng chứng và report có provenance; các ranh giới xuyên suốt là workspace isolation, bounded execution, human-in-the-loop và fail-closed evidence validation.
 
@@ -36,7 +36,7 @@ Thư mục này mô tả kiến trúc và behavior đang có của VDaAgent, kh�
 - [Phân tích có giới hạn](./architecture/bounded-execution.md) — QuerySpec, planner, Preview, Official và quality gate.
 - [Agent system](./architecture/agent-system.md) — LangGraph, native skill, tool, retrieval, evidence và trace.
 - [Report Draft và snapshot](./architecture/report-draft-snapshots.md) — optimistic edit, snapshot SHA-256 và PDF source.
-- [Giới hạn và sai lệch hiện tại](./architecture/known-limitations.md) — behavior chưa được xem là guarantee và nợ tích hợp sau khi chuyển code vào `src/`.
+- [Giới hạn và sai lệch hiện tại](./architecture/known-limitations.md) — behavior chưa được xem là guarantee và nợ vận hành chưa đóng.
 
 ### Chức năng
 
@@ -73,16 +73,18 @@ flowchart LR
   N -->|server-side PDF| PDF[Chromium]
   A --> AU
   A --> DB[(PostgreSQL)]
-  A --> ST[Supabase Storage / Google Drive / local]
+  A --> ST[Canonical Supabase Storage / local dev]
+  A --> GD[Google Drive import]
   A --> AI[LLM / embedding provider]
   W[Profiling Worker] --> DB
   W --> ST
+  W --> GD
   W --> D[DuckDB + scientific Python]
   M[Local MCP stdio] --> DB
   M --> D
 ```
 
-Production được thiết kế với ba process/container độc lập: Next.js, FastAPI và Profiling Worker. PostgreSQL giữ metadata, durable job, evidence, report, audit, retrieval và checkpoint. Storage giữ raw object; DuckDB materialize và tính toán trên file có giới hạn. MCP là tiến trình stdio local, không phải endpoint HTTP công khai.
+Workflow Azure định nghĩa ba process/container độc lập: Next.js, FastAPI và Profiling Worker. PostgreSQL giữ metadata, durable job, evidence, report, audit, retrieval và checkpoint. Supabase Storage là canonical production, Google Drive là nguồn import; DuckDB materialize và tính toán trên file có giới hạn. MCP là tiến trình stdio local, không phải endpoint HTTP công khai. Sơ đồ không chứng minh production đã triển khai/healthy.
 
 ## Bề mặt runtime
 
@@ -93,7 +95,7 @@ Tất cả router nghiệp vụ được mount dưới `/api/v1`; health backend
 | Dataset, profile, QA, drift | `src/backend/src/api/routes.py` | `/datasets`, `/profile`, `/profiling-jobs`, `/qa`, `/profile/{run_id}/drift` |
 | Command Center | `src/backend/src/api/analysis_routes.py` | `/analysis-sessions`, `/profile/{run_id}/explorer/*`, `/profile/{run_id}/charts/*` |
 | Workspace, report | `src/backend/src/api/authz_routes.py` | `/session`, `/workspace-bootstrap`, `/workspaces`, `/reports`, `/dashboard` |
-| Connector | `src/backend/src/api/connector_routes.py` | `/connectors` và lifecycle datasource |
+| Connector | `src/backend/src/api/connector_routes.py` | `/connectors` metadata/legacy delete; database create/probe/use bị fail-closed |
 | Google Drive | `src/backend/src/api/google_drive_routes.py` | status, files, import, OAuth callback và disconnect |
 | Agent runtime | `src/backend/src/api/agent_routes.py` | run, trace, evidence, plan và trace summary |
 | Native agent skills | `src/backend/src/api/skill_routes.py` | catalog, detail và inspect tool bundle |

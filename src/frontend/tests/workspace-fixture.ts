@@ -15,9 +15,15 @@ export async function useAnalystWorkspace(page: Page): Promise<void> {
   await page.addInitScript((session) => {
     window.sessionStorage.setItem("p170-guest-session-v1", JSON.stringify(session));
   }, guestSession);
-  await page.route("**/api/v1/workspace-bootstrap", async (route) => {
+  await page.route("**/workspace-bootstrap", async (route) => {
     await route.fulfill({
       contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": "http://127.0.0.1:3010",
+        "access-control-allow-credentials": "true",
+        "access-control-allow-methods": "GET, OPTIONS",
+        "access-control-allow-headers": "accept, authorization, x-workspace-id",
+      },
       body: JSON.stringify({
         user: { id: "guest-analyst-e2e", email: null },
         workspace,

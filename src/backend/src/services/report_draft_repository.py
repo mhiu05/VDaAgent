@@ -22,6 +22,10 @@ from src.services.repository import (
     workspace_theme_versions,
 )
 from src.services.llm import report_text
+from src.services.report_lifecycle import (
+    report_status_after_version_transition,
+    require_version_transition,
+)
 
 
 def _id() -> str:
@@ -255,7 +259,7 @@ class ReportDraftRepository:
                     reports.c.workspace_id == workspace_id,
                     reports.c.profile_run_id == profile_run_id,
                     reports.c.created_by_user_id == actor,
-                    reports.c.status == "draft",
+                    reports.c.status.in_(("draft", "changes_requested")),
                 )
                 .order_by(reports.c.updated_at.desc())
             )
@@ -269,7 +273,7 @@ class ReportDraftRepository:
                 select(report_versions)
                 .where(
                     report_versions.c.report_id == report["id"],
-                    report_versions.c.status == "draft",
+                    report_versions.c.status.in_(("draft", "changes_requested")),
                 )
                 .order_by(report_versions.c.version.desc())
             )
@@ -345,7 +349,11 @@ class ReportDraftRepository:
             "id": report["id"],
             "title": report["title"],
             "profile_run_id": report["profile_run_id"],
-            "status": "stale" if stale else ("draft" if items else "empty"),
+            "status": (
+                "changes_requested"
+                if version["status"] == "changes_requested"
+                else ("stale" if stale else ("draft" if items else "empty"))
+            ),
             "draft_version": version["version"],
             "version_id": version["id"],
             "items": items,
@@ -409,11 +417,14 @@ class ReportDraftRepository:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         report = (
             conn.execute(
-                select(reports).where(
+                select(reports)
+                .where(
                     reports.c.id == report_id,
                     reports.c.workspace_id == workspace_id,
                     reports.c.created_by_user_id == actor,
+                    reports.c.status.in_(("draft", "changes_requested")),
                 )
+                .with_for_update()
             )
             .mappings()
             .first()
@@ -425,9 +436,10 @@ class ReportDraftRepository:
                 select(report_versions)
                 .where(
                     report_versions.c.report_id == report_id,
-                    report_versions.c.status == "draft",
+                    report_versions.c.status.in_(("draft", "changes_requested")),
                 )
                 .order_by(report_versions.c.version.desc())
+                .with_for_update()
             )
             .mappings()
             .first()
@@ -435,6 +447,37 @@ class ReportDraftRepository:
         if not version:
             raise ValueError("Report has no editable draft version.")
         return dict(report), dict(version)
+
+    @staticmethod
+    def _restore_draft_after_changes_requested(
+        conn: Any, report: dict[str, Any], version: dict[str, Any]
+    ) -> None:
+        """Return a requested version to draft when the author changes it."""
+        if version["status"] != "changes_requested":
+            return
+        require_version_transition("changes_requested", "draft")
+        next_report_status = report_status_after_version_transition(
+            str(report["status"]),
+            "draft",
+            has_published_snapshot=bool(report.get("current_published_version_id")),
+        )
+        result = conn.execute(
+            report_versions.update()
+            .where(
+                report_versions.c.id == version["id"],
+                report_versions.c.status == "changes_requested",
+            )
+            .values(status="draft")
+        )
+        if result.rowcount != 1:
+            raise ValueError("Report draft changed before it could be edited.")
+        conn.execute(
+            reports.update()
+            .where(reports.c.id == report["id"])
+            .values(status=next_report_status, updated_at=_now())
+        )
+        report["status"] = next_report_status
+        version["status"] = "draft"
 
     @staticmethod
     def _advance_draft_version(conn: Any, version: dict[str, Any]) -> None:
@@ -566,6 +609,7 @@ class ReportDraftRepository:
                         else (payload.get("content") or {})
                     ),
                 }
+                self._restore_draft_after_changes_requested(conn, report, version)
                 conn.execute(
                     report_items.update()
                     .where(report_items.c.id == target_item["id"])
@@ -576,6 +620,7 @@ class ReportDraftRepository:
                     )
                 )
                 return self._payload(conn, report, version)
+            self._restore_draft_after_changes_requested(conn, report, version)
             self._advance_draft_version(conn, version)
             position = (
                 int(
@@ -642,6 +687,7 @@ class ReportDraftRepository:
                 raise IdempotencyConflictError(
                     "draft_stale: reload the report before reordering"
                 )
+            self._restore_draft_after_changes_requested(conn, report, version)
             items = [
                 dict(row)
                 for row in conn.execute(
@@ -688,6 +734,7 @@ class ReportDraftRepository:
     ) -> dict[str, Any]:
         with self.engine.begin() as conn:
             report, version = self._current(conn, report_id, workspace_id, actor)
+            self._restore_draft_after_changes_requested(conn, report, version)
             self._advance_draft_version(conn, version)
             conn.execute(
                 reports.update()
@@ -717,6 +764,7 @@ class ReportDraftRepository:
                 raise LookupError("Report item was not found.")
             values = {key: value for key, value in payload.items() if value is not None}
             if values:
+                self._restore_draft_after_changes_requested(conn, report, version)
                 self._advance_draft_version(conn, version)
                 conn.execute(
                     report_items.update()
@@ -738,6 +786,7 @@ class ReportDraftRepository:
             ).first()
             if not item:
                 raise LookupError("Report item was not found.")
+            self._restore_draft_after_changes_requested(conn, report, version)
             self._advance_draft_version(conn, version)
             conn.execute(report_items.delete().where(report_items.c.id == item_id))
             conn.execute(
@@ -753,6 +802,7 @@ class ReportDraftRepository:
     def snapshot(self, report_id: str, workspace_id: str, actor: str) -> dict[str, Any]:
         with self.engine.begin() as conn:
             report, version = self._current(conn, report_id, workspace_id, actor)
+            require_version_transition(str(version["status"]), "snapshot")
             payload = self._payload(conn, report, version)
             if payload["stale_reasons"]:
                 raise ValueError(

@@ -14,6 +14,7 @@ import hashlib
 import json
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -53,6 +54,11 @@ from src.config import (
     get_settings,
 )
 from src.services.permissions import canonical_role, canonical_workspace_role
+from src.services.report_lifecycle import (
+    ReportLifecycleError,
+    report_status_after_version_transition,
+    require_version_transition,
+)
 metadata = MetaData()
 
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
@@ -63,6 +69,16 @@ class MembershipConflictError(ValueError):
     """A membership mutation would leave an active workspace without an Owner."""
 
     code = "last_owner_conflict"
+
+
+@dataclass(frozen=True, slots=True)
+class ReportLifecycleMutation:
+    """A lifecycle write plus the non-content audit facts it produced."""
+
+    report: dict[str, Any]
+    report_version_id: str
+    previous_status: str
+    next_status: str
 
 
 def _uuid() -> str:
@@ -361,7 +377,9 @@ datasource_connections = Table(
     Column("created_by_user_id", String(36), nullable=False),
     Column("name", String(255), nullable=False),
     Column("kind", String(32), nullable=False),
-    Column("config_encrypted", Text, nullable=False),
+    # A retired connector must be able to remove its credential while keeping
+    # a minimal tombstone for workspace-scoped cleanup and dataset provenance.
+    Column("config_encrypted", Text, nullable=True),
     Column("fingerprint", String(64), nullable=True),
     Column("created_at", DateTime(timezone=True), default=_now, nullable=False),
     Column("updated_at", DateTime(timezone=True), default=_now, nullable=False),
@@ -1372,13 +1390,19 @@ def _pii_mask_columns(pii_rows: list[dict[str, Any]]) -> set[str]:
 class Repository:
     """Truy cập metadata DB. Mọi số trong báo cáo/QA đều đọc từ đây."""
 
-    def __init__(self, engine: Engine, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        settings: Settings | None = None,
+        *,
+        bootstrap_schema: bool = True,
+    ) -> None:
         self.engine = engine
         self.settings = settings or get_settings()
         # Production schema changes are a release-job responsibility (Alembic),
         # never an implicit side effect of serving the first request.  Existing
         # local/test workflows remain convenient and isolated.
-        if self.settings.app_env != "production":
+        if bootstrap_schema and self.settings.app_env != "production":
             metadata.create_all(engine)
             self._migrate_semantic_description()
             self._migrate_review_proposal_columns()
@@ -3569,7 +3593,10 @@ class Repository:
             .label("profiles"),
             select(func.count())
             .select_from(reports)
-            .where(reports.c.workspace_id == workspace_id)
+            .where(
+                reports.c.workspace_id == workspace_id,
+                self._published_report_clause(),
+            )
             .scalar_subquery()
             .label("reports"),
         )
@@ -3577,7 +3604,10 @@ class Repository:
             counts = dict(conn.execute(count_row).mappings().one())
             recent_reports = conn.execute(
                 select(reports.c.id, reports.c.title, reports.c.status)
-                .where(reports.c.workspace_id == workspace_id)
+                .where(
+                    reports.c.workspace_id == workspace_id,
+                    self._published_report_clause(),
+                )
                 .order_by(reports.c.updated_at.desc())
                 .limit(report_limit)
             ).mappings()
@@ -4552,6 +4582,9 @@ class Repository:
                     datasource_connections.c.kind,
                     datasource_connections.c.status,
                     datasource_connections.c.deleted_at,
+                    datasource_connections.c.config_encrypted.is_not(None).label(
+                        "credential_present"
+                    ),
                     func.count(datasets.c.id).label("dataset_count"),
                 )
                 .select_from(
@@ -4567,32 +4600,79 @@ class Repository:
                     datasource_connections.c.kind,
                     datasource_connections.c.status,
                     datasource_connections.c.deleted_at,
+                    datasource_connections.c.config_encrypted,
                 )
                 .order_by(datasource_connections.c.workspace_id, datasource_connections.c.id)
             ).mappings()
             return [dict(row) for row in rows]
 
-    def disable_database_connectors(self) -> int:
-        """Idempotently retire active legacy connections without touching artifacts."""
+    def disable_database_connectors(self, *, purge_credentials: bool = False) -> int:
+        """Idempotently retire database connectors without touching artifacts.
+
+        ``purge_credentials`` is deliberately opt-in for the rollout command:
+        state-only retirement is reversible operational metadata, whereas
+        credential removal is not. A user-initiated connector delete always
+        clears its credential below.
+        """
 
         now = _now()
         with self.engine.begin() as conn:
+            active_values: dict[str, Any] = {
+                "status": "disabled",
+                "last_error_code": DATABASE_CONNECTORS_DISABLED_CODE,
+                "last_error_at": now,
+                "updated_at": now,
+                "version": datasource_connections.c.version + 1,
+            }
+            if purge_credentials:
+                active_values.update({"config_encrypted": None, "fingerprint": None})
+
+            active_where: list[Any] = [
+                datasource_connections.c.kind.in_(DATABASE_CONNECTOR_KINDS),
+                datasource_connections.c.deleted_at.is_(None),
+            ]
+            if purge_credentials:
+                active_where.append(
+                    or_(
+                        datasource_connections.c.status != "disabled",
+                        datasource_connections.c.config_encrypted.is_not(None),
+                        datasource_connections.c.fingerprint.is_not(None),
+                        datasource_connections.c.last_error_code.is_distinct_from(
+                            DATABASE_CONNECTORS_DISABLED_CODE
+                        ),
+                    )
+                )
+            else:
+                active_where.append(datasource_connections.c.status != "disabled")
             result = conn.execute(
                 datasource_connections.update()
-                .where(
-                    datasource_connections.c.kind.in_(DATABASE_CONNECTOR_KINDS),
-                    datasource_connections.c.deleted_at.is_(None),
-                    datasource_connections.c.status != "disabled",
-                )
-                .values(
-                    status="disabled",
-                    last_error_code=DATABASE_CONNECTORS_DISABLED_CODE,
-                    last_error_at=now,
-                    updated_at=now,
-                    version=datasource_connections.c.version + 1,
-                )
+                .where(*active_where)
+                .values(**active_values)
             )
-            return int(result.rowcount or 0)
+            changed = int(result.rowcount or 0)
+            if purge_credentials:
+                # Previous versions left a ciphertext on already deleted
+                # rows. Clear it as well without changing the historical
+                # disconnected tombstone or any referenced dataset/artifact.
+                deleted = conn.execute(
+                    datasource_connections.update()
+                    .where(
+                        datasource_connections.c.kind.in_(DATABASE_CONNECTOR_KINDS),
+                        datasource_connections.c.deleted_at.is_not(None),
+                        or_(
+                            datasource_connections.c.config_encrypted.is_not(None),
+                            datasource_connections.c.fingerprint.is_not(None),
+                        ),
+                    )
+                    .values(
+                        config_encrypted=None,
+                        fingerprint=None,
+                        updated_at=now,
+                        version=datasource_connections.c.version + 1,
+                    )
+                )
+                changed += int(deleted.rowcount or 0)
+            return changed
 
     def get_connector_idempotency(self, *, workspace_id: str, key: str, request_hash: str) -> str | None:
         with self.engine.begin() as conn:
@@ -4738,7 +4818,16 @@ class Repository:
                     datasource_connections.c.workspace_id == workspace_id,
                     datasource_connections.c.deleted_at.is_(None),
                 )
-                .values(deleted_at=_now(), status="disconnected", updated_at=_now(), version=datasource_connections.c.version + 1)
+                .values(
+                    deleted_at=_now(),
+                    status="disconnected",
+                    # Removing a legacy connector is credential cleanup, not
+                    # merely a UI hide. The migration makes this nullable.
+                    config_encrypted=None,
+                    fingerprint=None,
+                    updated_at=_now(),
+                    version=datasource_connections.c.version + 1,
+                )
             )
             return bool(result.rowcount)
 
@@ -6866,6 +6955,78 @@ class Repository:
         return output
 
     # --- Published reports --------------------------------------------- #
+    @staticmethod
+    def _published_report_clause() -> Any:
+        """Require a valid published pointer for every published-read query."""
+        valid_pointer = (
+            select(report_versions.c.id)
+            .where(
+                report_versions.c.id == reports.c.current_published_version_id,
+                report_versions.c.report_id == reports.c.id,
+                report_versions.c.status == "published",
+            )
+            .correlate(reports)
+            .exists()
+        )
+        return and_(
+            reports.c.status == "published",
+            reports.c.current_published_version_id.is_not(None),
+            valid_pointer,
+        )
+
+    @staticmethod
+    def _locked_report(
+        conn: Any, report_id: str, workspace_id: str
+    ) -> dict[str, Any] | None:
+        row = (
+            conn.execute(
+                select(reports)
+                .where(
+                    reports.c.id == report_id,
+                    reports.c.workspace_id == workspace_id,
+                )
+                .with_for_update()
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    @staticmethod
+    def _locked_latest_report_version(
+        conn: Any, report_id: str
+    ) -> dict[str, Any] | None:
+        row = (
+            conn.execute(
+                select(report_versions)
+                .where(report_versions.c.report_id == report_id)
+                .order_by(report_versions.c.version.desc())
+                .with_for_update()
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    def _lifecycle_mutation(
+        self,
+        report_id: str,
+        workspace_id: str,
+        *,
+        report_version_id: str,
+        previous_status: str,
+        next_status: str,
+    ) -> ReportLifecycleMutation:
+        report = self.get_report(report_id, workspace_id)
+        if not report:
+            raise RuntimeError("Report disappeared after lifecycle transaction.")
+        return ReportLifecycleMutation(
+            report=report,
+            report_version_id=report_version_id,
+            previous_status=previous_status,
+            next_status=next_status,
+        )
+
     def _report_version_payload(
         self, conn: Any, version_row: dict[str, Any]
     ) -> dict[str, Any]:
@@ -6905,6 +7066,31 @@ class Repository:
         ]
         return payload
 
+    def _report_payload(
+        self, conn: Any, report: dict[str, Any], *, published_only: bool
+    ) -> dict[str, Any] | None:
+        result = dict(report)
+        version_query = select(report_versions).where(
+            report_versions.c.report_id == report["id"]
+        )
+        if published_only:
+            version_query = version_query.where(
+                report_versions.c.id == report["current_published_version_id"],
+                report_versions.c.status == "published",
+            )
+        versions = [
+            self._report_version_payload(conn, dict(row))
+            for row in conn.execute(
+                version_query.order_by(report_versions.c.version.desc())
+            ).mappings()
+        ]
+        # The report predicate should already guarantee this. Keep this final
+        # check fail-closed in case legacy data changes between reads.
+        if published_only and len(versions) != 1:
+            return None
+        result["versions"] = versions
+        return result
+
     def list_reports(
         self,
         workspace_id: str,
@@ -6915,8 +7101,8 @@ class Repository:
         with self.engine.begin() as conn:
             query = select(reports).where(reports.c.workspace_id == workspace_id)
             if published_only:
-                query = query.where(reports.c.status == "published")
-            if exclude_rejected:
+                query = query.where(self._published_report_clause())
+            elif exclude_rejected:
                 latest_version = (
                     select(func.max(report_versions.c.version))
                     .where(report_versions.c.report_id == reports.c.id)
@@ -6935,6 +7121,40 @@ class Repository:
             rows = conn.execute(query.order_by(reports.c.updated_at.desc())).mappings()
             return [dict(row) for row in rows]
 
+    def list_report_review_queue(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Return the Owner-only queue for the current reviewable version."""
+        latest_version_id = (
+            select(report_versions.c.id)
+            .where(report_versions.c.report_id == reports.c.id)
+            .order_by(report_versions.c.version.desc())
+            .limit(1)
+            .correlate(reports)
+            .scalar_subquery()
+        )
+        with self.engine.begin() as conn:
+            rows = conn.execute(
+                select(
+                    reports.c.id,
+                    reports.c.title,
+                    reports.c.updated_at,
+                    reports.c.created_by_user_id,
+                    report_versions.c.id.label("report_version_id"),
+                    report_versions.c.version,
+                    report_versions.c.status,
+                    report_versions.c.executive_summary,
+                    report_versions.c.submitted_by_user_id,
+                    report_versions.c.submitted_at,
+                )
+                .join(report_versions, report_versions.c.report_id == reports.c.id)
+                .where(
+                    reports.c.workspace_id == workspace_id,
+                    report_versions.c.id == latest_version_id,
+                    report_versions.c.status.in_(("in_review", "approved")),
+                )
+                .order_by(report_versions.c.submitted_at.asc().nulls_last(), reports.c.id)
+            ).mappings()
+            return [dict(row) for row in rows]
+
     def get_report(
         self, report_id: str, workspace_id: str, *, published_only: bool = False
     ) -> dict[str, Any] | None:
@@ -6943,26 +7163,13 @@ class Repository:
                 reports.c.id == report_id, reports.c.workspace_id == workspace_id
             )
             if published_only:
-                query = query.where(reports.c.status == "published")
-            report = conn.execute(query).mappings().first()
-            if not report:
-                return None
-            result = dict(report)
-            version_id = (
-                report.get("current_published_version_id") if published_only else None
+                query = query.where(self._published_report_clause())
+            row = conn.execute(query).mappings().first()
+            return (
+                self._report_payload(conn, dict(row), published_only=published_only)
+                if row
+                else None
             )
-            version_query = select(report_versions).where(
-                report_versions.c.report_id == report["id"]
-            )
-            if version_id:
-                version_query = version_query.where(report_versions.c.id == version_id)
-            versions = conn.execute(
-                version_query.order_by(report_versions.c.version.desc())
-            ).mappings()
-            result["versions"] = [
-                self._report_version_payload(conn, dict(row)) for row in versions
-            ]
-            return result
 
     def get_report_any_workspace(
         self, report_id: str, *, published_only: bool = False
@@ -6975,26 +7182,13 @@ class Repository:
                 .where(reports.c.id == report_id, workspaces.c.status == "active")
             )
             if published_only:
-                query = query.where(reports.c.status == "published")
-            report = conn.execute(query).mappings().first()
-            if not report:
-                return None
-            result = dict(report)
-            version_id = (
-                report.get("current_published_version_id") if published_only else None
+                query = query.where(self._published_report_clause())
+            row = conn.execute(query).mappings().first()
+            return (
+                self._report_payload(conn, dict(row), published_only=published_only)
+                if row
+                else None
             )
-            version_query = select(report_versions).where(
-                report_versions.c.report_id == report["id"]
-            )
-            if version_id:
-                version_query = version_query.where(report_versions.c.id == version_id)
-            result["versions"] = [
-                self._report_version_payload(conn, dict(row))
-                for row in conn.execute(
-                    version_query.order_by(report_versions.c.version.desc())
-                ).mappings()
-            ]
-            return result
 
     @staticmethod
     def _validate_visualization_spec(chart_type: str, spec: dict[str, Any]) -> None:
@@ -7150,40 +7344,31 @@ class Repository:
         payload: dict[str, Any],
     ) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
-            report = (
-                conn.execute(
-                    select(reports).where(
-                        reports.c.id == report_id,
-                        reports.c.workspace_id == workspace_id,
-                    )
-                )
-                .mappings()
-                .first()
-            )
+            report = self._locked_report(conn, report_id, workspace_id)
             if not report:
                 return None
-            version = (
-                conn.execute(
-                    select(report_versions)
-                    .where(
-                        report_versions.c.report_id == report_id,
-                    )
-                    .order_by(report_versions.c.version.desc())
-                )
-                .mappings()
-                .first()
-            )
+            version = self._locked_latest_report_version(conn, report_id)
             if not version or version["status"] not in {"draft", "changes_requested"}:
-                raise ValueError(
-                    "Chỉ có thể sửa report version draft hoặc changes_requested."
+                raise ReportLifecycleError(
+                    "invalid_report_version_transition",
+                    "Only a draft or changes-requested version can be edited.",
                 )
             if version["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ tác giả mới có thể sửa draft này.")
+                raise PermissionError("Only the author can edit this report draft.")
             fields = {
                 key: payload[key]
                 for key in ("executive_summary", "scope", "time_range")
                 if key in payload
             }
+            next_report_status = str(report["status"])
+            if version["status"] == "changes_requested":
+                require_version_transition("changes_requested", "draft")
+                fields["status"] = "draft"
+                next_report_status = report_status_after_version_transition(
+                    str(report["status"]),
+                    "draft",
+                    has_published_snapshot=bool(report.get("current_published_version_id")),
+                )
             if fields:
                 conn.execute(
                     report_versions.update()
@@ -7192,16 +7377,13 @@ class Repository:
                 )
             self._replace_report_content(conn, version["id"], workspace_id, payload)
             conn.execute(
-                reports.update()
-                .where(reports.c.id == report_id)
-                .values(
+                reports.update().where(reports.c.id == report_id).values(
                     title=payload.get("title", report["title"]),
                     updated_at=_now(),
-                    status="draft",
+                    status=next_report_status,
                 )
             )
         return self.get_report(report_id, workspace_id)
-
     def delete_report_draft(
         self, report_id: str, workspace_id: str, actor_user_id: str
     ) -> bool:
@@ -7272,50 +7454,39 @@ class Repository:
 
     def submit_report(
         self, report_id: str, workspace_id: str, actor_user_id: str
-    ) -> dict[str, Any] | None:
+    ) -> ReportLifecycleMutation | None:
         now = _now()
         with self.engine.begin() as conn:
-            report = (
-                conn.execute(
-                    select(reports).where(
-                        reports.c.id == report_id,
-                        reports.c.workspace_id == workspace_id,
-                    )
-                )
-                .mappings()
-                .first()
-            )
+            report = self._locked_report(conn, report_id, workspace_id)
             if not report:
                 return None
-            version = (
-                conn.execute(
-                    select(report_versions)
-                    .where(report_versions.c.report_id == report_id)
-                    .order_by(report_versions.c.version.desc())
-                )
-                .mappings()
-                .first()
-            )
-            if not version or version["status"] not in {"draft", "changes_requested"}:
-                raise ValueError("Report không ở trạng thái có thể submit.")
+            version = self._locked_latest_report_version(conn, report_id)
+            if not version:
+                raise ReportLifecycleError("report_version_missing", "Report has no version to submit.")
             if version["created_by_user_id"] != actor_user_id:
-                raise PermissionError("Chỉ tác giả mới có thể submit report.")
+                raise PermissionError("Only the author can submit this report version.")
+            require_version_transition(str(version["status"]), "in_review")
+            next_report_status = report_status_after_version_transition(
+                str(report["status"]), "in_review",
+                has_published_snapshot=bool(report.get("current_published_version_id")),
+            )
+            result = conn.execute(
+                report_versions.update().where(
+                    report_versions.c.id == version["id"],
+                    report_versions.c.status == version["status"],
+                ).values(status="in_review", submitted_by_user_id=actor_user_id, submitted_at=now)
+            )
+            if result.rowcount != 1:
+                raise ReportLifecycleError("report_lifecycle_conflict", "Report version changed before it could be submitted.")
             conn.execute(
-                report_versions.update()
-                .where(report_versions.c.id == version["id"])
-                .values(
-                    status="in_review",
-                    submitted_by_user_id=actor_user_id,
-                    submitted_at=now,
+                reports.update().where(reports.c.id == report_id).values(
+                    status=next_report_status, updated_at=now
                 )
             )
-            conn.execute(
-                reports.update()
-                .where(reports.c.id == report_id)
-                .values(status="in_review", updated_at=now)
-            )
-        return self.get_report(report_id, workspace_id)
-
+        return self._lifecycle_mutation(
+            report_id, workspace_id, report_version_id=str(version["id"]),
+            previous_status=str(version["status"]), next_status="in_review",
+        )
     def review_report(
         self,
         report_id: str,
@@ -7323,34 +7494,40 @@ class Repository:
         reviewer_user_id: str,
         decision: str,
         comment: str | None,
-    ) -> dict[str, Any] | None:
+    ) -> ReportLifecycleMutation | None:
         if decision not in {"approved", "changes_requested", "rejected"}:
-            raise ValueError("Review decision không hợp lệ.")
+            raise ReportLifecycleError("invalid_review_decision", "Report review decision is invalid.")
         now = _now()
         with self.engine.begin() as conn:
-            report = (
-                conn.execute(
-                    select(reports).where(
-                        reports.c.id == report_id,
-                        reports.c.workspace_id == workspace_id,
-                    )
-                )
-                .mappings()
-                .first()
-            )
+            report = self._locked_report(conn, report_id, workspace_id)
             if not report:
                 return None
-            version = (
-                conn.execute(
-                    select(report_versions)
-                    .where(report_versions.c.report_id == report_id)
-                    .order_by(report_versions.c.version.desc())
-                )
-                .mappings()
-                .first()
+            version = self._locked_latest_report_version(conn, report_id)
+            if not version:
+                raise ReportLifecycleError("report_version_missing", "Report has no version to review.")
+            require_version_transition(str(version["status"]), decision)
+            submitted_by = str(
+                version.get("submitted_by_user_id") or version["created_by_user_id"]
             )
-            if not version or version["status"] != "in_review":
-                raise ValueError("Report không ở trạng thái in_review.")
+            if reviewer_user_id == submitted_by:
+                raise PermissionError("A report submitter cannot review the same version.")
+            next_report_status = report_status_after_version_transition(
+                str(report["status"]),
+                decision,
+                has_published_snapshot=bool(report.get("current_published_version_id")),
+            )
+            result = conn.execute(
+                report_versions.update().where(
+                    report_versions.c.id == version["id"],
+                    report_versions.c.status == version["status"],
+                ).values(
+                    status=decision,
+                    reviewed_by_user_id=reviewer_user_id,
+                    reviewed_at=now,
+                )
+            )
+            if result.rowcount != 1:
+                raise ReportLifecycleError("report_lifecycle_conflict", "Report version changed before review.")
             conn.execute(
                 report_reviews.insert().values(
                     id=_uuid(),
@@ -7361,23 +7538,15 @@ class Repository:
                     created_at=now,
                 )
             )
-            next_report_status = "in_review" if decision == "approved" else "draft"
             conn.execute(
-                report_versions.update()
-                .where(report_versions.c.id == version["id"])
-                .values(
-                    status=decision,
-                    reviewed_by_user_id=reviewer_user_id,
-                    reviewed_at=now,
+                reports.update().where(reports.c.id == report_id).values(
+                    status=next_report_status, updated_at=now
                 )
             )
-            conn.execute(
-                reports.update()
-                .where(reports.c.id == report_id)
-                .values(status=next_report_status, updated_at=now)
-            )
-        return self.get_report(report_id, workspace_id)
-
+        return self._lifecycle_mutation(
+            report_id, workspace_id, report_version_id=str(version["id"]),
+            previous_status=str(version["status"]), next_status=decision,
+        )
     def publish_report(
         self,
         report_id: str,
@@ -7385,76 +7554,109 @@ class Repository:
         actor_user_id: str,
         *,
         reason: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> ReportLifecycleMutation | None:
+        del reason  # Publication reasons are intentionally not stored in audit metadata.
         now = _now()
         with self.engine.begin() as conn:
-            report = (
-                conn.execute(
-                    select(reports).where(
-                        reports.c.id == report_id,
-                        reports.c.workspace_id == workspace_id,
-                    )
-                )
-                .mappings()
-                .first()
-            )
+            report = self._locked_report(conn, report_id, workspace_id)
             if not report:
                 return None
-            version = (
-                conn.execute(
-                    select(report_versions)
-                    .where(report_versions.c.report_id == report_id)
-                    .order_by(report_versions.c.version.desc())
-                )
-                .mappings()
-                .first()
+            version = self._locked_latest_report_version(conn, report_id)
+            if not version:
+                raise ReportLifecycleError("report_version_missing", "Report has no version to publish.")
+            require_version_transition(str(version["status"]), "published")
+            next_report_status = report_status_after_version_transition(
+                str(report["status"]),
+                "published",
+                has_published_snapshot=bool(report.get("current_published_version_id")),
             )
-            if not version or version["status"] not in {
-                "draft",
-                "in_review",
-                "approved",
-            }:
-                raise ValueError("Report version không ở trạng thái có thể xuất bản.")
-            conn.execute(
-                report_versions.update()
-                .where(report_versions.c.id == version["id"])
-                .values(
+            result = conn.execute(
+                report_versions.update().where(
+                    report_versions.c.id == version["id"],
+                    report_versions.c.status == version["status"],
+                ).values(
                     status="published",
                     published_by_user_id=actor_user_id,
                     published_at=now,
                 )
             )
+            if result.rowcount != 1:
+                raise ReportLifecycleError("report_lifecycle_conflict", "Report version changed before publication.")
             conn.execute(
-                reports.update()
-                .where(reports.c.id == report_id)
-                .values(
-                    status="published",
+                reports.update().where(reports.c.id == report_id).values(
+                    status=next_report_status,
                     current_published_version_id=version["id"],
                     updated_at=now,
                 )
             )
-        return self.get_report(report_id, workspace_id)
-
-    def archive_report(self, report_id: str, workspace_id: str) -> bool:
+        return self._lifecycle_mutation(
+            report_id, workspace_id, report_version_id=str(version["id"]),
+            previous_status=str(version["status"]), next_status="published",
+        )
+    def archive_report(
+        self, report_id: str, workspace_id: str
+    ) -> ReportLifecycleMutation | None:
+        now = _now()
         with self.engine.begin() as conn:
-            result = conn.execute(
-                reports.update()
-                .where(
-                    reports.c.id == report_id,
-                    reports.c.workspace_id == workspace_id,
+            report = self._locked_report(conn, report_id, workspace_id)
+            if not report:
+                return None
+            version_id = report.get("current_published_version_id")
+            if report["status"] != "published" or not version_id:
+                raise ReportLifecycleError(
+                    "invalid_report_transition",
+                    "Only a published report can be archived.",
+                    current_state=str(report["status"]),
+                    target_state="archived",
                 )
-                .values(status="archived", updated_at=_now())
+            version_row = (
+                conn.execute(
+                    select(report_versions)
+                    .where(
+                        report_versions.c.id == version_id,
+                        report_versions.c.report_id == report_id,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
             )
-            return bool(result.rowcount)
-
-
+            if not version_row:
+                raise ReportLifecycleError(
+                    "published_pointer_invalid",
+                    "Published report does not point to a valid version.",
+                )
+            version = dict(version_row)
+            require_version_transition(str(version["status"]), "archived")
+            result = conn.execute(
+                report_versions.update().where(
+                    report_versions.c.id == version["id"],
+                    report_versions.c.status == version["status"],
+                ).values(status="archived")
+            )
+            if result.rowcount != 1:
+                raise ReportLifecycleError("report_lifecycle_conflict", "Report changed before archive.")
+            conn.execute(
+                reports.update().where(reports.c.id == report_id).values(
+                    status="archived", current_published_version_id=None, updated_at=now
+                )
+            )
+        return self._lifecycle_mutation(
+            report_id, workspace_id, report_version_id=str(version["id"]),
+            previous_status=str(version["status"]), next_status="archived",
+        )
 # --------------------------------------------------------------------------- #
 _repo: Repository | None = None
 
 
-def build_engine(settings: Settings | None = None) -> Engine:
+def build_engine(
+    settings: Settings | None = None,
+    *,
+    database_url: str | None = None,
+    read_only: bool = False,
+) -> Engine:
     cfg = settings or get_settings()
-    url = make_url(cfg.database_url)
+    url = make_url(database_url or cfg.database_url)
     if url.get_backend_name() not in {"postgresql", "postgres"}:
         raise ValueError("VDaAgent chỉ hỗ trợ PostgreSQL.")
     # Supabase's session-mode endpoint has a small hard backend-session limit.
@@ -7463,6 +7665,9 @@ def build_engine(settings: Settings | None = None) -> Engine:
     # while SQLAlchemy avoids a new TCP/TLS handshake for every repository
     # method. max_overflow=0 keeps API and worker concurrency predictable.
     is_supabase_pooler = "pooler.supabase.com" in (url.host or "").lower()
+    read_only_options = (
+        {"options": "-c default_transaction_read_only=on"} if read_only else {}
+    )
     if is_supabase_pooler:
         # Supabase's 5432 endpoint is session mode and has a small per-project
         # client cap. API/worker metadata traffic is safe on transaction mode;
@@ -7482,7 +7687,7 @@ def build_engine(settings: Settings | None = None) -> Engine:
             # different backend connection, where psycopg's generated named
             # prepared statement already exists. Disable client prepares just
             # as the LangGraph checkpointer does for this pooler mode.
-            connect_args={"prepare_threshold": None},
+            connect_args={"prepare_threshold": None, **read_only_options},
         )
     else:
         # Local PostgreSQL benefits from a small bounded pool. Never use
@@ -7496,6 +7701,7 @@ def build_engine(settings: Settings | None = None) -> Engine:
             max_overflow=0,
             pool_timeout=30,
             pool_recycle=300,
+            connect_args=read_only_options,
         )
 
     # PERF-001: attach timing-only SQL hooks once per engine so request
@@ -7508,6 +7714,30 @@ def build_engine(settings: Settings | None = None) -> Engine:
         except Exception:  # pragma: no cover - instrumentation must never break DB
             pass
     return engine
+
+
+def build_connector_rollout_repository(
+    settings: Settings,
+    *,
+    execute: bool,
+) -> Repository:
+    """Build an isolated connector-rollout repository with no schema bootstrap.
+
+    Alembic's migration DSN wins when supplied. Dry-run connections use
+    PostgreSQL's transaction-level read-only default so an accidental write
+    cannot be committed even if a future inventory method regresses.
+    """
+
+    database_url = settings.database_migration_url.strip() or settings.database_url
+    return Repository(
+        build_engine(
+            settings,
+            database_url=database_url,
+            read_only=not execute,
+        ),
+        settings,
+        bootstrap_schema=False,
+    )
 
 
 def get_repository(settings: Settings | None = None) -> Repository:

@@ -1,6 +1,6 @@
 # So sánh drift
 
-> Đã đối chiếu với drift service/route và UI compare hiện tại ngày 2026-09-06.
+> Đã đối chiếu với drift service/route và UI compare hiện tại ngày 2026-09-15.
 
 Drift comparison đối chiếu hai profiling run bằng thống kê đã được lưu. Endpoint không đọc lại raw dataset và không gọi model.
 

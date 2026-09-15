@@ -1,6 +1,6 @@
 # Command Center và phân tích tương tác
 
-> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-06.
+> Đã đối chiếu với analysis routes, bounded engine và frontend Command Center ngày 2026-09-15.
 
 Command Center là giao diện phân tích một profiling run đã có dữ liệu. Tính năng này kết hợp phiên phân tích có trạng thái, planner an toàn, preview giới hạn, kết quả Official và các biểu đồ tái lập được.
 
@@ -52,6 +52,8 @@ Trước khi gọi model, backend loại PII và chỉ truyền context đã là
 | Dùng trong báo cáo | phải promote trước | có |
 
 Promotion tạo execution Official và đóng băng context liên quan. Luồng generic yêu cầu context đã được approve; luồng promote preview hiện tự approve context draft, vì vậy đây chưa phải một bước phê duyệt độc lập.
+
+Catalog forecast có 28 thuật toán, nhưng image Azure không cài mọi dependency tùy chọn (ví dụ XGBoost/LightGBM/CatBoost/Prophet); `GET .../charts/algorithms` phản ánh availability hiệu lực của môi trường chạy.
 
 ## Giao diện
 

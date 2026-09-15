@@ -1,6 +1,6 @@
 # Phân tích và execution có giới hạn
 
-> Đã đối chiếu với analysis schemas/engine/planner hiện tại ngày 2026-09-06.
+> Đã đối chiếu với analysis schemas/engine/planner hiện tại ngày 2026-09-15.
 
 ## Mục đích
 
@@ -16,7 +16,7 @@ Preview không tự trở thành Official và Official không reuse result bytes
 
 [`analysis_schemas.py`](../../src/backend/src/models/analysis_schemas.py) cho phép các kind:
 
-`aggregate`, `histogram`, `scatter`, `box`, `heatmap`, `forecast`, `missing_bar`, `missing_heatmap`, `correlation_heatmap`, `cardinality`, `violin`, `donut`, `outlier`.
+`aggregate`, `histogram`, `scatter`, `box`, `heatmap`, `forecast`, `forecast_ranking`, `missing_bar`, `missing_heatmap`, `correlation_heatmap`, `cardinality`, `violin`, `donut`, `outlier`.
 
 Aggregate là `count`, `count_distinct`, `sum`, `mean` hoặc `median`. Hard limit:
 
@@ -31,7 +31,7 @@ Aggregate là `count`, `count_distinct`, `sum`, `mean` hoặc `median`. Hard lim
 | `history_limit` | 12–2.000 |
 | `limit` | 1–500 |
 
-Filter operator là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `is_null`, `not_null`. Time grain là day/week/month/quarter/year. Forecast dùng catalog 28 thuật toán và chỉ chạy item có dependency/input requirement khả dụng.
+Filter operator là `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `is_null`, `not_null`. Time grain là day/week/month/quarter/year. Forecast có catalog 28 thuật toán nhưng chỉ chạy item có dependency/input requirement khả dụng. Azure `requirements.azure.txt` không cài một số package forecast nặng tùy chọn; availability endpoint là nguồn sự thật cho image đang chạy, không phải catalog.
 
 Engine validate identifier với profile stats/context; filter value dùng bound parameter. Column có PII proposal `pending`, `confirmed`, `edited` hoặc `auto_confirmed` bị loại khỏi selection, grouping và filter. Không có raw-SQL endpoint.
 

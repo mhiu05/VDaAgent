@@ -1,29 +1,12 @@
 # Giới hạn và sai lệch kiến trúc hiện tại
 
-> Snapshot đối chiếu ngày 2026-09-14. Đây là register để tránh mô tả behavior chưa hoàn thiện như guarantee; không phải backlog ưu tiên hay cam kết SLA.
+> Đối chiếu ngày 2026-09-15. Đây là register cho gap còn mở, không phải roadmap hay cam kết SLA.
 
 ## Database connector pilot boundary
 
 MySQL, MongoDB và DuckDB database connector không phải capability production/pilot. Guard backend trả `database_connectors_disabled` trước mọi resolve host, open file, decrypt credential, probe hay materialize; UI/OpenAPI không quảng bá chúng. DuckDB compute trên canonical CSV/Parquet/JSON vẫn là capability được hỗ trợ.
 
 Connection legacy chỉ giữ metadata redacted để Owner xóa. Dataset đã ingest giữ canonical artifact và không được refresh từ nguồn database. Việc tái mở connector là security design mới cần egress allowlist, sandbox filesystem, TLS/resource policy và regression test; không phải feature flag.
-
-## Mức độ đọc
-
-- **Blocking:** làm local/CI/build/deploy không chạy theo layout hiện tại.
-- **Behavior gap:** code chạy nhưng semantics chưa khớp thiết kế mong muốn.
-- **Operational gap:** có primitive nhưng thiếu validation/scheduler/evidence production.
-
-
-## Report submit bỏ qua review — behavior gap
-
-`POST /api/v1/reports/{report_id}/submit` gọi `ReportService.submit_report`, nhưng service hiện publish trực tiếp. Repository vẫn có submit/review primitive và API vẫn có `/review`, song public path chưa tạo chuỗi submit → reviewer approve → publish.
-
-Workspace chỉ có role `analyst`; role này đồng thời có `report.submit`, `report.review` và `report.publish`. Flag `report_separation_of_duties` được lưu nhưng lifecycle chưa enforce. Không mô tả report workflow hiện tại là separation of duties.
-
-## Report list/get không chỉ trả published — behavior gap
-
-Handler tên `list_published_reports` và `get_published_report` gọi repository với `published_only=False`. List loại latest version `rejected`, trong khi get/export-source không dùng filter tương đương. UI hoặc caller có permission có thể thấy draft/in-review; direct lookup có thể thấy report rejected.
 
 ## Drift không bắt buộc cùng dataset — behavior gap
 
@@ -49,6 +32,14 @@ P0–P2 có focused test, migration smoke và offline evaluation, nhưng artifac
 
 `config.yaml` và Python default khác nhau ở provider/retrieval; environment lại có ưu tiên cao nhất. LangSmith nhận mode `sanitized_content` nhưng adapter hiện vẫn gửi metadata allow-list và ẩn input/output. Luôn quan sát effective settings thay vì suy luận từ một file hay tên mode.
 
+## Secret datasource vẫn là điều kiện startup — operational gap
+
+MySQL/MongoDB/DuckDB đã nghỉ hưu và rollout CLI có thể purge credential legacy, nhưng `Settings.missing_required()` và workflow Azure vẫn yêu cầu `DATASOURCE_ENCRYPTION_KEY` khi production khởi động/deploy. Không revoke key chỉ dựa vào việc đã purge; thay đổi yêu cầu cấu hình cần một application/release change riêng.
+
+## Forecast adapter phụ thuộc image — operational constraint
+
+`QuerySpec`/catalog có 28 thuật toán, nhưng `requirements.azure.txt` không cài XGBoost/LightGBM/CatBoost/Prophet/NeuralProphet. Availability endpoint phản ánh dependency thực tế; không coi toàn bộ catalog là 28 thuật toán đều runnable trên Azure image mặc định.
+
 ## Những điều chưa được coi là guarantee
 
 - benchmark synthetic/offline không phải SLA production;
@@ -57,20 +48,19 @@ P0–P2 có focused test, migration smoke và offline evaluation, nhưng artifac
 - frontend route guard không phải authorization boundary;
 - LangSmith projection không phải source of truth cho audit/evidence;
 - compatibility `create_all`/runtime migration không phải production schema strategy;
-- report submit hiện tại không chứng minh reviewer độc lập;
 - cross-dataset drift không chứng minh hai nguồn comparable;
 
 ## Điều kiện đóng các gap
 
 | Gap | Bằng chứng tối thiểu để đóng |
 | --- | --- |
-| Report lifecycle | route/service/repository thống nhất state transition, capability/SoD test và UI contract |
 | Drift comparability | same-dataset invariant hoặc explicit cross-dataset mode có metadata/warning/test |
 | Context approval | một governance policy thống nhất cho promote và generic execution |
 | HITL policy | typed allow-list + startup validation + negative tests cho PII/key |
 | Chat release | staging authenticated evaluation đúng SHA + latency/grounding/privacy evidence |
 | Retention | scheduler, metric/alert, dry-run/audit và recovery policy |
 | Config | effective-config test cho local/container/CI và secret boundary review |
+| Datasource secret | bỏ yêu cầu key khỏi startup/workflow sau khi purge đã được xác nhận trên mọi environment |
 
 ## Checklist khi cập nhật register
 

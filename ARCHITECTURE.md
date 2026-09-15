@@ -1,6 +1,6 @@
 # Kiến trúc VDaAgent (P-170)
 
-> Snapshot kiến trúc được đối chiếu với source, migration, test và tài liệu kỹ thuật ngày 2026-09-06.
+> Đối chiếu với source, migration, test và workflow trong working tree ngày 2026-09-15. Đây là topology được định nghĩa trong repository, không phải xác nhận trạng thái Azure live.
 
 Tài liệu này mô tả kiến trúc tổng thể, các process runtime, luồng dữ liệu, trust boundary và công nghệ chính của VDaAgent. Contract chi tiết nằm trong [docs/](docs/README.md); source, Pydantic/OpenAPI, Alembic migration và test vẫn là nguồn sự thật cuối cùng.
 
@@ -30,7 +30,7 @@ flowchart LR
   API --> PG[(PostgreSQL)]
   PG --> W[Profiling Worker]
   W --> SVC
-  SOURCE[Files / Google Drive] --> SVC
+  SOURCE[Upload / Google Drive import] --> SVC
   SVC --> STORE[(Supabase Storage / local)]
   STORE --> DUCK[DuckDB + scientific Python]
   SOURCE --> DUCK
@@ -156,15 +156,19 @@ flowchart LR
   OFFICIAL --> DRAFT
   ANSWER --> DRAFT
   DRAFT --> SNAPSHOT[Immutable snapshot + SHA-256]
-  SNAPSHOT --> EXPORT[PII-safe export source]
-  EXPORT --> PDF[Next.js + Chromium PDF]
+  DRAFT --> SUBMIT[Author submit]
+  SUBMIT --> REVIEW[Owner reviewer khác submitter]
+  REVIEW --> PUBLISH[Owner publish]
+  PUBLISH --> EXPORT[Published export source đúng version pointer]
+  EXPORT --> PDF[Next.js + Chromium PDF có reportId]
+  PROFILE --> PROFILEPDF[Profile-scoped PDF không có reportId]
 ```
 
 Preview chỉ dùng để khám phá và không tự trở thành Official. Official chạy lại trên nguồn đầy đủ trong giới hạn, giữ canonical query, context version, quality-gate reference, result hash và limitation.
 
 QA tách input guardrail, clarification, deterministic fast path, structured tool và scoped retrieval. Terminal answer chỉ được đánh dấu `verified` sau khi kiểm tra run/workspace binding, artifact, source status, citation và numeric grounding. Partial SSE token không phải bằng chứng canonical.
 
-Report Draft có optimistic version và idempotent pin/reorder. Snapshot đã hash là bất biến; chỉnh sửa tiếp theo tạo draft version mới. Note thủ công được phép nhưng không trở thành quantitative evidence.
+Report Draft có optimistic version và idempotent pin/reorder. Snapshot đã hash là capture nội bộ bất biến, không tự publish; chỉnh sửa tiếp theo tạo draft version mới. Note thủ công được phép nhưng không trở thành quantitative evidence.
 
 ## 5. Kiến trúc Agent
 
@@ -237,7 +241,7 @@ Sample result phải giữ `is_approximate`, strategy, size/seed và limitation.
 | Retry-safe mutation | `Idempotency-Key` được scope theo actor/workspace/request hash |
 | Correlation | client có thể gửi, server luôn trả `X-Correlation-Id` |
 | Local MCP | FastMCP stdio, explicit Profile Run/workspace/actor; không public HTTP |
-| PDF | Next.js server route lấy export source đã authorize rồi render bằng Chromium |
+| PDF | Next.js server route với `reportId` lấy đúng published export source; không có `reportId` là PDF profile-scoped, rồi render bằng Chromium |
 
 Mã lỗi chính: 400 cho input/compute, 401 cho identity, 403 cho capability, scoped 404 để tránh lộ tenant, 409 cho state/version/idempotency conflict, 422 cho schema/QuerySpec, 503 cho dependency tạm lỗi và safe 500 kèm correlation ID.
 
@@ -264,8 +268,9 @@ Worker có mặc định concurrency 1, poll 1 giây, lease 300 giây và tối 
 ```mermaid
 flowchart LR
   DEV[GitHub main / workflow dispatch] --> CI[GitHub Actions]
-  CI --> TEST[Backend + frontend quality gates]
-  TEST --> BUILD[Build images theo commit SHA]
+  CI --> TEST[PR / manual quality gates]
+  CI --> BUILD[Push main deploy: quality jobs bị skip]
+  TEST --> BUILD
   BUILD --> ACR[Azure Container Registry]
   ACR --> MIGRATE[Alembic upgrade head]
   MIGRATE --> APIAPP[Azure App Service API]
@@ -276,7 +281,7 @@ flowchart LR
   FEAPP --> HEALTH
 ```
 
-Azure release dùng OIDC, ACR và image tag bất biến theo commit SHA. Thứ tự mục tiêu là quality gate → build/push → migration → deploy API/worker/frontend → health check. API và worker phải dùng cùng backend SHA. Rollback chọn lại image SHA tương thích; schema cần migration/restore plan riêng.
+Azure release dùng OIDC, ACR và image tag bất biến theo commit SHA. PR/manual chạy quality jobs (manual có thể `skip_quality`), nhưng push trực tiếp `main` không chạy chúng; branch protection phải bảo đảm PR gate trước release. Deploy theo build/push → migration → API/worker/frontend → process health, rồi cần synthetic nghiệp vụ để kiểm DB/auth/storage. API và worker phải dùng cùng backend SHA. Rollback chọn lại image SHA tương thích; schema cần migration/restore plan riêng.
 
 Workflow và Docker context chạy từ clean checkout với backend ở `src/backend` và frontend ở `src/frontend`.
 
@@ -293,7 +298,7 @@ Workflow và Docker context chạy từ clean checkout với backend ở `src/ba
 | Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
 | AI | OpenAI/Gemini-compatible LLM; local/OpenAI/Voyage embedding |
 | Auth/storage | Supabase Auth, Supabase Storage, local storage adapter |
-| Connector | Google Drive OAuth; database connector bị tắt trong pilot |
+| Connector | Google Drive OAuth/import; MySQL/MongoDB/DuckDB database connector bị chặn trong pilot |
 | Streaming | Server-Sent Events cho profiling và chat |
 | Report | pdf-lib, Playwright Core/Chromium, SHA-256 snapshot |
 | Observability | structured logs, correlation ID, latency ledger, LangSmith metadata-only |
@@ -317,13 +322,14 @@ Workflow và Docker context chạy từ clean checkout với backend ở `src/ba
 
 ## 12. Giới hạn hiện tại
 
-- relocation vào `src/` chưa được đồng bộ hết với Makefile, Alembic, test/script, Docker và CI;
-- report submit hiện có thể publish trực tiếp, chưa enforce reviewer độc lập;
+Path contract `src/backend`/`src/frontend` đã được nối vào Makefile, Alembic, script, Docker và CI. Report submit chỉ chuyển version sang `in_review`; reviewer Owner không được là submitter, published reads trỏ vào đúng version đã publish. Các giới hạn chưa giải quyết:
+
 - drift chưa bắt buộc hai Profile Run thuộc cùng dataset;
 - Preview promotion và generic execution chưa dùng cùng context approval policy;
 - `HITL_LOW_RISK_TYPES` chưa phải typed allow-list;
 - verifier mặc định ở shadow và retention purge chưa có scheduler production;
 - config có default ở nhiều lớp;
+- `DATASOURCE_ENCRYPTION_KEY` vẫn bắt buộc ở startup/CI dù connector đã nghỉ hưu;
 - artifact evaluation local/offline không phải production SLA.
 
 Danh sách điều kiện đóng từng gap nằm trong [known limitations](docs/architecture/known-limitations.md). Không mô tả các mục trên như guarantee đã hoàn thành.
@@ -342,7 +348,6 @@ Danh sách điều kiện đóng từng gap nằm trong [known limitations](docs
 - [Authentication và authorization](docs/security/authentication-and-authorization.md)
 - [Workspace isolation và privacy](docs/security/workspace-isolation-and-privacy.md)
 - [Deployment Azure](docs/operations/deployment.md)
-- [Prompt dựng master architecture diagram](prompt.txt)
 
 ## 14. Kỷ luật thay đổi
 

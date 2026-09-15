@@ -1,6 +1,6 @@
 # Agent, QA, retrieval và evidence
 
-> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-06.
+> Đã đối chiếu với LangGraph nodes, tool registry, validator và runtime trace hiện tại ngày 2026-09-15.
 
 ## Profiling graph
 
@@ -30,6 +30,8 @@ Catalog native skill v1 gồm:
 | `generate-report` | report workflow |
 
 API `/api/v1/agent-skills` trả catalog/detail và cho inspect tool bundle sau khi kiểm tra workspace/profile scope. Skill file là playbook; enforcement thật nằm ở capability dependency, tool dispatcher và repository predicate.
+
+Playbook `generate-report` chỉ hướng dẫn tạo draft/snapshot và submit. Submit chuyển version sang `in_review`; Owner khác submitter review/approve và Owner publish riêng. Skill/agent không có quyền tự đánh dấu report published.
 
 Tool registry dùng schema có giới hạn và server inject `profile_run_id`. Các tool đọc profile readiness, column stats, quality, governance, drift và statistic artifact; không nhận raw SQL/Python, không trả raw PII.
 

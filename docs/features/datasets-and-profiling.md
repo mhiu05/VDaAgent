@@ -1,6 +1,6 @@
 # Dataset và profiling
 
-> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-06.
+> Đã đối chiếu với dataset/ingestion/profile API và worker hiện tại ngày 2026-09-15.
 
 Dataset là metadata của một nguồn dạng bảng; profile run là một lần phân tích cụ thể trên dataset đó. Một dataset có thể có nhiều run để so sánh theo thời gian.
 
@@ -9,8 +9,12 @@ Dataset là metadata của một nguồn dạng bảng; profile run là một l�
 Người dùng có thể:
 
 - upload CSV, TSV, Parquet hoặc JSON;
-- chọn object từ storage đã kết nối;
-- dùng bảng/collection từ MySQL, MongoDB hoặc DuckDB connector.
+- import file từ Google Drive đã kết nối theo workspace.
+
+Pilot không nhận MySQL, MongoDB hoặc DuckDB database connector. Connection legacy chỉ
+được hiển thị ở trạng thái đã tắt để Owner xóa credential; không thể tạo dataset mới,
+refresh hay materialize từ `datasource://`. Dataset đã ingest thành canonical artifact
+vẫn đọc và profile bình thường, không phụ thuộc credential của connection cũ.
 
 Sau khi tạo dataset, `POST /api/v1/datasets/{dataset_id}/profile` tạo job bất đồng bộ và trả HTTP 202. Batch endpoint `POST /api/v1/datasets/profile` nhận từ 1 đến 20 dataset. `POST /api/v1/profile` là contract profiling trực tiếp dùng cho các luồng tương thích.
 
