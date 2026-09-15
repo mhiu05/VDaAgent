@@ -37,10 +37,6 @@ export type ProfileSummary = {
 export type ProfilingJob = Schemas["ProfileJobResponse"];
 export type DatasetProfileResult = { dataset_id: string; run_id: string; job_id: string; status: "queued" | "running" | "succeeded" | "failed"; next_action: string; duplicate?: boolean; error?: { code: string; message: string } | null };
 export type UploadResult = Schemas["UploadResponse"];
-export type DatasourceKind = "mysql" | "mongodb" | "duckdb";
-export type DatasourceConfig = Record<string, string | number | Record<string, unknown>>;
-export type DatasourceTestResult = { ok: boolean; kind: DatasourceKind; objects: string[]; detail: string };
-export type DatasourceConnectResult = { dataset_id: string; name: string; source_type: DatasourceKind; object_name: string | null };
 export type TestResult = Schemas["TestResultOut"];
 export type TestResponse = Omit<Schemas["TestResponse"], "results"> & {
   results: TestResult[];

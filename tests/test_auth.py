@@ -368,7 +368,7 @@ def test_session_provisions_personal_workspace_for_new_confirmed_user(
         "id": "workspace-1",
         "name": "Workspace của new-user",
         "slug": "personal-workspace-1",
-        "role": "analyst",
+        "role": "owner",
     }
     calls = 0
 
@@ -399,7 +399,7 @@ def test_session_provisions_personal_workspace_for_new_confirmed_user(
         "new-user@example.com",
         "analyst",
     )
-    assert response["workspace"] == {"id": "workspace-1", "role": "analyst"}
+    assert response["workspace"] == {"id": "workspace-1", "role": "owner"}
 
 
 def test_workspace_bootstrap_combines_authorized_session_and_dashboard(

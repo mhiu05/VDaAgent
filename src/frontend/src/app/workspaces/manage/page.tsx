@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/components/auth-provider";
 import { ErrorNotice, LoadingBlock, Notice, PageHeader, useToast } from "@/components/ui";
 import { can, PERMISSIONS } from "@/lib/auth/permissions";
-import { cancelWorkspaceInvitation, inviteWorkspaceMember, listWorkspaceInvitations, listWorkspaceMembers, updateWorkspaceMember, type WorkspaceMemberStatus } from "@/lib/api";
+import { cancelWorkspaceInvitation, inviteWorkspaceMember, listWorkspaceInvitations, listWorkspaceMembers, updateWorkspaceMember, type WorkspaceMember, type WorkspaceMemberStatus, type WorkspaceRole } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 
 const statusLabels: Record<WorkspaceMemberStatus, string> = { active: "Đang hoạt động", suspended: "Tạm ngưng", removed: "Đã gỡ" };
@@ -26,6 +26,7 @@ export default function WorkspaceManagePage() {
   const [email, setEmail] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [memberConflict, setMemberConflict] = useState<string | null>(null);
   const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(() => new Set());
   const [pendingInvitationIds, setPendingInvitationIds] = useState<Set<string>>(() => new Set());
   const inviteDialogRef = useRef<HTMLDialogElement>(null);
@@ -69,19 +70,22 @@ export default function WorkspaceManagePage() {
   }, [inviteOpen]);
 
   const memberUpdate = useMutation({
-    mutationFn: ({ userId, status }: { userId: string; status: WorkspaceMemberStatus }) => updateWorkspaceMember(userId, { status }),
-    onMutate: async ({ userId, status }) => {
+    mutationFn: ({ userId, role, status }: { userId: string; role?: WorkspaceRole; status?: WorkspaceMemberStatus }) => updateWorkspaceMember(userId, { role, status }),
+    onMutate: async ({ userId, role, status }) => {
       await client.cancelQueries({ queryKey: membersKey });
-      const previous = client.getQueryData<{ members: Array<{ user_id: string; status: WorkspaceMemberStatus }> }>(membersKey);
-      const previousStatus = previous?.members.find((member) => member.user_id === userId)?.status;
+      const previous = client.getQueryData<{ members: WorkspaceMember[] }>(membersKey);
+      const previousMember = previous?.members.find((member) => member.user_id === userId);
       setPendingMemberIds((current) => new Set(current).add(userId));
-      client.setQueryData<{ members: Array<{ user_id: string; status: WorkspaceMemberStatus }> }>(membersKey, (old) => old ? { ...old, members: old.members.map((member) => member.user_id === userId ? { ...member, status } : member) } : old);
-      return { previousStatus };
+      setMemberConflict(null);
+      client.setQueryData<{ members: WorkspaceMember[] }>(membersKey, (old) => old ? { ...old, members: old.members.map((member) => member.user_id === userId ? { ...member, ...(role ? { role } : {}), ...(status ? { status } : {}) } : member) } : old);
+      return { previousMember };
     },
-    onError: (_error, variables, context) => {
-      const previousStatus = context?.previousStatus;
-      if (previousStatus === undefined) return;
-      client.setQueryData<{ members: Array<{ user_id: string; status: WorkspaceMemberStatus }> }>(membersKey, (old) => old ? { ...old, members: old.members.map((member) => member.user_id === variables.userId ? { ...member, status: previousStatus } : member) } : old);
+    onError: (error, variables, context) => {
+      const previousMember = context?.previousMember;
+      if (previousMember) client.setQueryData<{ members: WorkspaceMember[] }>(membersKey, (old) => old ? { ...old, members: old.members.map((member) => member.user_id === variables.userId ? previousMember : member) } : old);
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "last_owner_conflict") {
+        setMemberConflict("Workspace phải luôn có ít nhất một Owner đang hoạt động. Hãy promote một thành viên khác trước khi hạ quyền, tạm ngưng hoặc gỡ Owner cuối cùng.");
+      }
     },
     onSettled: async (_data, _error, variables) => {
       activeMemberUpdates.current.delete(variables.userId);
@@ -134,7 +138,7 @@ export default function WorkspaceManagePage() {
     },
   });
 
-  if (!me || !allowed) return <main className="page"><Notice tone="warning"><b>Không có quyền truy cập.</b><p>Chỉ thành viên Analyst đang hoạt động mới có thể quản lý workspace hiện tại.</p></Notice></main>;
+  if (!me || !allowed) return <main className="page"><Notice tone="warning"><b>Không có quyền truy cập.</b><p>Chỉ Owner đang hoạt động mới có thể quản lý thành viên và lời mời của workspace.</p></Notice></main>;
 
   function openInviteDialog() { invitation.reset(); setInviteError(null); setInviteOpen(true); }
   function closeInviteDialog() { if (!invitation.isPending) { setInviteError(null); setInviteOpen(false); } }
@@ -146,9 +150,9 @@ export default function WorkspaceManagePage() {
     if (invitation.isPending) return;
     setInviteError(null); invitation.mutate({ email: nextEmail, workspaceId });
   }
-  function changeMemberStatus(userId: string, status: WorkspaceMemberStatus) {
+  function changeMember(userId: string, change: { role?: WorkspaceRole; status?: WorkspaceMemberStatus }) {
     if (activeMemberUpdates.current.has(userId)) return;
-    activeMemberUpdates.current.add(userId); memberUpdate.mutate({ userId, status });
+    activeMemberUpdates.current.add(userId); memberUpdate.mutate({ userId, ...change });
   }
   function cancelInvitation(invitationId: string) {
     if (activeInvitationCancellations.current.has(invitationId)) return;
@@ -158,14 +162,15 @@ export default function WorkspaceManagePage() {
   const pendingInvitations = invitations.data?.invitations.filter((item) => item.status === "pending") ?? [];
   const workspaceName = me.workspaces.find((item) => item.id === me.workspace?.id)?.name ?? "workspace hiện tại";
   return <main className="page workspace-manage-page">
-    <PageHeader eyebrow="WORKSPACE SETTINGS" title="Quản lý workspace" description={`Quản lý thành viên và lời mời trong “${workspaceName}”. Tất cả thành viên dùng role Analyst.`} action={<Link className="button secondary" href="/workspaces">← Danh sách workspace</Link>} />
+    <PageHeader eyebrow="WORKSPACE SETTINGS" title="Quản lý workspace" description={`Quản lý thành viên và lời mời trong “${workspaceName}”. Owner quản trị workspace; Analyst thực hiện phân tích.`} action={<Link className="button secondary" href="/workspaces">← Danh sách workspace</Link>} />
     <section className="panel workspace-members-panel">
       <div className="workspace-section-heading"><div><p className="eyebrow">MEMBERS &amp; INVITATIONS</p><h2>Thành viên</h2><p className="muted">Mọi lời mời workspace chỉ cấp quyền Analyst.</p></div><button className="button primary" type="button" onClick={openInviteDialog}>Invite member</button></div>
       <h3 className="workspace-subsection-title">Active members</h3>
       {members.isPending && <LoadingBlock label="Đang tải thành viên…" />}
       {members.isError && <ErrorNotice error={members.error} retry={() => void members.refetch()} />}
       {memberUpdate.isError && <ErrorNotice error={memberUpdate.error} retry={() => memberUpdate.reset()} />}
-      {!members.isPending && !members.isError && (members.data?.members.length ? <div className="workspace-table-wrap"><table className="workspace-member-table"><thead><tr><th>Thành viên</th><th>Role</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{members.data.members.map((member) => <tr key={member.user_id} aria-busy={pendingMemberIds.has(member.user_id) || undefined}><td><span className="workspace-member-identity"><span className="workspace-member-avatar" aria-hidden="true">{memberInitials(member.display_name || member.email)}</span><span><b>{member.display_name || member.email || "Tài khoản chưa đồng bộ email"}</b>{member.display_name && member.email && <small>{member.email}</small>}<code>{member.user_id}</code>{member.user_id === me.user.id && <small className="workspace-self-label">Bạn</small>}</span></span></td><td><span className="workspace-role">Analyst</span></td><td><select aria-label={`Trạng thái của ${member.email ?? member.user_id}`} value={member.status} onChange={(event) => changeMemberStatus(member.user_id, event.target.value as WorkspaceMemberStatus)} disabled={pendingMemberIds.has(member.user_id)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>{pendingMemberIds.has(member.user_id) && <small className="muted">Đang cập nhật…</small>}</td><td>{formatDate(member.updated_at)}</td></tr>)}</tbody></table></div> : <p className="workspace-empty-copy">Không có thành viên nào khác.</p>)}
+      {memberConflict && <Notice tone="warning">{memberConflict}</Notice>}
+      {!members.isPending && !members.isError && (members.data?.members.length ? <div className="workspace-table-wrap"><table className="workspace-member-table"><thead><tr><th>Thành viên</th><th>Role</th><th>Trạng thái</th><th>Cập nhật</th></tr></thead><tbody>{members.data.members.map((member) => <tr key={member.user_id} aria-busy={pendingMemberIds.has(member.user_id) || undefined}><td><span className="workspace-member-identity"><span className="workspace-member-avatar" aria-hidden="true">{memberInitials(member.display_name || member.email)}</span><span><b>{member.display_name || member.email || "Tài khoản chưa đồng bộ email"}</b>{member.display_name && member.email && <small>{member.email}</small>}<code>{member.user_id}</code>{member.user_id === me.user.id && <small className="workspace-self-label">Bạn</small>}</span></span></td><td><select aria-label={`Role của ${member.email ?? member.user_id}`} value={member.role} onChange={(event) => changeMember(member.user_id, { role: event.target.value as WorkspaceRole })} disabled={pendingMemberIds.has(member.user_id)}><option value="owner">Owner</option><option value="analyst">Analyst</option></select></td><td><select aria-label={`Trạng thái của ${member.email ?? member.user_id}`} value={member.status} onChange={(event) => changeMember(member.user_id, { status: event.target.value as WorkspaceMemberStatus })} disabled={pendingMemberIds.has(member.user_id)}>{Object.entries(statusLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>{pendingMemberIds.has(member.user_id) && <small className="muted">Đang cập nhật…</small>}</td><td>{formatDate(member.updated_at)}</td></tr>)}</tbody></table></div> : <p className="workspace-empty-copy">Không có thành viên nào khác.</p>)}
       <div className="workspace-invitations-section"><h3 className="workspace-subsection-title">Pending invitations</h3>{invitations.isPending && <LoadingBlock label="Đang tải lời mời…" />}{invitations.isError && <ErrorNotice error={invitations.error} retry={() => void invitations.refetch()} />}{!invitations.isPending && !invitations.isError && (pendingInvitations.length ? <div className="workspace-table-wrap"><table className="workspace-member-table workspace-invitation-table"><thead><tr><th>Email</th><th>Sent</th><th>Status</th><th>Actions</th></tr></thead><tbody>{pendingInvitations.map((item) => <tr key={item.id} aria-busy={pendingInvitationIds.has(item.id) || undefined}><td><b>{item.email}</b><small>Analyst · expires {formatDate(item.expires_at)}</small></td><td>{formatDate(item.created_at)}</td><td><span className="workspace-role">Pending</span></td><td><button className="button danger" type="button" onClick={() => cancelInvitation(item.id)} disabled={pendingInvitationIds.has(item.id)}>{pendingInvitationIds.has(item.id) ? "Cancelling…" : "Cancel"}</button></td></tr>)}</tbody></table></div> : <p className="workspace-empty-copy">No pending invitations.</p>)}</div>
     </section>
     {inviteOpen && <dialog ref={inviteDialogRef} className="confirm-dialog workspace-invite-dialog" aria-modal="true" aria-labelledby="invite-member-title" aria-describedby="invite-member-description" onCancel={(event) => { event.preventDefault(); closeInviteDialog(); }} onClick={(event) => { if (event.target === event.currentTarget) closeInviteDialog(); }}><form noValidate onSubmit={submitInvite}><div className="confirm-dialog-header"><span className="confirm-dialog-icon" aria-hidden="true">+</span><div><p className="eyebrow">MEMBERS</p><h2 id="invite-member-title">Invite member</h2></div></div><div className="confirm-dialog-body"><p id="invite-member-description" className="confirm-dialog-message">Invite an Analyst to this workspace.</p><label className="workspace-invite-field" htmlFor="workspace-invite-email">Email<input ref={inviteEmailRef} id="workspace-invite-email" type="email" value={email} onChange={(event) => { setEmail(event.target.value); setInviteError(null); }} placeholder="name@example.com" autoComplete="email" disabled={invitation.isPending} aria-invalid={Boolean(inviteError)} aria-describedby={inviteError ? "workspace-invite-error" : undefined} /></label><p className="workspace-invite-role"><span>Role</span><strong>Analyst</strong><small>Workspace invitations currently grant Analyst only.</small></p>{inviteError && <p id="workspace-invite-error" className="workspace-invite-error" role="alert">{inviteError}</p>}</div><div className="confirm-dialog-actions"><button className="button secondary" type="button" onClick={closeInviteDialog} disabled={invitation.isPending}>Cancel</button><button className="button primary" type="submit" disabled={invitation.isPending} aria-busy={invitation.isPending || undefined}>{invitation.isPending ? "Sending…" : "Send invitation"}</button></div></form></dialog>}

@@ -1,7 +1,7 @@
 """Điểm vào FastAPI của agent profiling dữ liệu.
 
 Chạy dev:
-    .\\.venv\\Scripts\\python.exe -m uvicorn src.main:app --app-dir backend --reload --port 8000
+    .\\.venv\\Scripts\\python.exe -m uvicorn src.main:app --app-dir src/backend --reload --port 8000
 
 Lần khởi động đầu tiên, log sẽ liệt kê các biến môi trường còn thiếu để bạn
 biết cần điền gì vào `.env`. Agent vẫn khởi động được khi chưa có LLM key —
@@ -397,7 +397,7 @@ app.include_router(connector_router, prefix="/api/v1")
 async def root() -> dict[str, str]:
     """Điểm vào API.
 
-    Frontend được triển khai độc lập trong ``frontend/`` (Next.js), vì vậy
+    Frontend được triển khai độc lập trong ``src/frontend/`` (Next.js), vì vậy
     FastAPI không còn phục vụ file UI hay giữ asset frontend trong process API.
     """
     return {"service": settings.app_name, "docs": "/docs", "health": "/health"}

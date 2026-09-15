@@ -19,21 +19,21 @@ from src.services.repository import metadata
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = (
     ROOT
-    / "backend"
+    / "src" / "backend"
     / "migrations"
     / "versions"
     / "20260831_0022_data_api_boundary.py"
 )
 P2_MIGRATION_PATH = (
     ROOT
-    / "backend"
+    / "src" / "backend"
     / "migrations"
     / "versions"
     / "20260831_0024_chat_agent_p2.py"
 )
 STORAGE_MIGRATION_PATH = (
     ROOT
-    / "backend"
+    / "src" / "backend"
     / "migrations"
     / "versions"
     / "20260901_0026_canonical_dataset_artifacts.py"

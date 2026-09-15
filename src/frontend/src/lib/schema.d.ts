@@ -420,66 +420,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/datasets/datasource/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test Datasource
-         * @description Validate an external source without persisting its credentials.
-         */
-        post: operations["test_datasource_api_v1_datasets_datasource_test_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/datasets/datasource": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Connect Datasource
-         * @description Create a tenant-owned dataset backed by an encrypted external source.
-         */
-        post: operations["connect_datasource_api_v1_datasets_datasource_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/datasets/datasource/{connection_id}/use": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Use Saved Datasource
-         * @description Create a dataset that reuses an existing encrypted datasource connection.
-         */
-        post: operations["use_saved_datasource_api_v1_datasets_datasource__connection_id__use_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/datasets/upload": {
         parameters: {
             query?: never;
@@ -1716,58 +1656,6 @@ export interface paths {
         delete: operations["delete_datasource_api_v1_connectors__connection_id__delete"];
         options?: never;
         head?: never;
-        /** Update Saved Datasource */
-        patch: operations["update_saved_datasource_api_v1_connectors__connection_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/connectors/datasource": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Save Datasource Connection */
-        post: operations["save_datasource_connection_api_v1_connectors_datasource_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/connectors/datasource/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Test New Datasource */
-        post: operations["test_new_datasource_api_v1_connectors_datasource_test_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/connectors/{connection_id}/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Test Saved Datasource */
-        post: operations["test_saved_datasource_api_v1_connectors__connection_id__test_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -1782,7 +1670,7 @@ export interface paths {
          * Root
          * @description Điểm vào API.
          *
-         *     Frontend được triển khai độc lập trong ``frontend/`` (Next.js), vì vậy
+         *     Frontend được triển khai độc lập trong ``src/frontend/`` (Next.js), vì vậy
          *     FastAPI không còn phục vụ file UI hay giữ asset frontend trong process API.
          */
         get: operations["root__get"];
@@ -2124,7 +2012,7 @@ export interface components {
              * @default aggregate
              * @enum {string}
              */
-            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "forecast_ranking" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
+            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
             /** X Column */
             x_column?: string | null;
             /** Y Column */
@@ -2389,12 +2277,17 @@ export interface components {
              * @default false
              */
             can_disconnect: boolean;
+            /**
+             * Unavailable
+             * @default false
+             */
+            unavailable: boolean;
         };
         /**
          * ConnectorStatus
          * @enum {string}
          */
-        ConnectorStatus: "connected" | "attention_required" | "expired" | "disconnected";
+        ConnectorStatus: "connected" | "attention_required" | "expired" | "disconnected" | "disabled";
         /** ConnectorTestResponse */
         ConnectorTestResponse: {
             /** Id */
@@ -2591,59 +2484,6 @@ export interface components {
             duplicate: boolean;
             error?: components["schemas"]["ProfileJobError"] | null;
         };
-        /** DatasourceConnectResponse */
-        DatasourceConnectResponse: {
-            /** Dataset Id */
-            dataset_id: string;
-            /** Name */
-            name: string;
-            /**
-             * Source Type
-             * @enum {string}
-             */
-            source_type: "mysql" | "mongodb" | "duckdb";
-            /** Object Name */
-            object_name?: string | null;
-        };
-        /** DatasourceRequest */
-        DatasourceRequest: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "mysql" | "mongodb" | "duckdb";
-            /** Config */
-            config?: {
-                [key: string]: unknown;
-            };
-            /** Name */
-            name: string;
-        };
-        /**
-         * DatasourceReuseRequest
-         * @description Create a dataset from an already saved workspace datasource.
-         */
-        DatasourceReuseRequest: {
-            /** Name */
-            name: string;
-        };
-        /** DatasourceTestResponse */
-        DatasourceTestResponse: {
-            /**
-             * Ok
-             * @default true
-             */
-            ok: boolean;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "mysql" | "mongodb" | "duckdb";
-            /** Objects */
-            objects?: string[];
-            /** Detail */
-            detail: string;
-        };
         /** DriftFinding */
         DriftFinding: {
             /** Column Name */
@@ -2770,7 +2610,7 @@ export interface components {
         /** MembershipUpdate */
         MembershipUpdate: {
             /** Role */
-            role?: "analyst" | null;
+            role?: ("owner" | "analyst") | null;
             /** Status */
             status?: ("active" | "suspended" | "removed") | null;
         };
@@ -3230,7 +3070,7 @@ export interface components {
              * @default aggregate
              * @enum {string}
              */
-            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "forecast_ranking" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
+            analysis_kind: "aggregate" | "histogram" | "scatter" | "box" | "heatmap" | "forecast" | "missing_bar" | "missing_heatmap" | "correlation_heatmap" | "cardinality" | "violin" | "donut" | "outlier";
             /**
              * Aggregate
              * @enum {string}
@@ -4591,116 +4431,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    test_datasource_api_v1_datasets_datasource_test_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DatasourceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasourceTestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    connect_datasource_api_v1_datasets_datasource_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DatasourceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasourceConnectResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    use_saved_datasource_api_v1_datasets_datasource__connection_id__use_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path: {
-                connection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DatasourceReuseRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DatasourceConnectResponse"];
                 };
             };
             /** @description Validation Error */
@@ -7594,153 +7324,6 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_saved_datasource_api_v1_connectors__connection_id__patch: {
-        parameters: {
-            query?: {
-                expected_version?: number | null;
-            };
-            header?: {
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path: {
-                connection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DatasourceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    save_datasource_connection_api_v1_connectors_datasource_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "Idempotency-Key"?: string | null;
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DatasourceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    test_new_datasource_api_v1_connectors_datasource_test_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DatasourceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorTestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    test_saved_datasource_api_v1_connectors__connection_id__test_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Workspace-Id"?: string | null;
-                authorization?: string | null;
-            };
-            path: {
-                connection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConnectorTestResponse"];
                 };
             };
             /** @description Validation Error */

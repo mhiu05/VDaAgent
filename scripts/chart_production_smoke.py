@@ -34,7 +34,7 @@ def main() -> int:
     if args.enable_feature_for_smoke:
         os.environ["UX_COMMAND_CENTER_ENABLED"] = "true"
     root = Path(__file__).resolve().parents[1]
-    sys.path.insert(0, str(root / "backend"))
+    sys.path.insert(0, str(root / "src" / "backend"))
 
     from src.agents.runtime.trace import (
         ExecutionContext,

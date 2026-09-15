@@ -26,9 +26,9 @@ from uuid import uuid4
 from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKEND_ROOT = ROOT / "backend"
-# Ứng dụng đã tách sang backend/src. Giữ import `src.*` trong test để test
-# vẫn phản chiếu đúng command phát triển: `cd backend; uvicorn src.main:app`.
+BACKEND_ROOT = ROOT / "src" / "backend"
+# Ứng dụng đã tách sang src/backend/src. Giữ import `src.*` trong test để test
+# vẫn phản chiếu đúng command phát triển: `cd src/backend; uvicorn src.main:app`.
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 

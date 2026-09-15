@@ -27,8 +27,7 @@ from src.services.forecasting import (
 )
 from src.services.permissions import (
     ANALYSIS_RUN,
-    canonical_role,
-    permissions_for_role,
+    workspace_permissions_for_role,
 )
 from src.services.quality_gate import evaluate_quality_gate
 from src.services.repository import get_repository, is_expired
@@ -480,11 +479,11 @@ def _execution_scope(
         }
     repository = get_repository()
     membership = repository.get_membership(workspace_id, actor_user_id)
-    role = canonical_role(str((membership or {}).get("role", "")))
     if (
         not membership
         or membership.get("status") != "active"
-        or ANALYSIS_RUN not in permissions_for_role(role)
+        or ANALYSIS_RUN
+        not in workspace_permissions_for_role(str(membership.get("role", "")))
     ):
         return None, {
             "error_code": "forbidden_scope",

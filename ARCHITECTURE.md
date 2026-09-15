@@ -5,7 +5,7 @@
 Tài liệu này mô tả kiến trúc tổng thể, các process runtime, luồng dữ liệu, trust boundary và công nghệ chính của VDaAgent. Contract chi tiết nằm trong [docs/](docs/README.md); source, Pydantic/OpenAPI, Alembic migration và test vẫn là nguồn sự thật cuối cùng.
 
 > [!IMPORTANT]
-> Source hiện nằm trong `src/backend` và `src/frontend`, nhưng Makefile, Alembic, một số script/test, Docker và CI chưa chuyển hết khỏi layout cũ. Topology dưới đây là kiến trúc của source hiện tại; khả năng build/deploy từ clean checkout vẫn bị chặn cho đến khi hoàn tất migration đường dẫn. Xem [giới hạn hiện tại](docs/architecture/known-limitations.md).
+> Source, entry point và release manifest dùng thống nhất `src/backend` và `src/frontend`. `scripts/check_repository_layout.py` bảo vệ contract này trong local và CI.
 
 ## 1. Mục tiêu kiến trúc
 
@@ -30,7 +30,7 @@ flowchart LR
   API --> PG[(PostgreSQL)]
   PG --> W[Profiling Worker]
   W --> SVC
-  SOURCE[Files / Drive / datasource] --> SVC
+  SOURCE[Files / Google Drive] --> SVC
   SVC --> STORE[(Supabase Storage / local)]
   STORE --> DUCK[DuckDB + scientific Python]
   SOURCE --> DUCK
@@ -54,7 +54,7 @@ Browser chỉ dùng Supabase cho authentication/session và direct object upload
 | Profiling Worker | `src/backend/src/workers/profiling_worker.py` | claim job, heartbeat/lease, profiling graph, retry/recovery và resume HITL |
 | Local MCP | `src/backend/src/mcp_server.py` | profile tools và bounded Preview/Official qua FastMCP stdio |
 | PostgreSQL | server-managed | metadata, tenant state, queue, evidence, report, audit, retrieval và checkpoint |
-| Object storage | Supabase/local adapter | object dataset canonical; Drive và datasource là nguồn ingest |
+| Object storage | Supabase/local adapter | object dataset canonical; Google Drive là nguồn import |
 | Compute | DuckDB + scientific Python | file-backed aggregate, statistical test, drift và forecast |
 | AI providers | OpenAI/Gemini + embeddings | structured planning, reasoning và retrieval; không bypass validator |
 
@@ -82,7 +82,7 @@ flowchart TD
 | Application | services và LangGraph orchestration | điều phối use case, policy, quality gate và evidence |
 | Domain/compute | profiling, statistics, drift, QuerySpec | deterministic/bounded computation, không nhận arbitrary SQL/Python |
 | Persistence | repository, SQLAlchemy, Alembic | transaction, workspace predicate, schema và durable state |
-| Integration | Supabase, Drive, datasource, LLM, embedding, LangSmith | adapter có timeout, giới hạn và secret boundary |
+| Integration | Supabase, Google Drive, LLM, embedding, LangSmith | adapter có timeout, giới hạn và secret boundary |
 
 ### Ranh giới bắt buộc
 
@@ -124,7 +124,7 @@ Frontend guard chỉ phục vụ UX. FastAPI dependency và repository predicate
 ### 4.2 Ingestion và profiling bất đồng bộ
 
 ```text
-Upload / Google Drive / datasource
+Upload / Google Drive
   → dataset + ingestion metadata
   → canonical immutable artifact + SHA-256
   → POST profile với Idempotency-Key
@@ -202,7 +202,7 @@ VDaAgent tách ba lớp dữ liệu:
 
 1. **PostgreSQL:** identity projection, workspace, durable workflow, derived evidence, report, audit, retrieval và checkpoint.
 2. **Object storage:** bytes canonical của dataset; Supabase Storage ở production và local adapter ở development/test.
-3. **Ephemeral compute files:** file tạm materialize từ storage/Drive/datasource cho DuckDB, có byte limit và được cleanup.
+3. **Ephemeral compute files:** file tạm materialize từ canonical storage/Google Drive cho DuckDB, có byte limit và được cleanup.
 
 | Miền | Dữ liệu chính |
 | --- | --- |
@@ -278,7 +278,7 @@ flowchart LR
 
 Azure release dùng OIDC, ACR và image tag bất biến theo commit SHA. Thứ tự mục tiêu là quality gate → build/push → migration → deploy API/worker/frontend → health check. API và worker phải dùng cùng backend SHA. Rollback chọn lại image SHA tương thích; schema cần migration/restore plan riêng.
 
-Hiện workflow và Docker context vẫn còn đường dẫn `backend/` và `frontend/`, nên topology này là thiết kế release nhưng chưa chạy được từ clean checkout sau relocation vào `src/`.
+Workflow và Docker context chạy từ clean checkout với backend ở `src/backend` và frontend ở `src/frontend`.
 
 ## 10. Technology matrix
 
@@ -293,7 +293,7 @@ Hiện workflow và Docker context vẫn còn đường dẫn `backend/` và `fr
 | Compute | DuckDB, pandas, NumPy, SciPy, statsmodels, scikit-learn |
 | AI | OpenAI/Gemini-compatible LLM; local/OpenAI/Voyage embedding |
 | Auth/storage | Supabase Auth, Supabase Storage, local storage adapter |
-| Connector | Google Drive OAuth, MySQL, MongoDB, DuckDB datasource |
+| Connector | Google Drive OAuth; database connector bị tắt trong pilot |
 | Streaming | Server-Sent Events cho profiling và chat |
 | Report | pdf-lib, Playwright Core/Chromium, SHA-256 snapshot |
 | Observability | structured logs, correlation ID, latency ledger, LangSmith metadata-only |
@@ -323,7 +323,7 @@ Hiện workflow và Docker context vẫn còn đường dẫn `backend/` và `fr
 - Preview promotion và generic execution chưa dùng cùng context approval policy;
 - `HITL_LOW_RISK_TYPES` chưa phải typed allow-list;
 - verifier mặc định ở shadow và retention purge chưa có scheduler production;
-- config có default ở nhiều lớp và root discovery hiện còn lệch sau relocation;
+- config có default ở nhiều lớp;
 - artifact evaluation local/offline không phải production SLA.
 
 Danh sách điều kiện đóng từng gap nằm trong [known limitations](docs/architecture/known-limitations.md). Không mô tả các mục trên như guarantee đã hoàn thành.

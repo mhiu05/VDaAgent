@@ -46,12 +46,23 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
 # pyrefly: ignore [missing-import]
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from src.config import Settings, get_settings
-from src.services.permissions import canonical_role
+from src.config import (
+    DATABASE_CONNECTOR_KINDS,
+    DATABASE_CONNECTORS_DISABLED_CODE,
+    Settings,
+    get_settings,
+)
+from src.services.permissions import canonical_role, canonical_workspace_role
 metadata = MetaData()
 
 ProposalKind = Literal["candidate_key", "semantic_type", "pii"]
 ProposalStatus = Literal["pending", "confirmed", "rejected", "auto_confirmed"]
+
+
+class MembershipConflictError(ValueError):
+    """A membership mutation would leave an active workspace without an Owner."""
+
+    code = "last_owner_conflict"
 
 
 def _uuid() -> str:
@@ -1647,12 +1658,9 @@ class Repository:
                                 f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}"
                             )
                         )
-            if "workspace_memberships" in existing_tables:
-                conn.execute(
-                    workspace_memberships.update()
-                    .where(workspace_memberships.c.role.in_(["owner", "viewer"]))
-                    .values(role="analyst")
-                )
+            # Do not rewrite roles here. Production role backfill belongs to
+            # the versioned Alembic migration, and compatibility startup must
+            # never silently demote an existing Owner.
 
     def _migrate_user_profile_admin_columns(self) -> None:
         """Add admin role and lock status columns to user_profiles if missing."""
@@ -2858,7 +2866,10 @@ class Repository:
                 )
             self._sync_user_profile(conn, bootstrap_user_id, None, now)
             membership = conn.execute(
-                select(workspace_memberships.c.user_id).where(
+                select(
+                    workspace_memberships.c.role,
+                    workspace_memberships.c.status,
+                ).where(
                     workspace_memberships.c.workspace_id == workspace_id,
                     workspace_memberships.c.user_id == bootstrap_user_id,
                 )
@@ -2868,12 +2879,15 @@ class Repository:
                     workspace_memberships.insert().values(
                         workspace_id=workspace_id,
                         user_id=bootstrap_user_id,
-                        role="analyst",
+                        role="owner",
                         status="active",
                         created_at=now,
                         updated_at=now,
                     )
                 )
+            # Existing memberships are deliberately left untouched. Role
+            # backfill is a reviewed migration, not a login-time privilege
+            # grant: an Analyst must never regain Owner after a demotion.
         return workspace_id
 
     def ensure_guest_workspace(self, guest_user_id: str, role: str = "analyst") -> str:
@@ -3100,7 +3114,7 @@ class Repository:
                 workspace_memberships.insert().values(
                     workspace_id=workspace_id,
                     user_id=user_id,
-                    role=role,
+                    role="owner",
                     status="active",
                     created_at=now,
                     updated_at=now,
@@ -3110,7 +3124,7 @@ class Repository:
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,
                 "workspace_slug": slug,
-                "role": role,
+                "role": "owner",
                 "created": True,
             }
 
@@ -3123,7 +3137,9 @@ class Repository:
             )
             return dict(row) if row else None
 
-    def create_workspace(self, user_id: str, name: str, role: str) -> dict[str, Any]:
+    def create_workspace(
+        self, user_id: str, name: str, role: str = "analyst"
+    ) -> dict[str, Any]:
         """Create a project workspace owned by the current user."""
         workspace_id = str(uuid.uuid4())
         slug_base = "".join(
@@ -3152,7 +3168,7 @@ class Repository:
                 workspace_memberships.insert().values(
                     workspace_id=workspace_id,
                     user_id=user_id,
-                    role=role,
+                    role="owner",
                     status="active",
                     created_at=now,
                     updated_at=now,
@@ -3162,7 +3178,7 @@ class Repository:
             "id": workspace_id,
             "name": name,
             "slug": slug,
-            "role": role,
+            "role": "owner",
             "status": "active",
             "created_by_user_id": user_id,
             "is_project": True,
@@ -3193,12 +3209,8 @@ class Repository:
                     workspace_memberships.c.status == "active",
                 )
             ).scalar_one_or_none()
-            if target_membership is None:
-                raise PermissionError("Bạn không có membership trong workspace này.")
-            if workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError(
-                    "Chỉ người tạo workspace mới có thể xóa workspace này."
-                )
+            if canonical_workspace_role(str(target_membership or "")) != "owner":
+                raise PermissionError("Only an active workspace Owner can archive it.")
             actor_active_workspace_count = conn.execute(
                 select(func.count())
                 .select_from(
@@ -3245,12 +3257,8 @@ class Repository:
                     workspace_memberships.c.status == "active",
                 )
             ).scalar_one_or_none()
-            if membership is None:
-                raise PermissionError("Bạn không còn quyền khôi phục workspace này.")
-            if workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError(
-                    "Chỉ người tạo workspace mới có thể khôi phục workspace này."
-                )
+            if canonical_workspace_role(str(membership or "")) != "owner":
+                raise PermissionError("Only an active workspace Owner can restore it.")
             conn.execute(
                 workspaces.update()
                 .where(workspaces.c.id == workspace_id)
@@ -3261,8 +3269,8 @@ class Repository:
     def purge_workspace(self, workspace_id: str, actor_user_id: str) -> bool:
         """Permanently delete a project workspace and its owned resources.
 
-        The workspace creator can purge a project workspace with active
-        membership. Storage objects are removed on a best-effort basis before
+        An active workspace Owner can purge a project workspace. Storage objects are
+        removed on a best-effort basis before
         the metadata rows are deleted; an already-missing object must not block
         the database cleanup.
         """
@@ -3285,12 +3293,8 @@ class Repository:
                     workspace_memberships.c.status == "active",
                 )
             ).scalar_one_or_none()
-            if target_membership is None:
-                raise PermissionError("Bạn không có membership trong workspace này.")
-            if workspace["created_by_user_id"] != actor_user_id:
-                raise PermissionError(
-                    "Chỉ người tạo workspace mới có thể xóa workspace này."
-                )
+            if canonical_workspace_role(str(target_membership or "")) != "owner":
+                raise PermissionError("Only an active workspace Owner can delete it.")
 
             source_refs = [
                 row[0]
@@ -3587,8 +3591,8 @@ class Repository:
         """Return archived project workspaces where the user still has access.
 
         Archived workspaces are not selectable for normal API requests, but
-        their active memberships remain so the workspace creator can restore or purge
-        them from the workspace library.
+        their active Owner memberships remain so they can restore or purge them from
+        the workspace library.
         """
         with self.engine.begin() as conn:
             rows = (
@@ -3603,6 +3607,7 @@ class Repository:
                     )
                     .where(
                         workspace_memberships.c.user_id == user_id,
+                        workspace_memberships.c.role == "owner",
                         workspace_memberships.c.status == "active",
                         workspaces.c.status == "archived",
                     )
@@ -3662,42 +3667,242 @@ class Repository:
             ).mappings()
             return [dict(row) for row in rows]
 
-    def save_membership(
-        self, workspace_id: str, user_id: str, role: str, status: str = "active"
-    ) -> dict[str, Any]:
+    @staticmethod
+    def _has_effective_workspace_owner(
+        members: list[dict[str, Any]],
+        profiles: dict[str, dict[str, Any]],
+        *,
+        membership_overrides: dict[str, dict[str, str]] | None = None,
+        profile_overrides: dict[str, dict[str, str]] | None = None,
+    ) -> bool:
+        """Return whether a workspace still has an actor who can use Owner access.
+
+        A membership row alone is not an effective Owner: a locked, deleted, or
+        System Admin profile cannot enter a workspace. Callers use this only
+        while holding the workspace, membership, and profile locks.
+        """
+        membership_overrides = membership_overrides or {}
+        profile_overrides = profile_overrides or {}
+        for member in members:
+            user_id = str(member["user_id"])
+            membership = membership_overrides.get(user_id, {})
+            profile = profiles.get(user_id)
+            if not profile:
+                continue
+            profile_override = profile_overrides.get(user_id, {})
+            membership_role = canonical_workspace_role(
+                str(membership.get("role", member.get("role") or ""))
+            )
+            membership_status = str(
+                membership.get("status", member.get("status") or "")
+            )
+            profile_role = canonical_role(
+                str(profile_override.get("role", profile.get("role") or ""))
+            )
+            profile_status = str(
+                profile_override.get("status", profile.get("status") or "")
+            )
+            if (
+                membership_role == "owner"
+                and membership_status == "active"
+                and profile_status == "active"
+                and profile_role != "admin"
+            ):
+                return True
+        return False
+
+    def _lock_workspace_owner_state(
+        self, conn: Any, workspace_id: str
+    ) -> dict[str, Any] | None:
+        """Lock one Owner boundary through the global three-phase helper."""
+        states = self._lock_workspace_owner_states(conn, [workspace_id])
+        return states[0] if states else None
+
+    def _lock_workspace_owner_states(
+        self, conn: Any, workspace_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Lock Owner boundaries in globally ordered resource phases.
+
+        Every transaction first locks *all* workspace rows by ID, then all of
+        their membership rows by ``(workspace_id, user_id)``, and finally all
+        referenced profile rows by user ID. Completing one workspace before
+        moving to the next would let a transaction hold a profile from A while
+        another holds workspace B, which is a deadlock when both boundaries
+        overlap. Keep this lock-only helper free of external work.
+        """
+        requested_ids = sorted({str(workspace_id) for workspace_id in workspace_ids})
+        if not requested_ids:
+            return []
+
+        # Phase 1: every workspace boundary in one deterministic ID order.
+        workspace_rows = [
+            dict(row)
+            for row in conn.execute(
+                select(workspaces.c.id, workspaces.c.status)
+                .where(workspaces.c.id.in_(requested_ids))
+                .order_by(workspaces.c.id)
+                .with_for_update()
+            ).mappings()
+        ]
+        locked_workspace_ids = [str(row["id"]) for row in workspace_rows]
+        if not locked_workspace_ids:
+            return []
+
+        # Phase 2: lock all memberships only after every workspace is held.
+        member_rows = [
+            dict(row)
+            for row in conn.execute(
+                select(workspace_memberships)
+                .where(workspace_memberships.c.workspace_id.in_(locked_workspace_ids))
+                .order_by(
+                    workspace_memberships.c.workspace_id,
+                    workspace_memberships.c.user_id,
+                )
+                .with_for_update()
+            ).mappings()
+        ]
+        members_by_workspace = {
+            workspace_id: [] for workspace_id in locked_workspace_ids
+        }
+        for member in member_rows:
+            members_by_workspace[str(member["workspace_id"])].append(member)
+
+        # Phase 3: lock each referenced profile once, globally ordered by ID.
+        member_ids = sorted({str(member["user_id"]) for member in member_rows})
+        profiles: dict[str, dict[str, Any]] = {}
+        if member_ids:
+            profiles = {
+                str(row["user_id"]): dict(row)
+                for row in conn.execute(
+                    select(user_profiles)
+                    .where(user_profiles.c.user_id.in_(member_ids))
+                    .order_by(user_profiles.c.user_id)
+                    .with_for_update()
+                ).mappings()
+            }
+
+        return [
+            {
+                "workspace": workspace,
+                "members": members_by_workspace[str(workspace["id"])],
+                "profiles": profiles,
+            }
+            for workspace in workspace_rows
+        ]
+
+    @staticmethod
+    def _assert_effective_owner_retained(
+        state: dict[str, Any],
+        *,
+        membership_overrides: dict[str, dict[str, str]] | None = None,
+        profile_overrides: dict[str, dict[str, str]] | None = None,
+    ) -> None:
+        # An archived workspace also needs an effective Owner; otherwise it
+        # can never be restored through the normal lifecycle API.
+        if state["workspace"]["status"] not in {"active", "archived"}:
+            return
+        if not Repository._has_effective_workspace_owner(
+            state["members"],
+            state["profiles"],
+            membership_overrides=membership_overrides,
+            profile_overrides=profile_overrides,
+        ):
+            raise MembershipConflictError(
+                "A workspace must retain at least one effective active Owner."
+            )
+
+    @staticmethod
+    def _owner_workspace_ids_for_user(conn: Any, user_id: str) -> list[str]:
+        return [
+            str(workspace_id)
+            for workspace_id in conn.execute(
+                select(workspace_memberships.c.workspace_id)
+                .join(workspaces, workspaces.c.id == workspace_memberships.c.workspace_id)
+                .where(
+                    workspace_memberships.c.user_id == user_id,
+                    workspace_memberships.c.role == "owner",
+                    workspace_memberships.c.status == "active",
+                    workspaces.c.status.in_(("active", "archived")),
+                )
+                .order_by(workspace_memberships.c.workspace_id)
+            ).scalars()
+        ]
+
+    @staticmethod
+    def _member_workspace_ids_for_user(conn: Any, user_id: str) -> list[str]:
+        return [
+            str(workspace_id)
+            for workspace_id in conn.execute(
+                select(workspace_memberships.c.workspace_id)
+                .join(workspaces, workspaces.c.id == workspace_memberships.c.workspace_id)
+                .where(
+                    workspace_memberships.c.user_id == user_id,
+                    workspace_memberships.c.status == "active",
+                    workspaces.c.status.in_(("active", "archived")),
+                )
+                .order_by(workspace_memberships.c.workspace_id)
+            ).scalars()
+        ]
+
+    def update_membership(
+        self,
+        workspace_id: str,
+        actor_user_id: str,
+        user_id: str,
+        role: str | None = None,
+        status: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Atomically change one membership without losing an effective Owner."""
+        if role is not None and canonical_workspace_role(role) not in {"owner", "analyst"}:
+            raise ValueError("Unsupported workspace role.")
+        if status is not None and status not in {"active", "suspended", "removed"}:
+            raise ValueError("Unsupported membership status.")
+
         now = _now()
         with self.engine.begin() as conn:
-            existing = (
-                conn.execute(
-                    select(workspace_memberships).where(
-                        workspace_memberships.c.workspace_id == workspace_id,
-                        workspace_memberships.c.user_id == user_id,
-                    )
+            state = self._lock_workspace_owner_state(conn, workspace_id)
+            if not state:
+                raise LookupError("Workspace not found.")
+            members = state["members"]
+            by_user_id = {str(member["user_id"]): member for member in members}
+            actor = by_user_id.get(actor_user_id)
+            target = by_user_id.get(user_id)
+            if not target:
+                raise LookupError("Membership not found.")
+            if (
+                not actor
+                or not self._has_effective_workspace_owner(
+                    [actor], state["profiles"]
                 )
-                .mappings()
-                .first()
+            ):
+                raise PermissionError("Only an active workspace Owner can manage members.")
+
+            current_target_role = canonical_workspace_role(str(target["role"]))
+            if not current_target_role:
+                # Do not turn an unsupported legacy value into another stored
+                # invalid value while a migration/recovery is in progress.
+                raise ValueError("Unsupported current workspace role.")
+            canonical_role_value = (
+                canonical_workspace_role(role)
+                if role is not None
+                else current_target_role
             )
-            values = {"role": role, "status": status, "updated_at": now}
-            if existing:
-                conn.execute(
-                    workspace_memberships.update()
-                    .where(
-                        workspace_memberships.c.workspace_id == workspace_id,
-                        workspace_memberships.c.user_id == user_id,
-                    )
-                    .values(**values)
+            next_status = status if status is not None else str(target["status"])
+            self._assert_effective_owner_retained(
+                state,
+                membership_overrides={
+                    user_id: {"role": canonical_role_value, "status": next_status}
+                },
+            )
+
+            conn.execute(
+                workspace_memberships.update()
+                .where(
+                    workspace_memberships.c.workspace_id == workspace_id,
+                    workspace_memberships.c.user_id == user_id,
                 )
-            else:
-                conn.execute(
-                    workspace_memberships.insert().values(
-                        workspace_id=workspace_id,
-                        user_id=user_id,
-                        role=role,
-                        status=status,
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
+                .values(role=canonical_role_value, status=next_status, updated_at=now)
+            )
             row = (
                 conn.execute(
                     select(workspace_memberships).where(
@@ -3708,7 +3913,7 @@ class Repository:
                 .mappings()
                 .one()
             )
-            return dict(row)
+            return dict(target), dict(row)
 
     def is_user_locked(self, user_id: str) -> bool:
         """Check if a user account is locked/suspended."""
@@ -3836,10 +4041,31 @@ class Repository:
             values["locked_by_user_id"] = None
 
         with self.engine.begin() as conn:
-            target_role = conn.execute(
-                select(user_profiles.c.role).where(user_profiles.c.user_id == user_id)
-            ).scalar_one_or_none()
-            if status == "locked" and target_role == "admin":
+            owner_states = self._lock_workspace_owner_states(
+                conn, self._owner_workspace_ids_for_user(conn, user_id)
+            )
+            profile = next(
+                (
+                    state["profiles"][user_id]
+                    for state in owner_states
+                    if user_id in state["profiles"]
+                ),
+                None,
+            )
+            if not profile:
+                profile = (
+                    conn.execute(
+                        select(user_profiles)
+                        .where(user_profiles.c.user_id == user_id)
+                        .with_for_update()
+                    )
+                    .mappings()
+                    .first()
+                )
+            if not profile:
+                raise LookupError("Không tìm thấy tài khoản người dùng.")
+
+            if status == "locked" and profile.get("role") == "admin":
                 active_admins = conn.execute(
                     select(func.count()).select_from(user_profiles).where(
                         user_profiles.c.role == "admin",
@@ -3848,6 +4074,10 @@ class Repository:
                 ).scalar_one()
                 if int(active_admins or 0) <= 1:
                     raise ValueError("Không thể khóa System Admin cuối cùng.")
+            for state in owner_states:
+                self._assert_effective_owner_retained(
+                    state, profile_overrides={user_id: {"status": status}}
+                )
             conn.execute(
                 user_profiles.update().where(user_profiles.c.user_id == user_id).values(**values)
             )
@@ -3877,10 +4107,31 @@ class Repository:
             raise ValueError("Role chỉ có thể là analyst hoặc admin.")
         now = _now()
         with self.engine.begin() as conn:
-            current_role = conn.execute(
-                select(user_profiles.c.role).where(user_profiles.c.user_id == user_id)
-            ).scalar_one_or_none()
-            if current_role == "admin" and canonical == "analyst":
+            owner_states = self._lock_workspace_owner_states(
+                conn, self._owner_workspace_ids_for_user(conn, user_id)
+            )
+            profile = next(
+                (
+                    state["profiles"][user_id]
+                    for state in owner_states
+                    if user_id in state["profiles"]
+                ),
+                None,
+            )
+            if not profile:
+                profile = (
+                    conn.execute(
+                        select(user_profiles)
+                        .where(user_profiles.c.user_id == user_id)
+                        .with_for_update()
+                    )
+                    .mappings()
+                    .first()
+                )
+            if not profile:
+                raise LookupError("Không tìm thấy tài khoản người dùng.")
+
+            if profile.get("role") == "admin" and canonical == "analyst":
                 active_admins = conn.execute(
                     select(func.count()).select_from(user_profiles).where(
                         user_profiles.c.role == "admin",
@@ -3889,16 +4140,18 @@ class Repository:
                 ).scalar_one()
                 if int(active_admins or 0) <= 1:
                     raise ValueError("Không thể hạ quyền System Admin cuối cùng.")
+            for state in owner_states:
+                self._assert_effective_owner_retained(
+                    state, profile_overrides={user_id: {"role": canonical}}
+                )
             conn.execute(
                 user_profiles.update()
                 .where(user_profiles.c.user_id == user_id)
                 .values(role=canonical, updated_at=now)
             )
-            conn.execute(
-                workspace_memberships.update()
-                .where(workspace_memberships.c.user_id == user_id)
-                .values(role="analyst", updated_at=now)
-            )
+            # System-profile roles and workspace memberships are separate
+            # authority domains. Promoting a user to System Admin must not
+            # silently rewrite, demote, or grant workspace ownership.
             row = conn.execute(
                 select(user_profiles).where(user_profiles.c.user_id == user_id)
             ).mappings().one()
@@ -3922,13 +4175,31 @@ class Repository:
             raise ValueError("Bạn không thể tự xóa tài khoản của chính mình.")
 
         with self.engine.begin() as conn:
-            profile = (
-                conn.execute(
-                    select(user_profiles).where(user_profiles.c.user_id == user_id)
-                )
-                .mappings()
-                .first()
+            # Account deletion removes every membership. Lock every affected
+            # workspace boundary first, in the same order as membership and
+            # System Admin mutations, so we can check effective ownership
+            # against the pending deleted profile status.
+            member_states = self._lock_workspace_owner_states(
+                conn, self._member_workspace_ids_for_user(conn, user_id)
             )
+            profile = next(
+                (
+                    state["profiles"][user_id]
+                    for state in member_states
+                    if user_id in state["profiles"]
+                ),
+                None,
+            )
+            if not profile:
+                profile = (
+                    conn.execute(
+                        select(user_profiles)
+                        .where(user_profiles.c.user_id == user_id)
+                        .with_for_update()
+                    )
+                    .mappings()
+                    .first()
+                )
             if not profile:
                 raise LookupError("Không tìm thấy tài khoản người dùng.")
 
@@ -3942,7 +4213,13 @@ class Repository:
                 if int(active_admins or 0) <= 1:
                     raise ValueError("Không thể xóa System Admin cuối cùng.")
 
-            # Delete memberships
+            for state in member_states:
+                self._assert_effective_owner_retained(
+                    state, profile_overrides={user_id: {"status": "deleted"}}
+                )
+
+            # Delete memberships only after every affected workspace has been
+            # checked under its lock.
             conn.execute(
                 workspace_memberships.delete().where(
                     workspace_memberships.c.user_id == user_id
@@ -3998,6 +4275,8 @@ class Repository:
         expires_at: datetime,
     ) -> tuple[dict[str, Any], str]:
         """Store only a hash of an opaque invite secret, never the secret itself."""
+        if role != "analyst":
+            raise ValueError("Workspace invitations may only create Analyst memberships.")
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         now = _now()
@@ -4258,44 +4537,62 @@ class Repository:
             return dict(row) if row else None
 
     def dedupe_datasource_connections(self, *, workspace_id: str) -> None:
-        """Backfill identities and merge exact active duplicates atomically."""
-        from src.services.datasource import connector_fingerprint, decrypt_config
+        """No-op after connector retirement; never decrypt legacy credentials."""
+
+        del workspace_id
+
+    def inventory_database_connectors(self) -> list[dict[str, Any]]:
+        """List only redacted legacy metadata and dataset reference counts."""
 
         with self.engine.begin() as conn:
-            rows = [dict(row) for row in conn.execute(select(datasource_connections).where(
-                datasource_connections.c.workspace_id == workspace_id,
-                datasource_connections.c.deleted_at.is_(None),
-            )).mappings().all()]
-            groups: dict[str, list[dict[str, Any]]] = {}
-            for row in rows:
-                fingerprint = row.get("fingerprint")
-                if not fingerprint:
-                    try:
-                        fingerprint = connector_fingerprint(str(row["kind"]), decrypt_config(str(row["config_encrypted"])))
-                    except Exception:
-                        continue
-                    row["_computed_fingerprint"] = fingerprint
-                groups.setdefault(str(fingerprint), []).append(row)
-            for members in groups.values():
-                if len(members) < 2:
-                    continue
-                # Prefer the connector referenced by the most datasets, then
-                # the one with the latest health/update timestamp.
-                counts = {str(item["id"]): int(conn.execute(select(func.count()).select_from(datasets).where(datasets.c.datasource_connection_id == item["id"])) .scalar_one()) for item in members}
-                survivor = max(members, key=lambda item: (counts[str(item["id"])], item.get("last_success_at") or item.get("updated_at") or item.get("created_at")))
-                survivor_id = str(survivor["id"])
-                # Retire losers before assigning the unique fingerprint, so a
-                # legacy duplicate set cannot violate the partial index.
-                for duplicate in members:
-                    duplicate_id = str(duplicate["id"])
-                    if duplicate_id == survivor_id:
-                        continue
-                    conn.execute(datasets.update().where(datasets.c.datasource_connection_id == duplicate_id).values(datasource_connection_id=survivor_id))
-                    conn.execute(datasource_connections.update().where(datasource_connections.c.id == duplicate_id).values(deleted_at=_now(), status="disconnected", updated_at=_now(), version=datasource_connections.c.version + 1))
-                conn.execute(datasource_connections.update().where(datasource_connections.c.id == survivor_id).values(fingerprint=str(survivor.get("_computed_fingerprint") or survivor.get("fingerprint"))))
-            for row in rows:
-                if row.get("_computed_fingerprint") and len(groups.get(str(row.get("_computed_fingerprint")), [])) == 1:
-                    conn.execute(datasource_connections.update().where(datasource_connections.c.id == row["id"]).values(fingerprint=row["_computed_fingerprint"]))
+            rows = conn.execute(
+                select(
+                    datasource_connections.c.id,
+                    datasource_connections.c.workspace_id,
+                    datasource_connections.c.kind,
+                    datasource_connections.c.status,
+                    datasource_connections.c.deleted_at,
+                    func.count(datasets.c.id).label("dataset_count"),
+                )
+                .select_from(
+                    datasource_connections.outerjoin(
+                        datasets,
+                        datasets.c.datasource_connection_id == datasource_connections.c.id,
+                    )
+                )
+                .where(datasource_connections.c.kind.in_(DATABASE_CONNECTOR_KINDS))
+                .group_by(
+                    datasource_connections.c.id,
+                    datasource_connections.c.workspace_id,
+                    datasource_connections.c.kind,
+                    datasource_connections.c.status,
+                    datasource_connections.c.deleted_at,
+                )
+                .order_by(datasource_connections.c.workspace_id, datasource_connections.c.id)
+            ).mappings()
+            return [dict(row) for row in rows]
+
+    def disable_database_connectors(self) -> int:
+        """Idempotently retire active legacy connections without touching artifacts."""
+
+        now = _now()
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                datasource_connections.update()
+                .where(
+                    datasource_connections.c.kind.in_(DATABASE_CONNECTOR_KINDS),
+                    datasource_connections.c.deleted_at.is_(None),
+                    datasource_connections.c.status != "disabled",
+                )
+                .values(
+                    status="disabled",
+                    last_error_code=DATABASE_CONNECTORS_DISABLED_CODE,
+                    last_error_at=now,
+                    updated_at=now,
+                    version=datasource_connections.c.version + 1,
+                )
+            )
+            return int(result.rowcount or 0)
 
     def get_connector_idempotency(self, *, workspace_id: str, key: str, request_hash: str) -> str | None:
         with self.engine.begin() as conn:
@@ -7228,6 +7525,7 @@ def reset_repository() -> None:
 
 
 __all__ = [
+    "MembershipConflictError",
     "PROPOSAL_TABLES",
     "Repository",
     "build_engine",

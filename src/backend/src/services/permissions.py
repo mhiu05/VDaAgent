@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-# Workspace memberships intentionally expose one business role.  ``admin`` is
-# a system role and must never be treated as a workspace superuser.
-WorkspaceRole = Literal["analyst"]
+# ``admin`` remains a system role and must never be treated as a workspace
+# superuser.  Workspace access is deliberately limited to these two roles;
+# unknown or legacy values fail closed instead of inheriting Analyst access.
+WorkspaceRole = Literal["owner", "analyst"]
 
 REPORT_PUBLISHED_READ: Final = "report.published.read"
 REPORT_PUBLISHED_EXPORT: Final = "report.published.export"
@@ -53,7 +54,6 @@ _ANALYST = frozenset({
     REPORT_PUBLISHED_EXPORT,
     DATASET_READ,
     DATASET_UPLOAD,
-    DATASET_DELETE,
     PROFILE_READ,
     PROFILE_RUN,
     PROFILE_REVIEW,
@@ -64,10 +64,19 @@ _ANALYST = frozenset({
     ANALYSIS_RUN,
     REPORT_DRAFT_WRITE,
     REPORT_SUBMIT,
+    WORKSPACE_ACTIVITY_READ,
+    AGENT_RUN_READ,
+    AGENT_TRACE_READ,
+})
+
+# Owner inherits the normal data-analysis flow and is the only role that can
+# change the tenant boundary, destroy data, configure external connectivity,
+# or perform report governance/debug review.
+_OWNER = frozenset(_ANALYST | {
+    DATASET_DELETE,
     REPORT_REVIEW,
     REPORT_PUBLISH,
     REPORT_ARCHIVE,
-    WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
     WORKSPACE_MEMBERS_MANAGE,
     WORKSPACE_SETTINGS_MANAGE,
@@ -75,8 +84,6 @@ _ANALYST = frozenset({
     WORKSPACE_LIFECYCLE_MANAGE,
     WORKSPACE_CREATE,
     WORKSPACE_DELETE,
-    AGENT_RUN_READ,
-    AGENT_TRACE_READ,
     AGENT_TRACE_DEBUG_READ,
 })
 
@@ -87,12 +94,13 @@ _SYSTEM_ADMIN = frozenset({
 })
 
 ROLE_PERMISSIONS: Final[dict[WorkspaceRole, frozenset[str]]] = {
+    "owner": _OWNER,
     "analyst": _ANALYST,
 }
 
 # Kept as a union for callers that need to validate a capability identifier;
 # it is not a role grant.
-ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(_ANALYST | _SYSTEM_ADMIN)
+ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(_OWNER | _SYSTEM_ADMIN)
 
 
 def permissions_for_role(role: WorkspaceRole | str) -> frozenset[str]:
@@ -118,24 +126,22 @@ def system_permissions_for_role(role: str) -> frozenset[str]:
 
 
 def canonical_workspace_role(role: str) -> str:
-    """Normalize legacy membership values to the single Analyst role."""
-    return "analyst" if role in {"owner", "viewer", "admin", "analyst"} else role
+    """Return a supported workspace role, leaving unsupported values unusable."""
+    return role if role in {"owner", "analyst"} else ""
 
 
 def canonical_role(role: str) -> str:
-    """Normalize role values."""
-    if role in {"admin"}:
+    """Normalize system-profile role values without elevating memberships."""
+    if role == "admin":
         return "admin"
-    if role in {"owner", "viewer", "analyst"}:
-        return "analyst"
-    return role
+    return "analyst"
 
 
 def role_can_manage_target(actor_role: str, target_role: str) -> bool:
-    """Check whether actor can manage target role."""
+    """Only a workspace Owner can promote, demote, or remove a member."""
     actor = canonical_workspace_role(actor_role)
     target = canonical_workspace_role(target_role)
-    return actor == "analyst" and target == "analyst"
+    return actor == "owner" and target in {"owner", "analyst"}
 
 
 __all__ = [

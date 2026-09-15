@@ -27,6 +27,10 @@ Theo dõi tối thiểu:
 - SSE connection/disconnect;
 - PDF timeout.
 
+## Database connector rejection
+
+Mỗi request bị chặn cho MySQL, MongoDB hoặc DuckDB ghi audit event `database_connector.rejected` với workspace, actor, provider, route, outcome `denied` và error code `database_connectors_disabled`. Không ghi config, URI, hostname, filesystem path hoặc credential. Theo dõi tỷ lệ event này trong rollout để phát hiện client cũ và cleanup connection legacy; không coi một lỗi 403 là lý do bật lại connector.
+
 ## AI và agent
 
 Log latency tách router, planner, retrieval, tools, evidence, final LLM, validation và time-to-first-token; kèm call/token count khi có. Agent run lưu plan, trace, evidence và trace summary đã làm sạch.

@@ -742,11 +742,14 @@ class GoogleDriveFileOut(BaseModel):
     modified_at: datetime | None = None
 
 
-DatasourceKind = Literal["mysql", "mongodb", "duckdb"]
+class DisabledDatabaseConnectorRequest(BaseModel):
+    """Opaque compatibility body for retired, hidden connector endpoints.
 
+    ``kind`` deliberately is not an enum: the public contract no longer
+    advertises MySQL, MongoDB, or DuckDB as creatable providers.
+    """
 
-class DatasourceRequest(BaseModel):
-    kind: DatasourceKind
+    kind: str = Field(min_length=1, max_length=32)
     config: dict[str, Any] = Field(default_factory=dict)
     name: str = Field(min_length=1, max_length=255)
 
@@ -757,6 +760,27 @@ class DatasourceRequest(BaseModel):
         if not normalized or any(ord(char) < 32 for char in normalized):
             raise ValueError("Tên datasource không hợp lệ.")
         return normalized
+
+
+class LegacyDatasourceReuseRequest(BaseModel):
+    """Compatibility body for a hidden, always-disabled reuse endpoint."""
+
+    name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(ord(char) < 32 for char in normalized):
+            raise ValueError("Tên dataset không hợp lệ.")
+        return normalized
+
+
+# Internal compatibility types for hidden legacy handlers. They are not
+# exported as pilot request models and no longer appear in OpenAPI.
+DatasourceKind = Literal["mysql", "mongodb", "duckdb"]
+DatasourceRequest = DisabledDatabaseConnectorRequest
+DatasourceReuseRequest = LegacyDatasourceReuseRequest
 
 
 class DatasourceTestResponse(BaseModel):
@@ -773,25 +797,12 @@ class DatasourceConnectResponse(BaseModel):
     object_name: str | None = None
 
 
-class DatasourceReuseRequest(BaseModel):
-    """Create a dataset from an already saved workspace datasource."""
-
-    name: str = Field(min_length=1, max_length=255)
-
-    @field_validator("name")
-    @classmethod
-    def _normalize_name(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized or any(ord(char) < 32 for char in normalized):
-            raise ValueError("Tên dataset không hợp lệ.")
-        return normalized
-
-
 class ConnectorStatus(str, Enum):
     connected = "connected"
     attention_required = "attention_required"
     expired = "expired"
     disconnected = "disconnected"
+    disabled = "disabled"
 
 
 class ConnectorOut(BaseModel):
@@ -814,6 +825,7 @@ class ConnectorOut(BaseModel):
     updated_at: datetime | None = None
     version: int = 1
     dataset_count: int = 0
+    unavailable: bool = False
     can_test: bool = False
     can_edit: bool = False
     can_disconnect: bool = False
@@ -888,10 +900,8 @@ __all__ = [
     "ColumnStatOut",
     "ConfirmRequest",
     "ConfirmResponse",
-    "DatasourceConnectResponse",
-    "DatasourceReuseRequest",
-    "DatasourceRequest",
-    "DatasourceTestResponse",
+    "DisabledDatabaseConnectorRequest",
+    "LegacyDatasourceReuseRequest",
     "ConnectorListResponse",
     "ConnectorOut",
     "ConnectorStatus",

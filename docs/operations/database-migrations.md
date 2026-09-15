@@ -2,7 +2,7 @@
 
 > Đã kiểm tra theo chuỗi migration hiện có ngày 2026-09-06.
 
-> **Sai lệch hiện tại:** revisions đã nằm ở `src/backend/migrations`, trong khi `alembic.ini`, Alembic env root lookup và một số smoke script vẫn trỏ layout `backend/` cũ. Các lệnh dưới đây chỉ hợp lệ sau khi migration đường dẫn được hoàn tất; xem [giới hạn hiện tại](../architecture/known-limitations.md).
+> **Path contract:** `alembic.ini` dùng `src/backend/migrations` và thêm `src/backend` vào import path. Alembic env, `config.py` và script migration đọc `.env` tại repository root.
 
 Alembic là nguồn sự thật schema cho production. Migration hiện là một chuỗi tuyến tính từ baseline `20260812_0000` đến head `20260901_0026`.
 

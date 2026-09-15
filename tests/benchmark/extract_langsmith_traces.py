@@ -58,7 +58,7 @@ def main() -> None:
     contexts_path = directory / "retrieval_contexts.jsonl"
     stage_status(directory, "trace", "RUNNING")
     try:
-        backend = Path(__file__).resolve().parents[2] / "backend"
+        backend = Path(__file__).resolve().parents[2] / "src" / "backend"
         sys.path.insert(0, str(backend))
         from langsmith import Client
         from src.config import get_settings

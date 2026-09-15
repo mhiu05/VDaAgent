@@ -18,12 +18,12 @@ hợp; ground truth được tính độc lập với output của hệ thống.
 Backend và frontend local phải sẵn sàng ở các endpoint mặc định:
 
 ```powershell
-cd backend
+cd src/backend
 ..\.venv\Scripts\python.exe -m uvicorn src.main:app --host 127.0.0.1 --port 8000
 ```
 
 ```powershell
-pnpm --dir frontend dev
+pnpm --dir src/frontend dev
 ```
 
 Giữ secret trong `.env`. Không truyền mật khẩu/token trực tiếp trên command line
@@ -108,6 +108,6 @@ khi stage liên quan hoàn tất. Thư mục run cũ không bị sửa hoặc x�
 
 ```powershell
 .venv\Scripts\python.exe -m pytest tests\benchmark -q
-pnpm --dir frontend test:e2e
+pnpm --dir src/frontend test:e2e
 ```
 

@@ -2,7 +2,7 @@
 
 > Đã đối chiếu với topology, API mount và data flow hiện tại ngày 2026-09-06.
 
-> Source ứng dụng hiện nằm dưới `src/backend` và `src/frontend`. Tooling build/run vẫn còn tham chiếu layout cũ nên working tree chưa được xem là releaseable; xem [giới hạn hiện tại](./known-limitations.md).
+> Source ứng dụng, tooling build/run và release manifest dùng thống nhất `src/backend` và `src/frontend`. `python scripts/check_repository_layout.py` kiểm tra contract này trước khi build hoặc deploy.
 
 ## Mục tiêu và nguyên tắc
 

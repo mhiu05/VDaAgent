@@ -24,19 +24,49 @@ from pydantic import AliasChoices, Field, model_validator
 # pyrefly: ignore [missing-import]
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# `src` is hosted under `backend/src`, while the runtime config and data
-# volumes remain at repository root. Run Uvicorn with `--app-dir backend`
-# so the existing absolute `src.*` imports resolve consistently.
-_BACKEND_ROOT = Path(__file__).resolve().parent.parent
-_REPO_ROOT = _BACKEND_ROOT.parent
-PROJECT_ROOT = (
-    _REPO_ROOT
-    if any(
-        (_REPO_ROOT / marker).exists()
-        for marker in (".env", ".env.example", "README.md", "docs")
+# Runtime configuration and data volumes live at the repository root, while
+# this module lives in ``src/backend/src``. Resolve from this file instead of
+# the process working directory: the latter is the repository root locally,
+# ``src/backend`` for ``make backend``, and ``/app`` in the production image.
+# ``.git`` deliberately is not a required runtime marker because it is not
+# copied into immutable container images.
+_PROJECT_ROOT_MARKERS = ("README.md", "config.yaml", "alembic.ini")
+
+# Database connectors are deliberately not a pilot capability. Keeping this
+# policy next to Settings makes an attempted environment-based re-enable fail
+# during process construction rather than silently widening the server's
+# network or filesystem trust boundary at request time.
+DATABASE_CONNECTOR_KINDS = frozenset({"mysql", "mongodb", "duckdb"})
+DATABASE_CONNECTORS_DISABLED_CODE = "database_connectors_disabled"
+
+
+def _project_root_from_source(source_file: Path) -> Path:
+    """Return the repository root containing ``source_file``.
+
+    The source-layout contract is intentionally explicit. Falling back to a
+    parent such as ``src`` or ``src/backend`` would silently load a different
+    ``.env``/``config.yaml`` after a directory relocation.
+    """
+    source = source_file.resolve()
+    for candidate in source.parents:
+        missing = [
+            marker for marker in _PROJECT_ROOT_MARKERS if not (candidate / marker).is_file()
+        ]
+        if not missing:
+            expected = candidate / "src" / "backend" / "src" / "config.py"
+            if expected.resolve() == source:
+                return candidate
+            raise RuntimeError(
+                "Invalid VDaAgent source layout: expected config.py at "
+                f"{expected}, found {source}."
+            )
+    raise RuntimeError(
+        "Unable to locate the VDaAgent repository root from "
+        f"{source}. Expected parent markers: {', '.join(_PROJECT_ROOT_MARKERS)}."
     )
-    else _BACKEND_ROOT
-)
+
+
+PROJECT_ROOT = _project_root_from_source(Path(__file__))
 
 # --------------------------------------------------------------------------- #
 # Multi-provider LLM
@@ -371,6 +401,9 @@ class Settings(BaseSettings):
     google_drive_chunk_mb: int = Field(default=8, ge=1, le=64)
     # Fernet key used to encrypt credentials for external dataset sources.
     datasource_encryption_key: str = ''
+    # Kept solely to reject stale deployment configuration explicitly. There
+    # is no supported value that enables database connectors in this release.
+    database_connectors_enabled: bool = False
     database_url: str = ""
     database_migration_url: str = ""
     database_checkpointer_url: str = ""
@@ -422,6 +455,12 @@ class Settings(BaseSettings):
         if self.app_env == "production" and self.canonical_storage_provider != "supabase":
             raise ValueError(
                 "Production requires CANONICAL_STORAGE_PROVIDER=supabase."
+            )
+        if self.database_connectors_enabled:
+            raise ValueError(
+                "DATABASE_CONNECTORS_ENABLED=true is not supported: MySQL, MongoDB, "
+                "and DuckDB connectors remain disabled until a separately reviewed "
+                "security design is deployed."
             )
         # The planner/verifier/queue switches are intentionally fail-closed
         # until their capability registry, deterministic evaluation and durable

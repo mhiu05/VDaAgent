@@ -68,8 +68,8 @@ from src.models.schemas import (
     ConfirmResponse,
     DatasourceConnectResponse,
     DatasourceReuseRequest,
-    DatasourceRequest,
     DatasourceTestResponse,
+    DisabledDatabaseConnectorRequest,
     DatasetCollectionUpdate,
     DatasetOut,
     DriftRequest,
@@ -96,11 +96,13 @@ from src.services.google_drive import is_google_drive_ref
 from src.services.guardrails import audit_question_fields, enforce_output_guardrails
 from src.services.datasource import (
     DatasourceError,
+    datasource_error_detail,
     decrypt_config,
     encrypt_config,
     materialize_connection,
     normalize_config,
     probe,
+    reject_database_connector,
 )
 from src.services.llm import (
     LLMNotConfiguredError,
@@ -126,6 +128,7 @@ from src.services.permissions import (
     STATS_RUN,
     WORKSPACE_ACTIVITY_READ,
     WORKSPACE_AUDIT_READ,
+    WORKSPACE_STORAGE_CONNECT,
 )
 from src.services.repository import get_repository
 from src.services.chat_suggestions import generate_contextual_suggestions
@@ -170,6 +173,23 @@ def _audit(context: RequestContext, event: str, **fields: Any) -> None:
         actor_user_id=context.user_id,
         **fields,
     )
+
+
+def _reject_database_connector(kind: str, context: RequestContext, *, route: str) -> None:
+    """Fail closed before any legacy datasource side effect or secret access."""
+
+    try:
+        reject_database_connector(kind)
+    except DatasourceError as exc:
+        _audit(
+            context,
+            "database_connector.rejected",
+            provider=str(kind).strip().lower(),
+            route=route,
+            error_code=exc.code,
+            outcome="denied",
+        )
+        raise HTTPException(status_code=403, detail=datasource_error_detail(exc)) from exc
 
 
 def _require_completed_profile(profile: dict[str, Any], run_id: str) -> None:
@@ -864,11 +884,10 @@ async def create_profile_report(
     repo = get_repository()
     try:
         report = repo.create_report(context.workspace_id, context.user_id, payload)
-        submitted = repo.publish_report(
+        submitted = repo.submit_report(
             report["id"],
             context.workspace_id,
             context.user_id,
-            reason="Tự động xuất bản report do Analyst tạo.",
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -878,7 +897,7 @@ async def create_profile_report(
         raise HTTPException(status_code=404, detail="Không tìm thấy report vừa tạo.")
     _audit(
         context,
-        "profile_report_created",
+        "profile_report_submitted",
         resource_type="report",
         resource_id=submitted["id"],
         profile_run_id=run_id,
@@ -2586,13 +2605,18 @@ async def ask_question_stream(
 # --------------------------------------------------------------------------- #
 # Dataset / hệ thống
 # --------------------------------------------------------------------------- #
-@router.post("/datasets/datasource/test", response_model=DatasourceTestResponse)
+@router.post(
+    "/datasets/datasource/test",
+    response_model=DatasourceTestResponse,
+    include_in_schema=False,
+)
 async def test_datasource(
-    request: DatasourceRequest,
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+    request: DisabledDatabaseConnectorRequest,
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
 ) -> DatasourceTestResponse:
     """Validate an external source without persisting its credentials."""
     get_rate_limiter().check(context.user_id)
+    _reject_database_connector(request.kind, context, route="dataset.datasource.test")
     try:
         # MongoDB collection is selected from the metadata returned by this
         # probe, so it must not be required until the datasource is saved or
@@ -2615,14 +2639,20 @@ async def test_datasource(
     )
 
 
-@router.post("/datasets/datasource", response_model=DatasourceConnectResponse, status_code=201)
+@router.post(
+    "/datasets/datasource",
+    response_model=DatasourceConnectResponse,
+    status_code=201,
+    include_in_schema=False,
+)
 async def connect_datasource(
-    request: DatasourceRequest,
+    request: DisabledDatabaseConnectorRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
 ) -> DatasourceConnectResponse:
     """Create a tenant-owned dataset backed by an encrypted external source."""
     get_rate_limiter().check(context.user_id)
+    _reject_database_connector(request.kind, context, route="dataset.datasource.create")
     settings = get_settings()
     try:
         normalized = normalize_config(request.kind, request.config)
@@ -2690,12 +2720,17 @@ async def connect_datasource(
     )
 
 
-@router.post("/datasets/datasource/{connection_id}/use", response_model=DatasourceConnectResponse, status_code=201)
+@router.post(
+    "/datasets/datasource/{connection_id}/use",
+    response_model=DatasourceConnectResponse,
+    status_code=201,
+    include_in_schema=False,
+)
 async def use_saved_datasource(
     connection_id: str,
     request: DatasourceReuseRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
 ) -> DatasourceConnectResponse:
     """Create a dataset that reuses an existing encrypted datasource connection."""
     get_rate_limiter().check(context.user_id)
@@ -2703,6 +2738,9 @@ async def use_saved_datasource(
     connection = repo.get_datasource_connection(connection_id, workspace_id=context.workspace_id)
     if not connection or connection.get("deleted_at"):
         raise HTTPException(status_code=404, detail="Datasource không tồn tại trong workspace.")
+    _reject_database_connector(
+        str(connection.get("kind", "")), context, route="dataset.datasource.reuse"
+    )
     try:
         config = decrypt_config(str(connection["config_encrypted"]))
         await asyncio.to_thread(probe, str(connection["kind"]), config)

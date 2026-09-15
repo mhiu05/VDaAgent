@@ -1,6 +1,6 @@
 # Cấu trúc codebase
 
-> Bản đồ module được đối chiếu với working tree ngày 2026-09-06. Repository đang dùng layout ứng dụng dưới `src/`; các entrypoint vận hành chưa chuyển hết được ghi tại [giới hạn hiện tại](./known-limitations.md).
+> Bản đồ module được đối chiếu với working tree ngày 2026-09-14. Repository dùng layout ứng dụng và entrypoint vận hành dưới `src/`; `scripts/check_repository_layout.py` kiểm tra contract này.
 
 ## Cây thư mục
 
@@ -116,7 +116,7 @@ Backend tiếp tục import package dưới namespace `src.*`; vì vậy runtime
 - backend migrations: `src/backend/migrations/...`;
 - frontend application: `src/frontend/src/...`.
 
-Các lệnh/manifests vẫn dùng layout cũ không được coi là contract hợp lệ. Danh sách đầy đủ nằm ở [giới hạn và sai lệch hiện tại](./known-limitations.md).
+Không tạo alias, symlink hay compatibility shim `backend/`/`frontend/`; các entrypoint phải tham chiếu trực tiếp `src/backend` hoặc `src/frontend`.
 
 ## Kiểm tra ảnh hưởng trước khi merge
 

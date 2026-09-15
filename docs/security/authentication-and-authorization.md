@@ -31,13 +31,26 @@ Frontend route guard, cookie và `X-Workspace-Id` chỉ giúp UX/chọn ngữ c�
 
 ## Role và capability
 
-- Workspace role chuẩn hiện là `analyst`.
+- Workspace role là `owner` hoặc `analyst`; role lạ/legacy fail closed ở API.
+- Cả hai role có thể đọc, upload, profiling/phân tích, viết draft và submit report.
+- Chỉ `owner` quản lý membership/cấu hình/lifecycle, xóa dữ liệu hoặc workspace,
+  tạo/đổi/test/xóa connector, xem audit/debug trace, và review/publish/archive report.
 - System role `admin` tách khỏi workspace membership.
 - Endpoint kiểm capability cụ thể thay vì chỉ so sánh chuỗi role.
 - System admin không tự động sở hữu dữ liệu của mọi workspace.
-- Thay đổi membership/admin phải ghi audit.
+- Owner có hiệu lực phải đồng thời có membership `owner`/`active`, profile
+  `active` và không là System Admin. Transaction thay đổi membership, khóa/xóa
+  profile hoặc chuyển system role khóa toàn bộ workspace theo ID, sau đó toàn
+  bộ membership theo `(workspace_id, user_id)`, rồi toàn bộ profile theo user
+  ID; không được làm workspace active hoặc archived mất Owner hiệu lực cuối
+  cùng.
+- Người tạo chỉ nhận Owner khi workspace được tạo lần đầu. Provisioning/sign-in
+  của workspace đã tồn tại luôn trả role membership đang lưu, không tự promote
+  Analyst. Guest workspace luôn là Analyst và bị loại khỏi Owner backfill.
+  System Admin không nhận Owner ngầm qua `X-Workspace-Id`.
 
-Các route report hiện cho analyst submit/review/publish và chưa enforce separation-of-duties; xem [Báo cáo](../features/reports.md).
+Analyst có thể submit draft; review/publish/archive là capability của Owner.
+Xem [Báo cáo](../features/reports.md) cho state machine hiện hành.
 
 ## Mã lỗi và chống lộ thông tin
 

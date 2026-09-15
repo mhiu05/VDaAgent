@@ -24,7 +24,11 @@ from src.services.ingestion import DatasetIngestionService, IngestionError
 from src.services.repository import Repository
 from src.services.stats_tests import TESTS
 from src.services.storage import StorageDownloadError, artifact_source_ref, is_supabase_ref
-from src.services.datasource import connection_id_from_ref
+from src.services.datasource import (
+    DatasourceError,
+    connection_id_from_ref,
+    reject_database_connector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +117,18 @@ class ProfileService:
 
         is_datasource = dataset_ref.lower().startswith("datasource://")
         if is_datasource:
-            connection_id_from_ref(dataset_ref)
+            connection_id = connection_id_from_ref(dataset_ref)
+            connection = self.repo.get_datasource_connection(
+                connection_id, workspace_id=workspace_id
+            )
+            if connection is None:
+                raise ProfileError("Datasource connection is unavailable.", 404)
+            try:
+                reject_database_connector(str(connection.get("kind", "")))
+            except DatasourceError as exc:
+                raise ProfileError(
+                    str(exc), 409, error_code=exc.code, retryable=False
+                ) from exc
         if self.settings.app_env == "production" and not (
             is_supabase_ref(dataset_ref) or is_google_drive_ref(dataset_ref) or is_datasource
         ):

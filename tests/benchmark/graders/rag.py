@@ -179,7 +179,7 @@ def _answer_relevancy(cases: dict[str, dict], results: list[dict]) -> dict[str, 
     if not eligible:
         return metric("NOT_EVALUATED", None, "Không có question-answer pair thành công.", "Voyage query-document cosine")
     try:
-        backend = Path(__file__).resolve().parents[3] / "backend"
+        backend = Path(__file__).resolve().parents[3] / "src" / "backend"
         sys.path.insert(0, str(backend))
         from src.config import get_settings
         import voyageai

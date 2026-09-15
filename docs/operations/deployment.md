@@ -2,7 +2,7 @@
 
 > Đã đối chiếu trực tiếp với `.github/workflows/azure-container-deploy.yml` ngày 2026-09-06.
 
-> **Release blocker hiện tại:** workflow, Docker build context và path filter vẫn dùng `backend/`/`frontend/`, trong khi source đã chuyển vào `src/`. Topology và thứ tự release dưới đây vẫn là thiết kế triển khai, nhưng working tree hiện chưa build/deploy được từ clean checkout cho tới khi đồng bộ đường dẫn. Xem [giới hạn hiện tại](../architecture/known-limitations.md).
+> **Build contract:** backend dùng repository root làm Docker context; frontend dùng `src/frontend`. Workflow chỉ deploy khi các thay đổi trong source, image definition, migration hoặc release script liên quan được phát hiện.
 
 Topology release được định nghĩa với ba Azure App Service container và một Azure Container Registry (ACR):
 
@@ -21,7 +21,7 @@ Nguồn sự thật là `.github/workflows/azure-container-deploy.yml`.
 - Pull request và `workflow_dispatch` được thiết kế chạy backend/frontend quality gate; manual run có thể chọn `skip_quality`.
 - Push vào `main` deploy theo điều kiện workflow; hai quality job bị skip trên push trực tiếp. Branch protection/PR gate phải bảo đảm kiểm thử trước release.
 - Pull request không deploy.
-- Job `changes` hiện chỉ nhận diện layout cũ; sau migration phải theo dõi `src/backend/**`, `src/frontend/**`, Dockerfile, requirements Azure, Alembic và workflow.
+- Job `changes` theo dõi `src/backend/**`, `src/frontend/**`, Dockerfile, requirements, Alembic, release script, Makefile và workflow.
 - Release dùng self-hosted runner, OIDC Azure, image tag bất biến theo commit SHA và thêm tag `latest`.
 
 ## Quality gate
@@ -44,6 +44,12 @@ Migration lỗi hoặc health check thất bại sẽ chặn release. API và wo
 Workflow yêu cầu Azure OIDC (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`), ACR pull credential, `DATABASE_URL`, `SUPABASE_SECRET_KEY`, datasource encryption key và Supabase public build config. `AZURE_PROFILING_WORKER_APP` là repository variable. LLM/Google Drive/LangSmith là tùy chọn theo path sử dụng, nhưng provider LLM cần key hợp lệ khi bật.
 
 Backend production luôn đặt `AUTH_MODE=supabase`, `CANONICAL_STORAGE_PROVIDER=supabase`, Supabase issuer/audience, bucket `p170-dataset`, CORS frontend và `AGENT_TRACE_MODE=shadow`. Không đưa database URL, secret key, token connector hay LLM key vào frontend.
+
+## Database connector rollout
+
+Trước và sau `alembic upgrade head`, operator phải inventory metadata connection legacy và số dataset đang tham chiếu, không giải mã config trong log. Một migration hoặc command rollout được phê duyệt riêng phải đặt MySQL/MongoDB/DuckDB legacy sang `disabled` mà không xóa canonical artifact đã ingest. Sau deploy, kiểm tra `GET /api/v1/connectors`: chỉ Google Drive xuất hiện trong `available`; connection legacy nếu còn chỉ có `disabled`/`unavailable` và Owner chỉ có hành động xóa.
+
+Theo dõi audit event `database_connector.rejected` theo route/provider. Không rollback bằng cách tái bật connector; rollback application vẫn phải giữ guard fail-closed cho đến khi có security design mới được review.
 
 ## Rollback
 

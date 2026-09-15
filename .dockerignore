@@ -12,9 +12,14 @@
 venv
 env
 node_modules
-frontend/node_modules
-frontend/.next
-frontend/.next-dev
+src/frontend/node_modules
+src/frontend/.next
+src/frontend/.next-*
+src/frontend/.next-dev
+src/frontend/test-results
+src/frontend/playwright-report
+src/frontend/.env
+src/frontend/.env.*
 data
 tmp
 logs

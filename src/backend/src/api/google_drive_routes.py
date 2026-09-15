@@ -34,7 +34,6 @@ from src.services.ingestion import DatasetIngestionService, IngestionError, sour
 from src.services.permissions import (
     DATASET_READ,
     DATASET_UPLOAD,
-    WORKSPACE_SETTINGS_MANAGE,
     WORKSPACE_STORAGE_CONNECT,
 )
 from src.services.repository import get_repository
@@ -274,7 +273,7 @@ async def google_drive_callback(
 
 @router.delete("/connection")
 async def delete_google_drive_connection(
-    context: RequestContext = Depends(require_permission(WORKSPACE_SETTINGS_MANAGE)),
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
 ) -> dict[str, bool]:
     deleted = get_repository().delete_google_drive_connection(context.workspace_id)
     if deleted:

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ErrorNotice, LoadingBlock, Notice, PageHeader } from "@/components/ui";
 import { getWorkspaceConfiguration, updateWorkspaceConfiguration } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { can, PERMISSIONS } from "@/lib/auth/permissions";
 
 type SettingsSection = "general" | "context" | "theme" | "engine" | "security";
 
@@ -25,11 +26,13 @@ const COLOR_PRESETS = [
 ];
 
 export default function SettingsPage() {
-  const { workspaceId } = useAuth();
+  const { workspaceId, me } = useAuth();
+  const canManageSettings = can(me?.effective_permissions, PERMISSIONS.workspaceSettingsManage);
   const client = useQueryClient();
   const configuration = useQuery({
     queryKey: ["workspace-configuration"],
     queryFn: getWorkspaceConfiguration,
+    enabled: canManageSettings,
   });
 
   const [activeSection, setActiveSection] = useState<SettingsSection>("context");
@@ -110,6 +113,7 @@ export default function SettingsPage() {
     updateMutation.mutate();
   };
 
+  if (!canManageSettings) return <main className="page"><Notice tone="warning"><b>Chỉ Owner có thể thay đổi cài đặt workspace.</b><p>Backend vẫn kiểm tra capability này cho mọi request.</p></Notice></main>;
   if (configuration.isLoading) return <LoadingBlock label="Đang tải cấu hình workspace…" />;
   if (configuration.isError) return <ErrorNotice error={configuration.error} retry={() => configuration.refetch()} />;
 

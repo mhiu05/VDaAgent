@@ -45,13 +45,13 @@ from src.services.permissions import (
     canonical_workspace_role,
     system_permissions_for_role,
     workspace_permissions_for_role,
-    role_can_manage_target,
 )
 from src.services.report_draft_repository import (
     IdempotencyConflictError,
     get_report_draft_repository,
 )
-from src.services.repository import get_repository
+from src.services.repository import MembershipConflictError, get_repository
+from src.services import perf_telemetry
 from src.services.security import get_audit
 from src.services.workspace_configuration_repository import (
     ConfigurationStaleError,
@@ -61,11 +61,17 @@ from src.services.workspace_configuration_repository import (
 router = APIRouter(tags=["auth", "workspaces", "reports"])
 
 
+def _correlation_id(fallback: str | None) -> str | None:
+    perf_context = perf_telemetry.current()
+    return perf_context.correlation_id if perf_context is not None else fallback
+
+
 def _audit(context: RequestContext, event: str, **fields: Any) -> None:
     get_audit().log(
         event,
         workspace_id=context.workspace_id,
         actor_user_id=context.user_id,
+        correlation_id=_correlation_id(context.actor.session_id),
         **fields,
     )
 
@@ -435,6 +441,8 @@ async def provision_self_signup(
         resource_type="workspace_membership",
         resource_id=user.user_id,
         target_role=workspace["role"],
+        target_status="active",
+        correlation_id=_correlation_id(user.session_id),
     )
     return workspace
 
@@ -469,6 +477,9 @@ async def accept_invitation(
         actor_user_id=user.user_id,
         resource_type="membership",
         resource_id=user.user_id,
+        target_role=membership["role"],
+        target_status=membership["status"],
+        correlation_id=_correlation_id(user.session_id),
     )
     return {"workspace_id": membership["workspace_id"], "role": membership["role"]}
 
@@ -548,27 +559,37 @@ async def update_member(
         raise HTTPException(
             status_code=422, detail="Cần cập nhật role hoặc trạng thái membership."
         )
-    repo = get_repository()
-    target = repo.get_membership(context.workspace_id, user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="Không tìm thấy membership.")
-    target_role = canonical_role(str(target["role"]))
-    next_role = "analyst"
-    next_status = payload.status or str(target["status"])
-    if not role_can_manage_target(context.workspace.role, target_role):
-        raise HTTPException(
-            status_code=403, detail="Role hiện tại không thể thay đổi membership này."
+    try:
+        previous, membership = get_repository().update_membership(
+            context.workspace_id,
+            context.user_id,
+            user_id,
+            payload.role,
+            payload.status,
         )
-    membership = repo.save_membership(
-        context.workspace_id, user_id, next_role, next_status
-    )
+    except MembershipConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     _audit(
         context,
         "membership_updated",
         resource_type="membership",
         resource_id=user_id,
-        target_role=next_role,
-        target_status=next_status,
+        target_user_id=user_id,
+        previous_role=previous["role"],
+        previous_status=previous["status"],
+        target_role=membership["role"],
+        target_status=membership["status"],
     )
     return membership
 

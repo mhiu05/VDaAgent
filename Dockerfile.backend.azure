@@ -18,6 +18,7 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8000 \
+    PYTHONPATH=/app/src/backend \
     PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
@@ -33,12 +34,12 @@ RUN apt-get update \
 COPY --from=builder /opt/venv /opt/venv
 
 # Alembic runs from this same immutable image during the release gate.
-COPY --chown=app:app alembic.ini config.yaml ./
-COPY --chown=app:app backend ./backend
+COPY --chown=app:app alembic.ini config.yaml README.md ./
+COPY --chown=app:app src/backend ./src/backend
 
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl --fail --silent http://127.0.0.1:8000/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "src.main:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "src.main:app", "--app-dir", "/app/src/backend", "--host", "0.0.0.0", "--port", "8000"]

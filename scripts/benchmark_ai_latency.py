@@ -25,7 +25,7 @@ from typing import Any, Callable
 from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+sys.path.insert(0, str(PROJECT_ROOT / "src" / "backend"))
 
 from src.agents.nodes import qa_nodes  # noqa: E402
 from src.agents import fast_paths  # noqa: E402

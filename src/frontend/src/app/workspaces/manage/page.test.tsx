@@ -27,11 +27,11 @@ vi.mock("next/link", () => ({ default: ({ children, ...props }: React.PropsWithC
 
 const me = {
   user: { id: "user-1", email: "owner@example.com" },
-  workspace: { id: "workspace-1", role: "analyst" },
+  workspace: { id: "workspace-1", role: "owner" },
   effective_permissions: ["workspace.members.manage"],
-  workspaces: [{ id: "workspace-1", name: "Analytics", slug: "analytics", role: "analyst" }],
+  workspaces: [{ id: "workspace-1", name: "Analytics", slug: "analytics", role: "owner" }],
 };
-const member = { workspace_id: "workspace-1", user_id: "user-1", email: "owner@example.com", display_name: "Owner", role: "analyst", status: "active", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" };
+const member = { workspace_id: "workspace-1", user_id: "user-1", email: "owner@example.com", display_name: "Owner", role: "owner", status: "active", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" };
 const pending = { id: "inv-1", workspace_id: "workspace-1", email: "analyst@example.com", role: "analyst", status: "pending", expires_at: "2026-01-08T00:00:00Z", created_at: "2026-01-01T00:00:00Z" };
 
 function renderPage() {
@@ -52,7 +52,7 @@ describe("WorkspaceManagePage invitations", () => {
 
   it("shows the invite action for an authorized user and opens/closes the dialog", async () => {
     renderPage();
-    await screen.findByText("Owner");
+    await screen.findByText("owner@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Invite member" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByText("Analyst", { selector: "strong" })).toBeTruthy();
@@ -62,7 +62,7 @@ describe("WorkspaceManagePage invitations", () => {
 
   it("rejects invalid email and does not call the API", async () => {
     renderPage();
-    await screen.findByText("Owner");
+    await screen.findByText("owner@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Invite member" }));
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "not-an-email" } });
     fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
@@ -74,7 +74,7 @@ describe("WorkspaceManagePage invitations", () => {
     let resolve!: (value: typeof pending) => void;
     api.inviteWorkspaceMember.mockReturnValue(new Promise((nextResolve) => { resolve = nextResolve; }));
     renderPage();
-    await screen.findByText("Owner");
+    await screen.findByText("owner@example.com");
     fireEvent.click(screen.getByRole("button", { name: "Invite member" }));
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: " analyst@example.com " } });
     fireEvent.submit(screen.getByRole("dialog").querySelector("form")!);

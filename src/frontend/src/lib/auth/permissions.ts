@@ -20,6 +20,7 @@ export const PERMISSIONS = {
   workspaceAuditRead: "workspace.audit.read",
   workspaceMembersManage: "workspace.members.manage",
   workspaceSettingsManage: "workspace.settings.manage",
+  workspaceStorageConnect: "workspace.storage.connect",
   workspaceLifecycleManage: "workspace.lifecycle.manage",
   workspaceCreate: "workspace.create",
   workspaceDelete: "workspace.delete",

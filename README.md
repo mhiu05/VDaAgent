@@ -6,7 +6,7 @@ VDaAgent kết hợp compute xác định, workflow bất đồng bộ và AI Ag
 
 ## Tính năng chính
 
-- **Kết nối và quản lý dữ liệu:** tải lên CSV, TSV, Parquet, JSON; nhập dữ liệu từ Google Drive hoặc datasource như MySQL, MongoDB và DuckDB.
+- **Kết nối và quản lý dữ liệu:** tải lên CSV, TSV, Parquet, JSON; hoặc nhập một lần từ Google Drive vào canonical storage. MySQL, MongoDB và DuckDB database connector bị tắt trong pilot.
 - **Profiling bất đồng bộ:** phân tích schema, missing value, cardinality, uniqueness, duplicate, distribution, outlier, correlation, PII, quasi-identifier, candidate key và semantic type bằng worker có lease, heartbeat, retry và phục hồi job stale.
 - **Human-in-the-loop:** cho phép Analyst xác nhận, từ chối hoặc chỉnh sửa metadata do hệ thống đề xuất trước khi sử dụng kết quả tiếp theo.
 - **Command Center:** chạy truy vấn và biểu đồ theo hai cấp độ — Preview có giới hạn để khám phá nhanh và Official được chạy lại trên nguồn đầy đủ sau quality gate.
@@ -57,11 +57,9 @@ Production được thiết kế với ba process/container độc lập: Next.j
 
 ## Trạng thái repository
 
-> [!IMPORTANT]
-> Source đã được chuyển sang `src/backend` và `src/frontend`, nhưng một số consumer đường dẫn như Makefile, Alembic, test bootstrap, script, Docker và CI vẫn còn tham chiếu layout cũ. Vì vậy repository hiện chưa được xem là buildable từ clean checkout. Xem [giới hạn và sai lệch hiện tại](docs/architecture/known-limitations.md) trước khi chạy hoặc triển khai.
+Source luôn nằm tại `src/backend` và `src/frontend`. Cấu hình, Alembic, Makefile, Docker, script và CI dùng cùng path contract; chạy `python scripts/check_repository_layout.py` để phát hiện sai lệch trước khi build hoặc deploy.
 
-Các lệnh bên dưới mô tả contract local mục tiêu sau khi migration layout được hoàn tất. Không tạo symlink hoặc sao chép `.env` vào source tree để che lỗi đường dẫn.
-
+Không tạo symlink hoặc sao chép `.env` vào source tree để che lỗi đường dẫn.
 ## Bắt đầu nhanh
 
 ### Yêu cầu

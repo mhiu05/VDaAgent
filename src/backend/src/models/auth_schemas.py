@@ -6,16 +6,21 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-WorkspaceRole = Literal["analyst"]
+WorkspaceRole = Literal["owner", "analyst"]
+InvitationRole = Literal["analyst"]
 
 
 class SelfSignupProvision(BaseModel):
-    role: WorkspaceRole = "analyst"
+    # The request keeps the safe legacy value; the repository assigns the
+    # newly created workspace's creator the Owner membership.
+    role: InvitationRole = "analyst"
 
 
 class InvitationCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
-    role: WorkspaceRole = "analyst"
+    # Invitations are intentionally non-privileged. An existing Owner may
+    # promote an accepted membership through the audited member endpoint.
+    role: InvitationRole = "analyst"
 
     @field_validator("email")
     @classmethod

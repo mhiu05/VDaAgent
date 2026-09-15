@@ -1,33 +1,25 @@
-"""Normalized connector-center endpoints.
-
-Provider-specific routes remain available for compatibility.  This router
-exposes safe lifecycle metadata and reusable datasource connections without
-ever serializing encrypted configuration or OAuth tokens.
-"""
+"""Connector-center endpoints with a fail-closed database-connector boundary."""
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
-from typing import Any
-from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
+from typing import Any, NoReturn
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from sqlalchemy.exc import IntegrityError
+from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.dependencies import RequestContext, require_permission
-from src.config import get_settings
+from src.config import DATABASE_CONNECTOR_KINDS, get_settings
 from src.models.schemas import (
     ConnectorListResponse,
     ConnectorOut,
     ConnectorStatus,
-    ConnectorTestResponse,
-    DatasourceRequest,
+    DisabledDatabaseConnectorRequest,
 )
-from src.services.datasource import DatasourceError, connector_fingerprint, encrypt_config, normalize_config, probe
-from src.services.permissions import DATASET_READ, DATASET_UPLOAD
+from src.services.datasource import (
+    DatasourceError,
+    datasource_error_detail,
+    reject_database_connector,
+)
+from src.services.permissions import DATASET_READ, WORKSPACE_STORAGE_CONNECT
 from src.services.repository import get_repository
 from src.services.security import get_audit, get_rate_limiter
 
@@ -41,38 +33,28 @@ def _status(value: Any) -> ConnectorStatus:
         return ConnectorStatus.attention_required
 
 
-def _safe_datasource_target(kind: str, encrypted: str) -> dict[str, Any]:
-    """Return display-only target metadata; never return credentials."""
-    try:
-        from src.services.datasource import decrypt_config
+def _reject_database_connector(kind: str, context: RequestContext, *, route: str) -> NoReturn:
+    """Return one audited, redacted error before a legacy side effect."""
 
-        config = decrypt_config(encrypted)
-    except Exception:
-        return {}
-    if kind == "mysql":
-        return {
-            "host": str(config.get("host", "")),
-            "port": int(config.get("port", 0) or 0),
-            "database": str(config.get("database", "")),
-            "object": str(config.get("table") or "query"),
-        }
-    if kind == "mongodb":
-        parsed = urlsplit(str(config.get("uri", "")))
-        safe_uri = urlunsplit((parsed.scheme, parsed.hostname or "", parsed.path, "", ""))
-        return {
-            "host": parsed.hostname or "",
-            "database": str(config.get("database", "")),
-            "object": str(config.get("collection", "")),
-            "uri": safe_uri,
-        }
-    return {
-        "file": str(config.get("path", "")).replace("\\", "/").rsplit("/", 1)[-1],
-        "object": str(config.get("table") or "query"),
-    }
+    try:
+        reject_database_connector(kind)
+    except DatasourceError as exc:
+        get_audit().log(
+            "database_connector.rejected",
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            provider=str(kind).strip().lower(),
+            route=route,
+            error_code=exc.code,
+            outcome="denied",
+        )
+        raise HTTPException(status_code=403, detail=datasource_error_detail(exc)) from exc
 
 
 def _connector_from_datasource(row: dict[str, Any], context: RequestContext) -> ConnectorOut:
-    provider = str(row.get("kind", ""))
+    provider = str(row.get("kind", "")).lower()
+    # Never decrypt legacy configuration merely to render a card.  The name,
+    # provider, status, and dataset count are enough for an Owner to clean it up.
     return ConnectorOut(
         id=f"datasource:{row['id']}",
         provider=provider,
@@ -80,20 +62,23 @@ def _connector_from_datasource(row: dict[str, Any], context: RequestContext) -> 
         name=str(row.get("name") or provider),
         owner_scope="workspace",
         owner_user_id=None,
-        connected_by_user_id=str(row.get("created_by_user_id")) if row.get("created_by_user_id") else None,
-        status=_status(row.get("status")),
-        safe_target=_safe_datasource_target(provider, str(row.get("config_encrypted", ""))),
+        connected_by_user_id=(
+            str(row.get("created_by_user_id")) if row.get("created_by_user_id") else None
+        ),
+        status=ConnectorStatus.disabled,
+        safe_target={"unavailable": True},
         last_tested_at=row.get("last_tested_at"),
         last_success_at=row.get("last_success_at"),
         last_error_at=row.get("last_error_at"),
-        last_error_code=row.get("last_error_code"),
+        last_error_code="database_connectors_disabled",
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
         version=int(row.get("version") or 1),
         dataset_count=int(row.get("dataset_count") or 0),
-        can_test=DATASET_UPLOAD in context.workspace.effective_permissions,
-        can_edit=DATASET_UPLOAD in context.workspace.effective_permissions,
-        can_disconnect=bool(row) and DATASET_UPLOAD in context.workspace.effective_permissions,
+        unavailable=True,
+        can_test=False,
+        can_edit=False,
+        can_disconnect=WORKSPACE_STORAGE_CONNECT in context.workspace.effective_permissions,
     )
 
 
@@ -105,9 +90,16 @@ def _connector_from_drive(row: dict[str, Any] | None, context: RequestContext) -
         category="storage",
         name="Google Drive",
         owner_scope="workspace",
-        connected_by_user_id=str(row.get("connected_by_user_id")) if row and row.get("connected_by_user_id") else None,
+        connected_by_user_id=(
+            str(row.get("connected_by_user_id"))
+            if row and row.get("connected_by_user_id")
+            else None
+        ),
         status=_status(row.get("status") if row else "disconnected"),
-        safe_target={"folder_configured": bool(row and row.get("folder_id")), "configured": settings.google_drive_configured},
+        safe_target={
+            "folder_configured": bool(row and row.get("folder_id")),
+            "configured": settings.google_drive_configured,
+        },
         last_tested_at=row.get("last_tested_at") if row else None,
         last_success_at=row.get("last_success_at") if row else None,
         last_error_at=row.get("last_error_at") if row else None,
@@ -115,31 +107,39 @@ def _connector_from_drive(row: dict[str, Any] | None, context: RequestContext) -
         created_at=row.get("created_at") if row else None,
         updated_at=row.get("updated_at") if row else None,
         version=int(row.get("version") or 1) if row else 1,
-        can_test=DATASET_READ in context.workspace.effective_permissions,
+        can_test=WORKSPACE_STORAGE_CONNECT in context.workspace.effective_permissions,
         can_edit=False,
-        can_disconnect=DATASET_UPLOAD in context.workspace.effective_permissions,
+        can_disconnect=WORKSPACE_STORAGE_CONNECT in context.workspace.effective_permissions,
     )
 
 
 @router.get("", response_model=ConnectorListResponse)
 async def list_connectors(
-    include_available: bool = Query(default=True),
+    include_available: bool = True,
     context: RequestContext = Depends(require_permission(DATASET_READ)),
 ) -> ConnectorListResponse:
     get_rate_limiter().check(context.user_id)
     repo = get_repository()
-    connectors = [_connector_from_datasource(row, context) for row in repo.list_datasource_connections(workspace_id=context.workspace_id)]
+    connectors = [
+        _connector_from_datasource(row, context)
+        for row in repo.list_datasource_connections(workspace_id=context.workspace_id)
+        if str(row.get("kind", "")).lower() in DATABASE_CONNECTOR_KINDS
+    ]
     drive_connection = repo.get_google_drive_connection(context.workspace_id)
     if drive_connection:
         connectors.append(_connector_from_drive(drive_connection, context))
-    available = []
-    if include_available:
-        available = [
-            {"provider": "mysql", "category": "data", "name": "MySQL", "description": "Read-only relational source."},
-            {"provider": "mongodb", "category": "data", "name": "MongoDB", "description": "Read-only collection source."},
-            {"provider": "duckdb", "category": "data", "name": "DuckDB", "description": "Read-only DuckDB file on the backend."},
-            {"provider": "google_drive", "category": "storage", "name": "Google Drive", "description": "Workspace dataset storage."},
+    available = (
+        [
+            {
+                "provider": "google_drive",
+                "category": "storage",
+                "name": "Google Drive",
+                "description": "Import a file into workspace storage.",
+            }
         ]
+        if include_available
+        else []
+    )
     return ConnectorListResponse(connectors=connectors, available=available)
 
 
@@ -152,176 +152,88 @@ async def get_connector(
     if connection_id == f"google-drive:{context.workspace_id}":
         return _connector_from_drive(repo.get_google_drive_connection(context.workspace_id), context)
     if not connection_id.startswith("datasource:"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
     raw_id = connection_id.removeprefix("datasource:")
     row = repo.get_datasource_connection(raw_id, workspace_id=context.workspace_id)
     if not row or row.get("deleted_at"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
-    row["dataset_count"] = get_repository().count_datasets_for_datasource(raw_id, workspace_id=context.workspace_id)
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
+    if str(row.get("kind", "")).lower() not in DATABASE_CONNECTOR_KINDS:
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
+    row["dataset_count"] = repo.count_datasets_for_datasource(
+        raw_id, workspace_id=context.workspace_id
+    )
     return _connector_from_datasource(row, context)
 
 
-@router.patch("/{connection_id}", response_model=ConnectorOut)
+# Hidden compatibility endpoints deliberately remain deployed long enough for
+# older clients to receive a stable, audited domain error instead of a 404.
+@router.patch("/{connection_id}", include_in_schema=False)
 async def update_saved_datasource(
     connection_id: str,
-    request: DatasourceRequest,
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
-    expected_version: int | None = Query(default=None, ge=1),
-) -> ConnectorOut:
-    if not connection_id.startswith("datasource:"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
-    raw_id = connection_id.removeprefix("datasource:")
-    repo = get_repository()
-    existing = repo.get_datasource_connection(raw_id, workspace_id=context.workspace_id)
-    if not existing or existing.get("deleted_at"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
-    try:
-        normalized = normalize_config(request.kind, request.config)
-        fingerprint = connector_fingerprint(request.kind, normalized)
-        await asyncio.to_thread(probe, request.kind, normalized)
-        encrypted = encrypt_config(normalized)
-    except HTTPException:
-        raise
-    except DatasourceError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
-    try:
-        row = repo.update_datasource_connection(raw_id, workspace_id=context.workspace_id, name=request.name, kind=request.kind, config_encrypted=encrypted, fingerprint=fingerprint, expected_version=expected_version)
-    except IntegrityError as exc:
-        raise HTTPException(status_code=409, detail={"code": "DUPLICATE_CONNECTOR", "message": "Đã có connector khác dùng cùng cấu hình trong workspace."}) from exc
-    if not row:
-        raise HTTPException(status_code=409, detail={"code": "version_conflict", "message": "Connector đã được cập nhật ở tab khác."})
-    row["dataset_count"] = repo.count_datasets_for_datasource(raw_id, workspace_id=context.workspace_id)
-    get_audit().log("connector.updated", workspace_id=context.workspace_id, actor_user_id=context.user_id, resource_type="connector", resource_id=raw_id, provider=request.kind, outcome="success")
-    return _connector_from_datasource(row, context)
+    request: DisabledDatabaseConnectorRequest,
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
+) -> None:
+    del connection_id
+    _reject_database_connector(request.kind, context, route="connector.update")
 
 
-@router.post("/datasource", response_model=ConnectorOut, status_code=201)
+@router.post("/datasource", status_code=201, include_in_schema=False)
 async def save_datasource_connection(
-    request: DatasourceRequest,
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-) -> ConnectorOut:
-    get_rate_limiter().check(context.user_id)
-    try:
-        normalized = normalize_config(request.kind, request.config)
-        fingerprint = connector_fingerprint(request.kind, normalized)
-        request_hash = hashlib.sha256(json.dumps(
-            {"kind": request.kind, "name": request.name, "config": normalized},
-            sort_keys=True, separators=(",", ":"), default=str,
-        ).encode()).hexdigest()
-        repo = get_repository()
-        if idempotency_key:
-            if len(idempotency_key) > 255:
-                raise HTTPException(status_code=422, detail="Idempotency-Key quá dài.")
-            try:
-                previous_id = repo.get_connector_idempotency(workspace_id=context.workspace_id, key=idempotency_key, request_hash=request_hash)
-            except ValueError as exc:
-                raise HTTPException(status_code=409, detail={"code": "idempotency_key_reused", "message": "Idempotency-Key đã được dùng cho request khác."}) from exc
-            if previous_id:
-                previous = repo.get_datasource_connection(previous_id, workspace_id=context.workspace_id)
-                if previous and not previous.get("deleted_at"):
-                    previous["dataset_count"] = repo.count_datasets_for_datasource(previous_id, workspace_id=context.workspace_id)
-                    return _connector_from_datasource(previous, context)
-        duplicate = repo.find_datasource_by_fingerprint(workspace_id=context.workspace_id, kind=request.kind, fingerprint=fingerprint)
-        if duplicate:
-            duplicate["dataset_count"] = repo.count_datasets_for_datasource(str(duplicate["id"]), workspace_id=context.workspace_id)
-            if idempotency_key:
-                repo.save_connector_idempotency(workspace_id=context.workspace_id, key=idempotency_key, request_hash=request_hash, connection_id=str(duplicate["id"]))
-            return _connector_from_datasource(duplicate, context)
-        await asyncio.to_thread(probe, request.kind, normalized)
-        encrypted = encrypt_config(normalized)
-    except HTTPException:
-        raise
-    except DatasourceError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail="Không thể kết nối datasource.") from exc
-    connection_id = uuid4().hex
-    connection_id = repo.create_datasource_connection(
-        connection_id,
-        workspace_id=context.workspace_id,
-        created_by_user_id=context.user_id,
-        name=request.name,
-        kind=request.kind,
-        config_encrypted=encrypted,
-        fingerprint=fingerprint,
-    )
-    if idempotency_key:
-        repo.save_connector_idempotency(workspace_id=context.workspace_id, key=idempotency_key, request_hash=request_hash, connection_id=connection_id)
-    row = repo.get_datasource_connection(connection_id, workspace_id=context.workspace_id)
-    if not row:
-        raise HTTPException(status_code=500, detail="Không thể lưu datasource.")
-    get_audit().log("connector.created", workspace_id=context.workspace_id, actor_user_id=context.user_id, resource_type="connector", resource_id=connection_id, provider=request.kind, outcome="success")
-    return _connector_from_datasource(row, context)
+    request: DisabledDatabaseConnectorRequest,
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
+) -> None:
+    _reject_database_connector(request.kind, context, route="connector.create")
 
 
-@router.post("/datasource/test", response_model=ConnectorTestResponse)
+@router.post("/datasource/test", include_in_schema=False)
 async def test_new_datasource(
-    request: DatasourceRequest,
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
-) -> ConnectorTestResponse:
-    get_rate_limiter().check(context.user_id)
-    try:
-        # Collection is selected from the metadata returned by this probe;
-        # require it only when saving or using the datasource.
-        normalized = normalize_config(
-            request.kind,
-            request.config,
-            require_collection=request.kind != "mongodb",
-        )
-        objects = await asyncio.to_thread(probe, request.kind, normalized)
-    except DatasourceError as exc:
-        return ConnectorTestResponse(provider=request.kind, ok=False, status=ConnectorStatus.attention_required, error_code="INVALID_CONFIGURATION", detail=str(exc))
-    except Exception:  # noqa: BLE001
-        return ConnectorTestResponse(provider=request.kind, ok=False, status=ConnectorStatus.attention_required, error_code="PROVIDER_UNAVAILABLE", detail="Không thể kết nối datasource.")
-    return ConnectorTestResponse(provider=request.kind, ok=True, status=ConnectorStatus.connected, objects=objects, detail=f"Kết nối {request.kind} thành công.")
+    request: DisabledDatabaseConnectorRequest,
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
+) -> None:
+    _reject_database_connector(request.kind, context, route="connector.test_new")
 
 
-@router.post("/{connection_id}/test", response_model=ConnectorTestResponse)
+@router.post("/{connection_id}/test", include_in_schema=False)
 async def test_saved_datasource(
     connection_id: str,
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
-) -> ConnectorTestResponse:
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
+) -> None:
     if not connection_id.startswith("datasource:"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
     raw_id = connection_id.removeprefix("datasource:")
-    repo = get_repository()
-    row = repo.get_datasource_connection(raw_id, workspace_id=context.workspace_id)
+    row = get_repository().get_datasource_connection(
+        raw_id, workspace_id=context.workspace_id
+    )
     if not row or row.get("deleted_at"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
-    try:
-        from src.services.datasource import decrypt_config
-
-        config = decrypt_config(str(row["config_encrypted"]))
-        objects = await asyncio.to_thread(probe, str(row["kind"]), config)
-    except DatasourceError:
-        row = repo.mark_datasource_health(raw_id, workspace_id=context.workspace_id, ok=False, error_code="SECRET_DECRYPT_FAILED")
-        return ConnectorTestResponse(id=connection_id, provider=str(row.get("kind") if row else "unknown"), ok=False, status=ConnectorStatus.attention_required, error_code="SECRET_DECRYPT_FAILED", detail="Không thể giải mã cấu hình. Hãy cập nhật lại connector.")
-    except Exception:  # noqa: BLE001
-        row = repo.mark_datasource_health(raw_id, workspace_id=context.workspace_id, ok=False, error_code="PROVIDER_UNAVAILABLE")
-        return ConnectorTestResponse(id=connection_id, provider=str(row.get("kind") if row else "unknown"), ok=False, status=ConnectorStatus.attention_required, error_code="PROVIDER_UNAVAILABLE", detail="Không thể kết nối datasource.")
-    row = repo.mark_datasource_health(raw_id, workspace_id=context.workspace_id, ok=True)
-    get_audit().log("connector.tested", workspace_id=context.workspace_id, actor_user_id=context.user_id, resource_type="connector", resource_id=raw_id, provider=str(row.get("kind") if row else "unknown"), outcome="success")
-    return ConnectorTestResponse(id=connection_id, provider=str(row.get("kind") if row else "unknown"), ok=True, objects=objects, status=ConnectorStatus.connected, detail="Kết nối datasource thành công.")
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
+    _reject_database_connector(str(row.get("kind", "")), context, route="connector.test_saved")
 
 
 @router.delete("/{connection_id}")
 async def delete_datasource(
     connection_id: str,
-    context: RequestContext = Depends(require_permission(DATASET_UPLOAD)),
+    context: RequestContext = Depends(require_permission(WORKSPACE_STORAGE_CONNECT)),
 ) -> dict[str, Any]:
     if not connection_id.startswith("datasource:"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
     raw_id = connection_id.removeprefix("datasource:")
     repo = get_repository()
     row = repo.get_datasource_connection(raw_id, workspace_id=context.workspace_id)
     if not row or row.get("deleted_at"):
-        raise HTTPException(status_code=404, detail="Connector không tồn tại trong workspace.")
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
+    if str(row.get("kind", "")).lower() not in DATABASE_CONNECTOR_KINDS:
+        raise HTTPException(status_code=404, detail="Connector not found in this workspace.")
     deleted = repo.soft_delete_datasource_connection(raw_id, workspace_id=context.workspace_id)
     if deleted:
-        get_audit().log("connector.deleted", workspace_id=context.workspace_id, actor_user_id=context.user_id, resource_type="connector", resource_id=raw_id, provider=str(row.get("kind")), outcome="success")
+        get_audit().log(
+            "connector.deleted",
+            workspace_id=context.workspace_id,
+            actor_user_id=context.user_id,
+            resource_type="connector",
+            resource_id=raw_id,
+            provider=str(row.get("kind")),
+            outcome="success",
+        )
     return {"id": connection_id, "deleted": deleted}
 
 

@@ -13,7 +13,6 @@ import type {
   TestResult,
   UploadResult,
 } from "@/lib/types";
-import type { DatasourceConfig, DatasourceConnectResult, DatasourceKind, DatasourceTestResult } from "@/lib/types";
 import type { AnalysisExecution, AnalysisSession, AutoChartPlan, AutoProfilePack, ChartSpec, ForecastAlgorithmCapability, QuerySpec } from "@/lib/analysis-types";
 import * as tus from "tus-js-client";
 
@@ -229,21 +228,7 @@ export function listDatasets(signal?: AbortSignal): Promise<Dataset[]> {
   return request<Dataset[]>("/datasets", { signal });
 }
 
-export function testDatasource(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<DatasourceTestResult> {
-  return request<DatasourceTestResult>("/datasets/datasource/test", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, name, config }),
-  });
-}
-
-export function connectDatasource(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<DatasourceConnectResult> {
-  return request<DatasourceConnectResult>("/datasets/datasource", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind, name, config }),
-  });
-}
-
-export type ConnectorStatus = "connected" | "attention_required" | "expired" | "disconnected";
+export type ConnectorStatus = "connected" | "attention_required" | "expired" | "disconnected" | "disabled";
 export type Connector = {
   id: string;
   provider: string;
@@ -262,6 +247,7 @@ export type Connector = {
   updated_at?: string | null;
   version: number;
   dataset_count: number;
+  unavailable: boolean;
   can_test: boolean;
   can_edit: boolean;
   can_disconnect: boolean;
@@ -270,30 +256,6 @@ export type ConnectorListResponse = { connectors: Connector[]; available: Array<
 
 export function listConnectors(): Promise<ConnectorListResponse> {
   return request<ConnectorListResponse>("/connectors");
-}
-
-export function saveDatasourceConnection(kind: DatasourceKind, name: string, config: DatasourceConfig, idempotencyKey?: string): Promise<Connector> {
-  return request<Connector>("/connectors/datasource", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}) },
-    body: JSON.stringify({ kind, name, config }),
-  });
-}
-
-export function useSavedDatasource(connectionId: string, name: string): Promise<DatasourceConnectResult> {
-  return request<DatasourceConnectResult>(`/datasets/datasource/${encodeURIComponent(connectionId)}/use`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
-  });
-}
-
-export function testNewDatasourceConnection(kind: DatasourceKind, name: string, config: DatasourceConfig): Promise<{ ok: boolean; provider: string; objects: string[]; status: ConnectorStatus; error_code?: string | null; detail: string }> {
-  return request("/connectors/datasource/test", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, name, config }),
-  });
-}
-
-export function testSavedConnector(id: string): Promise<{ id: string; provider: string; ok: boolean; objects: string[]; status: ConnectorStatus; error_code?: string | null; detail: string }> {
-  return request(`/connectors/${encodeURIComponent(id)}/test`, { method: "POST" });
 }
 
 export function deleteConnector(id: string): Promise<{ id: string; deleted: boolean }> {
@@ -346,7 +308,7 @@ export type WorkspaceSummary = {
   id: string;
   name: string;
   slug: string;
-  role: string;
+  role: WorkspaceRole;
   status?: string;
   created_by_user_id?: string;
   is_project?: boolean;
@@ -409,7 +371,7 @@ export function restoreWorkspace(workspaceId: string): Promise<{ restored: boole
   });
 }
 
-export type WorkspaceRole = "analyst";
+export type WorkspaceRole = "owner" | "analyst";
 export type WorkspaceMemberStatus = "active" | "suspended" | "removed";
 
 export type WorkspaceMember = {
@@ -454,7 +416,7 @@ export function listWorkspaceInvitations(): Promise<{ invitations: WorkspaceInvi
   return request<{ invitations: WorkspaceInvitation[] }>("/workspaces/current/invitations");
 }
 
-export function inviteWorkspaceMember(payload: { email: string; role: WorkspaceRole }): Promise<WorkspaceInvitation> {
+export function inviteWorkspaceMember(payload: { email: string; role?: "analyst" }): Promise<WorkspaceInvitation> {
   return request<WorkspaceInvitation>("/workspaces/current/invitations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -491,7 +453,7 @@ export async function provisionSelfSignup(role: SelfSignupRole, accessToken: str
   workspace_id: string;
   workspace_name: string;
   workspace_slug: string;
-  role: SelfSignupRole;
+  role: WorkspaceRole;
   created: boolean;
 }> {
   const controller = new AbortController();

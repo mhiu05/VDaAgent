@@ -9,8 +9,10 @@ SHELLFLAGS := /C
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 3000
 BACKEND_HOST ?= 0.0.0.0
-ROOT_PYTHON ?= .\.venv\Scripts\python.exe
-BACKEND_PYTHON ?= ..\.venv\Scripts\python.exe
+BACKEND_DIR := src\backend
+FRONTEND_DIR := src\frontend
+ROOT_PYTHON ?= $(CURDIR)\.venv\Scripts\python.exe
+BACKEND_PYTHON ?= $(ROOT_PYTHON)
 
 .PHONY: help backend worker frontend dev install install-backend install-frontend health frontend-build frontend-check
 
@@ -26,34 +28,34 @@ help:
 	@echo "  make frontend-check   Run frontend typecheck and lint"
 
 backend:
-	cd backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
+	cd /d "$(CURDIR)\$(BACKEND_DIR)" && "$(BACKEND_PYTHON)" -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 
 frontend:
-	cd frontend && pnpm.cmd dev --port $(FRONTEND_PORT)
+	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd dev --port $(FRONTEND_PORT)
 
 worker:
-	cd /d $(CURDIR) && set PYTHONPATH=backend&& $(ROOT_PYTHON) -m src.workers.profiling_worker
+	cd /d "$(CURDIR)" && set "PYTHONPATH=$(CURDIR)\$(BACKEND_DIR)" && "$(ROOT_PYTHON)" -m src.workers.profiling_worker
 
 # Windows helper: starts each long-running process in its own terminal window.
-# Run this target only when no VDaAgent backend/frontend process is already running.
+# Run this target only when no VDaAgent backend or frontend process is already running.
 dev:
-	cmd.exe /d /c start "VDaAgent backend" cmd.exe /k "cd /d $(CURDIR)\backend && $(BACKEND_PYTHON) -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
-	cmd.exe /d /c start "VDaAgent worker" cmd.exe /k "cd /d $(CURDIR) && set PYTHONPATH=backend&& $(ROOT_PYTHON) -m src.workers.profiling_worker"
-	cmd.exe /d /c start "VDaAgent frontend" cmd.exe /k "cd /d $(CURDIR)\frontend && pnpm.cmd dev --port $(FRONTEND_PORT)"
+	cmd.exe /d /c start "VDaAgent backend" /D "$(CURDIR)\$(BACKEND_DIR)" cmd.exe /k ""$(BACKEND_PYTHON)" -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
+	cmd.exe /d /c start "VDaAgent worker" /D "$(CURDIR)" cmd.exe /k "set ""PYTHONPATH=$(CURDIR)\$(BACKEND_DIR)"" && ""$(ROOT_PYTHON)"" -m src.workers.profiling_worker"
+	cmd.exe /d /c start "VDaAgent frontend" /D "$(CURDIR)\$(FRONTEND_DIR)" cmd.exe /k "pnpm.cmd dev --port $(FRONTEND_PORT)"
 
 install: install-backend install-frontend
 
 install-backend:
-	$(ROOT_PYTHON) -m pip install -r requirements.txt
+	"$(ROOT_PYTHON)" -m pip install -r requirements.txt
 
 install-frontend:
-	cd frontend && pnpm.cmd install
+	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd install
 
 health:
 	powershell -NoProfile -Command "Invoke-RestMethod http://localhost:$(BACKEND_PORT)/health"
 
 frontend-build:
-	cd frontend && pnpm.cmd build
+	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd build
 
 frontend-check:
-	cd frontend && pnpm.cmd typecheck && pnpm.cmd lint
+	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd typecheck && pnpm.cmd lint

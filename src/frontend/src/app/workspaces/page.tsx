@@ -10,8 +10,15 @@ import { can, PERMISSIONS } from "@/lib/auth/permissions";
 import { createWorkspace, deleteWorkspace, listArchivedWorkspaces, listWorkspaces, purgeWorkspace, restoreWorkspace, type WorkspaceSummary } from "@/lib/api";
 import { useRef, useState, type CSSProperties, type FormEvent } from "react";
 
-const roleLabel = "Analyst";
-const roleDescription = "Upload, profiling, Agent, review và tạo báo cáo";
+function roleLabel(role: string) {
+  return role === "owner" ? "Owner" : "Analyst";
+}
+
+function roleDescription(role: string) {
+  return role === "owner"
+    ? "Quản trị thành viên, cấu hình, connector và vòng đời workspace"
+    : "Upload, profiling, Agent và soạn thảo báo cáo";
+}
 
 const workspaceTemplates = [
   { id: "business", name: "Business", description: "Hiệu quả kinh doanh & vận hành", domain: "Business", primaryGoal: "Theo dõi hiệu quả kinh doanh, doanh thu và cơ hội tăng trưởng.", targetAudience: "Ban điều hành và quản lý vận hành", primaryColor: "#315efb", secondaryColor: "#18a77b" },
@@ -315,11 +322,11 @@ export default function WorkspacesPage() {
 
     {!workspaces.isPending && !workspaces.isError && <section className="workspace-grid" aria-label="Danh sách workspace">{items.map((workspace) => {
       const current = workspace.id === workspaceId;
-      const removable = canDelete && workspace.is_project && workspace.created_by_user_id === me?.user.id;
+      const removable = canDelete && workspace.is_project && workspace.role === "owner";
       return <article className={current ? "workspace-card current" : "workspace-card"} key={workspace.id}>
-        <div className="workspace-card-top"><span className="workspace-card-icon" aria-hidden="true">▦</span><span className="workspace-role">{roleLabel}</span></div>
+        <div className="workspace-card-top"><span className="workspace-card-icon" aria-hidden="true">▦</span><span className="workspace-role">{roleLabel(workspace.role)}</span></div>
         <h2>{workspace.name}</h2>
-        <p className="workspace-card-capabilities">{roleDescription}</p>
+        <p className="workspace-card-capabilities">{roleDescription(workspace.role)}</p>
         <p className="workspace-card-slug">/{workspace.slug}</p>
         <div className="workspace-card-actions"><LoadingButton className="button primary" type="button" onClick={() => void openWorkspace(workspace.id)} busy={current && workspaceActionBusy} disabled={workspaceActionBusy || workspacePending(workspace.id)}>{current ? "Đang mở" : "Mở workspace"}</LoadingButton>{removable && <><LoadingButton className="button workspace-archive" type="button" onClick={() => removeWorkspace(workspace)} busy={archivingWorkspace(workspace.id) || restoringWorkspace(workspace.id)} disabled={workspacePending(workspace.id) || workspaceActionBusy}>{archivingWorkspace(workspace.id) ? "Đang lưu trữ…" : restoringWorkspace(workspace.id) ? "Đang khôi phục…" : "Lưu trữ"}</LoadingButton><LoadingButton className="button danger workspace-permanent-delete" type="button" onClick={() => permanentlyDeleteWorkspace(workspace)} busy={purging.isPending && purging.variables === workspace.id} disabled={workspacePending(workspace.id) || workspaceActionBusy}>{purging.isPending && purging.variables === workspace.id ? "Đang xóa…" : "Xóa workspace"}</LoadingButton></>}</div>
       </article>;

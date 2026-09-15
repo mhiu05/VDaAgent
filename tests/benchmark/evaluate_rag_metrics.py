@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
 ROOT = Path(__file__).resolve().parents[2]
-BACKEND = ROOT / "backend"
+BACKEND = ROOT / "src" / "backend"
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

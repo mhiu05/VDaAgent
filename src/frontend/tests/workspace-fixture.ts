@@ -2,14 +2,11 @@ import type { Page } from "@playwright/test";
 
 const analystPermissions = [
   "report.published.read", "report.published.export", "qa.published.ask",
-  "dataset.read", "dataset.upload", "dataset.delete", "profile.read",
+  "dataset.read", "dataset.upload", "profile.read",
   "profile.run", "profile.review", "stats.run", "drift.run", "qa.profile.ask",
   "analysis.run",
-  "report.draft.write", "report.submit", "report.review", "report.publish",
-  "report.archive", "workspace.activity.read", "workspace.audit.read",
-  "workspace.members.manage", "workspace.settings.manage", "workspace.storage.connect",
-  "workspace.lifecycle.manage", "workspace.create", "workspace.delete", "agent.run.read",
-  "agent.trace.read", "agent.trace.debug.read",
+  "report.draft.write", "report.submit", "workspace.activity.read", "agent.run.read",
+  "agent.trace.read",
 ];
 
 export async function useAnalystWorkspace(page: Page): Promise<void> {

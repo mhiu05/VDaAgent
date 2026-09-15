@@ -9,10 +9,10 @@ import { clearChatHistory, setChatHistoryScope } from "@/lib/chat-history";
 import { clearGuestSession, getGuestSession, startGuestSession, type GuestRole } from "@/lib/auth/guest-session";
 import { requestedSignupRole } from "@/lib/auth/onboarding";
 
-export type Workspace = { id: string; name: string; slug: string; role: string; created_by_user_id?: string; is_project?: boolean };
+export type Workspace = { id: string; name: string; slug: string; role: "owner" | "analyst"; created_by_user_id?: string; is_project?: boolean };
 export type Me = {
   user: { id: string; email: string | null; role?: string; status?: string };
-  workspace: { id: string; role: string } | null;
+  workspace: { id: string; role: "owner" | "analyst" } | null;
   effective_permissions: string[];
   workspaces: Workspace[];
 };

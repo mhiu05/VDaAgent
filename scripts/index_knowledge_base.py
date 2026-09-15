@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "data" / "knowledge_base" / "knowledge_base.jsonl"
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "backend"))
+sys.path.insert(0, str(ROOT / "src" / "backend"))
 from scripts.validate_knowledge_base import validate  # noqa: E402
 
 

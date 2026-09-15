@@ -6,7 +6,6 @@ import ConnectorsPage from "./page";
 
 const api = vi.hoisted(() => ({
   listConnectors: vi.fn(),
-  testSavedConnector: vi.fn(),
   deleteConnector: vi.fn(),
   deleteGoogleDriveConnection: vi.fn(),
 }));
@@ -15,8 +14,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 let deleteSucceeded = false;
 
 vi.mock("@/lib/api", () => api);
-vi.mock("@/components/auth-provider", () => ({ useAuth: () => ({ authenticated: true, workspaceId: "workspace-1" }) }));
-vi.mock("@/components/connection-wizard", () => ({ ConnectionWizard: () => null }));
+vi.mock("@/components/auth-provider", () => ({ useAuth: () => ({ authenticated: true, workspaceId: "workspace-1", me: { effective_permissions: ["workspace.storage.connect"] } }) }));
 vi.mock("@/components/connector-detail-dialog", () => ({
   ConnectorDetailDialog: ({ connector, onDisconnect }: { connector: { id: string } | null; onDisconnect: (id: string) => void }) => connector ? <div role="dialog"><button type="button" onClick={() => onDisconnect(connector.id)}>Xóa kết nối</button></div> : null,
 }));
@@ -36,12 +34,13 @@ const connector = {
   category: "data",
   name: "Mongo orders",
   owner_scope: "workspace",
-  status: "connected",
-  safe_target: { host: "localhost", database: "app", object: "orders" },
+  status: "disabled",
+  safe_target: { unavailable: true },
   version: 1,
   dataset_count: 0,
-  can_test: true,
-  can_edit: true,
+  unavailable: true,
+  can_test: false,
+  can_edit: false,
   can_disconnect: true,
 };
 
@@ -66,6 +65,14 @@ describe("ConnectorsPage deletion", () => {
   });
 
   afterEach(cleanup);
+
+  it("shows legacy database metadata only and no provider setup control", async () => {
+    renderPage();
+    await screen.findByRole("button", { name: "Mở chi tiết Mongo orders" });
+
+    expect(screen.queryByText("ADD CONNECTOR")).toBeNull();
+    expect(screen.queryByText("Thiết lập →")).toBeNull();
+  });
 
   it("deletes a connector and removes its card from the list", async () => {
     renderPage();

@@ -23,8 +23,19 @@ test("Analyst sees the complete workspace flow", async ({ page }) => {
   await expect(page.locator('a[href="/datasets"]').first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Phiên phân tích" })).toHaveCount(0);
   await expect(page.locator('a[href="/reports"]')).toBeVisible();
+  await expect(page.locator('a[href="/activity"]')).toHaveCount(0);
   await expect(page.getByText("Admin")).toHaveCount(0);
   await expect(page.getByText("Viewer")).toHaveCount(0);
+
+  await page.route("**/api/v1/workspaces", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ workspaces: [] }) });
+  });
+  await page.goto("/workspaces", { waitUntil: "networkidle" });
+  await expect(page.getByRole("link", { name: "Quản lý thành viên" })).toHaveCount(0);
+
+  await page.goto("/workspaces/manage", { waitUntil: "networkidle" });
+  await expect(page).toHaveURL(/\/datasets$/);
+  await expect(page.getByRole("button", { name: "Invite member" })).toHaveCount(0);
 });
 
 test("Analyst keeps the floating AI Copilot launcher on mobile", async ({ page }) => {

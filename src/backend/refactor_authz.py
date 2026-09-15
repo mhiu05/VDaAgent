@@ -1,8 +1,8 @@
 import re
-import sys
+from pathlib import Path
 
 def main():
-    file_path = "src/api/authz_routes.py"
+    file_path = Path(__file__).resolve().parent / "src" / "api" / "authz_routes.py"
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 

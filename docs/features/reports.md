@@ -36,8 +36,9 @@ Khi tạo snapshot, backend chuẩn hóa payload, giữ provenance và tính has
 
 Các hạn chế hiện tại:
 
-- submit hiện publish trực tiếp trong service thay vì tạo một review chain độc lập;
-- canonical workspace role là `analyst`, role này hiện có capability submit/review/publish;
+- submit chuyển version sang `in_review`; cả endpoint submit và report tạo từ
+  completed profile không publish trực tiếp;
+- Analyst có capability viết và submit draft; Owner mới có capability review/publish/archive;
 - `report_separation_of_duties` chưa được enforce;
 - list/get theo tên “published” vẫn dùng `published_only=False`; list loại rejected nhưng get/export chưa đồng nhất;
 - đường fallback có thể tạo `snapshot_hash="draft"`, nên không được xem là bằng chứng của snapshot bất biến.

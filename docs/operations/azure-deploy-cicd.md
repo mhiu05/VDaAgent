@@ -2,7 +2,7 @@
 
 > Trang tương thích cho liên kết cũ, đã đối chiếu ngày 2026-09-06. Runbook hiện hành là [Triển khai Azure](deployment.md) và workflow `.github/workflows/azure-container-deploy.yml`.
 
-Workflow hiện còn tham chiếu layout trước khi source chuyển vào `src/`; không chạy release cho tới khi các blocker trong [giới hạn kiến trúc](../architecture/known-limitations.md) được đóng.
+Workflow dùng `src/backend` và `src/frontend` làm path contract. `python scripts/check_repository_layout.py` chạy trong quality và deploy job để ngăn tái phát đường dẫn cũ.
 
 Workflow được thiết kế build hai image (`backend`, `frontend`), push vào ACR `p170linh260829acr.azurecr.io`, chạy migration bằng image theo commit SHA, rồi triển khai ba App Service: API `vdaagent-api`, worker lấy từ biến `AZURE_PROFILING_WORKER_APP` và frontend `vdaagent`.
 

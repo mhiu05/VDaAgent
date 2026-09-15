@@ -1917,234 +1917,6 @@
         }
       }
     },
-    "/api/v1/datasets/datasource/test": {
-      "post": {
-        "summary": "Test Datasource",
-        "description": "Validate an external source without persisting its credentials.",
-        "operationId": "test_datasource_api_v1_datasets_datasource_test_post",
-        "parameters": [
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasourceRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasourceTestResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/datasets/datasource": {
-      "post": {
-        "summary": "Connect Datasource",
-        "description": "Create a tenant-owned dataset backed by an encrypted external source.",
-        "operationId": "connect_datasource_api_v1_datasets_datasource_post",
-        "parameters": [
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasourceRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasourceConnectResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/datasets/datasource/{connection_id}/use": {
-      "post": {
-        "summary": "Use Saved Datasource",
-        "description": "Create a dataset that reuses an existing encrypted datasource connection.",
-        "operationId": "use_saved_datasource_api_v1_datasets_datasource__connection_id__use_post",
-        "parameters": [
-          {
-            "name": "connection_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Connection Id"
-            }
-          },
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasourceReuseRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DatasourceConnectResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/datasets/upload": {
       "post": {
         "summary": "Upload Dataset",
@@ -8269,105 +8041,6 @@
           }
         }
       },
-      "patch": {
-        "tags": [
-          "connectors"
-        ],
-        "summary": "Update Saved Datasource",
-        "operationId": "update_saved_datasource_api_v1_connectors__connection_id__patch",
-        "parameters": [
-          {
-            "name": "connection_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Connection Id"
-            }
-          },
-          {
-            "name": "expected_version",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Expected Version"
-            }
-          },
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasourceRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
       "delete": {
         "tags": [
           "connectors"
@@ -8443,250 +8116,10 @@
         }
       }
     },
-    "/api/v1/connectors/datasource": {
-      "post": {
-        "tags": [
-          "connectors"
-        ],
-        "summary": "Save Datasource Connection",
-        "operationId": "save_datasource_connection_api_v1_connectors_datasource_post",
-        "parameters": [
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasourceRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/connectors/datasource/test": {
-      "post": {
-        "tags": [
-          "connectors"
-        ],
-        "summary": "Test New Datasource",
-        "operationId": "test_new_datasource_api_v1_connectors_datasource_test_post",
-        "parameters": [
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DatasourceRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorTestResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/connectors/{connection_id}/test": {
-      "post": {
-        "tags": [
-          "connectors"
-        ],
-        "summary": "Test Saved Datasource",
-        "operationId": "test_saved_datasource_api_v1_connectors__connection_id__test_post",
-        "parameters": [
-          {
-            "name": "connection_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Connection Id"
-            }
-          },
-          {
-            "name": "X-Workspace-Id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Workspace-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConnectorTestResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/": {
       "get": {
         "summary": "Root",
-        "description": "Điểm vào API.\n\nFrontend được triển khai độc lập trong ``frontend/`` (Next.js), vì vậy\nFastAPI không còn phục vụ file UI hay giữ asset frontend trong process API.",
+        "description": "Điểm vào API.\n\nFrontend được triển khai độc lập trong ``src/frontend/`` (Next.js), vì vậy\nFastAPI không còn phục vụ file UI hay giữ asset frontend trong process API.",
         "operationId": "root__get",
         "responses": {
           "200": {
@@ -8819,7 +8252,7 @@
           },
           "trace_sequence": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Trace Sequence",
             "default": 0
           },
@@ -9195,8 +8628,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 12.0,
-                "minimum": 0.0
+                "maximum": 12,
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -9768,8 +9201,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 30.0,
-                "minimum": 5.0
+                "maximum": 30,
+                "minimum": 5
               },
               {
                 "type": "null"
@@ -9793,8 +9226,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 60.0,
-                "minimum": 1.0
+                "maximum": 60,
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -9806,8 +9239,8 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 365.0,
-                "minimum": 2.0
+                "maximum": 365,
+                "minimum": 2
               },
               {
                 "type": "null"
@@ -10550,6 +9983,11 @@
             "type": "boolean",
             "title": "Can Disconnect",
             "default": false
+          },
+          "unavailable": {
+            "type": "boolean",
+            "title": "Unavailable",
+            "default": false
           }
         },
         "type": "object",
@@ -10570,7 +10008,8 @@
           "connected",
           "attention_required",
           "expired",
-          "disconnected"
+          "disconnected",
+          "disabled"
         ],
         "title": "ConnectorStatus"
       },
@@ -11245,126 +10684,6 @@
         ],
         "title": "DatasetProfileResponse"
       },
-      "DatasourceConnectResponse": {
-        "properties": {
-          "dataset_id": {
-            "type": "string",
-            "title": "Dataset Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "source_type": {
-            "type": "string",
-            "enum": [
-              "mysql",
-              "mongodb",
-              "duckdb"
-            ],
-            "title": "Source Type"
-          },
-          "object_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Object Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "dataset_id",
-          "name",
-          "source_type"
-        ],
-        "title": "DatasourceConnectResponse"
-      },
-      "DatasourceRequest": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "mysql",
-              "mongodb",
-              "duckdb"
-            ],
-            "title": "Kind"
-          },
-          "config": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Config"
-          },
-          "name": {
-            "type": "string",
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "kind",
-          "name"
-        ],
-        "title": "DatasourceRequest"
-      },
-      "DatasourceReuseRequest": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Name"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "title": "DatasourceReuseRequest",
-        "description": "Create a dataset from an already saved workspace datasource."
-      },
-      "DatasourceTestResponse": {
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "title": "Ok",
-            "default": true
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "mysql",
-              "mongodb",
-              "duckdb"
-            ],
-            "title": "Kind"
-          },
-          "objects": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Objects"
-          },
-          "detail": {
-            "type": "string",
-            "title": "Detail"
-          }
-        },
-        "type": "object",
-        "required": [
-          "kind",
-          "detail"
-        ],
-        "title": "DatasourceTestResponse"
-      },
       "DriftFinding": {
         "properties": {
           "column_name": {
@@ -11706,7 +11025,10 @@
             "anyOf": [
               {
                 "type": "string",
-                "const": "analyst"
+                "enum": [
+                  "owner",
+                  "analyst"
+                ]
               },
               {
                 "type": "null"
@@ -13333,8 +12655,8 @@
           },
           "bins": {
             "type": "integer",
-            "maximum": 30.0,
-            "minimum": 5.0,
+            "maximum": 30,
+            "minimum": 5,
             "title": "Bins",
             "default": 12
           },
@@ -13381,15 +12703,15 @@
           },
           "forecast_horizon": {
             "type": "integer",
-            "maximum": 60.0,
-            "minimum": 1.0,
+            "maximum": 60,
+            "minimum": 1,
             "title": "Forecast Horizon",
             "default": 12
           },
           "season_length": {
             "type": "integer",
-            "maximum": 365.0,
-            "minimum": 2.0,
+            "maximum": 365,
+            "minimum": 2,
             "title": "Season Length",
             "default": 12
           },
@@ -13402,15 +12724,15 @@
           },
           "history_limit": {
             "type": "integer",
-            "maximum": 2000.0,
-            "minimum": 12.0,
+            "maximum": 2000,
+            "minimum": 12,
             "title": "History Limit",
             "default": 500
           },
           "limit": {
             "type": "integer",
-            "maximum": 500.0,
-            "minimum": 1.0,
+            "maximum": 500,
+            "minimum": 1,
             "title": "Limit",
             "default": 100
           },
@@ -13642,7 +12964,7 @@
           },
           "expected_draft_version": {
             "type": "integer",
-            "minimum": 1.0,
+            "minimum": 1,
             "title": "Expected Draft Version"
           }
         },
@@ -13820,8 +13142,8 @@
           },
           "sample_size": {
             "type": "integer",
-            "maximum": 10000000.0,
-            "minimum": 100.0,
+            "maximum": 10000000,
+            "minimum": 100,
             "title": "Sample Size",
             "default": 10000
           },
@@ -13829,7 +13151,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "minimum": 0.0
+                "minimum": 0
               },
               {
                 "type": "null"
@@ -13997,8 +13319,8 @@
             "anyOf": [
               {
                 "type": "number",
-                "exclusiveMaximum": 1.0,
-                "exclusiveMinimum": 0.0
+                "exclusiveMaximum": 1,
+                "exclusiveMinimum": 0
               },
               {
                 "type": "null"
@@ -14251,7 +13573,7 @@
           },
           "sequence": {
             "type": "integer",
-            "minimum": 1.0,
+            "minimum": 1,
             "title": "Sequence"
           },
           "event_type": {
@@ -14323,13 +13645,13 @@
         "properties": {
           "event_count": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Event Count",
             "default": 0
           },
           "latest_sequence": {
             "type": "integer",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Latest Sequence",
             "default": 0
           },
@@ -14549,7 +13871,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "minimum": 1.0
+                "minimum": 1
               },
               {
                 "type": "null"
@@ -14561,7 +13883,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "minimum": 1.0
+                "minimum": 1
               },
               {
                 "type": "null"

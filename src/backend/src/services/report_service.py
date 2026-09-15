@@ -115,11 +115,10 @@ class ReportService:
         self, report_id: str, workspace_id: str, user_id: str
     ) -> dict[str, Any]:
         try:
-            report = self.repo.publish_report(
+            report = self.repo.submit_report(
                 report_id,
                 workspace_id,
                 user_id,
-                reason="Tự động xuất bản report do Analyst tạo.",
             )
         except PermissionError as exc:
             raise ReportError(str(exc), 403) from exc
@@ -127,7 +126,7 @@ class ReportService:
             raise ReportError(str(exc), 409) from exc
         if not report:
             raise ReportError("Không tìm thấy report.", 404)
-        self._audit("report_published", report_id, workspace_id, user_id)
+        self._audit("report_submitted", report_id, workspace_id, user_id)
         return report
 
     def archive_report(self, report_id: str, workspace_id: str, user_id: str) -> bool:

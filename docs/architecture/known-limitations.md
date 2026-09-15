@@ -1,6 +1,12 @@
 # Giới hạn và sai lệch kiến trúc hiện tại
 
-> Snapshot đối chiếu ngày 2026-09-06. Đây là register để tránh mô tả behavior chưa hoàn thiện như guarantee; không phải backlog ưu tiên hay cam kết SLA.
+> Snapshot đối chiếu ngày 2026-09-14. Đây là register để tránh mô tả behavior chưa hoàn thiện như guarantee; không phải backlog ưu tiên hay cam kết SLA.
+
+## Database connector pilot boundary
+
+MySQL, MongoDB và DuckDB database connector không phải capability production/pilot. Guard backend trả `database_connectors_disabled` trước mọi resolve host, open file, decrypt credential, probe hay materialize; UI/OpenAPI không quảng bá chúng. DuckDB compute trên canonical CSV/Parquet/JSON vẫn là capability được hỗ trợ.
+
+Connection legacy chỉ giữ metadata redacted để Owner xóa. Dataset đã ingest giữ canonical artifact và không được refresh từ nguồn database. Việc tái mở connector là security design mới cần egress allowlist, sandbox filesystem, TLS/resource policy và regression test; không phải feature flag.
 
 ## Mức độ đọc
 
@@ -8,25 +14,6 @@
 - **Behavior gap:** code chạy nhưng semantics chưa khớp thiết kế mong muốn.
 - **Operational gap:** có primitive nhưng thiếu validation/scheduler/evidence production.
 
-## Chuyển layout vào `src/` chưa hoàn tất — blocking
-
-Source backend/frontend đã chuyển nguyên vẹn từ `backend/` và `frontend/` sang `src/backend/` và `src/frontend/`, nhưng các consumer đường dẫn chưa được cập nhật đồng bộ.
-
-| Consumer | Tham chiếu cũ còn tồn tại | Ảnh hưởng |
-| --- | --- | --- |
-| `Makefile` | `cd backend`, `cd frontend`, `PYTHONPATH=backend` | shortcut local không tìm thấy source |
-| `alembic.ini` | `script_location=backend/migrations`, `prepend_sys_path=backend` | lệnh migration từ root không tìm revision/package |
-| backend config | `PROJECT_ROOT` chỉ đi lên tới `src/`/`src/backend` | không nạp `.env` và `config.yaml` ở repository root |
-| Alembic env | `.env` resolve theo parent cũ | không nạp root `.env` sau relocation |
-| Docker backend | `COPY backend ./backend`, app-dir `backend` | build context không chứa thư mục được copy |
-| Docker/frontend workflow | build context/working directory `frontend` | frontend image và quality job không tìm project |
-| CI path filter/lint | theo `backend/`/`frontend/` | thay đổi dưới `src/` có thể không trigger đúng và lệnh fail |
-| test bootstrap | `ROOT / backend` | import `src.*` thất bại |
-| scripts/evaluation | nhiều `ROOT / backend` | migration/security/benchmark/index job không chạy theo layout mới |
-| `pyproject.toml` | Ruff include `backend/**/*.py` | source mới có thể không được lint |
-| root architecture/OpenAPI text | link/mô tả đường dẫn cũ | tài liệu/generated contract ngoài `docs/` bị stale |
-
-Vì vậy topology chức năng trong bộ tài liệu này phản ánh source đã chuyển, nhưng release hiện tại chưa được xem là buildable cho tới khi hoàn tất một logical migration gồm runtime root resolution, local command, test/script, Alembic, Docker và CI. Không tạo symlink/copy bí mật `.env` để che lỗi; nên sửa root discovery và manifest một cách nhất quán.
 
 ## Report submit bỏ qua review — behavior gap
 
@@ -62,8 +49,6 @@ P0–P2 có focused test, migration smoke và offline evaluation, nhưng artifac
 
 `config.yaml` và Python default khác nhau ở provider/retrieval; environment lại có ưu tiên cao nhất. LangSmith nhận mode `sanitized_content` nhưng adapter hiện vẫn gửi metadata allow-list và ẩn input/output. Luôn quan sát effective settings thay vì suy luận từ một file hay tên mode.
 
-Sau relocation, root discovery còn sai như mục blocking ở trên, nên effective settings có thể chỉ là Python default dù root `.env`/`config.yaml` tồn tại.
-
 ## Những điều chưa được coi là guarantee
 
 - benchmark synthetic/offline không phải SLA production;
@@ -74,20 +59,18 @@ Sau relocation, root discovery còn sai như mục blocking ở trên, nên effe
 - compatibility `create_all`/runtime migration không phải production schema strategy;
 - report submit hiện tại không chứng minh reviewer độc lập;
 - cross-dataset drift không chứng minh hai nguồn comparable;
-- source nằm trong `src/` chưa đồng nghĩa Docker/CI/runtime đã dùng layout đó.
 
 ## Điều kiện đóng các gap
 
 | Gap | Bằng chứng tối thiểu để đóng |
 | --- | --- |
-| Layout `src/` | local API/worker/frontend, Alembic smoke, full relevant tests, Docker build và CI path filter đều chạy từ clean checkout |
 | Report lifecycle | route/service/repository thống nhất state transition, capability/SoD test và UI contract |
 | Drift comparability | same-dataset invariant hoặc explicit cross-dataset mode có metadata/warning/test |
 | Context approval | một governance policy thống nhất cho promote và generic execution |
 | HITL policy | typed allow-list + startup validation + negative tests cho PII/key |
 | Chat release | staging authenticated evaluation đúng SHA + latency/grounding/privacy evidence |
 | Retention | scheduler, metric/alert, dry-run/audit và recovery policy |
-| Config | root resolution đúng, effective-config test cho local/container/CI và secret boundary review |
+| Config | effective-config test cho local/container/CI và secret boundary review |
 
 ## Checklist khi cập nhật register
 

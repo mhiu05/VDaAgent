@@ -162,8 +162,9 @@ def test_completed_profile_can_create_report_workspace_entry(
     response = client.post(f"/api/v1/profile/{run_id}/report", json={})
     assert response.status_code == 201, response.text
     report = response.json()
-    assert report["status"] == "published"
+    assert report["status"] == "in_review"
     assert report["versions"]
+    assert report["versions"][0]["status"] == "in_review"
     assert report["versions"][0]["sections"]
 
     detail = client.get(f"/api/v1/reports/{report['id']}")
@@ -179,6 +180,9 @@ def test_report_author_cannot_delete_published_report(
     )
     assert created.status_code == 201, created.text
     report_id = created.json()["id"]
+
+    published = client.post(f"/api/v1/reports/{report_id}/publish", json={})
+    assert published.status_code == 200, published.text
 
     deleted = client.delete(f"/api/v1/reports/{report_id}")
     assert deleted.status_code == 409, deleted.text
@@ -1044,52 +1048,50 @@ def test_workspace_header_cannot_target_another_workspace_drive_import(
 # Dataset & audit
 # --------------------------------------------------------------------------- #
 def test_workspace_can_be_created_listed_and_archived(client: TestClient, monkeypatch) -> None:
-    headers = _analyst_headers(client, monkeypatch)
     created = client.post(
-        "/api/v1/workspaces", json={"name": "Project Workspace QA"}, headers=headers
+        "/api/v1/workspaces", json={"name": "Project Workspace QA"}
     )
     assert created.status_code == 201, created.text
     workspace = created.json()
     assert workspace["is_project"] is True
     assert workspace["name"] == "Project Workspace QA"
 
-    listed = client.get("/api/v1/workspaces", headers=headers)
+    listed = client.get("/api/v1/workspaces")
     assert listed.status_code == 200, listed.text
     assert any(item["id"] == workspace["id"] for item in listed.json()["workspaces"])
 
-    archived = client.delete(f"/api/v1/workspaces/{workspace['id']}", headers=headers)
+    archived = client.delete(f"/api/v1/workspaces/{workspace['id']}")
     assert archived.status_code == 200, archived.text
     assert archived.json() == {"deleted": True, "workspace_id": workspace["id"]}
-    assert not any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces", headers=headers).json()["workspaces"])
+    assert not any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces").json()["workspaces"])
 
-    archived_list = client.get("/api/v1/workspaces/archived", headers=headers)
+    archived_list = client.get("/api/v1/workspaces/archived")
     assert archived_list.status_code == 200, archived_list.text
     assert any(item["id"] == workspace["id"] for item in archived_list.json()["workspaces"])
 
-    restored = client.post(f"/api/v1/workspaces/{workspace['id']}/restore", headers=headers)
+    restored = client.post(f"/api/v1/workspaces/{workspace['id']}/restore")
     assert restored.status_code == 200, restored.text
     assert restored.json() == {"restored": True, "workspace_id": workspace["id"]}
-    assert any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces", headers=headers).json()["workspaces"])
+    assert any(item["id"] == workspace["id"] for item in client.get("/api/v1/workspaces").json()["workspaces"])
 
 
-def test_analyst_can_permanently_delete_owned_workspace(client: TestClient, monkeypatch) -> None:
-    headers = _analyst_headers(client, monkeypatch)
+def test_owner_can_permanently_delete_owned_workspace(client: TestClient, monkeypatch) -> None:
     created = client.post(
-        "/api/v1/workspaces", json={"name": "Project Workspace Purge QA"}, headers=headers
+        "/api/v1/workspaces", json={"name": "Project Workspace Purge QA"}
     )
     assert created.status_code == 201, created.text
     workspace = created.json()
 
-    purged = client.delete(f"/api/v1/workspaces/{workspace['id']}/permanent", headers=headers)
+    purged = client.delete(f"/api/v1/workspaces/{workspace['id']}/permanent")
     assert purged.status_code == 200, purged.text
     assert purged.json() == {"deleted": True, "workspace_id": workspace["id"]}
     assert not any(
         item["id"] == workspace["id"]
-        for item in client.get("/api/v1/workspaces", headers=headers).json()["workspaces"]
+        for item in client.get("/api/v1/workspaces").json()["workspaces"]
     )
 
 
-def test_analyst_can_manage_members_and_pending_invitations(
+def test_owner_can_manage_members_and_pending_invitations(
     client: TestClient, monkeypatch
 ) -> None:
     session = client.get("/api/v1/session")
@@ -1100,28 +1102,27 @@ def test_analyst_can_manage_members_and_pending_invitations(
     assert members.status_code == 200, members.text
     assert any(item["user_id"] == actor_id for item in members.json()["members"])
 
-    analyst_headers = _analyst_headers(client, monkeypatch)
-    analyst_session = client.get("/api/v1/session", headers=analyst_headers)
-    assert analyst_session.status_code == 200, analyst_session.text
-    analyst_id = analyst_session.json()["user"]["id"]
-    assert client.get("/api/v1/workspaces/current/members", headers=analyst_headers).status_code == 200
-
     no_change = client.patch(
-        f"/api/v1/workspaces/current/members/{analyst_id}",
+        f"/api/v1/workspaces/current/members/{actor_id}",
         json={},
-        headers=analyst_headers,
     )
     assert no_change.status_code == 422, no_change.text
+
+    last_owner = client.patch(
+        f"/api/v1/workspaces/current/members/{actor_id}",
+        json={"role": "analyst"},
+    )
+    assert last_owner.status_code == 409, last_owner.text
+    assert last_owner.json()["detail"]["code"] == "last_owner_conflict"
 
     invited = client.post(
         "/api/v1/workspaces/current/invitations",
         json={"email": "analyst.workspace@example.com", "role": "analyst"},
-        headers=analyst_headers,
     )
     assert invited.status_code == 201, invited.text
     invitation_id = invited.json()["id"]
 
-    invitations = client.get("/api/v1/workspaces/current/invitations", headers=analyst_headers)
+    invitations = client.get("/api/v1/workspaces/current/invitations")
     assert invitations.status_code == 200, invitations.text
     invitation = next(item for item in invitations.json()["invitations"] if item["id"] == invitation_id)
     assert invitation["email"] == "analyst.workspace@example.com"
@@ -1129,22 +1130,75 @@ def test_analyst_can_manage_members_and_pending_invitations(
 
     cancelled = client.delete(
         f"/api/v1/workspaces/current/invitations/{invitation_id}",
-        headers=analyst_headers,
     )
     assert cancelled.status_code == 200, cancelled.text
     assert cancelled.json() == {"cancelled": True}
 
-    suspend_member = client.patch(
-        f"/api/v1/workspaces/current/members/{analyst_id}",
-        json={"status": "suspended"},
+    analyst_headers = _analyst_headers(client, monkeypatch)
+    assert client.get("/api/v1/workspaces/current/members", headers=analyst_headers).status_code == 403
+    assert client.post(
+        "/api/v1/workspaces/current/invitations",
+        json={"email": "blocked@example.com", "role": "analyst"},
         headers=analyst_headers,
+    ).status_code == 403
+    assert client.patch(
+        f"/api/v1/workspaces/current/members/{actor_id}",
+        json={"role": "owner"},
+        headers=analyst_headers,
+    ).status_code == 403
+
+
+def test_analyst_is_denied_each_sensitive_workspace_capability(
+    client: TestClient, monkeypatch
+) -> None:
+    headers = _analyst_headers(client, monkeypatch)
+    responses = [
+        client.post("/api/v1/workspaces", json={"name": "Blocked workspace"}, headers=headers),
+        client.get("/api/v1/workspaces/archived", headers=headers),
+        client.delete("/api/v1/datasets/not-a-dataset", headers=headers),
+        client.get("/api/v1/audit", headers=headers),
+        client.get("/api/v1/google-drive/connect", headers=headers),
+        client.post("/api/v1/connectors/not-a-connector/test", headers=headers),
+        client.delete("/api/v1/connectors/not-a-connector", headers=headers),
+        client.post(
+            "/api/v1/datasets/datasource/not-a-connection/use",
+            json={"name": "Blocked datasource"},
+            headers=headers,
+        ),
+        client.post(
+            "/api/v1/reports/not-a-report/review",
+            json={"decision": "approved"},
+            headers=headers,
+        ),
+        client.post(
+            "/api/v1/reports/not-a-report/publish", json={}, headers=headers
+        ),
+        client.post("/api/v1/reports/not-a-report/archive", headers=headers),
+    ]
+    assert [response.status_code for response in responses] == [403] * len(responses)
+
+
+def test_analyst_submission_enters_review_without_publishing(
+    client: TestClient, monkeypatch
+) -> None:
+    headers = _analyst_headers(client, monkeypatch)
+    session = client.get("/api/v1/session", headers=headers)
+    assert session.status_code == 200, session.text
+    snapshot = session.json()
+    report = get_repository().create_report(
+        snapshot["workspace"]["id"],
+        snapshot["user"]["id"],
+        {"title": "Analyst review submission"},
     )
-    assert suspend_member.status_code == 200, suspend_member.text
-    # The workspace header is now rejected as not found after suspension so
-    # the API does not reveal membership details to an inactive user.
-    assert client.get(
-        "/api/v1/workspaces/current/members", headers=analyst_headers
-    ).status_code == 404
+
+    submitted = client.post(f"/api/v1/reports/{report['id']}/submit", headers=headers)
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["status"] == "in_review"
+    assert submitted.json()["versions"][0]["status"] == "in_review"
+
+    assert client.post(
+        f"/api/v1/reports/{report['id']}/publish", json={}, headers=headers
+    ).status_code == 403
 
 
 def test_list_datasets_and_runs(client: TestClient, profile_run: dict) -> None:

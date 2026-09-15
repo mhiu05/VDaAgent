@@ -1,15 +1,14 @@
-import os
 import sys
 from pathlib import Path
 # pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 
-sys.path.insert(0, r"d:\VinUIniAi\DataProfiling\P-170\backend")
-load_dotenv(r"d:\VinUIniAi\DataProfiling\P-170\.env")
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src" / "backend"))
+load_dotenv(ROOT / ".env")
 
-from src.services.repository import get_repository
-from src.services.google_drive import GoogleDriveStorage
-from src.config import get_settings
+from src.config import get_settings  # noqa: E402
+from src.services.repository import get_repository  # noqa: E402
 
 repo = get_repository()
 run_id = "5a0bb24ef24c4082a93b58e9e550974c"

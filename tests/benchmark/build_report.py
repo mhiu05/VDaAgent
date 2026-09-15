@@ -224,7 +224,7 @@ def main() -> None:
         "",
         f"- Run: `{metadata.get('run_id', 'N/A')}`",
         f"- Phạm vi: {deterministic.get('unique_cases', 0)} case tiếng Việt, {deterministic.get('executed_requests', 0)} request",
-        f"- Môi trường: `{str(metadata.get('environment', 'local')).upper()}`; frontend/backend health `{auth.get('frontend_status_code', 'N/A')}/{auth.get('backend_health_status_code', 'N/A')}`",
+        f"- Môi trường: `{str(metadata.get('environment', 'local')).upper()}`; frontend and backend health `{auth.get('frontend_status_code', 'N/A')}/{auth.get('backend_health_status_code', 'N/A')}`",
         f"- Dữ liệu: synthetic; phiên bản `{manifest.get('benchmark_version', 'N/A')}`",
         "- Trạng thái phát hành: **DRAFT_NOT_APPROVED** — kết quả local không phải production evidence",
         "",

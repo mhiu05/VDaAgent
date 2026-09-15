@@ -2,8 +2,7 @@
 
 > Đã đối chiếu với Makefile, package scripts, test harness và CI hiện tại ngày 2026-09-06.
 
-> **Trạng thái working tree:** source đã chuyển vào `src/backend` và `src/frontend`, nhưng Makefile, Alembic, test bootstrap, nhiều script, Docker và CI vẫn dùng layout cũ. Vì vậy clean local workflow đang bị chặn cho tới khi hoàn tất migration đường dẫn. Các lệnh dưới đây là contract mục tiêu theo layout mới; xem [giới hạn hiện tại](../architecture/known-limitations.md).
-
+> **Path contract:** source ở `src/backend` và `src/frontend`; mọi lệnh trong trang này chạy từ repository root hoặc các working directory được nêu rõ. Chạy `python scripts/check_repository_layout.py` trước khi chạy test/build để phát hiện entry point cũ.
 ## Yêu cầu
 
 - Python 3.11;
@@ -56,7 +55,7 @@ Khi máy dev có worker khác dùng test DB cấu hình sẵn, chạy suite tron
 
 Harness chỉ dùng server/credential từ `P170_TEST_DATABASE_URL`, không sửa database đó; nó tạo, migrate và drop một database tên `p170_test_*` trong `finally`.
 
-## Chạy ba process sau khi hoàn tất migration layout
+## Chạy ba process theo path contract
 
 Terminal API:
 

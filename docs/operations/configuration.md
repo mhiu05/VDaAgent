@@ -2,7 +2,7 @@
 
 > Đã đối chiếu với `config.yaml`, `.env.example` và `src/backend/src/config.py` ngày 2026-09-06.
 
-> **Sai lệch hiện tại:** sau khi backend chuyển vào `src/backend`, logic `PROJECT_ROOT` vẫn đi lên theo layout cũ và có thể không tìm `.env`/`config.yaml` ở repository root. Thứ tự ưu tiên bên dưới là thiết kế của settings, nhưng phải sửa root discovery trước khi dùng làm guarantee runtime. Xem [giới hạn hiện tại](../architecture/known-limitations.md).
+> `PROJECT_ROOT` được resolve từ vị trí source về repository root chứa `README.md`, `config.yaml` và `alembic.ini`, vì vậy `.env`/`config.yaml` không phụ thuộc working directory. Xem [giới hạn hiện tại](../architecture/known-limitations.md) cho các hạn chế cấu hình còn lại.
 
 Backend nạp cấu hình theo thứ tự ưu tiên:
 
@@ -70,6 +70,12 @@ Auth mode, guest/signup/email confirmation, issuer/audience, JWKS cache, token f
 ### Storage và connector
 
 `CANONICAL_STORAGE_PROVIDER` chọn Supabase production hoặc local development. Google Drive OAuth/folder chỉ bật connector import và không phải dependency startup. `STORAGE_PROVIDER` là bridge cấu hình cũ; không dùng cho deployment mới.
+
+### Database connector policy
+
+Pilot chỉ hỗ trợ upload canonical và Google Drive import. MySQL, MongoDB và DuckDB database connector bị tắt cố định ở backend. `DATABASE_CONNECTORS_ENABLED` mặc định là `false`; nếu đặt `true`, Settings từ chối khởi động thay vì làm rộng trust boundary. Không dùng feature flag hay override deployment để tái bật connector.
+
+`DATASOURCE_ENCRYPTION_KEY` vẫn là secret production vì có thể còn connection legacy được xóa trong giai đoạn cleanup. Không log giá trị đã giải mã, hostname, URI, password hoặc đường dẫn DuckDB. Tái mở connector cần một thiết kế hardening/egress/sandbox độc lập và không thuộc cấu hình pilot.
 
 ### Telemetry
 

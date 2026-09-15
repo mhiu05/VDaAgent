@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
+from src.config import PROJECT_ROOT
 from src.services.repository import metadata as target_metadata
 
 config = context.config
@@ -19,7 +19,7 @@ if config.config_file_name:
 # the application already treats the root .env as its shared configuration
 # source.  Load it here as a fallback; an explicitly exported environment
 # variable still wins and remains the preferred production secret mechanism.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 # Metadata is used for inspection commands (``alembic check`` and
 # autogenerate).  Runtime schema creation remains exclusively in revisions;
@@ -31,6 +31,7 @@ _ROLLOUT_ONLY_OBJECTS = {
     "uq_report_versions_report_version",
     "ck_membership_role",
     "ck_membership_status",
+    "ck_workspace_invitation_role",
 }
 
 

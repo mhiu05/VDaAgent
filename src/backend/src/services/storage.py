@@ -623,7 +623,12 @@ def materialize_source(
     if source_limit <= 0:
         raise ValueError("Giới hạn source cho profiling phải lớn hơn 0.")
     if source_ref.lower().startswith("datasource://"):
-        from src.services.datasource import DatasourceError, connection_id_from_ref, materialize_connection
+        from src.services.datasource import (
+            DatasourceError,
+            connection_id_from_ref,
+            materialize_connection,
+            reject_database_connector,
+        )
         from src.services.repository import get_repository
 
         connection_id = connection_id_from_ref(source_ref)
@@ -632,6 +637,7 @@ def materialize_source(
         connection = get_repository(settings).get_datasource_connection_any(connection_id)
         if connection is None:
             raise DatasourceError("Không tìm thấy datasource connection.")
+        reject_database_connector(str(connection.get("kind", "")))
         with materialize_connection(connection, current_settings) as readable_path:
             yield readable_path
         return

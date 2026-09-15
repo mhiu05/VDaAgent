@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 ROOT = Path(__file__).resolve().parents[1]
-BACKEND_ROOT = ROOT / "backend"
+BACKEND_ROOT = ROOT / "src" / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 

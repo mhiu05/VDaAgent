@@ -51,7 +51,7 @@ const analystNavigation = [
     label: "Dữ liệu",
     icon: "database",
     children: [
-      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Quản lý datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetUpload },
+      { href: "/connectors", label: "Connectors", icon: "/connectors", description: "Xem datasource, storage và productivity integrations của workspace.", permission: PERMISSIONS.datasetRead },
       { href: "/datasets", label: "Tải dữ liệu", icon: "▦", description: "Tải dữ liệu, tạo profile run và kiểm tra chất lượng dữ liệu.", permission: PERMISSIONS.datasetRead },
     ]
   },

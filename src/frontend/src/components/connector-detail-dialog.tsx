@@ -8,17 +8,18 @@ const labels: Record<string, string> = { mysql: "MySQL", mongodb: "MongoDB", duc
 
 function target(connector: Connector): string {
   const value = connector.safe_target;
+  if (connector.unavailable || connector.status === "disabled") return "Nguồn database đã tắt trong pilot";
   if (connector.provider === "google_drive") return value.configured ? "Storage workspace" : "Chưa cấu hình OAuth";
   if (connector.provider === "mysql" || connector.provider === "mongodb") return [value.host, value.database].filter(Boolean).join(" · ") || "Datasource đã lưu";
   return String(value.file || "DuckDB trên backend");
 }
 
-export function ConnectorDetailDialog({ connector, onClose, onTest, onDisconnect, busy }: {
+export function ConnectorDetailDialog({ connector, onClose, onDisconnect, busy, canManage = true }: {
   connector: Connector | null;
   onClose: () => void;
-  onTest: (id: string) => void;
   onDisconnect: (id: string) => void;
   busy: string | null;
+  canManage?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -47,13 +48,12 @@ export function ConnectorDetailDialog({ connector, onClose, onTest, onDisconnect
       <div className="panel-title"><div><p className="eyebrow">{connector.category}</p><h2 id="connector-detail-title">{labels[connector.provider] || connector.provider}</h2></div><button className="button secondary" type="button" onClick={onClose} aria-label="Đóng chi tiết connector">Đóng</button></div>
       <p className="connector-detail-name">{connector.name}</p>
       <dl className="connector-detail-meta"><div><dt>Target</dt><dd>{target(connector)}</dd></div><div><dt>Scope</dt><dd>{connector.owner_scope === "workspace_user" ? "Theo người dùng" : "Theo workspace"}</dd></div><div><dt>Dataset</dt><dd>{connector.dataset_count}</dd></div><div><dt>Kiểm tra gần nhất</dt><dd>{connector.last_tested_at ? new Date(connector.last_tested_at).toLocaleString("vi-VN") : "Chưa kiểm tra"}</dd></div></dl>
-      {connector.last_error_code && <Notice tone="warning"><span aria-live="polite">{connector.last_error_code}. Hãy kiểm tra hoặc kết nối lại.</span></Notice>}
-      <p className="sr-only" aria-live="polite">{busy === `test:${connector.id}` ? "Đang kiểm tra kết nối…" : busy === `delete:${connector.id}` ? "Đang xóa kết nối…" : ""}</p>
+      {connector.unavailable ? <Notice tone="warning"><span aria-live="polite">Kết nối database này đã bị tắt. Dataset đã ingest vẫn giữ artifact hiện có, nhưng không thể kiểm tra, dùng lại hoặc làm mới từ nguồn cũ.</span></Notice> : connector.last_error_code && <Notice tone="warning"><span aria-live="polite">{connector.last_error_code}. Hãy kiểm tra hoặc kết nối lại.</span></Notice>}
+      <p className="sr-only" aria-live="polite">{busy === `delete:${connector.id}` ? "Đang xóa kết nối…" : ""}</p>
       <div className="form-actions">
-        {connector.can_test && connector.category === "data" && <LoadingButton className="button primary" type="button" busy={busy === `test:${connector.id}`} disabled={busy !== null} onClick={() => onTest(connector.id)}>Kiểm tra kết nối</LoadingButton>}
-        {connector.category === "data" && <a className="button secondary" href="/datasets/new">Dùng cho dataset</a>}
+        {connector.category === "data" && !connector.unavailable && <a className="button secondary" href="/datasets/new">Dùng cho dataset</a>}
         {connector.provider === "google_drive" && <a className="button secondary" href="/datasets/new">Dùng cho upload</a>}
-        {connector.can_disconnect && <LoadingButton className="button danger" type="button" busy={busy === `delete:${connector.id}`} disabled={busy !== null} onClick={() => onDisconnect(connector.id)}>Xóa kết nối</LoadingButton>}
+        {canManage && connector.can_disconnect && <LoadingButton className="button danger" type="button" busy={busy === `delete:${connector.id}`} disabled={busy !== null} onClick={() => onDisconnect(connector.id)}>Xóa kết nối</LoadingButton>}
       </div>
     </div>
   </dialog>;
