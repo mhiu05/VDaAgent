@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "snapshot_date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "market_external_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "market_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "project_external_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "project_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "zone_external_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "zone_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "unit_external_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "unit_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "unit_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "area_sqm": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 40,
+          "pattern": "^\\d+(?:\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "list_price": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 40,
+          "pattern": "^\\d+(?:\\.\\d+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "available",
+        "reserved",
+        "sold",
+        "held",
+        "unknown"
+      ]
+    },
+    "available_since": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sold_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "bedrooms": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "snapshot_date",
+    "market_external_id",
+    "market_name",
+    "project_external_id",
+    "project_name",
+    "zone_external_id",
+    "zone_name",
+    "unit_external_id",
+    "unit_code",
+    "unit_type",
+    "area_sqm",
+    "list_price",
+    "currency",
+    "status",
+    "available_since",
+    "sold_at",
+    "bedrooms"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,79 @@
+table,column,storage_type,nullable,grain,notes
+fact_inventory_snapshot,org_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,snapshot_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,import_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,snapshot_date,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,country_code,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,market_external_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,market_name,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,project_external_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,project_name,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,zone_external_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,zone_name,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,unit_external_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,unit_code,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,unit_type,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,area_sqm,string,yes,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,list_price,string,yes,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,currency,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,status,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,available_since,string,yes,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,sold_at,string,yes,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,bedrooms,string,yes,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,floor_number,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,building_block,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,view_type,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,orientation,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,handover_status,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,sales_channel,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,source_system,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,batch_id,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,dataset_version,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_inventory_snapshot,synthetic_marker,string,no,one unit per snapshot_date,decimal values are serialized as plain numeric strings
+fact_transaction,transaction_id,string,no,one synthetic transaction event,
+fact_transaction,org_id,string,no,one synthetic transaction event,
+fact_transaction,unit_external_id,string,no,one synthetic transaction event,
+fact_transaction,project_external_id,string,no,one synthetic transaction event,
+fact_transaction,zone_external_id,string,no,one synthetic transaction event,
+fact_transaction,transaction_date,string,no,one synthetic transaction event,
+fact_transaction,transaction_type,string,no,one synthetic transaction event,
+fact_transaction,transaction_status,string,no,one synthetic transaction event,
+fact_transaction,currency,string,no,one synthetic transaction event,
+fact_transaction,gross_amount,string,no,one synthetic transaction event,
+fact_transaction,discount_amount,string,no,one synthetic transaction event,
+fact_transaction,net_amount,string,no,one synthetic transaction event,
+fact_transaction,payment_method,string,no,one synthetic transaction event,
+fact_transaction,sales_channel,string,no,one synthetic transaction event,
+fact_transaction,customer_segment,string,no,one synthetic transaction event,
+fact_transaction,agent_external_id,string,no,one synthetic transaction event,
+fact_transaction,contract_type,string,no,one synthetic transaction event,
+fact_transaction,cancellation_reason,string,yes,one synthetic transaction event,
+fact_transaction,dataset_version,string,no,one synthetic transaction event,
+fact_transaction,synthetic_marker,string,no,one synthetic transaction event,
+fact_price_history,price_history_id,string,no,one unit price change event,
+fact_price_history,org_id,string,no,one unit price change event,
+fact_price_history,unit_external_id,string,no,one unit price change event,
+fact_price_history,project_external_id,string,no,one unit price change event,
+fact_price_history,effective_date,string,no,one unit price change event,
+fact_price_history,previous_price,string,yes,one unit price change event,
+fact_price_history,new_price,string,no,one unit price change event,
+fact_price_history,currency,string,no,one unit price change event,
+fact_price_history,change_percent,string,yes,one unit price change event,
+fact_price_history,change_reason,string,no,one unit price change event,
+fact_price_history,approved_by,string,no,one unit price change event,
+fact_price_history,dataset_version,string,no,one unit price change event,
+fact_price_history,synthetic_marker,string,no,one unit price change event,
+fact_reservation,reservation_id,string,no,one reservation lifecycle record,
+fact_reservation,org_id,string,no,one reservation lifecycle record,
+fact_reservation,unit_external_id,string,no,one reservation lifecycle record,
+fact_reservation,project_external_id,string,no,one reservation lifecycle record,
+fact_reservation,reservation_date,string,no,one reservation lifecycle record,
+fact_reservation,expiry_date,string,no,one reservation lifecycle record,
+fact_reservation,status,string,no,one reservation lifecycle record,
+fact_reservation,deposit_amount,string,no,one reservation lifecycle record,
+fact_reservation,currency,string,no,one reservation lifecycle record,
+fact_reservation,sales_channel,string,no,one reservation lifecycle record,
+fact_reservation,customer_segment,string,no,one reservation lifecycle record,
+fact_reservation,cancellation_reason,string,yes,one reservation lifecycle record,
+fact_reservation,dataset_version,string,no,one reservation lifecycle record,
+fact_reservation,synthetic_marker,string,no,one reservation lifecycle record,

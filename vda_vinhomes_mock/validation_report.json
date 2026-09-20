@@ -1,0 +1,97 @@
+{
+  "dataset_version": "2026-09-v1",
+  "validated_at": "2026-09-20T00:00:00Z",
+  "passed": true,
+  "error_count": 0,
+  "warning_count": 0,
+  "errors": [],
+  "warnings": [],
+  "stats": {
+    "dimensions": {
+      "units": 60000,
+      "projects": 12,
+      "zones": 300,
+      "markets": 5
+    },
+    "inventory": {
+      "rows": 600000,
+      "shards": 12,
+      "status_distribution": {
+        "reserved": 12367,
+        "sold": 73392,
+        "available": 254852,
+        "unknown": 250432,
+        "held": 8957
+      },
+      "project_distribution": {
+        "c73c9b8e-2acb-5387-90d0-acadca74203d": 50000,
+        "d6c9a6d6-601f-5999-82e3-b7260b11e09f": 50000,
+        "55122a88-6fbf-5128-8cbf-1da9c6cd9ddb": 50000,
+        "a92590ca-f558-5839-b29c-d23d727d5cda": 50000,
+        "279c5750-2441-5a08-bfef-d15c4646d1d5": 50000,
+        "b7acc985-8008-574a-a5c6-4ce504cfe02f": 50000,
+        "d5d9e813-42be-5350-9b38-c1f343451df2": 50000,
+        "84d3b127-c512-5aed-983a-77264916a6cb": 50000,
+        "b49e2bed-a56a-5dda-bb2d-5919a8df1ab7": 50000,
+        "56cc38ca-a264-5f21-8939-d2a2c1416eac": 50000,
+        "bc5936a2-7d6e-55ad-98ea-b2737fd3bc1d": 50000,
+        "a3d91520-b056-5e02-8587-e55dd27b9329": 50000
+      },
+      "city_distribution": {
+        "Hà Nội": 150000,
+        "Thành phố Hồ Chí Minh": 150000,
+        "Hải Phòng": 100000,
+        "Quảng Ninh": 100000,
+        "Thành phố vệ tinh quanh Hà Nội và Thành phố Hồ Chí Minh": 100000
+      },
+      "null_distribution": {
+        "area_sqm": 70,
+        "list_price": 50,
+        "available_since": 258484,
+        "sold_at": 526608,
+        "bedrooms": 200380
+      },
+      "snapshot_coverage_bad_units": 0
+    },
+    "compatibility_extract_rows": 60000,
+    "transactions": {
+      "rows": 180000,
+      "shards": 4,
+      "status_distribution": {
+        "completed": 149350,
+        "cancelled": 7300,
+        "refunded": 3250,
+        "confirmed": 13850,
+        "pending": 6250
+      }
+    },
+    "price_history": {
+      "rows": 270000,
+      "shards": 6,
+      "status_distribution": {}
+    },
+    "reservations": {
+      "rows": 70000,
+      "shards": 2,
+      "status_distribution": {
+        "converted": 27397,
+        "expired": 22280,
+        "cancelled": 10000,
+        "refunded": 10000,
+        "active": 323
+      }
+    },
+    "quarantine_counts": {
+      "duplicate_records.csv": 2,
+      "inconsistent_lifecycle.csv": 2,
+      "invalid_area.csv": 2,
+      "invalid_currency.csv": 2,
+      "invalid_dates.csv": 2,
+      "invalid_prices.csv": 2,
+      "invalid_status.csv": 2,
+      "missing_dimensions.csv": 4
+    },
+    "checksum_failures": [],
+    "primary_fact_rows": 1120000
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@vda/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../../../.env --import tsx --watch src/index.ts",
+    "start": "node --env-file-if-exists=../../../.env --import tsx src/index.ts",
+    "once": "node --env-file-if-exists=../../../.env --import tsx src/index.ts --once",
+    "scheduler:tick": "node --env-file-if-exists=../../../.env --import tsx src/index.ts --scheduler-once",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vda/config": "workspace:*",
+    "@vda/db": "workspace:*",
+    "@vda/agents": "workspace:*"
+  }
+}

@@ -1,61 +1,92 @@
 .DEFAULT_GOAL := help
 
-# VDaAgent development shortcuts.
-# These commands are written for the repository's Windows/PowerShell setup.
+# VDaAgent shortcuts for the pnpm workspace.
+PNPM ?= pnpm
 
-SHELL := cmd.exe
-SHELLFLAGS := /C
-
-BACKEND_PORT ?= 8000
-FRONTEND_PORT ?= 3000
-BACKEND_HOST ?= 0.0.0.0
-BACKEND_DIR := src\backend
-FRONTEND_DIR := src\frontend
-ROOT_PYTHON ?= $(CURDIR)\.venv\Scripts\python.exe
-BACKEND_PYTHON ?= $(ROOT_PYTHON)
-
-.PHONY: help backend worker frontend dev install install-backend install-frontend health frontend-build frontend-check
+.PHONY: help install i dev d dev-web dw dev-worker dworker build b typecheck tc lint l format f format-check fc test t test-e2e e2e check test-db db-test db-start db-reset scheduler-tick contracts-export check-docs check-security mock-data-validate-source mock-data-import mock-data-validate
 
 help:
 	@echo "VDaAgent commands:"
-	@echo "  make backend          Start FastAPI backend on port $(BACKEND_PORT)"
-	@echo "  make worker           Start the durable profiling worker"
-	@echo "  make frontend         Start Next.js frontend on port $(FRONTEND_PORT)"
-	@echo "  make dev              Open backend, worker and frontend in separate terminals"
-	@echo "  make install          Install backend and frontend dependencies"
-	@echo "  make health           Check backend health"
-	@echo "  make frontend-build   Create a production frontend build"
-	@echo "  make frontend-check   Run frontend typecheck and lint"
+	@echo "  make install (i)                  Install dependencies"
+	@echo "  make dev (d)                      Start frontend and worker"
+	@echo "  make dev-web (dw)                 Start the frontend only"
+	@echo "  make dev-worker (dworker)         Start the worker only"
+	@echo "  make build (b)                    Build all packages"
+	@echo "  make typecheck (tc)               Run TypeScript checks"
+	@echo "  make lint (l)                     Run ESLint"
+	@echo "  make format (f)                   Format files"
+	@echo "  make format-check (fc)            Check formatting"
+	@echo "  make test (t)                     Run unit/integration tests"
+	@echo "  make test-e2e (e2e)               Run Playwright end-to-end tests"
+	@echo "  make check                        Run format, lint, typecheck and tests"
+	@echo "  make db-start                     Start local Supabase"
+	@echo "  make db-reset                     Reset local database"
+	@echo "  make db-test                      Run database tests"
+	@echo "  make mock-data-validate-source    Validate mock source data"
+	@echo "  make mock-data-import             Import mock data"
+	@echo "  make mock-data-validate           Validate imported mock data"
 
-backend:
-	cd /d "$(CURDIR)\$(BACKEND_DIR)" && "$(BACKEND_PYTHON)" -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)
+install i:
+	$(PNPM) install --frozen-lockfile
 
-frontend:
-	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd dev --port $(FRONTEND_PORT)
+dev d:
+	$(PNPM) dev
 
-worker:
-	cd /d "$(CURDIR)" && set "PYTHONPATH=$(CURDIR)\$(BACKEND_DIR)" && "$(ROOT_PYTHON)" -m src.workers.profiling_worker
+dev-web dw:
+	$(PNPM) dev:web
 
-# Windows helper: starts each long-running process in its own terminal window.
-# Run this target only when no VDaAgent backend or frontend process is already running.
-dev:
-	cmd.exe /d /c start "VDaAgent backend" /D "$(CURDIR)\$(BACKEND_DIR)" cmd.exe /k ""$(BACKEND_PYTHON)" -m uvicorn src.main:app --reload --host $(BACKEND_HOST) --port $(BACKEND_PORT)"
-	cmd.exe /d /c start "VDaAgent worker" /D "$(CURDIR)" cmd.exe /k "set ""PYTHONPATH=$(CURDIR)\$(BACKEND_DIR)"" && ""$(ROOT_PYTHON)"" -m src.workers.profiling_worker"
-	cmd.exe /d /c start "VDaAgent frontend" /D "$(CURDIR)\$(FRONTEND_DIR)" cmd.exe /k "pnpm.cmd dev --port $(FRONTEND_PORT)"
+dev-worker dworker:
+	$(PNPM) dev:worker
 
-install: install-backend install-frontend
+build b:
+	$(PNPM) build
 
-install-backend:
-	"$(ROOT_PYTHON)" -m pip install -r requirements.txt
+typecheck tc:
+	$(PNPM) typecheck
 
-install-frontend:
-	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd install
+lint l:
+	$(PNPM) lint
 
-health:
-	powershell -NoProfile -Command "Invoke-RestMethod http://localhost:$(BACKEND_PORT)/health"
+format f:
+	$(PNPM) format
 
-frontend-build:
-	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd build
+format-check fc:
+	$(PNPM) format:check
 
-frontend-check:
-	cd /d "$(CURDIR)\$(FRONTEND_DIR)" && pnpm.cmd typecheck && pnpm.cmd lint
+test t:
+	$(PNPM) test
+
+test-e2e e2e:
+	$(PNPM) test:e2e
+
+check: format-check lint typecheck test
+
+test-db db-test:
+	$(PNPM) test:db
+
+db-start:
+	$(PNPM) db:start
+
+db-reset:
+	$(PNPM) db:reset
+
+scheduler-tick:
+	$(PNPM) scheduler:tick
+
+contracts-export:
+	$(PNPM) contracts:export
+
+check-docs:
+	$(PNPM) check:docs
+
+check-security:
+	$(PNPM) check:security
+
+mock-data-validate-source:
+	$(PNPM) mock-data:validate-source
+
+mock-data-import:
+	$(PNPM) mock-data:import
+
+mock-data-validate:
+	$(PNPM) mock-data:validate-import

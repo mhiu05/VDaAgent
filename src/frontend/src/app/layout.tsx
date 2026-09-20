@@ -1,33 +1,16 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import "@/app/globals.css";
-import "@/app/public.css";
-import { AppShell } from "@/components/app-shell";
-import { Providers } from "@/app/providers";
-
-const themeInitScript = `
-(function () {
-  try {
-    var saved = window.localStorage.getItem("p170-theme");
-    var theme = saved === "dark" || saved === "light"
-      ? saved
-      : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    document.documentElement.dataset.theme = theme;
-  } catch (_) {
-    document.documentElement.dataset.theme = "light";
-  }
-})();
-`;
+import type { Metadata } from 'next';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: "VDuAgent — Data Profiling",
-  description: "Profiling dữ liệu dựa trên evidence với quy trình human review.",
-  icons: {
-    icon: "/img/logo.png",
-    shortcut: "/img/logo.png",
-  },
+  title: 'VDaAgent · Không gian phân tích',
+  description:
+    'Phân tích tồn kho bất động sản, truy vết bằng chứng và báo cáo trong một không gian làm việc.',
 };
 
-export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
-  return <html lang="vi" suppressHydrationWarning><head><script id="theme-init" dangerouslySetInnerHTML={{ __html: themeInitScript }} /></head><body><Providers><AppShell>{children}</AppShell></Providers></body></html>;
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <html lang="vi" suppressHydrationWarning>
+      <body>{children}</body>
+    </html>
+  );
 }

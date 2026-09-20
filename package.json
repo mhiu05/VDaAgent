@@ -1,0 +1,50 @@
+{
+  "name": "vdaagent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.0.8",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "pnpm --filter @vda/web dev",
+    "dev:worker": "pnpm --filter @vda/worker dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck && tsc -p src/backend/tests/tsconfig.json",
+    "lint": "eslint src --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --config src/backend/tests/vitest.config.ts",
+    "test:e2e": "playwright test --config src/backend/tests/playwright.config.ts",
+    "test:db": "supabase --workdir src/backend test db",
+    "db:start": "supabase --workdir src/backend start",
+    "db:reset": "supabase --workdir src/backend db reset --local",
+    "scheduler:tick": "pnpm --filter @vda/worker scheduler:tick",
+    "contracts:export": "tsx src/backend/packages/contracts/src/export.ts",
+    "check:docs": "tsx src/backend/scripts/check-docs.ts",
+    "check:security": "tsx src/backend/scripts/check-security.ts",
+    "mock-data:validate-source": "tsx scripts/mock-data/validate-source.ts",
+    "mock-data:import": "tsx scripts/mock-data/import-mock-data.ts --import",
+    "mock-data:validate-import": "tsx scripts/mock-data/validate-import.ts"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "csv-parse": "7.0.2",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.3.5",
+    "prettier": "3.9.8",
+    "postgres": "3.4.9",
+    "supabase": "2.117.0",
+    "tsx": "4.23.13",
+    "turbo": "2.11.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.1"
+  }
+}

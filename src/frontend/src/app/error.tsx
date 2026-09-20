@@ -1,5 +1,13 @@
-"use client";
+'use client';
 
-export default function GlobalError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  return <main className="fatal-error"><p className="eyebrow">ỨNG DỤNG GẶP LỖI</p><h1>Không thể hiển thị màn hình này.</h1><button className="button primary" onClick={reset}>Thử lại</button></main>;
+export default function ErrorPage({ reset }: { reset: () => void }) {
+  return (
+    <main className="loading-screen">
+      <h1>Không thể mở trang</h1>
+      <p>Đã xảy ra lỗi. Hãy tải lại không gian làm việc.</p>
+      <button className="primary" onClick={reset}>
+        Thử lại
+      </button>
+    </main>
+  );
 }

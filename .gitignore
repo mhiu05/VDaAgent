@@ -1,85 +1,35 @@
-# Python
-__pycache__/
-*.py[cod]
-*.so
-*.egg-info/
-dist/
-build/
-.eggs/
-
-.markdown-collab/
-.playwright-mcp/
-
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Environment variables
+# Environment and credentials
 .env
 .env.local
-.env.production
+.env.*.local
+!.env.example
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Data (never commit large data)
-data/
-*.db
-*.sqlite3
-
-# Logs
-logs/
-*.log
-
-# Test coverage
-htmlcov/
-.coverage
-coverage.xml
-.pytest_tmp/
-
-# Docker
-docker-compose.override.yml
-
-# Node (frontend)
+# JavaScript / TypeScript
 node_modules/
-.next/
-.next-dev/
-.next-*/
-out/
-.nuxt/
 .pnpm-store/
-test-results/
+.turbo/
+.next/
+.next-e2e/
+dist/
+coverage/
 playwright-report/
+test-results/
 *.tsbuildinfo
 
-# Build
-*.pyc
-*.pyo
+# Supabase local runtime
+src/backend/supabase/.branches/
+src/backend/supabase/.temp/
 
-# AI logs are submitted by the pre-push hook to AI_LOG_SERVER, not committed to
-# Git because session.jsonl contains raw prompts. Keep the root structure while
-# ignoring runtime logs even if a tool is launched from a nested workspace.
-.ai-log/*.jsonl
-.ai-log/archive/
-**/.ai-log/*.jsonl
-**/.ai-log/archive/
+.venv/
 
-# Codex CLI cache
-.tmp-openai-docs-cache/
+# Logs and OS/editor files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 
-# Temporary and output files
-tmp/
-output/
-report_data.json
-docs/plan_pdf.txt
-/.agents/scratch/
-/temp_api.ts
+# Large synthetic warehouse data
+vda_vinhomes_mock/curated/
+vda_vinhomes_mock/raw/
+vda_vinhomes_mock/quarantine/
