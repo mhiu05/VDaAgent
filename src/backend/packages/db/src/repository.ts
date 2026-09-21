@@ -16,6 +16,7 @@ import {
   type Catalog,
   type Conversation,
   type ConversationPage,
+  type DecisionBriefResponse,
   type ImportManifest,
   type Message,
   type MessagePage,
@@ -39,6 +40,7 @@ import {
   parseInventoryCsv,
   validateHierarchy,
   verifyArtifact,
+  validateDecisionBrief,
   validateReport,
 } from '@vda/domain';
 import { postgresDriver, type Driver, type Row } from './driver';
@@ -851,10 +853,17 @@ class SqlRepository implements Repository {
       [userMessage.org_id, userMessage.conversation_id, userMessage.client_turn_id],
     );
     if (!conversationRows[0] || !assistantRows[0]) fail('TURN_INCOMPLETE', 409);
+    const assistantMessage = normalizeMessage(assistantRows[0]);
+    const referencedRunId = assistantMessage.parts.find(
+      (part): part is Extract<MessagePart, { type: 'run_ref' }> => part.type === 'run_ref',
+    )?.run_id;
     return {
       conversation: conversationFromRow(conversationRows[0]),
       user_message: userMessage,
-      assistant_message: normalizeMessage(assistantRows[0]),
+      assistant_message:
+        assistantMessage.run_id === null && referencedRunId
+          ? { ...assistantMessage, run_id: referencedRunId }
+          : assistantMessage,
       idempotent_replay: true,
     };
   }
@@ -923,7 +932,18 @@ class SqlRepository implements Repository {
         role: 'user',
         status: 'submitted',
         content: input.text,
-        parts: textPart(input.text),
+        parts: [
+          ...textPart(input.text),
+          ...(input.signal_ref
+            ? [
+                {
+                  type: 'signal_ref' as const,
+                  run_id: input.signal_ref.run_id,
+                  signal_id: input.signal_ref.signal_id,
+                },
+              ]
+            : []),
+        ],
         created_at: date,
         updated_at: date,
       };
@@ -1028,6 +1048,65 @@ class SqlRepository implements Repository {
         ) as ImportManifest[]
       ).filter((x) => sourceIds.has(x.import_id));
       return { artifacts, validations, sources };
+    });
+  }
+  async decisionBrief(user: string, org: string, id: string): Promise<DecisionBriefResponse> {
+    return this.db.transaction(async (tx) => {
+      await this.auth(tx, user, org);
+      const run = await this.run(tx, org, id);
+      if (run.status !== 'succeeded' || run.report_artifact_id === null)
+        fail('BRIEF_NOT_AVAILABLE', 404);
+      const reportRows = await tx.query(
+        "SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3 AND kind='report'",
+        [org, id, run.report_artifact_id],
+      );
+      if (!reportRows[0]) fail('BRIEF_NOT_AVAILABLE', 404);
+      const report = ArtifactSchema.parse(json(reportRows[0]));
+      if (report.kind !== 'report' || report.payload.decision_brief === undefined)
+        fail('BRIEF_NOT_AVAILABLE', 404);
+      const calculationRows = await tx.query(
+        "SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3 AND kind='calculation'",
+        [org, id, report.payload.calculation_artifact_id],
+      );
+      if (!calculationRows[0]) fail('INVALID_BRIEF_LINEAGE', 409);
+      const calculation = ArtifactSchema.parse(json(calculationRows[0]));
+      if (calculation.kind !== 'calculation') fail('INVALID_BRIEF_LINEAGE', 409);
+      const validations = (
+        await tx.query(
+          'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND (id=$3 OR id=$4)',
+          [org, id, report.artifact_id, calculation.artifact_id],
+        )
+      ).map(json) as ArtifactValidation[];
+      if (
+        ![report.artifact_id, calculation.artifact_id].every((artifactId) =>
+          validations.some(
+            (validation) => validation.artifact_id === artifactId && validation.valid,
+          ),
+        )
+      )
+        fail('UNVALIDATED_BRIEF', 409);
+      verifyArtifact(report);
+      verifyArtifact(calculation);
+      validateDecisionBrief(
+        report.payload.decision_brief,
+        calculation,
+        org,
+        id,
+        run.request.scope,
+        run.request.data_as_of,
+      );
+      return {
+        run_id: run.run_id,
+        org_id: run.org_id,
+        scope: run.request.scope,
+        requested_data_as_of: run.request.data_as_of,
+        effective_snapshot_date: report.payload.decision_brief.effective_snapshot_date,
+        decision_brief: report.payload.decision_brief,
+        report_artifact_id: report.artifact_id,
+        calculation_artifact_id: calculation.artifact_id,
+        evidence_artifact_ids: [calculation.artifact_id],
+        validations,
+      };
     });
   }
   async claimRun(worker: string, date = new Date(), leaseMs = 30000): Promise<Lease | null> {
@@ -1321,9 +1400,13 @@ class SqlRepository implements Repository {
       );
       await this.finalizeRunAssistant(tx, run, {
         status: 'completed',
-        content: artifact.payload.summary,
+        content:
+          'Phân tích đã hoàn thành. Mở Decision Briefing để xem các tín hiệu và bằng chứng đã xác thực.',
         parts: [
-          { type: 'text', text: artifact.payload.summary },
+          {
+            type: 'text',
+            text: 'Phân tích đã hoàn thành. Mở Decision Briefing để xem các tín hiệu và bằng chứng đã xác thực.',
+          },
           { type: 'run_ref', run_id: run.run_id, status: 'succeeded' },
           { type: 'report_ref', run_id: run.run_id, report_id: report.report_id },
           ...allArtifacts.map((item) => ({

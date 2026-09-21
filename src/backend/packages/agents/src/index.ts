@@ -10,7 +10,7 @@ import {
   type RunTask,
 } from '@vda/contracts';
 import type { Lease, Repository } from '@vda/db';
-import { analyze, compare, selectLatest, semanticPack } from '@vda/semantic';
+import { analyze, buildDecisionBrief, compare, selectLatest, semanticPack } from '@vda/semantic';
 import { artifactHash, bindClaims, stableId, validateReport, verifyArtifact } from './integrity';
 import { createProvider, type NarrativeProvider } from './provider';
 import { ChartBuilder, chartPayloadFingerprint, validateVisualEvidence } from './chart-builder';
@@ -386,6 +386,12 @@ export async function executeLease(
       comparison_artifact_id: comparison.artifact_id,
       sections: reportSections(calculation, chart, comparison, insight),
       limitations: [...calculation.limitations, ...calculation.payload.quality_limitations],
+      decision_brief: buildDecisionBrief(
+        calculation.payload,
+        calculation.artifact_id,
+        run.request.scope,
+        run.request.data_as_of,
+      ),
     };
     validateReport(reportPayload, [...artifacts.values()], run.org_id, run.run_id);
     const current = await repository.artifacts(run.created_by, run.org_id, run.run_id);

@@ -6,6 +6,7 @@ import {
   type AgentDecision,
   type Claim,
   type Role,
+  type SignalRef,
   type Scope,
 } from '@vda/contracts';
 import { getConfig, type AppConfig, type LlmProvider } from '@vda/config';
@@ -42,19 +43,39 @@ export type AgentDecisionContext = {
   question: string;
   scope: Scope;
   data_as_of: string;
+  scope_changed: boolean;
+  date_changed: boolean;
   role: Role;
   catalog: {
-    project_external_ids: string[];
+    projects: Array<{
+      project_external_id: string;
+      zones: Array<{ zone_external_id: string; zone_name: string }>;
+    }>;
     latest_snapshot_date: string | null;
   };
   recent_messages: { role: 'user' | 'assistant'; content: string }[];
   allowed_run_ids: string[];
+  active_brief: {
+    run_id: string;
+    scope: Scope;
+    requested_data_as_of: string;
+    effective_snapshot_date: string | null;
+    signals: Array<{
+      signal_id: string;
+      kind: 'current_state' | 'material_change' | 'segment_concentration' | 'data_quality';
+      dimension: 'zone' | 'unit_type' | 'bedrooms' | 'status' | null;
+      segment_key: string | null;
+      supported_action: 'inspect_signal';
+      supported_next_action_ids: string[];
+    }>;
+  } | null;
+  requested_signal_ref: SignalRef | null;
 };
 export interface AgentDecisionProvider {
   decide(context: AgentDecisionContext): Promise<AgentDecision>;
 }
 const decisionInstructions =
-  'Choose exactly one action for a VDa inventory request. Supported actions are create_analysis, get_analysis_result, or unsupported. Never calculate a metric, create a factual answer, SQL, an ID, a scope, a permission, or an action outside the supplied schema. create_analysis must use only a supplied focus enum. get_analysis_result may use only a run_id from allowed_run_ids. Return JSON only.';
+  'Choose exactly one action for a VDa inventory request. Supported actions are create_analysis, get_analysis_result, inspect_signal, or unsupported. Never calculate a metric, create a factual answer, SQL, an ID, a scope, a permission, or an action outside the supplied schema. create_analysis must use only a supplied focus enum; it may select scope_ref only from catalog.projects and their zones. get_analysis_result may use only a run_id from allowed_run_ids. inspect_signal may use only a run_id and signal_id listed in active_brief.signals. If scope_changed or date_changed is true, create_analysis is required. A request for causality must be unsupported. Return JSON only.';
 
 function narrativeFromClaimIds(
   parsed: z.infer<typeof NarrativeSchema>,
@@ -205,10 +226,20 @@ export class GeminiAgentDecisionProvider implements AgentDecisionProvider {
                 properties: {
                   action: {
                     type: 'string',
-                    enum: ['create_analysis', 'get_analysis_result', 'unsupported'],
+                    enum: ['create_analysis', 'get_analysis_result', 'inspect_signal', 'unsupported'],
                   },
                   focus: { type: 'string' },
                   run_id: { type: 'string' },
+                  signal_id: { type: 'string' },
+                  scope_ref: {
+                    type: 'object',
+                    properties: {
+                      project_external_id: { type: 'string' },
+                      zone_external_id: { type: ['string', 'null'] },
+                    },
+                    required: ['project_external_id', 'zone_external_id'],
+                    additionalProperties: false,
+                  },
                   reason_code: { type: 'string' },
                 },
                 required: ['action'],

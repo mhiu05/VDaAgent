@@ -3,8 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { z } from 'zod';
-import { ArtifactListSchema, RunDetailSchema, type Catalog, type Message } from '@vda/contracts';
 import {
+  ArtifactListSchema,
+  DecisionBriefResponseSchema,
+  RunDetailSchema,
+  type Catalog,
+  type DecisionBriefResponse,
+  type AgentTurnRequest,
+  type Message,
+} from '@vda/contracts';
+import {
+  ApiError,
   api,
   createTurnIdentity,
   errorMessage,
@@ -24,12 +33,9 @@ import { RunProgress } from './run-progress';
 
 type RunDetail = z.infer<typeof RunDetailSchema>;
 type ArtifactList = z.infer<typeof ArtifactListSchema>;
+type TurnInput = Omit<AgentTurnRequest, 'org_id' | 'client_turn_id'>;
 type RetryTurn = {
-  input: {
-    text: string;
-    scope: { project_external_id: string; zone_external_id: string | null };
-    data_as_of: string;
-  };
+  input: TurnInput;
   identity: TurnRequestIdentity;
   conversationId?: string;
 };
@@ -63,12 +69,18 @@ export function AgentChat({
   const [dataAsOf, setDataAsOf] = useState(catalog.latest_snapshot_date ?? '');
   const [draft, setDraft] = useState('');
   const [runId, setRunId] = useState<string | null>(null);
+  const [runMessageId, setRunMessageId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
   const [bundle, setBundle] = useState<ArtifactList>({
     artifacts: [],
     validations: [],
     sources: [],
   });
+  const [brief, setBrief] = useState<DecisionBriefResponse | null>(null);
+  const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'available' | 'unavailable'>(
+    'idle',
+  );
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -109,8 +121,12 @@ export function AgentChat({
     setSelectedConversationId(null);
     setMessages([]);
     setRunId(null);
+    setRunMessageId(null);
     setRunDetail(null);
+    setRunMessageId(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
+    setBrief(null);
+    setBriefStatus('idle');
     setError('');
     void loadConversations(null, false).then((page) => {
       if (page?.conversations[0]) setSelectedConversationId(page.conversations[0].conversation_id);
@@ -140,6 +156,8 @@ export function AgentChat({
     setMessageCursor(null);
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
+    setBrief(null);
+    setBriefStatus('idle');
     void listConversationMessages(orgId, selectedConversationId, { limit: 30 }).then(
       (page) => {
         if (obsolete) return;
@@ -160,15 +178,24 @@ export function AgentChat({
       setRunId(externalRunId);
       return;
     }
-    const latest = [...messages]
-      .reverse()
-      .find((message) => message.role === 'assistant' && message.run_id !== null);
-    if (latest) setRunId(latest.run_id);
+    const latest = [...messages].reverse().find((message) => {
+      if (message.role !== 'assistant') return false;
+      return message.run_id !== null || message.parts.some((part) => part.type === 'run_ref');
+    });
+    const referencedRunId =
+      latest?.run_id ?? latest?.parts.find((part) => part.type === 'run_ref')?.run_id ?? null;
+    if (latest && referencedRunId) {
+      setRunId(referencedRunId);
+      setRunMessageId(latest.message_id);
+    }
   }, [externalRunId, messages]);
 
   const visibleRunId = externalRunId ?? runId;
   useEffect(() => {
     if (!visibleRunId) return;
+    setBrief(null);
+    setBriefStatus('idle');
+    setBundle({ artifacts: [], validations: [], sources: [] });
     let obsolete = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function poll() {
@@ -176,16 +203,37 @@ export function AgentChat({
         const detail = await api(scoped(`/runs/${visibleRunId}`, orgId), RunDetailSchema);
         if (obsolete) return;
         setRunDetail(detail);
-        if (terminalStatuses.has(detail.run.status)) {
+        if (detail.run.status === 'succeeded') {
+          if (!obsolete) setBriefStatus('loading');
+          try {
+            const nextBrief = await api(
+              scoped(`/runs/${visibleRunId}/brief`, orgId),
+              DecisionBriefResponseSchema,
+            );
+            if (!obsolete) {
+              setBrief(nextBrief);
+              setBriefStatus('available');
+            }
+          } catch (cause) {
+            if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
+            if (!obsolete) setBriefStatus('unavailable');
+            const artifacts = await api(
+              scoped(`/runs/${visibleRunId}/artifacts`, orgId),
+              ArtifactListSchema,
+            );
+            if (!obsolete) setBundle(artifacts);
+          }
+          if (!obsolete) {
+            void loadConversations(null, false);
+            if (selectedConversationId) void loadMessages(selectedConversationId, null, false);
+          }
+        } else if (terminalStatuses.has(detail.run.status)) {
+          if (!obsolete) setBriefStatus('unavailable');
           const artifacts = await api(
             scoped(`/runs/${visibleRunId}/artifacts`, orgId),
             ArtifactListSchema,
           );
-          if (!obsolete) {
-            setBundle(artifacts);
-            void loadConversations(null, false);
-            if (selectedConversationId) void loadMessages(selectedConversationId, null, false);
-          }
+          if (!obsolete) setBundle(artifacts);
         } else if (!document.hidden && !obsolete) timer = setTimeout(() => void poll(), 1_100);
         else if (!obsolete) timer = setTimeout(() => void poll(), 5_000);
       } catch (cause) {
@@ -213,6 +261,9 @@ export function AgentChat({
     onClearExternalRun?.();
     setSelectedConversationId(id);
     setRunId(null);
+    setRunMessageId(null);
+    setBrief(null);
+    setBriefStatus('idle');
     setEvidenceId(null);
     setError('');
   }
@@ -222,15 +273,19 @@ export function AgentChat({
     setMessages([]);
     setMessageCursor(null);
     setRunId(null);
+    setRunMessageId(null);
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
+    setBrief(null);
+    setBriefStatus('idle');
+    setDetailsLoading(false);
     setEvidenceId(null);
     setDraft('');
     setRetryTurn(null);
     setError('');
   }
-  async function submit() {
-    const attempt = retryTurn ?? {
+  async function submit(providedAttempt?: RetryTurn) {
+    const attempt = providedAttempt ?? retryTurn ?? {
       input: {
         text: draft.trim(),
         scope: { project_external_id: project, zone_external_id: zone || null },
@@ -253,8 +308,11 @@ export function AgentChat({
       setDraft('');
       setSelectedConversationId(accepted.conversation_id);
       setRunId(accepted.run_id);
+      setRunMessageId(accepted.assistant_message_id);
       setRunDetail(null);
       setBundle({ artifacts: [], validations: [], sources: [] });
+      setBrief(null);
+      setBriefStatus(accepted.run_id ? 'idle' : 'unavailable');
       await loadConversations(null, false);
       await loadMessages(accepted.conversation_id, null, false);
     } catch (cause) {
@@ -263,6 +321,28 @@ export function AgentChat({
     } finally {
       setBusy(false);
     }
+  }
+  async function submitSignalAction(
+    runId: string,
+    signalId: string,
+    action: Extract<NonNullable<TurnInput['signal_action']>, 'inspect' | 'analyze_segment'>,
+  ) {
+    if (!canWrite || busy) return;
+    const attempt: RetryTurn = {
+      input: {
+        text:
+          action === 'inspect'
+            ? 'Inspect this validated signal.'
+            : 'Analyze this validated zone segment.',
+        scope: { project_external_id: project, zone_external_id: zone || null },
+        data_as_of: dataAsOf,
+        signal_ref: { run_id: runId, signal_id: signalId },
+        signal_action: action,
+      },
+      identity: createTurnIdentity(),
+      conversationId: selectedConversationId ?? undefined,
+    };
+    await submit(attempt);
   }
   async function cancelRun() {
     if (!visibleRunId) return;
@@ -278,6 +358,40 @@ export function AgentChat({
     } finally {
       setCancelling(false);
     }
+  }
+  async function loadRunArtifacts() {
+    if (!visibleRunId || bundle.artifacts.length || detailsLoading) return;
+    setDetailsLoading(true);
+    try {
+      setBundle(await api(scoped(`/runs/${visibleRunId}/artifacts`, orgId), ArtifactListSchema));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+  async function openEvidence(id: string) {
+    if (!bundle.artifacts.some((artifact) => artifact.artifact_id === id)) {
+      if (!visibleRunId) return;
+      setDetailsLoading(true);
+      try {
+        const artifacts = await api(
+          scoped(`/runs/${visibleRunId}/artifacts`, orgId),
+          ArtifactListSchema,
+        );
+        setBundle(artifacts);
+        if (!artifacts.artifacts.some((artifact) => artifact.artifact_id === id)) {
+          setError('The referenced evidence artifact is unavailable for this run.');
+          return;
+        }
+      } catch (cause) {
+        setError(errorMessage(cause));
+        return;
+      } finally {
+        setDetailsLoading(false);
+      }
+    }
+    setEvidenceId(id);
   }
 
   return (
@@ -324,18 +438,36 @@ export function AgentChat({
             messageCursor &&
             void loadMessages(selectedConversationId, messageCursor, true)
           }
-          onOpenRun={(id) => {
+          onOpenRun={(id, messageId) => {
             onClearExternalRun?.();
             setRunId(id);
+            setRunMessageId(messageId);
           }}
           onOpenReport={(id) => onReport?.(id)}
         />
         {runDetail?.run.status === 'succeeded' && (
-          <AnalysisResult
-            artifacts={bundle.artifacts}
-            onEvidence={setEvidenceId}
-            onReport={reportId && onReport ? () => onReport(reportId) : undefined}
-          />
+          <div
+            className="agent-run-result"
+            data-agent-message-id={runMessageId ?? undefined}
+            data-run-id={visibleRunId}
+          >
+            <AnalysisResult
+              artifacts={bundle.artifacts}
+              brief={brief}
+              briefStatus={briefStatus}
+              detailsLoading={detailsLoading}
+              onEvidence={(id) => void openEvidence(id)}
+              onLoadDetails={() => void loadRunArtifacts()}
+              onInspectSignal={(signalRunId, signalId) =>
+                void submitSignalAction(signalRunId, signalId, 'inspect')
+              }
+              onAnalyzeSegment={(signalRunId, signalId) =>
+                void submitSignalAction(signalRunId, signalId, 'analyze_segment')
+              }
+              canInspect={canWrite}
+              onReport={reportId && onReport ? () => onReport(reportId) : undefined}
+            />
+          </div>
         )}
         <Composer
           catalog={catalog}

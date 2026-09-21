@@ -698,6 +698,135 @@ export const ClaimSchema = z
   })
   .strict();
 export type Claim = z.infer<typeof ClaimSchema>;
+export const DECISION_BRIEF_VERSION = 'decision-brief-v1' as const;
+export const DecisionSignalKindSchema = z.enum([
+  'current_state',
+  'material_change',
+  'segment_concentration',
+  'data_quality',
+]);
+export const DecisionEvidenceRoleSchema = z.enum([
+  'current',
+  'comparison',
+  'delta',
+  'support',
+  'denominator',
+]);
+export const DecisionEvidenceRefSchema = z
+  .object({
+    role: DecisionEvidenceRoleSchema,
+    artifact_id: IdSchema,
+    path: z.string().min(1),
+  })
+  .strict();
+export const DecisionSignalSchema = z
+  .object({
+    signal_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    rule_id: z.string().min(1),
+    kind: DecisionSignalKindSchema,
+    label: z.string().min(1),
+    summary: z.string().min(1),
+    metric_key: MetricKeySchema,
+    dimension: z.enum(['zone', 'unit_type', 'bedrooms', 'status']).nullable(),
+    segment_key: z.string().min(1).nullable(),
+    current_value: MetricValueSchema.nullable(),
+    comparison_value: MetricValueSchema.nullable(),
+    delta: DeltaValueSchema.nullable(),
+    support_value: MetricValueSchema.nullable(),
+    denominator_value: MetricValueSchema.nullable(),
+    unit: MetricUnitSchema,
+    delta_unit: MetricUnitSchema.nullable(),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .nullable(),
+    status: z.enum(['available', 'unavailable']),
+    abstention_reason: AbstentionReasonSchema.nullable(),
+    limitations: z.array(z.string()),
+    evidence: z.array(DecisionEvidenceRefSchema),
+  })
+  .strict()
+  .superRefine((signal, ctx) => {
+    const values = [
+      signal.current_value,
+      signal.comparison_value,
+      signal.delta,
+      signal.support_value,
+      signal.denominator_value,
+    ];
+    if (signal.status === 'available' && values.every((value) => value === null))
+      ctx.addIssue({ code: 'custom', path: ['status'], message: 'Available signal needs a value' });
+    if (signal.status === 'unavailable' && signal.abstention_reason === null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['abstention_reason'],
+        message: 'Unavailable signal needs an abstention reason',
+      });
+    const monetary = signal.unit === 'currency' || signal.unit === 'currency_per_sqm';
+    if (signal.status === 'available' && monetary && signal.currency === null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['currency'],
+        message: 'Available monetary signal requires currency metadata',
+      });
+    if (!monetary && signal.currency !== null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['currency'],
+        message: 'Non-monetary signal cannot declare currency metadata',
+      });
+    const roles = signal.evidence.map((item) => item.role);
+    if (new Set(roles).size !== roles.length)
+      ctx.addIssue({ code: 'custom', path: ['evidence'], message: 'Duplicate evidence role' });
+  });
+export type DecisionSignal = z.infer<typeof DecisionSignalSchema>;
+export const SupportedNextActionSchema = z
+  .object({
+    action_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    kind: z.enum(['review_evidence', 'review_inventory_units']),
+    label: z.string().min(1),
+    target_signal_id: z.string().nullable(),
+    artifact_id: IdSchema,
+  })
+  .strict();
+export type SupportedNextAction = z.infer<typeof SupportedNextActionSchema>;
+export const DecisionBriefSchema = z
+  .object({
+    version: z.literal(DECISION_BRIEF_VERSION),
+    scope: ScopeSchema,
+    requested_data_as_of: DateSchema,
+    effective_snapshot_date: DateSchema.nullable(),
+    current_state: z.array(DecisionSignalSchema),
+    material_changes: z.array(DecisionSignalSchema),
+    where_to_look: z.array(DecisionSignalSchema),
+    data_quality: z.array(DecisionSignalSchema),
+    next_actions: z.array(SupportedNextActionSchema),
+    limitations: z.array(z.string()),
+  })
+  .strict()
+  .superRefine((brief, ctx) => {
+    const signals = [
+      ...brief.current_state,
+      ...brief.material_changes,
+      ...brief.where_to_look,
+      ...brief.data_quality,
+    ];
+    const signalIds = signals.map((signal) => signal.signal_id);
+    if (new Set(signalIds).size !== signalIds.length)
+      ctx.addIssue({ code: 'custom', path: ['current_state'], message: 'Duplicate signal ID' });
+    const actionIds = brief.next_actions.map((action) => action.action_id);
+    if (new Set(actionIds).size !== actionIds.length)
+      ctx.addIssue({ code: 'custom', path: ['next_actions'], message: 'Duplicate action ID' });
+    brief.next_actions.forEach((action, index) => {
+      if (action.target_signal_id !== null && !signalIds.includes(action.target_signal_id))
+        ctx.addIssue({
+          code: 'custom',
+          path: ['next_actions', index, 'target_signal_id'],
+          message: 'Unknown target signal',
+        });
+    });
+  });
+export type DecisionBrief = z.infer<typeof DecisionBriefSchema>;
 export const ReportSectionSchema = z.object({
   key: z.enum([
     'executive_summary',
@@ -728,6 +857,7 @@ export const ReportPayloadSchema = z.object({
   comparison_artifact_id: IdSchema,
   sections: z.array(ReportSectionSchema),
   limitations: z.array(z.string()),
+  decision_brief: DecisionBriefSchema.optional(),
 });
 export type ReportPayload = z.infer<typeof ReportPayloadSchema>;
 const ArtifactBase = z.object({
@@ -907,6 +1037,13 @@ export const MessageStatusSchema = z.enum([
   'cancelled',
 ]);
 export type MessageStatus = z.infer<typeof MessageStatusSchema>;
+export const SignalRefSchema = z
+  .object({
+    run_id: IdSchema,
+    signal_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+  })
+  .strict();
+export type SignalRef = z.infer<typeof SignalRefSchema>;
 export const MessagePartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string().trim().min(1).max(5_000) }).strict(),
   z.object({ type: z.literal('run_ref'), run_id: IdSchema, status: RunStatusSchema }).strict(),
@@ -917,6 +1054,13 @@ export const MessagePartSchema = z.discriminatedUnion('type', [
       run_id: IdSchema,
       artifact_id: IdSchema,
       kind: z.string().trim().min(1).max(100),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('signal_ref'),
+      run_id: IdSchema,
+      signal_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
     })
     .strict(),
   z
@@ -978,8 +1122,18 @@ export const AgentTurnRequestSchema = z
     text: z.string().trim().min(1).max(2_000),
     scope: ScopeSchema,
     data_as_of: DateSchema,
+    signal_ref: SignalRefSchema.nullable().optional(),
+    signal_action: z.enum(['inspect', 'analyze_segment']).nullable().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((turn, ctx) => {
+    if (turn.signal_action !== null && turn.signal_action !== undefined && !turn.signal_ref)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['signal_action'],
+        message: 'Signal action requires a signal reference',
+      });
+  });
 export type AgentTurnRequest = z.infer<typeof AgentTurnRequestSchema>;
 export const AgentFocusSchema = z.enum([
   'current_inventory',
@@ -992,16 +1146,24 @@ export const AgentFocusSchema = z.enum([
 export type AgentFocus = z.infer<typeof AgentFocusSchema>;
 export const UnsupportedReasonCodeSchema = z.enum([
   'UNSUPPORTED_REQUEST',
+  'UNSUPPORTED_CAUSAL_REQUEST',
   'UNSUPPORTED_SCOPE',
   'MISSING_CONTEXT',
   'NO_AUTHORIZED_RESULT',
 ]);
 export type UnsupportedReasonCode = z.infer<typeof UnsupportedReasonCodeSchema>;
 export const CreateAnalysisToolInputSchema = z
-  .object({ action: z.literal('create_analysis'), focus: AgentFocusSchema })
+  .object({
+    action: z.literal('create_analysis'),
+    focus: AgentFocusSchema,
+    scope_ref: ScopeSchema.optional(),
+  })
   .strict();
 export const GetAnalysisResultToolInputSchema = z
   .object({ action: z.literal('get_analysis_result'), run_id: IdSchema })
+  .strict();
+export const InspectSignalToolInputSchema = z
+  .object({ action: z.literal('inspect_signal'), run_id: IdSchema, signal_id: SignalRefSchema.shape.signal_id })
   .strict();
 export const UnsupportedDecisionSchema = z
   .object({ action: z.literal('unsupported'), reason_code: UnsupportedReasonCodeSchema })
@@ -1009,6 +1171,7 @@ export const UnsupportedDecisionSchema = z
 export const AgentDecisionSchema = z.discriminatedUnion('action', [
   CreateAnalysisToolInputSchema,
   GetAnalysisResultToolInputSchema,
+  InspectSignalToolInputSchema,
   UnsupportedDecisionSchema,
 ]);
 export type AgentDecision = z.infer<typeof AgentDecisionSchema>;
@@ -1039,6 +1202,21 @@ export const ArtifactListSchema = z.object({
   validations: z.array(ArtifactValidationSchema),
   sources: z.array(ImportManifestSchema),
 });
+export const DecisionBriefResponseSchema = z
+  .object({
+    run_id: IdSchema,
+    org_id: IdSchema,
+    scope: ScopeSchema,
+    requested_data_as_of: DateSchema,
+    effective_snapshot_date: DateSchema.nullable(),
+    decision_brief: DecisionBriefSchema,
+    report_artifact_id: IdSchema,
+    calculation_artifact_id: IdSchema,
+    evidence_artifact_ids: z.array(IdSchema),
+    validations: z.array(ArtifactValidationSchema),
+  })
+  .strict();
+export type DecisionBriefResponse = z.infer<typeof DecisionBriefResponseSchema>;
 export const ReportDetailSchema = z.object({
   report: ReportRecordSchema,
   artifact: ArtifactSchema,

@@ -7,6 +7,7 @@ import type {
   Catalog,
   Conversation,
   ConversationPage,
+  DecisionBriefResponse,
   ImportManifest,
   Message,
   MessagePage,
@@ -111,6 +112,7 @@ export interface Repository {
     validations: ArtifactValidation[];
     sources: ImportManifest[];
   }>;
+  decisionBrief(userId: string, orgId: string, runId: string): Promise<DecisionBriefResponse>;
   claimRun(workerId: string, now?: Date, leaseMs?: number): Promise<Lease | null>;
   renewLease(lease: Lease, leaseMs?: number): Promise<void>;
   assertLease(lease: Lease): Promise<void>;

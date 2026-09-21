@@ -21,7 +21,7 @@ export function MessageThread({
   loading: boolean;
   hasEarlier: boolean;
   onLoadEarlier: () => void;
-  onOpenRun: (runId: string) => void;
+  onOpenRun: (runId: string, messageId: string) => void;
   onOpenReport: (reportId: string) => void;
 }) {
   return (
@@ -56,7 +56,7 @@ export function MessageThread({
                   <button
                     className="text-button agent-part-link"
                     key={`${message.message_id}:run:${index}`}
-                    onClick={() => onOpenRun(part.run_id)}
+                    onClick={() => onOpenRun(part.run_id, message.message_id)}
                   >
                     Lượt phân tích · {part.status} <ArrowUpRight size={13} />
                   </button>
@@ -69,6 +69,16 @@ export function MessageThread({
                     onClick={() => onOpenReport(part.report_id)}
                   >
                     <FileText size={13} /> Báo cáo đã liên kết
+                  </button>
+                );
+              if (part.type === 'signal_ref')
+                return (
+                  <button
+                    className="text-button agent-reference"
+                    key={`${message.message_id}:signal:${index}`}
+                    onClick={() => onOpenRun(part.run_id, message.message_id)}
+                  >
+                    Validated signal <ArrowUpRight size={13} />
                   </button>
                 );
               if (part.type === 'error')

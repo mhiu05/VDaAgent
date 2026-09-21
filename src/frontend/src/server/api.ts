@@ -9,6 +9,7 @@ import {
   CatalogSchema,
   ConversationPageSchema,
   ConversationSchema,
+  DecisionBriefResponseSchema,
   ExportRequestSchema,
   ExportResponseSchema,
   IdSchema,
@@ -193,6 +194,11 @@ async function handle(request: Request, path: string[]): Promise<Response> {
       return json(RunDetailSchema, await repo.getRun(actor.user_id, orgFromQuery(), id));
     if (path[2] === 'artifacts' && method === 'GET')
       return json(ArtifactListSchema, await repo.artifacts(actor.user_id, orgFromQuery(), id));
+    if (path[2] === 'brief' && method === 'GET')
+      return json(
+        DecisionBriefResponseSchema,
+        await repo.decisionBrief(actor.user_id, orgFromQuery(), id),
+      );
     if (path[2] === 'cancel' && method === 'POST') {
       const input = OrgBody.parse(await body(request));
       await repo.cancelRun(actor.user_id, input.org_id, id);

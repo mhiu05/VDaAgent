@@ -7,6 +7,7 @@ import {
   AcceptedSchema,
   ArtifactListSchema,
   CatalogSchema,
+  DecisionBriefResponseSchema,
   ExportResponseSchema,
   MessageSchema,
   ReportDetailSchema,
@@ -16,6 +17,7 @@ import {
   SetupSchema,
   type ArtifactOf,
   type Catalog,
+  type DecisionBriefResponse,
   type Role,
   type Session,
 } from '@vda/contracts';
@@ -356,6 +358,11 @@ function WorkspaceShell({
     validations: [],
     sources: [],
   });
+  const [brief, setBrief] = useState<DecisionBriefResponse | null>(null);
+  const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'available' | 'unavailable'>(
+    'idle',
+  );
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [report, setReport] = useState<ReportDetail | null>(null);
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -395,7 +402,28 @@ function WorkspaceShell({
           setMessages(value.messages);
           setConversationId(conversation);
         }
-        if (['succeeded', 'failed', 'cancelled'].includes(detail.run.status)) {
+        if (detail.run.status === 'succeeded') {
+          if (!cancelled) setBriefStatus('loading');
+          try {
+            const nextBrief = await api(
+              scoped(`/runs/${runId}/brief`, orgId),
+              DecisionBriefResponseSchema,
+            );
+            if (!cancelled) {
+              setBrief(nextBrief);
+              setBriefStatus('available');
+            }
+          } catch (cause) {
+            if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
+            if (!cancelled) setBriefStatus('unavailable');
+            const nextBundle = await api(
+              scoped(`/runs/${runId}/artifacts`, orgId),
+              ArtifactListSchema,
+            );
+            if (!cancelled) setBundle(nextBundle);
+          }
+        } else if (['failed', 'cancelled'].includes(detail.run.status)) {
+          if (!cancelled) setBriefStatus('unavailable');
           const nextBundle = await api(
             scoped(`/runs/${runId}/artifacts`, orgId),
             ArtifactListSchema,
@@ -417,12 +445,46 @@ function WorkspaceShell({
     setConversationId(conversation ?? null);
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
+    setBrief(null);
+    setBriefStatus('idle');
+    setDetailsLoading(false);
     setReport(null);
     setMessages([]);
     setEvidenceId(null);
     setError('');
     setTab('analysis');
     setPollEpoch((value) => value + 1);
+  }
+  async function loadRunArtifacts() {
+    if (!runId || bundle.artifacts.length || detailsLoading) return;
+    setDetailsLoading(true);
+    try {
+      setBundle(await api(scoped(`/runs/${runId}/artifacts`, orgId), ArtifactListSchema));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+  async function openEvidence(id: string) {
+    if (!bundle.artifacts.some((artifact) => artifact.artifact_id === id)) {
+      if (!runId) return;
+      setDetailsLoading(true);
+      try {
+        const nextBundle = await api(scoped(`/runs/${runId}/artifacts`, orgId), ArtifactListSchema);
+        setBundle(nextBundle);
+        if (!nextBundle.artifacts.some((artifact) => artifact.artifact_id === id)) {
+          setError('The referenced evidence artifact is unavailable for this run.');
+          return;
+        }
+      } catch (cause) {
+        setError(errorMessage(cause));
+        return;
+      } finally {
+        setDetailsLoading(false);
+      }
+    }
+    setEvidenceId(id);
   }
   async function openReport(id: string) {
     setBusy(true);
@@ -589,6 +651,9 @@ function WorkspaceShell({
                   setMessages([]);
                   setConversationId(null);
                   setBundle({ artifacts: [], validations: [], sources: [] });
+                  setBrief(null);
+                  setBriefStatus('idle');
+                  setDetailsLoading(false);
                   setError('');
                 }}
               >
@@ -912,7 +977,11 @@ function WorkspaceShell({
                     )}
                     <AnalysisResult
                       artifacts={bundle.artifacts}
-                      onEvidence={setEvidenceId}
+                      brief={brief}
+                      briefStatus={briefStatus}
+                      detailsLoading={detailsLoading}
+                      onEvidence={(id) => void openEvidence(id)}
+                      onLoadDetails={() => void loadRunArtifacts()}
                       onReport={
                         runDetail?.run.status === 'succeeded'
                           ? () => void openRunReport()

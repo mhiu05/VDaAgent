@@ -117,10 +117,22 @@ describe('Agent Chat decision providers', () => {
     question: 'Show inventory',
     scope: { project_external_id: 'P-ALPHA', zone_external_id: null },
     data_as_of: '2026-09-19',
+    scope_changed: false,
+    date_changed: false,
     role: 'owner' as const,
-    catalog: { project_external_ids: ['P-ALPHA'], latest_snapshot_date: '2026-09-19' },
+    catalog: {
+      projects: [
+        {
+          project_external_id: 'P-ALPHA',
+          zones: [{ zone_external_id: 'Z-NORTH', zone_name: 'North' }],
+        },
+      ],
+      latest_snapshot_date: '2026-09-19',
+    },
     recent_messages: [],
     allowed_run_ids: [],
+    active_brief: null,
+    requested_signal_ref: null,
   };
   it('rejects unknown fields from a structured Gemini decision', async () => {
     const provider = new GeminiAgentDecisionProvider(

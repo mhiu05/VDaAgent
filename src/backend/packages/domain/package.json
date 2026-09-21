@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vda/contracts": "workspace:*",
+    "@vda/semantic": "workspace:*",
     "csv-parse": "7.0.2"
   }
 }

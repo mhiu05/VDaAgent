@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpRight, CircleHelp, FileCheck2, Layers3 } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, CircleHelp, FileCheck2, Layers3 } from 'lucide-react';
 import type {
   Artifact,
   ArtifactOf,
   CalculatedUnit,
+  DecisionBrief,
+  DecisionBriefResponse,
+  DecisionSignal,
   ReportPayload,
   VisualEvidencePayload,
 } from '@vda/contracts';
@@ -126,13 +129,207 @@ function VisualEvidenceGrid({ payload }: { payload: VisualEvidencePayload }) {
   );
 }
 
+export type BriefLoadState = 'idle' | 'loading' | 'available' | 'unavailable';
+
+function SignalGroup({
+  title,
+  empty,
+  signals,
+  onEvidence,
+  onInspectSignal,
+  onAnalyzeSegment,
+  canInspect,
+}: {
+  title: string;
+  empty: string;
+  signals: DecisionSignal[];
+  onEvidence: (id: string) => void;
+  onInspectSignal?: (signalId: string) => void;
+  onAnalyzeSegment?: (signalId: string) => void;
+  canInspect?: boolean;
+}) {
+  return (
+    <section className="brief-section">
+      <h3>{title}</h3>
+      {signals.length ? (
+        <div className="brief-signal-list">
+          {signals.map((signal) => (
+            <article
+              className={`brief-signal brief-signal-${signal.status}`}
+              key={signal.signal_id}
+            >
+              <span>
+                <strong>{signal.label}</strong>
+                <small>{signal.summary}</small>
+                {signal.limitations.map((limitation) => (
+                  <small className="brief-limitation" key={limitation}>
+                    {limitation}
+                  </small>
+                ))}
+                <span className="brief-signal-actions">
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => signal.evidence[0] && onEvidence(signal.evidence[0].artifact_id)}
+                  >
+                    Evidence <ArrowUpRight size={13} />
+                  </button>
+                  {onInspectSignal && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={!canInspect}
+                      onClick={() => onInspectSignal(signal.signal_id)}
+                    >
+                      Inspect
+                    </button>
+                  )}
+                  {onAnalyzeSegment && signal.dimension === 'zone' && signal.segment_key && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      disabled={!canInspect}
+                      onClick={() => onAnalyzeSegment(signal.signal_id)}
+                    >
+                      Analyze this zone
+                    </button>
+                  )}
+                </span>
+              </span>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">{empty}</p>
+      )}
+    </section>
+  );
+}
+
+export function DecisionBriefView({
+  brief,
+  onEvidence,
+  onLoadDetails,
+  onInspectSignal,
+  onAnalyzeSegment,
+  canInspect,
+}: {
+  brief: DecisionBrief;
+  onEvidence: (id: string) => void;
+  onLoadDetails?: () => void;
+  onInspectSignal?: (signalId: string) => void;
+  onAnalyzeSegment?: (signalId: string) => void;
+  canInspect?: boolean;
+}) {
+  return (
+    <section className="card decision-brief" aria-labelledby="decision-brief-title">
+      <header className="section-heading">
+        <div>
+          <span className="eyebrow">DECISION BRIEF · {brief.version}</span>
+          <h2 id="decision-brief-title">Decision briefing</h2>
+        </div>
+        <span className="badge">Validated</span>
+      </header>
+      <dl className="brief-scope">
+        <div>
+          <dt>Scope</dt>
+          <dd>
+            {brief.scope.project_external_id} / {brief.scope.zone_external_id ?? 'Project'}
+          </dd>
+        </div>
+        <div>
+          <dt>Requested date</dt>
+          <dd>{brief.requested_data_as_of}</dd>
+        </div>
+        <div>
+          <dt>Effective snapshot</dt>
+          <dd>{brief.effective_snapshot_date ?? 'Unavailable'}</dd>
+        </div>
+      </dl>
+      <div className="brief-flow" aria-label="Decision sequence">
+        <SignalGroup
+          title="Current state"
+          empty="Current state is unavailable."
+          signals={brief.current_state}
+          onEvidence={onEvidence}
+          onInspectSignal={onInspectSignal}
+          onAnalyzeSegment={onAnalyzeSegment}
+          canInspect={canInspect}
+        />
+        <ArrowRight className="brief-arrow" aria-hidden="true" />
+        <SignalGroup
+          title="Material change"
+          empty="No existing materiality rule was crossed."
+          signals={brief.material_changes}
+          onEvidence={onEvidence}
+          onInspectSignal={onInspectSignal}
+          onAnalyzeSegment={onAnalyzeSegment}
+          canInspect={canInspect}
+        />
+        <ArrowRight className="brief-arrow" aria-hidden="true" />
+        <SignalGroup
+          title="Where to look"
+          empty="No supported segment concentration is available."
+          signals={brief.where_to_look}
+          onEvidence={onEvidence}
+          onInspectSignal={onInspectSignal}
+          onAnalyzeSegment={onAnalyzeSegment}
+          canInspect={canInspect}
+        />
+        <ArrowRight className="brief-arrow" aria-hidden="true" />
+        <SignalGroup
+          title="Data quality"
+          empty="Data-quality metrics are unavailable."
+          signals={brief.data_quality}
+          onEvidence={onEvidence}
+          onInspectSignal={onInspectSignal}
+          onAnalyzeSegment={onAnalyzeSegment}
+          canInspect={canInspect}
+        />
+      </div>
+      <section className="brief-actions">
+        <h3>Supported next actions</h3>
+        <div className="button-row">
+          {brief.next_actions.map((action) => (
+            <button
+              className="secondary"
+              key={action.action_id}
+              onClick={() =>
+                action.kind === 'review_inventory_units' && onLoadDetails
+                  ? onLoadDetails()
+                  : onEvidence(action.artifact_id)
+              }
+            >
+              {action.label} <ArrowUpRight size={14} />
+            </button>
+          ))}
+        </div>
+      </section>
+    </section>
+  );
+}
+
 export function AnalysisResult({
   artifacts,
+  brief = null,
+  briefStatus = 'idle',
+  detailsLoading = false,
   onEvidence,
+  onLoadDetails,
+  onInspectSignal,
+  onAnalyzeSegment,
+  canInspect = false,
   onReport,
 }: {
   artifacts: Artifact[];
+  brief?: DecisionBriefResponse | null;
+  briefStatus?: BriefLoadState;
+  detailsLoading?: boolean;
   onEvidence: (id: string) => void;
+  onLoadDetails?: () => void;
+  onInspectSignal?: (runId: string, signalId: string) => void;
+  onAnalyzeSegment?: (runId: string, signalId: string) => void;
+  canInspect?: boolean;
   onReport?: () => void;
 }) {
   const calculation = artifacts.find(
@@ -145,8 +342,42 @@ export function AnalysisResult({
   const comparison = artifacts.find(
     (item): item is ArtifactOf<'comparison'> => item.kind === 'comparison',
   );
-  if (!calculation) return null;
-  return (
+  if (!calculation) {
+    if (briefStatus === 'loading')
+      return (
+        <section className="card decision-brief-state" role="status">
+          Loading the validated decision briefing…
+        </section>
+      );
+    if (brief)
+      return (
+        <div className="result-stack">
+          <DecisionBriefView
+            brief={brief.decision_brief}
+            onEvidence={onEvidence}
+            onLoadDetails={onLoadDetails}
+            onInspectSignal={(signalId) => onInspectSignal?.(brief.run_id, signalId)}
+            onAnalyzeSegment={(signalId) => onAnalyzeSegment?.(brief.run_id, signalId)}
+            canInspect={canInspect}
+          />
+          <section className="card decision-details-prompt">
+            <h2>Charts, units and detailed artifacts</h2>
+            <p className="muted">Load the full validated artifact bundle only when needed.</p>
+            <button className="secondary" disabled={detailsLoading} onClick={onLoadDetails}>
+              {detailsLoading ? 'Loading details…' : 'Load detailed results'}
+            </button>
+          </section>
+        </div>
+      );
+    if (briefStatus === 'unavailable')
+      return (
+        <section className="card decision-brief-state">
+          This run has no Decision Briefing. Loading the historical result view…
+        </section>
+      );
+    return null;
+  }
+  const detailed = (
     <div className="result-stack">
       {visualEvidence ? (
         <>
@@ -275,6 +506,33 @@ export function AnalysisResult({
       </div>
     </div>
   );
+  if (!brief)
+    return (
+      <div className="result-stack">
+        {briefStatus === 'unavailable' && (
+          <div className="notice">
+            <CircleHelp size={18} />
+            <p>This historical run has no Decision Briefing; the existing result view is shown.</p>
+          </div>
+        )}
+        {detailed}
+      </div>
+    );
+  return (
+    <div className="result-stack">
+      <DecisionBriefView
+        brief={brief.decision_brief}
+        onEvidence={onEvidence}
+        onInspectSignal={(signalId) => onInspectSignal?.(brief.run_id, signalId)}
+        onAnalyzeSegment={(signalId) => onAnalyzeSegment?.(brief.run_id, signalId)}
+        canInspect={canInspect}
+      />
+      <details className="card decision-details" open>
+        <summary>Charts, units and detailed artifacts</summary>
+        {detailed}
+      </details>
+    </div>
+  );
 }
 
 export function ReportBody({
@@ -294,6 +552,9 @@ export function ReportBody({
       <h1>{payload.title}</h1>
       <p className="report-summary">{payload.summary}</p>
       <span className="badge">Assumption / MVP provisional</span>
+      {payload.decision_brief && (
+        <DecisionBriefView brief={payload.decision_brief} onEvidence={onEvidence} />
+      )}
       <div className="claim-list">
         {payload.sections.map((section) => (
           <button

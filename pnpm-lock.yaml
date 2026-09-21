@@ -114,6 +114,9 @@ importers:
       '@vda/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@vda/semantic':
+        specifier: workspace:*
+        version: link:../semantic
       csv-parse:
         specifier: 7.0.2
         version: 7.0.2

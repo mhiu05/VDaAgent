@@ -1,13 +1,17 @@
 import { createHash } from 'node:crypto';
 import {
   ArtifactSchema,
+  DecisionBriefSchema,
   MetricKeySchema,
   ReportPayloadSchema,
   type Artifact,
   type ArtifactOf,
   type Claim,
+  type DecisionBrief,
   type ReportPayload,
+  type Scope,
 } from '@vda/contracts';
+import { buildDecisionBrief } from '@vda/semantic';
 
 export function canonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -90,6 +94,39 @@ export function bindClaims(calculation: ArtifactOf<'calculation'>): Claim[] {
 }
 export const SAFE_SUMMARY =
   'Kết quả mô tả tồn kho trong phạm vi và ngày dữ liệu đã chọn. Cần kiểm tra bằng chứng và giới hạn dữ liệu trước khi ra quyết định.';
+export function validateDecisionBrief(
+  brief: DecisionBrief,
+  calculation: ArtifactOf<'calculation'>,
+  orgId: string,
+  runId: string,
+  scope: Scope,
+  requestedDataAsOf: string,
+): void {
+  DecisionBriefSchema.parse(brief);
+  if (calculation.org_id !== orgId || calculation.run_id !== runId)
+    throw new Error('CROSS_RUN_DECISION_BRIEF');
+  const signals = [
+    ...brief.current_state,
+    ...brief.material_changes,
+    ...brief.where_to_look,
+    ...brief.data_quality,
+  ];
+  for (const signal of signals) {
+    for (const evidence of signal.evidence) {
+      if (evidence.artifact_id !== calculation.artifact_id)
+        throw new Error('CROSS_RUN_DECISION_BRIEF');
+      readArtifactPath(calculation, evidence.path);
+    }
+  }
+  const expected = buildDecisionBrief(
+    calculation.payload,
+    calculation.artifact_id,
+    scope,
+    requestedDataAsOf,
+  );
+  if (canonical(brief) !== canonical(expected)) throw new Error('INVALID_DECISION_BRIEF');
+}
+
 export function validateReport(
   report: ReportPayload,
   artifacts: Artifact[],
@@ -148,6 +185,18 @@ export function validateReport(
     canonical(report.units) !== canonical(calc.payload.units)
   )
     throw new Error('REPORT_RECALCULATED_OR_CHANGED');
+  if (report.decision_brief !== undefined) {
+    const request = artifacts.find((artifact) => artifact.kind === 'analysis_request');
+    if (request?.kind !== 'analysis_request') throw new Error('MISSING_REQUEST_LINEAGE');
+    validateDecisionBrief(
+      report.decision_brief,
+      calc,
+      orgId,
+      runId,
+      request.payload.scope,
+      request.payload.data_as_of,
+    );
+  }
   const required = MetricKeySchema.options;
   if (
     calc.payload.metrics.length !== required.length ||

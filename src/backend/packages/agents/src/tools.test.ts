@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from './index';
+import {
+  createAnalysisTool,
+  getAnalysisResultTool,
+  inspectSignalTool,
+  modelToolNames,
+} from './tools';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { createAnalysisTool, getAnalysisResultTool, modelToolNames } from './tools';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 async function setup() {
@@ -28,8 +34,34 @@ const baseContext = {
   scope: { project_external_id: 'P-ALPHA', zone_external_id: null },
   data_as_of: '2026-09-19',
   idempotency_key: 'tool-test',
-  allowed_run_ids: [],
+  allowed_run_ids: [] as string[],
+  allowed_signal_refs: [] as { run_id: string; signal_id: string }[],
+  allowed_scopes: [{ project_external_id: 'P-ALPHA', zone_external_id: null }],
 };
+
+const deterministicProvider = (): NarrativeProvider => ({
+  narrate: async (claims) => ({ summary: SAFE_SUMMARY, claims, provider: 'gemini' }),
+});
+
+async function completedBrief(repo: Repository) {
+  const run = await repo.createRun(
+    TEST_USERS.owner,
+    {
+      org_id: TEST_ORGS.alpha,
+      scope: baseContext.scope,
+      data_as_of: baseContext.data_as_of,
+      question: baseContext.question,
+      conversation_id: null,
+    },
+    'completed-brief',
+  );
+  const lease = await repo.claimRun('tool-test-worker');
+  if (!lease) throw new Error('LEASE_REQUIRED');
+  await executeLease(repo, lease, deterministicProvider());
+  const brief = await repo.decisionBrief(TEST_USERS.owner, TEST_ORGS.alpha, run.run_id);
+  const signal = brief.decision_brief.where_to_look[0] ?? brief.decision_brief.current_state[0];
+  return { run, signal };
+}
 
 describe('Agent Chat typed tools', () => {
   it('rejects malformed model inputs before repository execution', async () => {
@@ -60,7 +92,97 @@ describe('Agent Chat typed tools', () => {
     ).rejects.toThrow('RUN_REFERENCE_FORBIDDEN');
   });
 
-  it('has only the two reviewed model-selectable capabilities', () => {
-    expect(modelToolNames).toEqual(['create_analysis', 'get_analysis_result']);
+  it('rejects a model-selected scope outside the server-built catalog allowlist', async () => {
+    const repo = await setup();
+    await expect(
+      createAnalysisTool(repo, baseContext, {
+        action: 'create_analysis',
+        focus: 'current_inventory',
+        scope_ref: { project_external_id: 'P-ALPHA', zone_external_id: 'Z-UNKNOWN' },
+      }),
+    ).rejects.toThrow('SCOPE_REFERENCE_FORBIDDEN');
+  });
+
+  it('inspects an allowed validated signal without creating another run', async () => {
+    const repo = await setup();
+    const { run, signal } = await completedBrief(repo);
+    const countBefore = (await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length;
+    const result = await inspectSignalTool(
+      repo,
+      {
+        ...baseContext,
+        allowed_run_ids: [run.run_id],
+        allowed_signal_refs: [{ run_id: run.run_id, signal_id: signal.signal_id }],
+      },
+      { action: 'inspect_signal', run_id: run.run_id, signal_id: signal.signal_id },
+    );
+    expect(result.kind).toBe('signal_inspection');
+    if (result.kind !== 'signal_inspection') throw new Error('SIGNAL_INSPECTION_REQUIRED');
+    expect(result).toMatchObject({ run: { run_id: run.run_id } });
+    expect(result.content).toBe('Tín hiệu đã xác thực và bằng chứng liên quan được liên kết bên dưới.');
+    expect(result.content).not.toContain(signal.summary);
+    expect(result.parts).toContainEqual({
+      type: 'signal_ref',
+      run_id: run.run_id,
+      signal_id: signal.signal_id,
+    });
+    expect((await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length).toBe(countBefore);
+  });
+
+  it('rejects an unknown signal before it can be inspected', async () => {
+    const repo = await setup();
+    const { run, signal } = await completedBrief(repo);
+    await expect(
+      inspectSignalTool(
+        repo,
+        {
+          ...baseContext,
+          allowed_signal_refs: [{ run_id: run.run_id, signal_id: signal.signal_id }],
+        },
+        { action: 'inspect_signal', run_id: run.run_id, signal_id: 'unknown-signal' },
+      ),
+    ).rejects.toThrow('SIGNAL_REFERENCE_FORBIDDEN');
+  });
+
+  it('re-authorizes signal inspection and denies a foreign tenant actor', async () => {
+    const repo = await setup();
+    const { run, signal } = await completedBrief(repo);
+    await expect(
+      inspectSignalTool(
+        repo,
+        {
+          ...baseContext,
+          user_id: TEST_USERS.beta,
+          role: 'viewer',
+          allowed_signal_refs: [{ run_id: run.run_id, signal_id: signal.signal_id }],
+        },
+        { action: 'inspect_signal', run_id: run.run_id, signal_id: signal.signal_id },
+      ),
+    ).rejects.toThrow('WORKSPACE_FORBIDDEN');
+  });
+
+  it('keeps viewers read-only while allowing authorized signal reads', async () => {
+    const repo = await setup();
+    const { run, signal } = await completedBrief(repo);
+    const viewerContext = {
+      ...baseContext,
+      user_id: TEST_USERS.viewer,
+      role: 'viewer' as const,
+      allowed_signal_refs: [{ run_id: run.run_id, signal_id: signal.signal_id }],
+    };
+    await expect(
+      createAnalysisTool(repo, viewerContext, { action: 'create_analysis', focus: 'current_inventory' }),
+    ).rejects.toThrow('VIEWER_READ_ONLY');
+    await expect(
+      inspectSignalTool(repo, viewerContext, {
+        action: 'inspect_signal',
+        run_id: run.run_id,
+        signal_id: signal.signal_id,
+      }),
+    ).resolves.toMatchObject({ kind: 'signal_inspection' });
+  });
+
+  it('exposes only the reviewed, one-per-turn selectable operations', () => {
+    expect(modelToolNames).toEqual(['create_analysis', 'get_analysis_result', 'inspect_signal']);
   });
 });

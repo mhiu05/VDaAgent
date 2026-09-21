@@ -6,5 +6,6 @@
   verifyArtifact,
   bindClaims,
   SAFE_SUMMARY,
+  validateDecisionBrief,
   validateReport,
 } from '@vda/domain';

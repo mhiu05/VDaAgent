@@ -636,6 +636,112 @@ button svg {
   flex-direction: column;
   gap: 20px;
 }
+.decision-brief {
+  border-color: #cddfd2;
+  background: linear-gradient(145deg, #ffffff 0%, #f7fbf7 100%);
+}
+.brief-scope {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 22px;
+}
+.brief-scope > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 13px;
+  background: #fff;
+}
+.brief-scope dt {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.brief-scope dd {
+  margin: 5px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.brief-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.brief-section h3,
+.brief-actions h3 {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.brief-arrow {
+  color: #9cb1a1;
+  margin-top: 34px;
+}
+.brief-signal-list {
+  display: grid;
+  gap: 8px;
+}
+.brief-signal {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 74px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+}
+.brief-signal:hover {
+  border-color: #93b7a4;
+}
+.brief-signal > span {
+  display: grid;
+  gap: 5px;
+}
+.brief-signal strong {
+  font-size: 11px;
+}
+.brief-signal small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.brief-signal .brief-limitation {
+  color: #926d3d;
+}
+.brief-signal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 2px;
+}
+.brief-signal-actions .text-button {
+  font-size: 10px;
+}
+.brief-signal-unavailable {
+  border-style: dashed;
+}
+.brief-actions {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.decision-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.decision-details[open] > summary {
+  margin-bottom: 20px;
+}
+.decision-details-prompt,
+.decision-brief-state {
+  text-align: left;
+}
 .analysis-composer {
   padding-bottom: 0;
 }
@@ -1929,6 +2035,12 @@ td small {
   .scope-row {
     grid-template-columns: 1fr 1fr 155px;
   }
+  .brief-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .brief-arrow {
+    display: none;
+  }
   .banner-detail {
     display: none;
   }
@@ -2023,6 +2135,10 @@ td small {
   }
 }
 @media (max-width: 720px) {
+  .brief-scope,
+  .brief-flow {
+    grid-template-columns: 1fr;
+  }
   :root {
     --sidebar: 0px;
   }

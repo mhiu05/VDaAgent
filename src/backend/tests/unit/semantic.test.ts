@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { analyze, calculate, compare, metricRegistry, selectLatest } from '@vda/semantic';
+import {
+  analyze,
+  buildDecisionBrief,
+  calculate,
+  compare,
+  metricRegistry,
+  selectLatest,
+} from '@vda/semantic';
 import {
   AnalysisRequestSchema,
   ArtifactSchema,
@@ -211,6 +218,92 @@ describe('shared contracts and configuration', () => {
 
 describe('v0.2 analytical semantics', () => {
   const scope = { project_external_id: 'P-ALPHA', zone_external_id: null };
+  const calculationArtifactId = '50000000-0000-4000-8000-000000000001';
+
+  it('builds a deterministic current-state brief with effective-date and hotspot support', () => {
+    const calculation = analyze(
+      [
+        row({ unit_external_id: 'b', zone_external_id: 'Z-B' }),
+        row({ unit_external_id: 'a', zone_external_id: 'Z-A', available_since: null }),
+      ],
+      ORG,
+      scope,
+      '2026-09-20',
+    );
+    const brief = buildDecisionBrief(calculation, calculationArtifactId, scope, '2026-09-20');
+    expect(brief.current_state.map((signal) => signal.metric_key)).toEqual([
+      'total_inventory',
+      'available_inventory',
+      'median_inventory_age_days',
+      'slow_moving_rate',
+    ]);
+    expect(brief.requested_data_as_of).toBe('2026-09-20');
+    expect(brief.effective_snapshot_date).toBe('2026-09-19');
+    expect(brief.where_to_look[0]).toMatchObject({
+      dimension: 'zone',
+      segment_key: 'Z-A',
+      support_value: 1,
+      denominator_value: 2,
+    });
+    expect(brief.limitations[0]).toContain('unknown age');
+    expect(
+      brief.current_state
+        .flatMap((signal) => signal.evidence)
+        .every((reference) => reference.artifact_id === calculationArtifactId),
+    ).toBe(true);
+  });
+
+  it('surfaces material comparisons in stable rule order with currency metadata', () => {
+    const calculation = analyze(
+      [
+        row({
+          unit_external_id: 'priced',
+          snapshot_date: '2026-09-13',
+          list_price: '100',
+          area_sqm: '1',
+        }),
+        row({
+          unit_external_id: 'priced',
+          snapshot_date: '2026-09-20',
+          list_price: '200',
+          area_sqm: '1',
+        }),
+      ],
+      ORG,
+      scope,
+      '2026-09-20',
+    );
+    const brief = buildDecisionBrief(calculation, calculationArtifactId, scope, '2026-09-20');
+    const price = brief.material_changes.find(
+      (signal) => signal.metric_key === 'median_price_per_area',
+    );
+    expect(price).toMatchObject({
+      current_value: '200.000000',
+      comparison_value: '100.000000',
+      delta: '100.000000',
+      unit: 'currency_per_sqm',
+      currency: 'VND',
+    });
+    expect(brief.material_changes.map((signal) => signal.rule_id)).toEqual(
+      [...brief.material_changes.map((signal) => signal.rule_id)].sort(),
+    );
+  });
+
+  it('abstains from a segment hotspot for a zero available-inventory denominator', () => {
+    const calculation = analyze(
+      [row({ status: 'sold', sold_at: '2026-09-19' })],
+      ORG,
+      scope,
+      '2026-09-19',
+    );
+    const brief = buildDecisionBrief(calculation, calculationArtifactId, scope, '2026-09-19');
+    expect(brief.where_to_look[0]).toMatchObject({
+      status: 'unavailable',
+      support_value: null,
+      denominator_value: 0,
+      abstention_reason: 'ZERO_DENOMINATOR',
+    });
+  });
 
   it('registers every emitted metric with explicit semantics', () => {
     const calculated = calculate([row()], '2026-09-19');
@@ -390,6 +483,11 @@ describe('v0.2 analytical semantics', () => {
       relative_delta_pct: null,
       abstention_reason: 'INCOMPARABLE_CURRENCY',
     });
+    expect(
+      buildDecisionBrief(result, calculationArtifactId, scope, '2026-09-20').material_changes.some(
+        (signal) => signal.metric_key === 'median_price_per_area',
+      ),
+    ).toBe(false);
   });
 
   it('propagates missing-age coverage into metrics, breakdowns, candidates, and charts', () => {

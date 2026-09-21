@@ -8,7 +8,7 @@ import {
   type NarrativeProvider,
   validateReport,
 } from '@vda/agents';
-import type { AnalysisRequest } from '@vda/contracts';
+import { ReportPayloadSchema, type AnalysisRequest } from '@vda/contracts';
 import { createTestRepository } from '../helpers/postgres.js';
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 async function setup() {
@@ -94,6 +94,10 @@ describe('persisted DAG and truth chain', () => {
     expect(bundle.sources).toHaveLength(1);
     const report = bundle.artifacts.find((a) => a.kind === 'report')!;
     expect(report.content_hash).toBe(artifactHash(report));
+    expect(report.payload.decision_brief).toMatchObject({
+      requested_data_as_of: request.data_as_of,
+      effective_snapshot_date: '2026-09-19',
+    });
     expect(
       Object.fromEntries(report.payload.metrics.map((metric) => [metric.key, metric.value])),
     ).toMatchObject({
@@ -114,6 +118,14 @@ describe('persisted DAG and truth chain', () => {
         (m) => m.role,
       ),
     ).toEqual(['user', 'assistant']);
+    expect(await repo.decisionBrief(TEST_USERS.viewer, run.org_id, run.run_id)).toMatchObject({
+      run_id: run.run_id,
+      org_id: run.org_id,
+      calculation_artifact_id: report.payload.calculation_artifact_id,
+    });
+    await expect(repo.decisionBrief(TEST_USERS.beta, run.org_id, run.run_id)).rejects.toThrow(
+      'WORKSPACE_FORBIDDEN',
+    );
     await expect(repo.artifacts(TEST_USERS.beta, run.org_id, run.run_id)).rejects.toThrow(
       'WORKSPACE_FORBIDDEN',
     );
@@ -140,6 +152,37 @@ describe('persisted DAG and truth chain', () => {
     invalidEvidence.claims[0].evidence_path = 'payload.metrics[999].value';
     expect(() => validateReport(invalidEvidence, artifacts, run.org_id, run.run_id)).toThrow(
       'UNGROUNDED_CLAIM',
+    );
+    const fabricatedBrief = structuredClone(report.payload);
+    fabricatedBrief.decision_brief!.current_state[0].current_value = 999;
+    expect(() => validateReport(fabricatedBrief, artifacts, run.org_id, run.run_id)).toThrow(
+      'INVALID_DECISION_BRIEF',
+    );
+    const invalidBriefEvidence = structuredClone(report.payload);
+    invalidBriefEvidence.decision_brief!.current_state[0].evidence[0].path =
+      'payload.metrics[999].value';
+    expect(() => validateReport(invalidBriefEvidence, artifacts, run.org_id, run.run_id)).toThrow(
+      'INVALID_EVIDENCE_PATH',
+    );
+    const duplicateBriefSignal = structuredClone(report.payload);
+    duplicateBriefSignal.decision_brief!.current_state[1].signal_id =
+      duplicateBriefSignal.decision_brief!.current_state[0].signal_id;
+    expect(() => validateReport(duplicateBriefSignal, artifacts, run.org_id, run.run_id)).toThrow();
+    const mismatchedBriefUnit = structuredClone(report.payload);
+    mismatchedBriefUnit.decision_brief!.current_state[0].unit = 'percent';
+    expect(() => validateReport(mismatchedBriefUnit, artifacts, run.org_id, run.run_id)).toThrow(
+      'INVALID_DECISION_BRIEF',
+    );
+    const mismatchedBriefCurrency = structuredClone(report.payload);
+    mismatchedBriefCurrency.decision_brief!.current_state[0].currency = 'USD';
+    expect(() =>
+      validateReport(mismatchedBriefCurrency, artifacts, run.org_id, run.run_id),
+    ).toThrow();
+    const crossRunBrief = structuredClone(report.payload);
+    crossRunBrief.decision_brief!.current_state[0].evidence[0].artifact_id =
+      '90000000-0000-4000-8000-000000000001';
+    expect(() => validateReport(crossRunBrief, artifacts, run.org_id, run.run_id)).toThrow(
+      'CROSS_RUN_DECISION_BRIEF',
     );
     expect(() =>
       validateReport(
@@ -168,6 +211,16 @@ describe('persisted DAG and truth chain', () => {
     expect(() => validateReport(report.payload, foreign, run.org_id, run.run_id)).toThrow(
       'BROKEN_LINEAGE',
     );
+  });
+  it('keeps historical report payloads without a decision brief readable', async () => {
+    const repo = await setup();
+    const { run } = await runPipeline(repo, 'historical-report');
+    const { artifacts } = await repo.artifacts(TEST_USERS.owner, run.org_id, run.run_id);
+    const report = artifacts.find((artifact) => artifact.kind === 'report')!;
+    const historical = structuredClone(report.payload);
+    delete historical.decision_brief;
+    expect(() => ReportPayloadSchema.parse(historical)).not.toThrow();
+    expect(() => validateReport(historical, artifacts, run.org_id, run.run_id)).not.toThrow();
   });
   it('resumes persisted upstream outputs after provider failure without duplicate publication', async () => {
     const repo = await setup();

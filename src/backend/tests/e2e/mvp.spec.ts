@@ -52,6 +52,13 @@ test('API: import, idempotency, report lineage, private export, scheduler and au
     ).status(),
   ).toBe(409);
   await completed(request, accepted.run_id);
+  const briefResponse = await request.get(scoped(`/runs/${accepted.run_id}/brief`));
+  expect(briefResponse.status()).toBe(200);
+  expect(await briefResponse.json()).toMatchObject({
+    run_id: accepted.run_id,
+    requested_data_as_of: requestBody.data_as_of,
+    decision_brief: { version: 'decision-brief-v1' },
+  });
   const agentKey = crypto.randomUUID();
   const agentTurnBody = {
     org_id: org,
@@ -153,6 +160,7 @@ test('API: import, idempotency, report lineage, private export, scheduler and au
   ).toMatchObject({ total_inventory: 12, available_inventory: 10, sold_units_30d: 1 });
   await login(request, 'viewer');
   expect((await request.get(scoped(`/reports/${report.report_id}`))).status()).toBe(200);
+  expect((await request.get(scoped(`/runs/${accepted.run_id}/brief`))).status()).toBe(200);
   expect(
     (
       await request.post('/api/v1/analyses', {
@@ -191,6 +199,7 @@ test('API: import, idempotency, report lineage, private export, scheduler and au
   for (const path of [
     `/runs/${accepted.run_id}`,
     `/runs/${accepted.run_id}/artifacts`,
+    `/runs/${accepted.run_id}/brief`,
     `/reports/${report.report_id}`,
     `/conversations/${agentAccepted.conversation_id}`,
   ])
@@ -215,6 +224,7 @@ test('Owner UI: Project → evidence → report; analyst Zone; viewer read-only'
   await page.getByLabel('Câu hỏi phân tích').fill('Show current available inventory.');
   await page.getByRole('button', { name: 'Gửi yêu cầu', exact: true }).click();
   await expect(page.getByText('Hoàn thành', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Load detailed results', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Dữ liệu từng sản phẩm' })).toBeVisible();
   await page.getByRole('button', { name: 'RS-001' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -235,7 +245,8 @@ test('Owner UI: Project → evidence → report; analyst Zone; viewer read-only'
   await page.getByLabel('Ngày dữ liệu', { exact: true }).fill('2026-09-19');
   await page.getByLabel('Câu hỏi phân tích').fill('Which units are slow moving?');
   await page.getByRole('button', { name: 'Gửi yêu cầu', exact: true }).click();
-  await expect(page.getByText('Hoàn thành', { exact: true })).toBeVisible();
+  await expect(page.getByText('P-ALPHA / Z-NORTH', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Load detailed results', exact: true }).click();
   await expect(page.locator('.unit-section tbody tr')).toHaveCount(8);
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: 'test-results/analyst-workspace.png', fullPage: true });
