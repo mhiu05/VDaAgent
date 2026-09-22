@@ -1,8 +1,10 @@
 import type {
   AnalysisRequest,
   AnalysisRun,
+  AgentKey,
   AgentTurnRequest,
   Artifact,
+  ArtifactOf,
   ArtifactValidation,
   Catalog,
   Conversation,
@@ -49,6 +51,49 @@ export interface QueryResult {
   row_limit: number;
   timeout_ms: number;
 }
+
+/**
+ * The database key is deliberately kept outside the immutable artifact payload.
+ * Legacy artifacts therefore continue to hash and parse exactly as they did when
+ * their logical key is derived from `kind`.
+ */
+export interface ArtifactStoreOptions {
+  artifact_key?: string;
+}
+
+export interface ReviewedDraftPublication {
+  draft_artifact_id: string;
+  review_artifact_id: string;
+  /** Must be the fenced, running publication checkpoint. */
+  publication_task: RunTask;
+  report: ArtifactOf<'report'>;
+}
+
+/**
+ * A specialized agent checkpoint is a reference-only shared chat update.
+ * Repository code creates its parts from the fenced run and rejects private
+ * draft/review artifacts, so callers cannot accidentally copy canonical data
+ * or private workflow content into the conversation.
+ */
+export interface AgentStageMessageInput {
+  sender_agent: AgentKey;
+  content: string;
+  artifact?: Artifact;
+}
+
+export function normalizeArtifactKey(value: unknown): string {
+  const key = typeof value === 'string' ? value.trim() : '';
+  if (!key || key.length > 160) throw new Error('INVALID_ARTIFACT_KEY');
+  return key;
+}
+
+export function logicalArtifactKey(
+  artifact: Pick<Artifact, 'kind'>,
+  options: ArtifactStoreOptions = {},
+): string {
+  return normalizeArtifactKey(options?.artifact_key ?? artifact.kind);
+}
+
 export interface Repository {
   close(): Promise<void>;
   session(userId: string, email?: string): Promise<Session>;
@@ -101,6 +146,8 @@ export interface Repository {
       status: Extract<MessageStatus, 'completed' | 'failed' | 'cancelled'>;
       content: string;
       parts: MessagePart[];
+      /** A bounded @Agent follow-up may attribute its existing turn reply. */
+      sender_agent?: AgentKey | null;
     },
   ): Promise<Message>;
   artifacts(
@@ -112,17 +159,29 @@ export interface Repository {
     validations: ArtifactValidation[];
     sources: ImportManifest[];
   }>;
+  artifactByKey(
+    userId: string,
+    orgId: string,
+    runId: string,
+    artifactKey: string,
+  ): Promise<Artifact>;
   decisionBrief(userId: string, orgId: string, runId: string): Promise<DecisionBriefResponse>;
   claimRun(workerId: string, now?: Date, leaseMs?: number): Promise<Lease | null>;
   renewLease(lease: Lease, leaseMs?: number): Promise<void>;
   assertLease(lease: Lease): Promise<void>;
   readSnapshots(lease: Lease): Promise<QueryResult>;
   getMetricConfig(lease: Lease): Promise<{ slow_moving_threshold_days: number }>;
-  storeArtifact(lease: Lease, artifact: Artifact): Promise<Artifact>;
+  storeArtifact(
+    lease: Lease,
+    artifact: Artifact,
+    options?: ArtifactStoreOptions,
+  ): Promise<Artifact>;
   validateArtifact(lease: Lease, validation: ArtifactValidation): Promise<void>;
   setTask(lease: Lease, task: RunTask): Promise<void>;
   addEvent(lease: Lease, message: string, taskId?: string): Promise<void>;
+  upsertStageMessage(lease: Lease, input: AgentStageMessageInput): Promise<Message>;
   completeRun(lease: Lease, reportArtifactId: string): Promise<void>;
+  publishReviewedDraft(lease: Lease, input: ReviewedDraftPublication): Promise<ReportRecord>;
   failRun(lease: Lease, errorCode: string): Promise<void>;
   listReports(userId: string, orgId: string): Promise<ReportRecord[]>;
   getReport(

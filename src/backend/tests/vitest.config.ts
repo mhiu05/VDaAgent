@@ -15,6 +15,11 @@ export default defineConfig({
     ),
   },
   test: {
+    // PGlite starts an in-process PostgreSQL instance for each file. Running
+    // the workflow suites concurrently starves their lease/teardown timers and
+    // creates false timeout/LEASE_LOST failures; production workers remain
+    // independently concurrent.
+    fileParallelism: false,
     include: [
       'src/backend/packages/**/*.test.ts',
       'src/backend/tests/unit/**/*.test.ts',

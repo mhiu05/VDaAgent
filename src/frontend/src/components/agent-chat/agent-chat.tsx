@@ -7,6 +7,8 @@ import {
   ArtifactListSchema,
   DecisionBriefResponseSchema,
   RunDetailSchema,
+  type AgentKey,
+  type AgentWorkflowStatus,
   type Catalog,
   type DecisionBriefResponse,
   type AgentTurnRequest,
@@ -17,6 +19,7 @@ import {
   api,
   createTurnIdentity,
   errorMessage,
+  getAgentWorkflowStatus,
   listConversationMessages,
   listConversations,
   post,
@@ -29,7 +32,9 @@ import { EvidenceDrawer } from '../evidence';
 import { Composer } from './composer';
 import { ConversationList } from './conversation-list';
 import { MessageThread } from './message-thread';
+import { isReadOnlyRunView } from './run-view';
 import { RunProgress } from './run-progress';
+import { WorkflowCheckpointStatus } from './workflow-checkpoint-status';
 
 type RunDetail = z.infer<typeof RunDetailSchema>;
 type ArtifactList = z.infer<typeof ArtifactListSchema>;
@@ -68,9 +73,11 @@ export function AgentChat({
   const [zone, setZone] = useState('');
   const [dataAsOf, setDataAsOf] = useState(catalog.latest_snapshot_date ?? '');
   const [draft, setDraft] = useState('');
+  const [agentTarget, setAgentTarget] = useState<AgentKey | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [runMessageId, setRunMessageId] = useState<string | null>(null);
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
+  const [workflowStatus, setWorkflowStatus] = useState<AgentWorkflowStatus | null>(null);
   const [bundle, setBundle] = useState<ArtifactList>({
     artifacts: [],
     validations: [],
@@ -129,9 +136,11 @@ export function AgentChat({
     setBriefStatus('idle');
     setError('');
     void loadConversations(null, false).then((page) => {
-      if (page?.conversations[0]) setSelectedConversationId(page.conversations[0].conversation_id);
+      if (!externalRunId && page?.conversations[0]) {
+        setSelectedConversationId(page.conversations[0].conversation_id);
+      }
     });
-  }, [loadConversations, orgId]);
+  }, [externalRunId, loadConversations, orgId]);
 
   const loadMessages = useCallback(
     async (conversationId: string, cursor: string | null, appendEarlier: boolean) => {
@@ -176,6 +185,7 @@ export function AgentChat({
   useEffect(() => {
     if (externalRunId) {
       setRunId(externalRunId);
+      setRunMessageId(null);
       return;
     }
     const latest = [...messages].reverse().find((message) => {
@@ -192,22 +202,47 @@ export function AgentChat({
 
   const visibleRunId = externalRunId ?? runId;
   useEffect(() => {
+    if (!visibleRunId) setWorkflowStatus(null);
+  }, [visibleRunId]);
+  const scheduledReadOnly = isReadOnlyRunView(
+    externalRunId,
+    runDetail?.run ?? null,
+    conversations.find((conversation) => conversation.conversation_id === selectedConversationId)
+      ?.kind,
+  );
+  useEffect(() => {
     if (!visibleRunId) return;
+    const pollingRunId: string = visibleRunId;
     setBrief(null);
     setBriefStatus('idle');
     setBundle({ artifacts: [], validations: [], sources: [] });
+    setWorkflowStatus(null);
     let obsolete = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     async function poll() {
       try {
-        const detail = await api(scoped(`/runs/${visibleRunId}`, orgId), RunDetailSchema);
+        const detail = await api(scoped(`/runs/${pollingRunId}`, orgId), RunDetailSchema);
         if (obsolete) return;
         setRunDetail(detail);
+        if (canWrite && detail.run.workflow_version === 'agent-v1') {
+          try {
+            const status = await getAgentWorkflowStatus(orgId, pollingRunId);
+            if (!obsolete) setWorkflowStatus(status);
+          } catch {
+            // A checkpoint status failure must never block the durable run view.
+            if (!obsolete) setWorkflowStatus(null);
+          }
+        }
+        const conversationId = detail.run.request.conversation_id;
+        if (externalRunId && conversationId) {
+          if (selectedConversationId !== conversationId) setSelectedConversationId(conversationId);
+          void loadMessages(conversationId, null, false);
+        }
         if (detail.run.status === 'succeeded') {
           if (!obsolete) setBriefStatus('loading');
           try {
             const nextBrief = await api(
-              scoped(`/runs/${visibleRunId}/brief`, orgId),
+              scoped(`/runs/${pollingRunId}/brief`, orgId),
               DecisionBriefResponseSchema,
             );
             if (!obsolete) {
@@ -218,7 +253,7 @@ export function AgentChat({
             if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
             if (!obsolete) setBriefStatus('unavailable');
             const artifacts = await api(
-              scoped(`/runs/${visibleRunId}/artifacts`, orgId),
+              scoped(`/runs/${pollingRunId}/artifacts`, orgId),
               ArtifactListSchema,
             );
             if (!obsolete) setBundle(artifacts);
@@ -230,7 +265,7 @@ export function AgentChat({
         } else if (terminalStatuses.has(detail.run.status)) {
           if (!obsolete) setBriefStatus('unavailable');
           const artifacts = await api(
-            scoped(`/runs/${visibleRunId}/artifacts`, orgId),
+            scoped(`/runs/${pollingRunId}/artifacts`, orgId),
             ArtifactListSchema,
           );
           if (!obsolete) setBundle(artifacts);
@@ -245,7 +280,15 @@ export function AgentChat({
       obsolete = true;
       if (timer) clearTimeout(timer);
     };
-  }, [loadConversations, loadMessages, orgId, selectedConversationId, visibleRunId]);
+  }, [
+    canWrite,
+    externalRunId,
+    loadConversations,
+    loadMessages,
+    orgId,
+    selectedConversationId,
+    visibleRunId,
+  ]);
 
   const selectedArtifact = useMemo(
     () => bundle.artifacts.find((artifact) => artifact.artifact_id === evidenceId),
@@ -281,20 +324,23 @@ export function AgentChat({
     setDetailsLoading(false);
     setEvidenceId(null);
     setDraft('');
+    setAgentTarget(null);
     setRetryTurn(null);
     setError('');
   }
   async function submit(providedAttempt?: RetryTurn) {
-    const attempt = providedAttempt ?? retryTurn ?? {
-      input: {
-        text: draft.trim(),
-        scope: { project_external_id: project, zone_external_id: zone || null },
-        data_as_of: dataAsOf,
-      },
-      identity: createTurnIdentity(),
-      conversationId: selectedConversationId ?? undefined,
-    };
-    if (!attempt.input.text || busy) return;
+    const attempt = providedAttempt ??
+      retryTurn ?? {
+        input: {
+          text: draft.trim(),
+          scope: { project_external_id: project, zone_external_id: zone || null },
+          data_as_of: dataAsOf,
+          agent_target: agentTarget,
+        },
+        identity: createTurnIdentity(),
+        conversationId: selectedConversationId ?? undefined,
+      };
+    if (!attempt.input.text || busy || !canWrite || scheduledReadOnly) return;
     setBusy(true);
     setError('');
     try {
@@ -306,6 +352,7 @@ export function AgentChat({
       );
       setRetryTurn(null);
       setDraft('');
+      setAgentTarget(null);
       setSelectedConversationId(accepted.conversation_id);
       setRunId(accepted.run_id);
       setRunMessageId(accepted.assistant_message_id);
@@ -327,7 +374,7 @@ export function AgentChat({
     signalId: string,
     action: Extract<NonNullable<TurnInput['signal_action']>, 'inspect' | 'analyze_segment'>,
   ) {
-    if (!canWrite || busy) return;
+    if (!canWrite || busy || scheduledReadOnly) return;
     const attempt: RetryTurn = {
       input: {
         text:
@@ -345,7 +392,7 @@ export function AgentChat({
     await submit(attempt);
   }
   async function cancelRun() {
-    if (!visibleRunId) return;
+    if (!visibleRunId || !canWrite || scheduledReadOnly) return;
     setCancelling(true);
     try {
       await api(
@@ -370,13 +417,13 @@ export function AgentChat({
       setDetailsLoading(false);
     }
   }
-  async function openEvidence(id: string) {
+  async function openEvidence(id: string, artifactRunId = visibleRunId) {
     if (!bundle.artifacts.some((artifact) => artifact.artifact_id === id)) {
-      if (!visibleRunId) return;
+      if (!artifactRunId) return;
       setDetailsLoading(true);
       try {
         const artifacts = await api(
-          scoped(`/runs/${visibleRunId}/artifacts`, orgId),
+          scoped(`/runs/${artifactRunId}/artifacts`, orgId),
           ArtifactListSchema,
         );
         setBundle(artifacts);
@@ -424,11 +471,12 @@ export function AgentChat({
         {runDetail && (
           <RunProgress
             detail={runDetail}
-            canWrite={canWrite}
+            canWrite={canWrite && !scheduledReadOnly}
             cancelling={cancelling}
             onCancel={() => void cancelRun()}
           />
         )}
+        {workflowStatus && <WorkflowCheckpointStatus status={workflowStatus} />}
         <MessageThread
           messages={messages}
           loading={loadingMessages}
@@ -444,6 +492,12 @@ export function AgentChat({
             setRunMessageId(messageId);
           }}
           onOpenReport={(id) => onReport?.(id)}
+          onOpenArtifact={(artifactRunId, artifactId) => {
+            onClearExternalRun?.();
+            setRunId(artifactRunId);
+            setRunMessageId(null);
+            void openEvidence(artifactId, artifactRunId);
+          }}
         />
         {runDetail?.run.status === 'succeeded' && (
           <div
@@ -464,7 +518,7 @@ export function AgentChat({
               onAnalyzeSegment={(signalRunId, signalId) =>
                 void submitSignalAction(signalRunId, signalId, 'analyze_segment')
               }
-              canInspect={canWrite}
+              canInspect={canWrite && !scheduledReadOnly}
               onReport={reportId && onReport ? () => onReport(reportId) : undefined}
             />
           </div>
@@ -477,10 +531,13 @@ export function AgentChat({
           dataAsOf={dataAsOf}
           draft={draft}
           busy={busy}
+          agentTarget={agentTarget}
+          scheduledReadOnly={scheduledReadOnly}
           onProject={setProject}
           onZone={setZone}
           onDate={setDataAsOf}
           onDraft={setDraft}
+          onAgentTarget={setAgentTarget}
           onSubmit={() => void submit()}
         />
       </div>

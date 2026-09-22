@@ -1,0 +1,1531 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "const": "data-analysis-pack-v1"
+    },
+    "pack_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "org_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "use_case": {
+      "type": "string",
+      "enum": [
+        "slow_moving_inventory"
+      ]
+    },
+    "use_case_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "project_external_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "zone_external_id": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "project_external_id",
+        "zone_external_id"
+      ],
+      "additionalProperties": false
+    },
+    "data_as_of": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "semantic_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "input_refs": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "snapshot_refs": {
+      "maxItems": 20000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "source_refs": {
+      "maxItems": 20000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "limitations": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "metric_config": {
+      "type": "object",
+      "properties": {
+        "slow_moving_threshold_days": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "slow_moving_threshold_days"
+      ],
+      "additionalProperties": false
+    },
+    "dataset": {
+      "type": "object",
+      "properties": {
+        "row_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "query_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "query_result_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "calculation_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "comparison_calculation_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "comparison_artifact_id": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        }
+      },
+      "required": [
+        "row_count",
+        "query_artifact_id",
+        "query_result_artifact_id",
+        "calculation_artifact_id",
+        "comparison_calculation_artifact_id",
+        "comparison_artifact_id"
+      ],
+      "additionalProperties": false
+    },
+    "metrics": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric_id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "enum": [
+              "total_inventory",
+              "available_inventory",
+              "available_inventory_rate",
+              "sold_units_7d",
+              "sold_units_30d",
+              "sold_units_90d",
+              "inventory_change_7d",
+              "inventory_change_30d",
+              "inventory_change_90d",
+              "median_inventory_age_days",
+              "p75_inventory_age_days",
+              "slow_moving_units",
+              "slow_moving_rate",
+              "unknown_inventory_age",
+              "unknown_inventory_age_rate",
+              "median_price",
+              "median_price_per_area",
+              "p25_price_per_area",
+              "p75_price_per_area",
+              "price_per_area_iqr",
+              "missing_inventory_age_rate",
+              "missing_price_rate",
+              "missing_area_rate",
+              "records_with_invalid_or_unusable_values",
+              "snapshot_coverage"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "count",
+              "percent",
+              "percentage_points",
+              "days",
+              "currency",
+              "currency_per_sqm"
+            ]
+          },
+          "currency": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "unavailable"
+            ]
+          },
+          "abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_HISTORY",
+                  "INSUFFICIENT_PEERS",
+                  "MISSING_REQUIRED_FIELD",
+                  "NO_DATA",
+                  "ZERO_DENOMINATOR",
+                  "INCOMPARABLE_CURRENCY",
+                  "NO_SNAPSHOT",
+                  "INSUFFICIENT_SAMPLE_SIZE",
+                  "UNSUPPORTED_METRIC",
+                  "UNSUPPORTED_CHART",
+                  "INCOMPATIBLE_GRAIN",
+                  "TOO_MANY_CATEGORIES"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "metric_id",
+          "key",
+          "label",
+          "description",
+          "value",
+          "unit",
+          "currency",
+          "status",
+          "abstention_reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "units": {
+      "maxItems": 20000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "unit_external_id": {
+            "type": "string"
+          },
+          "unit_code": {
+            "type": "string"
+          },
+          "project_external_id": {
+            "type": "string"
+          },
+          "zone_external_id": {
+            "type": "string"
+          },
+          "unit_type": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "reserved",
+              "sold",
+              "held",
+              "unknown"
+            ]
+          },
+          "area_sqm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "list_price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_per_sqm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "age_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "slow_moving": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "import_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "unit_external_id",
+          "unit_code",
+          "project_external_id",
+          "zone_external_id",
+          "unit_type",
+          "currency",
+          "status",
+          "area_sqm",
+          "list_price",
+          "price_per_sqm",
+          "age_days",
+          "slow_moving",
+          "snapshot_id",
+          "import_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "age_buckets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "0-30",
+              "31-60",
+              "61-90",
+              "91-180",
+              ">180",
+              "unknown"
+            ]
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "bucket",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "breakdowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric_key": {
+            "type": "string",
+            "enum": [
+              "total_inventory",
+              "available_inventory",
+              "available_inventory_rate",
+              "sold_units_7d",
+              "sold_units_30d",
+              "sold_units_90d",
+              "inventory_change_7d",
+              "inventory_change_30d",
+              "inventory_change_90d",
+              "median_inventory_age_days",
+              "p75_inventory_age_days",
+              "slow_moving_units",
+              "slow_moving_rate",
+              "unknown_inventory_age",
+              "unknown_inventory_age_rate",
+              "median_price",
+              "median_price_per_area",
+              "p25_price_per_area",
+              "p75_price_per_area",
+              "price_per_area_iqr",
+              "missing_inventory_age_rate",
+              "missing_price_rate",
+              "missing_area_rate",
+              "records_with_invalid_or_unusable_values",
+              "snapshot_coverage"
+            ]
+          },
+          "scope": {
+            "type": "object",
+            "properties": {
+              "project_external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "zone_external_id": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "project_external_id",
+              "zone_external_id"
+            ],
+            "additionalProperties": false
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "project",
+              "zone",
+              "unit_type",
+              "bedrooms",
+              "status"
+            ]
+          },
+          "data_as_of": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "snapshot_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "source_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "filter": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "semantic_version": {
+            "type": "string",
+            "const": "mvp-inventory-v0.2"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "maxLength": 40,
+                          "pattern": "^\\d+(?:\\.\\d+)?$"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "currency": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[A-Z]{3}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "abstention_reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "INSUFFICIENT_HISTORY",
+                        "INSUFFICIENT_PEERS",
+                        "MISSING_REQUIRED_FIELD",
+                        "NO_DATA",
+                        "ZERO_DENOMINATOR",
+                        "INCOMPARABLE_CURRENCY",
+                        "NO_SNAPSHOT",
+                        "INSUFFICIENT_SAMPLE_SIZE",
+                        "UNSUPPORTED_METRIC",
+                        "UNSUPPORTED_CHART",
+                        "INCOMPATIBLE_GRAIN",
+                        "TOO_MANY_CATEGORIES"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "value",
+                "currency",
+                "abstention_reason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "metric_key",
+          "scope",
+          "dimension",
+          "data_as_of",
+          "snapshot_date",
+          "snapshot_refs",
+          "source_refs",
+          "filter",
+          "semantic_version",
+          "limitations",
+          "items"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "period_comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric_key": {
+            "type": "string",
+            "enum": [
+              "total_inventory",
+              "available_inventory",
+              "available_inventory_rate",
+              "sold_units_7d",
+              "sold_units_30d",
+              "sold_units_90d",
+              "inventory_change_7d",
+              "inventory_change_30d",
+              "inventory_change_90d",
+              "median_inventory_age_days",
+              "p75_inventory_age_days",
+              "slow_moving_units",
+              "slow_moving_rate",
+              "unknown_inventory_age",
+              "unknown_inventory_age_rate",
+              "median_price",
+              "median_price_per_area",
+              "p25_price_per_area",
+              "p75_price_per_area",
+              "price_per_area_iqr",
+              "missing_inventory_age_rate",
+              "missing_price_rate",
+              "missing_area_rate",
+              "records_with_invalid_or_unusable_values",
+              "snapshot_coverage"
+            ]
+          },
+          "period_days": {
+            "anyOf": [
+              {
+                "type": "number",
+                "const": 7
+              },
+              {
+                "type": "number",
+                "const": 30
+              },
+              {
+                "type": "number",
+                "const": 90
+              }
+            ]
+          },
+          "current_as_of": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "current_snapshot_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comparison_target_date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "comparison_snapshot_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comparison_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "comparison_currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "absolute_delta": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relative_delta_pct": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "percentage_point_delta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_HISTORY",
+                  "INSUFFICIENT_PEERS",
+                  "MISSING_REQUIRED_FIELD",
+                  "NO_DATA",
+                  "ZERO_DENOMINATOR",
+                  "INCOMPARABLE_CURRENCY",
+                  "NO_SNAPSHOT",
+                  "INSUFFICIENT_SAMPLE_SIZE",
+                  "UNSUPPORTED_METRIC",
+                  "UNSUPPORTED_CHART",
+                  "INCOMPATIBLE_GRAIN",
+                  "TOO_MANY_CATEGORIES"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relative_delta_abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_HISTORY",
+                  "INSUFFICIENT_PEERS",
+                  "MISSING_REQUIRED_FIELD",
+                  "NO_DATA",
+                  "ZERO_DENOMINATOR",
+                  "INCOMPARABLE_CURRENCY",
+                  "NO_SNAPSHOT",
+                  "INSUFFICIENT_SAMPLE_SIZE",
+                  "UNSUPPORTED_METRIC",
+                  "UNSUPPORTED_CHART",
+                  "INCOMPATIBLE_GRAIN",
+                  "TOO_MANY_CATEGORIES"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "metric_key",
+          "period_days",
+          "current_as_of",
+          "current_snapshot_date",
+          "comparison_target_date",
+          "comparison_snapshot_date",
+          "current_value",
+          "comparison_value",
+          "current_currency",
+          "comparison_currency",
+          "absolute_delta",
+          "relative_delta_pct",
+          "percentage_point_delta",
+          "abstention_reason",
+          "relative_delta_abstention_reason",
+          "snapshot_refs"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "segment_comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "zone",
+              "unit_type",
+              "bedrooms",
+              "status"
+            ]
+          },
+          "metric_key": {
+            "type": "string",
+            "enum": [
+              "total_inventory",
+              "available_inventory",
+              "available_inventory_rate",
+              "sold_units_7d",
+              "sold_units_30d",
+              "sold_units_90d",
+              "inventory_change_7d",
+              "inventory_change_30d",
+              "inventory_change_90d",
+              "median_inventory_age_days",
+              "p75_inventory_age_days",
+              "slow_moving_units",
+              "slow_moving_rate",
+              "unknown_inventory_age",
+              "unknown_inventory_age_rate",
+              "median_price",
+              "median_price_per_area",
+              "p25_price_per_area",
+              "p75_price_per_area",
+              "price_per_area_iqr",
+              "missing_inventory_age_rate",
+              "missing_price_rate",
+              "missing_area_rate",
+              "records_with_invalid_or_unusable_values",
+              "snapshot_coverage"
+            ]
+          },
+          "segment_key": {
+            "type": "string"
+          },
+          "segment_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segment_currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reference_key": {
+            "type": "string"
+          },
+          "reference_value": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reference_currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "absolute_delta": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 40,
+                    "pattern": "^-?\\d+(?:\\.\\d+)?$"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relative_delta_pct": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "percentage_point_delta": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_HISTORY",
+                  "INSUFFICIENT_PEERS",
+                  "MISSING_REQUIRED_FIELD",
+                  "NO_DATA",
+                  "ZERO_DENOMINATOR",
+                  "INCOMPARABLE_CURRENCY",
+                  "NO_SNAPSHOT",
+                  "INSUFFICIENT_SAMPLE_SIZE",
+                  "UNSUPPORTED_METRIC",
+                  "UNSUPPORTED_CHART",
+                  "INCOMPATIBLE_GRAIN",
+                  "TOO_MANY_CATEGORIES"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relative_delta_abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_HISTORY",
+                  "INSUFFICIENT_PEERS",
+                  "MISSING_REQUIRED_FIELD",
+                  "NO_DATA",
+                  "ZERO_DENOMINATOR",
+                  "INCOMPARABLE_CURRENCY",
+                  "NO_SNAPSHOT",
+                  "INSUFFICIENT_SAMPLE_SIZE",
+                  "UNSUPPORTED_METRIC",
+                  "UNSUPPORTED_CHART",
+                  "INCOMPATIBLE_GRAIN",
+                  "TOO_MANY_CATEGORIES"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "dimension",
+          "metric_key",
+          "segment_key",
+          "segment_value",
+          "segment_currency",
+          "reference_key",
+          "reference_value",
+          "reference_currency",
+          "absolute_delta",
+          "relative_delta_pct",
+          "percentage_point_delta",
+          "abstention_reason",
+          "relative_delta_abstention_reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "notable_changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "metric_key": {
+            "type": "string",
+            "enum": [
+              "total_inventory",
+              "available_inventory",
+              "available_inventory_rate",
+              "sold_units_7d",
+              "sold_units_30d",
+              "sold_units_90d",
+              "inventory_change_7d",
+              "inventory_change_30d",
+              "inventory_change_90d",
+              "median_inventory_age_days",
+              "p75_inventory_age_days",
+              "slow_moving_units",
+              "slow_moving_rate",
+              "unknown_inventory_age",
+              "unknown_inventory_age_rate",
+              "median_price",
+              "median_price_per_area",
+              "p25_price_per_area",
+              "p75_price_per_area",
+              "price_per_area_iqr",
+              "missing_inventory_age_rate",
+              "missing_price_rate",
+              "missing_area_rate",
+              "records_with_invalid_or_unusable_values",
+              "snapshot_coverage"
+            ]
+          },
+          "current_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^\\d+(?:\\.\\d+)?$"
+              }
+            ]
+          },
+          "comparison_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^\\d+(?:\\.\\d+)?$"
+              }
+            ]
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^-?\\d+(?:\\.\\d+)?$"
+              }
+            ]
+          },
+          "scope": {
+            "type": "object",
+            "properties": {
+              "project_external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "zone_external_id": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "project_external_id",
+              "zone_external_id"
+            ],
+            "additionalProperties": false
+          },
+          "threshold": {
+            "type": "string"
+          },
+          "evidence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "watch",
+              "material"
+            ]
+          }
+        },
+        "required": [
+          "rule_id",
+          "metric_key",
+          "current_value",
+          "comparison_value",
+          "delta",
+          "scope",
+          "threshold",
+          "evidence_paths",
+          "reason",
+          "severity"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "peer_items": {
+      "maxItems": 20000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "unit_external_id": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "peer_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "peer_snapshot_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "cohort_rule": {
+            "type": "string"
+          },
+          "peer_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "median_price_per_sqm": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^\\d+(?:\\.\\d+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_gap_pct": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "abstention_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "INSUFFICIENT_HISTORY",
+                  "INSUFFICIENT_PEERS",
+                  "MISSING_REQUIRED_FIELD",
+                  "NO_DATA",
+                  "ZERO_DENOMINATOR",
+                  "INCOMPARABLE_CURRENCY",
+                  "NO_SNAPSHOT",
+                  "INSUFFICIENT_SAMPLE_SIZE",
+                  "UNSUPPORTED_METRIC",
+                  "UNSUPPORTED_CHART",
+                  "INCOMPATIBLE_GRAIN",
+                  "TOO_MANY_CATEGORIES"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "unit_external_id",
+          "currency",
+          "peer_ids",
+          "peer_snapshot_ids",
+          "cohort_rule",
+          "peer_count",
+          "median_price_per_sqm",
+          "price_gap_pct",
+          "abstention_reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "insight_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "string"
+          },
+          "observation": {
+            "type": "string"
+          },
+          "metric_key": {
+            "type": "string",
+            "enum": [
+              "total_inventory",
+              "available_inventory",
+              "available_inventory_rate",
+              "sold_units_7d",
+              "sold_units_30d",
+              "sold_units_90d",
+              "inventory_change_7d",
+              "inventory_change_30d",
+              "inventory_change_90d",
+              "median_inventory_age_days",
+              "p75_inventory_age_days",
+              "slow_moving_units",
+              "slow_moving_rate",
+              "unknown_inventory_age",
+              "unknown_inventory_age_rate",
+              "median_price",
+              "median_price_per_area",
+              "p25_price_per_area",
+              "p75_price_per_area",
+              "price_per_area_iqr",
+              "missing_inventory_age_rate",
+              "missing_price_rate",
+              "missing_area_rate",
+              "records_with_invalid_or_unusable_values",
+              "snapshot_coverage"
+            ]
+          },
+          "evidence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "context": {
+            "type": "string"
+          },
+          "interpretation": {
+            "type": "string"
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "candidate_id",
+          "observation",
+          "metric_key",
+          "evidence_paths",
+          "context",
+          "interpretation",
+          "limitations",
+          "priority"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "quality_limitations": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "evidence_refs": {
+      "minItems": 1,
+      "maxItems": 2000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "artifact_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "artifact_id",
+          "artifact_key",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "contract_version",
+    "pack_id",
+    "run_id",
+    "org_id",
+    "use_case",
+    "use_case_version",
+    "scope",
+    "data_as_of",
+    "semantic_version",
+    "input_refs",
+    "snapshot_refs",
+    "source_refs",
+    "limitations",
+    "metric_config",
+    "dataset",
+    "metrics",
+    "units",
+    "age_buckets",
+    "breakdowns",
+    "period_comparisons",
+    "segment_comparisons",
+    "notable_changes",
+    "peer_items",
+    "insight_candidates",
+    "quality_limitations",
+    "evidence_refs"
+  ],
+  "additionalProperties": false
+}

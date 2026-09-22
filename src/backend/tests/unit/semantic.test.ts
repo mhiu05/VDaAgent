@@ -153,6 +153,11 @@ describe('shared contracts and configuration', () => {
     expect(getConfig({ ...supabase, ...providers, NODE_ENV: 'test' }).DEVELOPMENT_ROLE_BYPASS).toBe(
       false,
     );
+    expect(
+      getConfig({ ...supabase, ...providers, AGENT_WORKFLOW_ENABLED: 'true' })
+        .AGENT_WORKFLOW_ENABLED,
+    ).toBe(true);
+    expect(getConfig({ ...supabase, ...providers }).AGENT_WORKFLOW_ENABLED).toBe(false);
     expect(() =>
       getConfig({
         ...supabase,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   AgentTurnAcceptedSchema,
   AgentTurnRequestSchema,
+  AgentWorkflowStatusSchema,
   ConversationPageSchema,
   ConversationSchema,
   MessagePageSchema,
@@ -91,6 +92,11 @@ export function listConversationMessages(
     scoped(`/conversations/${conversationId}/messages${pageQuery(page)}`, orgId),
     MessagePageSchema,
   );
+}
+
+/** Owner/analyst-only compact status for private draft/review checkpoints. */
+export function getAgentWorkflowStatus(orgId: string, runId: string) {
+  return api(scoped(`/runs/${runId}/workflow-status`, orgId), AgentWorkflowStatusSchema);
 }
 
 export function sendTurn(

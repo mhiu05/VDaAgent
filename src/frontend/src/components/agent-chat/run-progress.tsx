@@ -6,6 +6,10 @@ import type { AnalysisRun, RunEvent, RunTask } from '@vda/contracts';
 type RunDetail = { run: AnalysisRun; tasks: RunTask[]; events: RunEvent[] };
 
 const taskLabels: Record<string, string> = {
+  coordinator: 'Coordinator decision',
+  analyst: 'Evidence-bound analysis',
+  reviewer: 'Draft review',
+  publication: 'Publication gate',
   orchestrator: 'Chuẩn bị',
   data: 'Đọc snapshot đã khóa',
   calculation: 'Tính chỉ số',

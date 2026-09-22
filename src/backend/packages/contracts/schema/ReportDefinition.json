@@ -59,6 +59,13 @@
       "default": true,
       "type": "boolean"
     },
+    "use_case": {
+      "default": "slow_moving_inventory",
+      "type": "string",
+      "enum": [
+        "slow_moving_inventory"
+      ]
+    },
     "report_definition_id": {
       "type": "string",
       "format": "uuid",
@@ -93,6 +100,7 @@
     "local_time",
     "data_as_of_policy",
     "enabled",
+    "use_case",
     "report_definition_id",
     "definition_version",
     "created_by",

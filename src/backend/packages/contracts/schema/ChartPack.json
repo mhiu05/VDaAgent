@@ -1,0 +1,714 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "const": "chart-pack-v1"
+    },
+    "pack_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "org_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "use_case": {
+      "type": "string",
+      "enum": [
+        "slow_moving_inventory"
+      ]
+    },
+    "use_case_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "project_external_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "zone_external_id": {
+          "default": null,
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "project_external_id",
+        "zone_external_id"
+      ],
+      "additionalProperties": false
+    },
+    "data_as_of": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "semantic_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "input_refs": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "snapshot_refs": {
+      "maxItems": 20000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "source_refs": {
+      "maxItems": 20000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "limitations": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "data_analysis_pack_artifact_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "charts": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "const": "chart-spec-v1"
+          },
+          "rules_version": {
+            "type": "string",
+            "const": "chart-rules-v0.2"
+          },
+          "chart_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "inventory_kpi",
+              "inventory_trend",
+              "aging_distribution",
+              "slow_moving_by_segment",
+              "inventory_composition",
+              "price_distribution",
+              "peer_comparison",
+              "numeric_relationship"
+            ]
+          },
+          "chart_type": {
+            "type": "string",
+            "enum": [
+              "kpi",
+              "bar",
+              "line",
+              "pie",
+              "donut",
+              "scatter"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subtitle": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "x_axis": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "label": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "value_type": {
+                    "type": "string",
+                    "enum": [
+                      "category",
+                      "number",
+                      "date"
+                    ]
+                  }
+                },
+                "required": [
+                  "key",
+                  "label",
+                  "value_type"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "y_axis": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "unit": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "count",
+                          "percent",
+                          "percentage_points",
+                          "days",
+                          "currency",
+                          "currency_per_sqm"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "min": {
+                    "default": null,
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "max": {
+                    "default": null,
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "label",
+                  "unit",
+                  "min",
+                  "max"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "metric_key": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "total_inventory",
+                        "available_inventory",
+                        "available_inventory_rate",
+                        "sold_units_7d",
+                        "sold_units_30d",
+                        "sold_units_90d",
+                        "inventory_change_7d",
+                        "inventory_change_30d",
+                        "inventory_change_90d",
+                        "median_inventory_age_days",
+                        "p75_inventory_age_days",
+                        "slow_moving_units",
+                        "slow_moving_rate",
+                        "unknown_inventory_age",
+                        "unknown_inventory_age_rate",
+                        "median_price",
+                        "median_price_per_area",
+                        "p25_price_per_area",
+                        "p75_price_per_area",
+                        "price_per_area_iqr",
+                        "missing_inventory_age_rate",
+                        "missing_price_rate",
+                        "missing_area_rate",
+                        "records_with_invalid_or_unusable_values",
+                        "snapshot_coverage"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unit": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "percent",
+                        "percentage_points",
+                        "days",
+                        "currency",
+                        "currency_per_sqm"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "currency": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[A-Z]{3}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "value_format": {
+                  "type": "string",
+                  "enum": [
+                    "integer",
+                    "number",
+                    "percent",
+                    "percentage_points",
+                    "currency",
+                    "currency_per_area",
+                    "days"
+                  ]
+                },
+                "stack": {
+                  "default": null,
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "metric_key",
+                "unit",
+                "currency",
+                "value_format",
+                "stack"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "data": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1
+              },
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              }
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "input_artifact_ids": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "metric_keys": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "total_inventory",
+                    "available_inventory",
+                    "available_inventory_rate",
+                    "sold_units_7d",
+                    "sold_units_30d",
+                    "sold_units_90d",
+                    "inventory_change_7d",
+                    "inventory_change_30d",
+                    "inventory_change_90d",
+                    "median_inventory_age_days",
+                    "p75_inventory_age_days",
+                    "slow_moving_units",
+                    "slow_moving_rate",
+                    "unknown_inventory_age",
+                    "unknown_inventory_age_rate",
+                    "median_price",
+                    "median_price_per_area",
+                    "p25_price_per_area",
+                    "p75_price_per_area",
+                    "price_per_area_iqr",
+                    "missing_inventory_age_rate",
+                    "missing_price_rate",
+                    "missing_area_rate",
+                    "records_with_invalid_or_unusable_values",
+                    "snapshot_coverage"
+                  ]
+                }
+              },
+              "bindings": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "data_index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "data_key": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "artifact_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "evidence_path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "metric_key": {
+                      "type": "string",
+                      "enum": [
+                        "total_inventory",
+                        "available_inventory",
+                        "available_inventory_rate",
+                        "sold_units_7d",
+                        "sold_units_30d",
+                        "sold_units_90d",
+                        "inventory_change_7d",
+                        "inventory_change_30d",
+                        "inventory_change_90d",
+                        "median_inventory_age_days",
+                        "p75_inventory_age_days",
+                        "slow_moving_units",
+                        "slow_moving_rate",
+                        "unknown_inventory_age",
+                        "unknown_inventory_age_rate",
+                        "median_price",
+                        "median_price_per_area",
+                        "p25_price_per_area",
+                        "p75_price_per_area",
+                        "price_per_area_iqr",
+                        "missing_inventory_age_rate",
+                        "missing_price_rate",
+                        "missing_area_rate",
+                        "records_with_invalid_or_unusable_values",
+                        "snapshot_coverage"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "data_index",
+                    "data_key",
+                    "artifact_id",
+                    "evidence_path",
+                    "metric_key"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "input_artifact_ids",
+              "metric_keys",
+              "bindings"
+            ],
+            "additionalProperties": false
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "generated_by": {
+            "type": "string",
+            "const": "deterministic"
+          }
+        },
+        "required": [
+          "version",
+          "rules_version",
+          "chart_id",
+          "intent",
+          "chart_type",
+          "title",
+          "subtitle",
+          "purpose",
+          "x_axis",
+          "y_axis",
+          "series",
+          "data",
+          "provenance",
+          "limitations",
+          "generated_by"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "unavailable": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "inventory_kpi",
+              "inventory_trend",
+              "aging_distribution",
+              "slow_moving_by_segment",
+              "inventory_composition",
+              "price_distribution",
+              "peer_comparison",
+              "numeric_relationship"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "INSUFFICIENT_HISTORY",
+              "INSUFFICIENT_PEERS",
+              "MISSING_REQUIRED_FIELD",
+              "NO_DATA",
+              "ZERO_DENOMINATOR",
+              "INCOMPARABLE_CURRENCY",
+              "NO_SNAPSHOT",
+              "INSUFFICIENT_SAMPLE_SIZE",
+              "UNSUPPORTED_METRIC",
+              "UNSUPPORTED_CHART",
+              "INCOMPATIBLE_GRAIN",
+              "TOO_MANY_CATEGORIES"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "metric_keys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "total_inventory",
+                "available_inventory",
+                "available_inventory_rate",
+                "sold_units_7d",
+                "sold_units_30d",
+                "sold_units_90d",
+                "inventory_change_7d",
+                "inventory_change_30d",
+                "inventory_change_90d",
+                "median_inventory_age_days",
+                "p75_inventory_age_days",
+                "slow_moving_units",
+                "slow_moving_rate",
+                "unknown_inventory_age",
+                "unknown_inventory_age_rate",
+                "median_price",
+                "median_price_per_area",
+                "p25_price_per_area",
+                "p75_price_per_area",
+                "price_per_area_iqr",
+                "missing_inventory_age_rate",
+                "missing_price_rate",
+                "missing_area_rate",
+                "records_with_invalid_or_unusable_values",
+                "snapshot_coverage"
+              ]
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "intent",
+          "reason",
+          "message",
+          "metric_keys",
+          "limitations"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "evidence_refs": {
+      "minItems": 1,
+      "maxItems": 2000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "artifact_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "artifact_id",
+          "artifact_key",
+          "path"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "contract_version",
+    "pack_id",
+    "run_id",
+    "org_id",
+    "use_case",
+    "use_case_version",
+    "scope",
+    "data_as_of",
+    "semantic_version",
+    "input_refs",
+    "snapshot_refs",
+    "source_refs",
+    "limitations",
+    "data_analysis_pack_artifact_id",
+    "charts",
+    "unavailable",
+    "evidence_refs"
+  ],
+  "additionalProperties": false
+}

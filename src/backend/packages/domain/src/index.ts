@@ -1,5 +1,7 @@
 import { parse } from 'csv-parse/sync';
 export * from './integrity';
+export * from './report-sections';
+export * from './agent-workflow';
 import {
   CSV_COLUMNS,
   SnapshotRowSchema,

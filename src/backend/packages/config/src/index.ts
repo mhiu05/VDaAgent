@@ -17,6 +17,7 @@ const ConfigSchema = z.object({
   SUPABASE_DB_URL: z.url(),
   NEXT_PUBLIC_APP_URL: z.url().default('http://localhost:3000'),
   DEVELOPMENT_ROLE_BYPASS: z.enum(['true', 'false']).optional(),
+  AGENT_WORKFLOW_ENABLED: z.enum(['true', 'false']).default('false'),
 });
 export function getConfig(env: NodeJS.ProcessEnv = process.env) {
   const normalized = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
@@ -52,6 +53,10 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env) {
     )
       throw new Error('Server secret may not have NEXT_PUBLIC_ prefix.');
   }
-  return { ...value, DEVELOPMENT_ROLE_BYPASS: developmentRoleBypass };
+  return {
+    ...value,
+    DEVELOPMENT_ROLE_BYPASS: developmentRoleBypass,
+    AGENT_WORKFLOW_ENABLED: value.AGENT_WORKFLOW_ENABLED === 'true',
+  };
 }
 export type AppConfig = ReturnType<typeof getConfig>;

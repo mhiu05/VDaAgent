@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createRepository, type Repository } from '@vda/db';
-import { executeLease } from '@vda/agents';
+import { executeAgentWorkflow, executeLease } from '@vda/agents';
 import { getConfig } from '@vda/config';
 const config = getConfig();
 let repository: Repository;
@@ -9,6 +9,7 @@ try {
     databaseUrl: config.SUPABASE_DB_URL,
     storageUrl: config.NEXT_PUBLIC_SUPABASE_URL,
     storageKey: config.SUPABASE_SECRET_KEY,
+    workflowVersion: config.AGENT_WORKFLOW_ENABLED ? 'agent-v1' : 'legacy-v1',
   });
 } catch (error) {
   const hostname = (() => {
@@ -66,7 +67,13 @@ try {
           });
         }, 10000);
         try {
-          await executeLease(repository, lease);
+          // A run pins its execution path when it is created. The flag only
+          // selects defaults for new runs; it cannot divert queued legacy work
+          // into the Reviewer gate mid-flight.
+          await (lease.run.workflow_version === 'agent-v1' ? executeAgentWorkflow : executeLease)(
+            repository,
+            lease,
+          );
         } catch (error) {
           const code =
             error instanceof Error && /^[A-Z_]{1,80}$/.test(error.message)

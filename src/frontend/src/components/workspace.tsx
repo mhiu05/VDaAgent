@@ -47,6 +47,7 @@ import {
 import { ApiError, api, dateTime, errorMessage, post, scoped } from '../lib/client-api';
 import { AnalysisResult, ReportBody } from './analysis-result';
 import { AgentChat } from './agent-chat/agent-chat';
+import { shouldRenderAgentChat } from './agent-chat/run-view';
 import { EvidenceDrawer } from './evidence';
 import { HistoryPanel, ImportsPanel, SchedulesPanel, ScopeFields } from './resource-panels';
 
@@ -455,6 +456,17 @@ function WorkspaceShell({
     setTab('analysis');
     setPollEpoch((value) => value + 1);
   }
+  function clearSelectedRun() {
+    setRunId(null);
+    setRunDetail(null);
+    setMessages([]);
+    setConversationId(null);
+    setBundle({ artifacts: [], validations: [], sources: [] });
+    setBrief(null);
+    setBriefStatus('idle');
+    setDetailsLoading(false);
+    setError('');
+  }
   async function loadRunArtifacts() {
     if (!runId || bundle.artifacts.length || detailsLoading) return;
     setDetailsLoading(true);
@@ -544,6 +556,7 @@ function WorkspaceShell({
   }
   const active = runDetail && ['queued', 'running'].includes(runDetail.run.status);
   const selectedArtifact = bundle.artifacts.find((item) => item.artifact_id === evidenceId);
+  const renderAgentChat = shouldRenderAgentChat(runId, runDetail?.run.workflow_version);
   const currentNav = navigation.find((item) => item.id === tab)!;
   return (
     <div className="app-shell">
@@ -643,20 +656,7 @@ function WorkspaceShell({
               </p>
             </div>
             {tab === 'analysis' && runId && (
-              <button
-                className="secondary"
-                onClick={() => {
-                  setRunId(null);
-                  setRunDetail(null);
-                  setMessages([]);
-                  setConversationId(null);
-                  setBundle({ artifacts: [], validations: [], sources: [] });
-                  setBrief(null);
-                  setBriefStatus('idle');
-                  setDetailsLoading(false);
-                  setError('');
-                }}
-              >
+              <button className="secondary" onClick={clearSelectedRun}>
                 <Plus size={16} />
                 Mở Agent Chat
               </button>
@@ -696,307 +696,302 @@ function WorkspaceShell({
             </div>
           ) : (
             <>
-              {tab === 'analysis' &&
-                (runId ? (
-                  <div className="result-stack">
-                    <section className="card analysis-composer">
-                      <header className="section-heading">
-                        <div className="composer-title">
-                          <span className="spark-icon">
-                            <Sparkles size={20} />
-                          </span>
-                          <div>
-                            <h2>Bạn muốn tìm hiểu điều gì?</h2>
-                            <p>Chọn phạm vi, đặt câu hỏi và để dữ liệu trả lời.</p>
-                          </div>
+              {tab === 'analysis' && runId && !renderAgentChat && (
+                <div className="result-stack">
+                  <section className="card analysis-composer">
+                    <header className="section-heading">
+                      <div className="composer-title">
+                        <span className="spark-icon">
+                          <Sparkles size={20} />
+                        </span>
+                        <div>
+                          <h2>Bạn muốn tìm hiểu điều gì?</h2>
+                          <p>Chọn phạm vi, đặt câu hỏi và để dữ liệu trả lời.</p>
                         </div>
-                        <span className="badge">Project / Zone</span>
-                      </header>
-                      <form
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          setBusy(true);
-                          setError('');
-                          void api('/analyses', AcceptedSchema, {
-                            ...post({
-                              org_id: orgId,
-                              scope: {
-                                project_external_id: project,
-                                zone_external_id: zone || null,
-                              },
-                              data_as_of: dataAsOf,
-                              question,
-                              conversation_id: conversationId,
-                            }),
-                            headers: { 'Idempotency-Key': crypto.randomUUID() },
-                          })
-                            .then((accepted) =>
-                              selectRun(accepted.run_id, accepted.conversation_id),
-                            )
-                            .catch((cause: unknown) => setError(errorMessage(cause)))
-                            .finally(() => setBusy(false));
-                        }}
-                      >
-                        <div className="scope-row">
-                          <ScopeFields
-                            catalog={catalog}
-                            project={project}
-                            zone={zone}
-                            setProject={setProject}
-                            setZone={setZone}
-                          />
-                          <label>
-                            Ngày dữ liệu
-                            <input
-                              type="date"
-                              required
-                              value={dataAsOf}
-                              onChange={(event) => setDataAsOf(event.target.value)}
-                            />
-                          </label>
-                        </div>
-                        <label className="question-label">
-                          <span className="sr-only">Câu hỏi phân tích</span>
-                          <textarea
-                            aria-label="Câu hỏi phân tích"
-                            value={question}
-                            onChange={(event) => setQuestion(event.target.value)}
-                            maxLength={2000}
+                      </div>
+                      <span className="badge">Project / Zone</span>
+                    </header>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        setBusy(true);
+                        setError('');
+                        void api('/analyses', AcceptedSchema, {
+                          ...post({
+                            org_id: orgId,
+                            scope: {
+                              project_external_id: project,
+                              zone_external_id: zone || null,
+                            },
+                            data_as_of: dataAsOf,
+                            question,
+                            conversation_id: conversationId,
+                          }),
+                          headers: { 'Idempotency-Key': crypto.randomUUID() },
+                        })
+                          .then((accepted) => selectRun(accepted.run_id, accepted.conversation_id))
+                          .catch((cause: unknown) => setError(errorMessage(cause)))
+                          .finally(() => setBusy(false));
+                      }}
+                    >
+                      <div className="scope-row">
+                        <ScopeFields
+                          catalog={catalog}
+                          project={project}
+                          zone={zone}
+                          setProject={setProject}
+                          setZone={setZone}
+                        />
+                        <label>
+                          Ngày dữ liệu
+                          <input
+                            type="date"
                             required
-                            rows={2}
-                            placeholder="Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?"
-                            disabled={!canWrite}
+                            value={dataAsOf}
+                            onChange={(event) => setDataAsOf(event.target.value)}
                           />
                         </label>
-                        <div className="composer-footer">
-                          <span>
-                            <span className="live-dot" />
-                            {catalog.latest_snapshot_date
-                              ? `Snapshot mới nhất: ${catalog.latest_snapshot_date}`
-                              : 'Chưa có snapshot'}{' '}
-                            · {zone ? 'Phạm vi Zone' : 'Phạm vi Project'}
-                          </span>
+                      </div>
+                      <label className="question-label">
+                        <span className="sr-only">Câu hỏi phân tích</span>
+                        <textarea
+                          aria-label="Câu hỏi phân tích"
+                          value={question}
+                          onChange={(event) => setQuestion(event.target.value)}
+                          maxLength={2000}
+                          required
+                          rows={2}
+                          placeholder="Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?"
+                          disabled={!canWrite}
+                        />
+                      </label>
+                      <div className="composer-footer">
+                        <span>
+                          <span className="live-dot" />
+                          {catalog.latest_snapshot_date
+                            ? `Snapshot mới nhất: ${catalog.latest_snapshot_date}`
+                            : 'Chưa có snapshot'}{' '}
+                          · {zone ? 'Phạm vi Zone' : 'Phạm vi Project'}
+                        </span>
+                        <button
+                          className="primary"
+                          type="submit"
+                          disabled={
+                            !canWrite ||
+                            busy ||
+                            !!active ||
+                            !project ||
+                            !dataAsOf ||
+                            !question.trim()
+                          }
+                        >
+                          {busy || active ? (
+                            <LoaderCircle size={16} className="spin" />
+                          ) : (
+                            <Send size={16} />
+                          )}
+                          {busy || active ? 'Đang phân tích…' : 'Phân tích'}
+                        </button>
+                      </div>
+                    </form>
+                    {!canWrite && (
+                      <p className="viewer-notice">
+                        <ShieldCheck size={15} />
+                        Bạn đang ở chế độ xem. Mở lịch sử hoặc báo cáo để khám phá bằng chứng.
+                      </p>
+                    )}
+                  </section>
+                  {!runId && (
+                    <>
+                      <div className="suggestion-row">
+                        {[
+                          'Tổng quan tồn kho hiện tại',
+                          'Phân tích tuổi tồn và chậm luân chuyển',
+                          'So sánh sản phẩm với nhóm tương đồng',
+                        ].map((suggestion) => (
                           <button
-                            className="primary"
-                            type="submit"
-                            disabled={
-                              !canWrite ||
-                              busy ||
-                              !!active ||
-                              !project ||
-                              !dataAsOf ||
-                              !question.trim()
-                            }
+                            key={suggestion}
+                            className="suggestion"
+                            disabled={!canWrite}
+                            onClick={() => setQuestion(suggestion)}
                           >
-                            {busy || active ? (
-                              <LoaderCircle size={16} className="spin" />
-                            ) : (
-                              <Send size={16} />
-                            )}
-                            {busy || active ? 'Đang phân tích…' : 'Phân tích'}
+                            {suggestion}
+                            <ArrowUpRight size={14} />
                           </button>
+                        ))}
+                      </div>
+                      <section className="card welcome-card">
+                        <div className="welcome-orbit">
+                          <Workflow size={35} strokeWidth={1.3} />
                         </div>
-                      </form>
-                      {!canWrite && (
-                        <p className="viewer-notice">
-                          <ShieldCheck size={15} />
-                          Bạn đang ở chế độ xem. Mở lịch sử hoặc báo cáo để khám phá bằng chứng.
+                        <span className="eyebrow">MỘT CÂU HỎI. TOÀN BỘ BỐI CẢNH.</span>
+                        <h2>
+                          {catalog.projects.length
+                            ? 'Bắt đầu từ dữ liệu của bạn'
+                            : 'Workspace chưa có dữ liệu'}
+                        </h2>
+                        <p>
+                          {catalog.projects.length
+                            ? 'Kết quả phân tích, biểu đồ và nhận định sẽ xuất hiện tại đây. Mỗi giá trị đều liên kết tới phép tính và snapshot nguồn.'
+                            : 'Nhập snapshot CSV trong Nguồn dữ liệu để bắt đầu phân tích.'}
                         </p>
-                      )}
-                    </section>
-                    {!runId && (
-                      <>
-                        <div className="suggestion-row">
-                          {[
-                            'Tổng quan tồn kho hiện tại',
-                            'Phân tích tuổi tồn và chậm luân chuyển',
-                            'So sánh sản phẩm với nhóm tương đồng',
-                          ].map((suggestion) => (
-                            <button
-                              key={suggestion}
-                              className="suggestion"
-                              disabled={!canWrite}
-                              onClick={() => setQuestion(suggestion)}
-                            >
-                              {suggestion}
-                              <ArrowUpRight size={14} />
-                            </button>
-                          ))}
+                        <div className="welcome-steps">
+                          <span>
+                            <Database size={17} />
+                            Dữ liệu
+                          </span>
+                          <ArrowRight size={14} />
+                          <span>
+                            <Activity size={17} />
+                            Phân tích
+                          </span>
+                          <ArrowRight size={14} />
+                          <span>
+                            <ShieldCheck size={17} />
+                            Bằng chứng
+                          </span>
+                          <ArrowRight size={14} />
+                          <span>
+                            <FileText size={17} />
+                            Báo cáo
+                          </span>
                         </div>
-                        <section className="card welcome-card">
-                          <div className="welcome-orbit">
-                            <Workflow size={35} strokeWidth={1.3} />
-                          </div>
-                          <span className="eyebrow">MỘT CÂU HỎI. TOÀN BỘ BỐI CẢNH.</span>
-                          <h2>
-                            {catalog.projects.length
-                              ? 'Bắt đầu từ dữ liệu của bạn'
-                              : 'Workspace chưa có dữ liệu'}
-                          </h2>
-                          <p>
-                            {catalog.projects.length
-                              ? 'Kết quả phân tích, biểu đồ và nhận định sẽ xuất hiện tại đây. Mỗi giá trị đều liên kết tới phép tính và snapshot nguồn.'
-                              : 'Nhập snapshot CSV trong Nguồn dữ liệu để bắt đầu phân tích.'}
-                          </p>
-                          <div className="welcome-steps">
-                            <span>
-                              <Database size={17} />
-                              Dữ liệu
-                            </span>
-                            <ArrowRight size={14} />
-                            <span>
-                              <Activity size={17} />
-                              Phân tích
-                            </span>
-                            <ArrowRight size={14} />
-                            <span>
-                              <ShieldCheck size={17} />
-                              Bằng chứng
-                            </span>
-                            <ArrowRight size={14} />
-                            <span>
-                              <FileText size={17} />
-                              Báo cáo
-                            </span>
-                          </div>
-                        </section>
-                      </>
-                    )}
-                    {runId && (
-                      <section className="card progress-card" aria-live="polite">
-                        <header className="section-heading">
-                          <div>
-                            <span className="eyebrow">ANALYTICAL PIPELINE</span>
-                            <h2>
-                              {runDetail
-                                ? statusNames[runDetail.run.status]
-                                : 'Đang tải lượt phân tích…'}
-                            </h2>
-                          </div>
-                          <div className="button-row">
-                            {runDetail?.run.status === 'succeeded' && (
-                              <button
-                                className="secondary"
-                                disabled={busy}
-                                onClick={() => void openRunReport()}
-                              >
-                                <FileText size={16} />
-                                Xem báo cáo
-                              </button>
-                            )}
-                            {active && canWrite && (
-                              <button
-                                className="secondary"
-                                disabled={busy || runDetail.run.cancel_requested}
-                                onClick={() => {
-                                  setBusy(true);
-                                  void api(
-                                    scoped(`/runs/${runId}/cancel`, orgId),
-                                    z.unknown(),
-                                    post({ org_id: orgId }),
-                                  )
-                                    .catch((cause: unknown) => setError(errorMessage(cause)))
-                                    .finally(() => setBusy(false));
-                                }}
-                              >
-                                <Square size={12} />
-                                {runDetail.run.cancel_requested ? 'Đang hủy…' : 'Hủy lượt chạy'}
-                              </button>
-                            )}
-                          </div>
-                        </header>
-                        <div className="task-track">
-                          {runDetail?.tasks.map((task) => (
-                            <div className={`task-step task-${task.status}`} key={task.task_id}>
-                              <span>
-                                {task.status === 'succeeded' ? (
-                                  <Check size={15} />
-                                ) : task.status === 'running' ? (
-                                  <LoaderCircle size={15} className="spin" />
-                                ) : task.status === 'failed' ? (
-                                  <CircleAlert size={15} />
-                                ) : (
-                                  <span className="task-point" />
-                                )}
-                              </span>
-                              <strong>{taskNames[task.kind]}</strong>
-                            </div>
-                          ))}
-                        </div>
-                        {runDetail?.run.error_code && (
-                          <p className="error-box">{runDetail.run.error_code}</p>
-                        )}
-                        <details className="diagnostics">
-                          <summary>Chẩn đoán · run_id: {runId}</summary>
-                          <dl className="metadata-list">
-                            <dt>Phạm vi</dt>
-                            <dd>
-                              {runDetail?.run.request.scope.project_external_id} /{' '}
-                              {runDetail?.run.request.scope.zone_external_id ?? 'Project'}
-                            </dd>
-                            <dt>Ngày dữ liệu</dt>
-                            <dd>{runDetail?.run.request.data_as_of}</dd>
-                            <dt>Số lần thực thi</dt>
-                            <dd>{runDetail?.run.attempt}</dd>
-                          </dl>
-                          {runDetail?.events.map((event) => (
-                            <p key={event.event_id}>
-                              <time>{dateTime(event.created_at)}</time> {event.message}
-                            </p>
-                          ))}
-                        </details>
                       </section>
-                    )}
-                    {messages.length > 0 && (
-                      <section className="card conversation">
-                        <header className="section-heading">
-                          <h2>Hội thoại phân tích</h2>
-                          <span className="badge">{messages.length} tin nhắn</span>
-                        </header>
-                        {messages.map((message) => (
-                          <div
-                            className={`message message-${message.role}`}
-                            key={message.message_id}
-                          >
-                            <span className="message-role">
-                              {message.role === 'user' ? 'Bạn' : 'VDaAgent'}
+                    </>
+                  )}
+                  {runId && (
+                    <section className="card progress-card" aria-live="polite">
+                      <header className="section-heading">
+                        <div>
+                          <span className="eyebrow">ANALYTICAL PIPELINE</span>
+                          <h2>
+                            {runDetail
+                              ? statusNames[runDetail.run.status]
+                              : 'Đang tải lượt phân tích…'}
+                          </h2>
+                        </div>
+                        <div className="button-row">
+                          {runDetail?.run.status === 'succeeded' && (
+                            <button
+                              className="secondary"
+                              disabled={busy}
+                              onClick={() => void openRunReport()}
+                            >
+                              <FileText size={16} />
+                              Xem báo cáo
+                            </button>
+                          )}
+                          {active && canWrite && (
+                            <button
+                              className="secondary"
+                              disabled={busy || runDetail.run.cancel_requested}
+                              onClick={() => {
+                                setBusy(true);
+                                void api(
+                                  scoped(`/runs/${runId}/cancel`, orgId),
+                                  z.unknown(),
+                                  post({ org_id: orgId }),
+                                )
+                                  .catch((cause: unknown) => setError(errorMessage(cause)))
+                                  .finally(() => setBusy(false));
+                              }}
+                            >
+                              <Square size={12} />
+                              {runDetail.run.cancel_requested ? 'Đang hủy…' : 'Hủy lượt chạy'}
+                            </button>
+                          )}
+                        </div>
+                      </header>
+                      <div className="task-track">
+                        {runDetail?.tasks.map((task) => (
+                          <div className={`task-step task-${task.status}`} key={task.task_id}>
+                            <span>
+                              {task.status === 'succeeded' ? (
+                                <Check size={15} />
+                              ) : task.status === 'running' ? (
+                                <LoaderCircle size={15} className="spin" />
+                              ) : task.status === 'failed' ? (
+                                <CircleAlert size={15} />
+                              ) : (
+                                <span className="task-point" />
+                              )}
                             </span>
-                            <p>{message.content}</p>
-                            {message.run_id && (
-                              <button
-                                className="text-button"
-                                onClick={() => selectRun(message.run_id!, message.conversation_id)}
-                              >
-                                Xem lượt phân tích
-                                <ArrowUpRight size={13} />
-                              </button>
-                            )}
+                            <strong>{taskNames[task.kind]}</strong>
                           </div>
                         ))}
-                      </section>
-                    )}
-                    <AnalysisResult
-                      artifacts={bundle.artifacts}
-                      brief={brief}
-                      briefStatus={briefStatus}
-                      detailsLoading={detailsLoading}
-                      onEvidence={(id) => void openEvidence(id)}
-                      onLoadDetails={() => void loadRunArtifacts()}
-                      onReport={
-                        runDetail?.run.status === 'succeeded'
-                          ? () => void openRunReport()
-                          : undefined
-                      }
-                    />
-                  </div>
-                ) : (
-                  <AgentChat
-                    orgId={orgId}
-                    catalog={catalog}
-                    canWrite={canWrite}
-                    onReport={(id) => void openReport(id)}
+                      </div>
+                      {runDetail?.run.error_code && (
+                        <p className="error-box">{runDetail.run.error_code}</p>
+                      )}
+                      <details className="diagnostics">
+                        <summary>Chẩn đoán · run_id: {runId}</summary>
+                        <dl className="metadata-list">
+                          <dt>Phạm vi</dt>
+                          <dd>
+                            {runDetail?.run.request.scope.project_external_id} /{' '}
+                            {runDetail?.run.request.scope.zone_external_id ?? 'Project'}
+                          </dd>
+                          <dt>Ngày dữ liệu</dt>
+                          <dd>{runDetail?.run.request.data_as_of}</dd>
+                          <dt>Số lần thực thi</dt>
+                          <dd>{runDetail?.run.attempt}</dd>
+                        </dl>
+                        {runDetail?.events.map((event) => (
+                          <p key={event.event_id}>
+                            <time>{dateTime(event.created_at)}</time> {event.message}
+                          </p>
+                        ))}
+                      </details>
+                    </section>
+                  )}
+                  {messages.length > 0 && (
+                    <section className="card conversation">
+                      <header className="section-heading">
+                        <h2>Hội thoại phân tích</h2>
+                        <span className="badge">{messages.length} tin nhắn</span>
+                      </header>
+                      {messages.map((message) => (
+                        <div className={`message message-${message.role}`} key={message.message_id}>
+                          <span className="message-role">
+                            {message.role === 'user' ? 'Bạn' : 'VDaAgent'}
+                          </span>
+                          <p>{message.content}</p>
+                          {message.run_id && (
+                            <button
+                              className="text-button"
+                              onClick={() => selectRun(message.run_id!, message.conversation_id)}
+                            >
+                              Xem lượt phân tích
+                              <ArrowUpRight size={13} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </section>
+                  )}
+                  <AnalysisResult
+                    artifacts={bundle.artifacts}
+                    brief={brief}
+                    briefStatus={briefStatus}
+                    detailsLoading={detailsLoading}
+                    onEvidence={(id) => void openEvidence(id)}
+                    onLoadDetails={() => void loadRunArtifacts()}
+                    onReport={
+                      runDetail?.run.status === 'succeeded' ? () => void openRunReport() : undefined
+                    }
                   />
-                ))}
+                </div>
+              )}
+              {tab === 'analysis' && renderAgentChat && (
+                <AgentChat
+                  orgId={orgId}
+                  catalog={catalog}
+                  canWrite={canWrite}
+                  externalRunId={runId}
+                  onClearExternalRun={clearSelectedRun}
+                  onReport={(id) => void openReport(id)}
+                />
+              )}
               {tab === 'reports' &&
                 (report?.artifact.kind === 'report' ? (
                   <div className="card report-detail">

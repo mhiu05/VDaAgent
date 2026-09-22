@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from './index';
+import { executeAgentWorkflow } from './agent-workflow';
 import { AgentChatOrchestrator, ConversationContextBuilder } from './chat';
 import type { AgentDecisionProvider } from './provider';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
-async function setup() {
-  const { pg, repo } = await createTestRepository();
+async function setup(options: { workflowVersion?: 'legacy-v1' | 'agent-v1' } = {}) {
+  const { pg, repo } = await createTestRepository(options);
   resources.push({ repo, close: () => pg.close() });
   return repo;
 }
@@ -51,6 +52,21 @@ async function completedConversationRun(repo: Repository) {
   return { accepted, brief, signal };
 }
 
+async function completedAgentConversationRun(repo: Repository) {
+  const create: AgentDecisionProvider = {
+    decide: async () => ({ action: 'create_analysis', focus: 'current_inventory' }),
+  };
+  const initial = await new AgentChatOrchestrator(repo, create).submit(
+    TEST_USERS.owner,
+    input('70000000-0000-4000-8000-000000000009'),
+    'agent-target-initial-run',
+  );
+  const lease = await repo.claimRun('agent-target-test-worker');
+  if (!lease) throw new Error('LEASE_REQUIRED');
+  await executeAgentWorkflow(repo, lease, { narrativeProvider: deterministicProvider() });
+  return initial;
+}
+
 describe('Agent Chat follow-up orchestration', () => {
   it('starts one bounded, deterministic analysis through the typed tool', async () => {
     const repo = await setup();
@@ -84,6 +100,7 @@ describe('Agent Chat follow-up orchestration', () => {
       text: 'Why that zone?',
       signal_ref: { run_id: initial.run_id, signal_id: signal.signal_id },
       signal_action: 'inspect',
+      agent_target: 'analyst',
     });
     const orchestrator = new AgentChatOrchestrator(repo, noModelForCanonicalAction);
     const inspected = await orchestrator.submit(
@@ -95,18 +112,29 @@ describe('Agent Chat follow-up orchestration', () => {
     expect(inspected).toMatchObject({ run_id: initial.run_id, assistant_status: 'completed' });
     expect((await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length).toBe(countBefore);
     await expect(
-      orchestrator.submit(TEST_USERS.owner, followup, 'agent-inspect-signal', initial.conversation_id),
+      orchestrator.submit(
+        TEST_USERS.owner,
+        followup,
+        'agent-inspect-signal',
+        initial.conversation_id,
+      ),
     ).resolves.toEqual(inspected);
-    const reloaded = await repo.listMessages(TEST_USERS.owner, TEST_ORGS.alpha, initial.conversation_id, {
-      limit: 30,
-      cursor: null,
-    });
+    const reloaded = await repo.listMessages(
+      TEST_USERS.owner,
+      TEST_ORGS.alpha,
+      initial.conversation_id,
+      {
+        limit: 30,
+        cursor: null,
+      },
+    );
     expect(reloaded.messages.at(-1)?.parts).toContainEqual({
       type: 'signal_ref',
       run_id: initial.run_id,
       signal_id: signal.signal_id,
     });
     expect(reloaded.messages.at(-1)?.content).not.toContain(signal.summary);
+    expect(reloaded.messages.at(-1)?.sender_agent).toBeNull();
     expect(reloaded.messages.at(-2)?.parts).toContainEqual({
       type: 'signal_ref',
       run_id: initial.run_id,
@@ -124,6 +152,7 @@ describe('Agent Chat follow-up orchestration', () => {
     };
     const followup = input('70000000-0000-4000-8000-000000000003', {
       text: 'What about Zone B?',
+      agent_target: 'analyst',
       scope: { project_external_id: 'P-ALPHA', zone_external_id: 'Z-SOUTH' },
     });
     const built = await new ConversationContextBuilder(repo).build(
@@ -142,9 +171,12 @@ describe('Agent Chat follow-up orchestration', () => {
       initial.conversation_id,
     );
     expect(next.run_id).not.toBe(initial.run_id);
-    expect((await repo.getRun(TEST_USERS.owner, TEST_ORGS.alpha, next.run_id!)).run.request.scope).toEqual(
-      followup.scope,
-    );
+    expect(
+      (await repo.getRun(TEST_USERS.owner, TEST_ORGS.alpha, next.run_id!)).run.request.scope,
+    ).toEqual(followup.scope);
+    expect(
+      (await repo.getRun(TEST_USERS.owner, TEST_ORGS.alpha, next.run_id!)).run.request.agent_target,
+    ).toBe('analyst');
     expect((await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length).toBe(2);
     await expect(
       orchestrator.submit(TEST_USERS.owner, followup, 'agent-zone-change', initial.conversation_id),
@@ -174,7 +206,9 @@ describe('Agent Chat follow-up orchestration', () => {
       'agent-named-zone',
       initial.conversation_id,
     );
-    expect((await repo.getRun(TEST_USERS.owner, TEST_ORGS.alpha, next.run_id!)).run.request.scope).toEqual({
+    expect(
+      (await repo.getRun(TEST_USERS.owner, TEST_ORGS.alpha, next.run_id!)).run.request.scope,
+    ).toEqual({
       project_external_id: 'P-ALPHA',
       zone_external_id: 'Z-SOUTH',
     });
@@ -190,15 +224,23 @@ describe('Agent Chat follow-up orchestration', () => {
     };
     const accepted = await new AgentChatOrchestrator(repo, provider).submit(
       TEST_USERS.owner,
-      input('70000000-0000-4000-8000-000000000004', { text: 'What caused inventory to change?' }),
+      input('70000000-0000-4000-8000-000000000004', {
+        text: 'What caused inventory to change?',
+        agent_target: 'analyst',
+      }),
       'agent-causal',
     );
     expect(accepted).toMatchObject({ run_id: null, assistant_status: 'completed' });
     expect(await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).toHaveLength(0);
-    const messages = await repo.listMessages(TEST_USERS.owner, TEST_ORGS.alpha, accepted.conversation_id, {
-      limit: 30,
-      cursor: null,
-    });
+    const messages = await repo.listMessages(
+      TEST_USERS.owner,
+      TEST_ORGS.alpha,
+      accepted.conversation_id,
+      {
+        limit: 30,
+        cursor: null,
+      },
+    );
     expect(messages.messages.at(-1)?.content).toContain('Không thể xác định nguyên nhân');
   });
 
@@ -234,4 +276,73 @@ describe('Agent Chat follow-up orchestration', () => {
     expect(context.context.allowed_run_ids).toContain(initial.run_id);
     expect(context.context.active_brief).toBeNull();
   });
+
+  it('routes an explicit safe @Agent artifact follow-up without a model and persists its sender', async () => {
+    const repo = await setup({ workflowVersion: 'agent-v1' });
+    const initial = await completedAgentConversationRun(repo);
+    let decisions = 0;
+    const noTargetModel: AgentDecisionProvider = {
+      decide: async () => {
+        decisions++;
+        throw new Error('target routing must not invoke the model');
+      },
+    };
+    const orchestrator = new AgentChatOrchestrator(repo, noTargetModel);
+    const followup = input('70000000-0000-4000-8000-000000000010', {
+      text: 'Show the analysis findings.',
+      agent_target: 'analyst',
+    });
+    const accepted = await orchestrator.submit(
+      TEST_USERS.owner,
+      followup,
+      'agent-target-analyst-follow-up',
+      initial.conversation_id,
+    );
+
+    expect(accepted).toMatchObject({ run_id: initial.run_id, assistant_status: 'completed' });
+    expect(decisions).toBe(0);
+    expect(await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).toHaveLength(1);
+    const messages = await repo.listMessages(
+      TEST_USERS.owner,
+      TEST_ORGS.alpha,
+      initial.conversation_id,
+      {
+        limit: 50,
+        cursor: null,
+      },
+    );
+    const response = messages.messages.at(-1);
+    expect(response?.sender_agent).toBe('analyst');
+    expect(response?.parts).toContainEqual({
+      type: 'run_ref',
+      run_id: initial.run_id,
+      status: 'succeeded',
+    });
+    expect(response?.parts).toContainEqual({
+      type: 'artifact_ref',
+      run_id: initial.run_id,
+      artifact_id: expect.any(String),
+      kind: 'analysis_pack',
+    });
+
+    const rejected = await orchestrator.submit(
+      TEST_USERS.owner,
+      input('70000000-0000-4000-8000-000000000011', {
+        text: 'Create a chart with SQL.',
+        agent_target: 'chart',
+      }),
+      'agent-target-unsafe-request',
+      initial.conversation_id,
+    );
+    expect(rejected).toMatchObject({ run_id: null, assistant_status: 'completed' });
+    expect(decisions).toBe(0);
+    expect(await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).toHaveLength(1);
+    const rejectedMessages = await repo.listMessages(
+      TEST_USERS.owner,
+      TEST_ORGS.alpha,
+      initial.conversation_id,
+      { limit: 50, cursor: null },
+    );
+    expect(rejectedMessages.messages.at(-1)?.sender_agent).toBeNull();
+  }, 60_000);
 });

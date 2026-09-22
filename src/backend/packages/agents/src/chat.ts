@@ -4,6 +4,7 @@ import {
   type AgentDecision,
   type AgentTurnAccepted,
   type AgentTurnRequest,
+  type ResolvedAgentTurnRequest,
   type Message,
   type MessagePart,
   type Role,
@@ -18,8 +19,10 @@ import {
 } from './provider';
 import {
   createAnalysisTool,
+  getAgentTargetFollowUp,
   getAnalysisResultTool,
   inspectSignalTool,
+  isCausalQuestion,
   type AgentToolExecutionContext,
 } from './tools';
 
@@ -39,7 +42,7 @@ const unsupportedText: Record<
   NO_AUTHORIZED_RESULT: 'Không tìm thấy kết quả đã được cấp quyền trong ngữ cảnh hội thoại này.',
 };
 
-function turnContext(turn: AgentTurn, input: AgentTurnRequest): TurnContext {
+function turnContext(turn: AgentTurn, input: ResolvedAgentTurnRequest): TurnContext {
   return {
     org_id: input.org_id,
     conversation_id: turn.conversation.conversation_id,
@@ -62,16 +65,21 @@ function compactMessages(messages: Message[]): AgentDecisionContext['recent_mess
   return compacted;
 }
 
+function assistantRunIds(messages: Message[]): string[] {
+  const ids = [...messages]
+    .reverse()
+    .filter((message) => message.role === 'assistant')
+    .flatMap((message) => message.parts)
+    .flatMap((part) =>
+      part.type === 'run_ref' || part.type === 'signal_ref' ? [part.run_id] : [],
+    );
+  return [...new Set(ids)].slice(0, 5);
+}
+
 function runIds(messages: Message[], requestedSignalRef: SignalRef | null | undefined): string[] {
-  const ids = [
-    requestedSignalRef?.run_id,
-    ...[...messages]
-      .reverse()
-      .flatMap((message) => message.parts)
-      .flatMap((part) =>
-        part.type === 'run_ref' || part.type === 'signal_ref' ? [part.run_id] : [],
-      ),
-  ].filter((id): id is string => Boolean(id));
+  const ids = [requestedSignalRef?.run_id, ...assistantRunIds(messages)].filter(
+    (id): id is string => Boolean(id),
+  );
   return [...new Set(ids)].slice(0, 5);
 }
 
@@ -82,25 +90,21 @@ function sameScope(left: Scope, right: Scope): boolean {
   );
 }
 
-function isCausalRequest(question: string): boolean {
-  return /\b(why did|why is|cause|caused|causal|root cause)\b|\b(tại sao|vì sao|nguyên nhân)\b/i.test(
-    question,
-  );
-}
-
 type BuiltContext = {
   role: Role;
   context: AgentDecisionContext;
   analysis_scope: Scope;
+  allowed_conversation_run_ids: string[];
 };
 
 export class ConversationContextBuilder {
   constructor(private readonly repository: Repository) {}
   async build(
     userId: string,
-    input: AgentTurnRequest,
+    inputValue: AgentTurnRequest,
     conversationId: string,
   ): Promise<BuiltContext> {
+    const input = AgentTurnRequestSchema.parse(inputValue);
     const [role, catalog, page] = await Promise.all([
       this.repository.authorize(userId, input.org_id),
       this.repository.catalog(userId, input.org_id),
@@ -109,6 +113,7 @@ export class ConversationContextBuilder {
         cursor: null,
       }),
     ]);
+    const conversationRunIds = assistantRunIds(page.messages);
     const candidates = runIds(page.messages, input.signal_ref);
     let activeBrief: AgentDecisionContext['active_brief'] = null;
     for (const runId of candidates) {
@@ -173,14 +178,13 @@ export class ConversationContextBuilder {
     return {
       role,
       analysis_scope: analysisScope,
+      allowed_conversation_run_ids: conversationRunIds,
       context: {
         question: input.text,
         scope: analysisScope,
         data_as_of: input.data_as_of,
         scope_changed: activeBrief ? !sameScope(analysisScope, activeBrief.scope) : false,
-        date_changed: activeBrief
-          ? input.data_as_of !== activeBrief.requested_data_as_of
-          : false,
+        date_changed: activeBrief ? input.data_as_of !== activeBrief.requested_data_as_of : false,
         role,
         catalog: {
           projects: catalog.projects.slice(0, 50).map((project) => ({
@@ -265,8 +269,12 @@ export class AgentChatOrchestrator {
       question: input.text,
       scope: built.analysis_scope,
       data_as_of: input.data_as_of,
+      use_case: input.use_case,
+      agent_target: input.agent_target ?? null,
+      signal_action: input.signal_action ?? null,
       idempotency_key: idempotencyKey,
       allowed_run_ids: built.context.allowed_run_ids,
+      allowed_conversation_run_ids: built.allowed_conversation_run_ids,
       allowed_signal_refs: built.context.active_brief
         ? built.context.active_brief.signals.map((signal) => ({
             run_id: built.context.active_brief!.run_id,
@@ -281,6 +289,64 @@ export class AgentChatOrchestrator {
         })),
       ]),
     };
+    // Scope/date changes, canonical signal actions, and causal questions retain
+    // their existing deterministic routing rather than becoming target lookups.
+    if (
+      input.agent_target &&
+      !input.signal_action &&
+      !isCausalQuestion(input.text) &&
+      !built.context.scope_changed &&
+      !built.context.date_changed
+    ) {
+      try {
+        const target = await getAgentTargetFollowUp(this.repository, toolContext);
+        if (target.kind === 'agent_target_follow_up') {
+          await this.repository.finalizeTurn(userId, context, {
+            status: 'completed',
+            content: target.content,
+            parts: [{ type: 'text', text: target.content }, ...target.parts],
+            sender_agent: target.sender_agent,
+          });
+          return AgentTurnAcceptedSchema.parse({
+            conversation_id: context.conversation_id,
+            user_message_id: context.user_message_id,
+            assistant_message_id: context.assistant_message_id,
+            run_id: target.run.run_id,
+            assistant_status: 'completed',
+          });
+        }
+        if (target.kind === 'agent_target_unavailable') {
+          const content = unsupportedText[target.reason_code];
+          await this.repository.finalizeTurn(userId, context, {
+            status: 'completed',
+            content,
+            parts: [{ type: 'text', text: content }],
+          });
+          return AgentTurnAcceptedSchema.parse({
+            conversation_id: context.conversation_id,
+            user_message_id: context.user_message_id,
+            assistant_message_id: context.assistant_message_id,
+            run_id: null,
+            assistant_status: 'completed',
+          });
+        }
+      } catch {
+        await this.finalizeError(
+          userId,
+          context,
+          'ANALYSIS_ACTION_FAILED',
+          true,
+          'Unable to load the requested authorized agent checkpoint.',
+        );
+        return AgentTurnAcceptedSchema.parse({
+          conversation_id: context.conversation_id,
+          user_message_id: context.user_message_id,
+          assistant_message_id: context.assistant_message_id,
+          run_id: null,
+          assistant_status: 'failed',
+        });
+      }
+    }
     let decision: AgentDecision;
     try {
       if (input.signal_action === 'inspect' && input.signal_ref)
@@ -291,7 +357,7 @@ export class AgentChatOrchestrator {
         };
       else if (input.signal_action === 'analyze_segment')
         decision = { action: 'create_analysis', focus: 'current_inventory' };
-      else if (!built.context.requested_signal_ref && isCausalRequest(input.text))
+      else if (!built.context.requested_signal_ref && isCausalQuestion(input.text))
         decision = { action: 'unsupported', reason_code: 'UNSUPPORTED_CAUSAL_REQUEST' };
       else if (built.context.scope_changed || built.context.date_changed)
         decision = { action: 'create_analysis', focus: 'current_inventory' };

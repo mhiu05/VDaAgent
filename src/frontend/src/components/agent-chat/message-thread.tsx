@@ -1,7 +1,23 @@
 'use client';
 
+import { createElement } from 'react';
 import { ArrowUpRight, FileText, LoaderCircle } from 'lucide-react';
 import type { Message } from '@vda/contracts';
+
+const senderLabels: Record<NonNullable<Message['sender_agent']>, string> = {
+  coordinator: 'Coordinator',
+  data: 'Data',
+  comparison: 'Comparison',
+  chart: 'Chart',
+  analyst: 'Analyst',
+  insight: 'Insight',
+  report: 'Report',
+  reviewer: 'Reviewer',
+};
+
+export function senderLabel(senderAgent: Message['sender_agent']): string {
+  return senderAgent ? senderLabels[senderAgent] : 'VDaAgent';
+}
 
 const errorLabels: Record<string, string> = {
   ALL_AGENT_PROVIDERS_FAILED: 'Dịch vụ định tuyến hiện chưa sẵn sàng.',
@@ -16,6 +32,7 @@ export function MessageThread({
   onLoadEarlier,
   onOpenRun,
   onOpenReport,
+  onOpenArtifact,
 }: {
   messages: Message[];
   loading: boolean;
@@ -23,6 +40,7 @@ export function MessageThread({
   onLoadEarlier: () => void;
   onOpenRun: (runId: string, messageId: string) => void;
   onOpenReport: (reportId: string) => void;
+  onOpenArtifact: (runId: string, artifactId: string) => void;
 }) {
   return (
     <section className="agent-thread" aria-label="Nội dung hội thoại">
@@ -42,7 +60,7 @@ export function MessageThread({
             key={message.message_id}
           >
             <span className="agent-message-role">
-              {message.role === 'user' ? 'Bạn' : 'VDaAgent'}
+              {message.role === 'user' ? 'Bạn' : senderLabel(message.sender_agent)}
             </span>
             <p>{message.content}</p>
             {message.status === 'in_progress' && message.role === 'assistant' && (
@@ -70,6 +88,20 @@ export function MessageThread({
                   >
                     <FileText size={13} /> Báo cáo đã liên kết
                   </button>
+                );
+              if (part.type === 'artifact_ref')
+                return createElement(
+                  'button',
+                  {
+                    className: 'text-button agent-reference',
+                    key: [message.message_id, 'artifact', index].join(':'),
+                    onClick: () => onOpenArtifact(part.run_id, part.artifact_id),
+                  },
+                  createElement(FileText, { size: 13 }),
+                  ' Bằng chứng · ',
+                  part.kind,
+                  ' ',
+                  createElement(ArrowUpRight, { size: 13 }),
                 );
               if (part.type === 'signal_ref')
                 return (

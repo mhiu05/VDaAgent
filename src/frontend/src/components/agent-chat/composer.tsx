@@ -1,7 +1,8 @@
 'use client';
 
+import { createElement, type ChangeEvent } from 'react';
 import { Send, ShieldCheck, Sparkles } from 'lucide-react';
-import type { Catalog } from '@vda/contracts';
+import type { AgentKey, Catalog } from '@vda/contracts';
 import { ScopeFields } from '../resource-panels';
 
 const suggestions = [
@@ -12,6 +13,14 @@ const suggestions = [
   'Generate an inventory report.',
 ];
 
+const agentTargets: Array<{ value: AgentKey | null; label: string }> = [
+  { value: null, label: 'Tự động' },
+  { value: 'analyst', label: 'Analyst' },
+  { value: 'comparison', label: 'Comparison' },
+  { value: 'chart', label: 'Chart' },
+  { value: 'report', label: 'Report' },
+];
+
 export function Composer({
   catalog,
   canWrite,
@@ -20,10 +29,13 @@ export function Composer({
   dataAsOf,
   draft,
   busy,
+  agentTarget,
+  scheduledReadOnly,
   onProject,
   onZone,
   onDate,
   onDraft,
+  onAgentTarget,
   onSubmit,
 }: {
   catalog: Catalog;
@@ -33,13 +45,17 @@ export function Composer({
   dataAsOf: string;
   draft: string;
   busy: boolean;
+  agentTarget: AgentKey | null;
+  scheduledReadOnly: boolean;
   onProject: (value: string) => void;
   onZone: (value: string) => void;
   onDate: (value: string) => void;
   onDraft: (value: string) => void;
+  onAgentTarget: (value: AgentKey | null) => void;
   onSubmit: () => void;
 }) {
-  const ready = canWrite && !busy && !!project && !!dataAsOf && !!draft.trim();
+  const disabled = !canWrite || busy || scheduledReadOnly;
+  const ready = !disabled && !!project && !!dataAsOf && !!draft.trim();
   return (
     <section className="agent-composer card">
       <header className="section-heading">
@@ -61,6 +77,7 @@ export function Composer({
           zone={zone}
           setProject={onProject}
           setZone={onZone}
+          disabled={disabled}
         />
         <label>
           Ngày dữ liệu
@@ -69,7 +86,28 @@ export function Composer({
             required
             value={dataAsOf}
             onChange={(event) => onDate(event.target.value)}
+            disabled={disabled}
           />
+        </label>
+        <label>
+          Agent target
+          {createElement(
+            'select',
+            {
+              'aria-label': 'Agent target',
+              value: agentTarget ?? '',
+              disabled,
+              onChange: (event: ChangeEvent<HTMLSelectElement>) =>
+                onAgentTarget((event.target.value as AgentKey) || null),
+            },
+            agentTargets.map((target) =>
+              createElement(
+                'option',
+                { key: target.value ?? 'auto', value: target.value ?? '' },
+                target.label,
+              ),
+            ),
+          )}
         </label>
       </div>
       <label className="question-label">
@@ -87,7 +125,7 @@ export function Composer({
           maxLength={2000}
           rows={3}
           placeholder="Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?"
-          disabled={!canWrite || busy}
+          disabled={disabled}
         />
       </label>
       <div className="composer-footer">
@@ -107,7 +145,7 @@ export function Composer({
           hủy phân tích.
         </p>
       )}
-      {canWrite && !busy && (
+      {canWrite && !busy && !scheduledReadOnly && (
         <div className="agent-suggestions" aria-label="Gợi ý câu hỏi được hỗ trợ">
           {suggestions.map((suggestion) => (
             <button key={suggestion} className="suggestion" onClick={() => onDraft(suggestion)}>

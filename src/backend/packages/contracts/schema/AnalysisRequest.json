@@ -57,6 +57,34 @@
           "type": "null"
         }
       ]
+    },
+    "use_case": {
+      "default": "slow_moving_inventory",
+      "type": "string",
+      "enum": [
+        "slow_moving_inventory"
+      ]
+    },
+    "agent_target": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "coordinator",
+            "data",
+            "comparison",
+            "chart",
+            "analyst",
+            "insight",
+            "report",
+            "reviewer"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -64,7 +92,9 @@
     "scope",
     "data_as_of",
     "question",
-    "conversation_id"
+    "conversation_id",
+    "use_case",
+    "agent_target"
   ],
   "additionalProperties": false
 }

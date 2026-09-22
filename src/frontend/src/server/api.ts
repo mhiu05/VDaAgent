@@ -6,6 +6,7 @@ import {
   AgentTurnAcceptedSchema,
   AgentTurnRequestSchema,
   ArtifactListSchema,
+  AgentWorkflowStatusSchema,
   CatalogSchema,
   ConversationPageSchema,
   ConversationSchema,
@@ -80,6 +81,16 @@ const TriggerBody = z
 const TickBody = z.object({ org_id: IdSchema, now: TimestampSchema.optional() }).strict();
 const DevelopmentRoleBody = z.object({ role: RoleSchema }).strict();
 const OkSchema = z.object({ ok: z.literal(true) });
+const agentWorkflowStages = [
+  'coordinator',
+  'data',
+  'comparison',
+  'chart',
+  'analyst',
+  'insight',
+  'report',
+  'reviewer',
+] as const;
 type DownloadGrant = {
   user_id: string;
   org_id: string;
@@ -194,6 +205,54 @@ async function handle(request: Request, path: string[]): Promise<Response> {
       return json(RunDetailSchema, await repo.getRun(actor.user_id, orgFromQuery(), id));
     if (path[2] === 'artifacts' && method === 'GET')
       return json(ArtifactListSchema, await repo.artifacts(actor.user_id, orgFromQuery(), id));
+    if (path[2] === 'workflow-status' && method === 'GET') {
+      const orgId = orgFromQuery();
+      // Draft/review checkpoints are private workflow data. This compact view
+      // is deliberately gated to mutation-capable members and contains no
+      // draft/report prose, artifact IDs, hashes or review issues.
+      await repo.authorize(actor.user_id, orgId, true);
+      const [{ run, tasks }, { artifacts }] = await Promise.all([
+        repo.getRun(actor.user_id, orgId, id),
+        repo.artifacts(actor.user_id, orgId, id),
+      ]);
+      const workflowVersion = run.workflow_version ?? 'legacy-v1';
+      const isAgentWorkflow = workflowVersion === 'agent-v1';
+      const drafts = isAgentWorkflow
+        ? artifacts
+            .filter((artifact) => artifact.kind === 'report_draft')
+            .sort((left, right) => right.payload.revision - left.payload.revision)
+        : [];
+      const draft = drafts[0];
+      const review = draft
+        ? artifacts.find(
+            (artifact) =>
+              artifact.kind === 'review_result' &&
+              artifact.payload.draft_artifact_id === draft.artifact_id,
+          )
+        : undefined;
+      return json(AgentWorkflowStatusSchema, {
+        run_id: run.run_id,
+        org_id: run.org_id,
+        workflow_version: workflowVersion,
+        stages: isAgentWorkflow
+          ? agentWorkflowStages.flatMap((agent) => {
+              const task = tasks.find((candidate) => candidate.kind === agent);
+              return task ? [{ agent, status: task.status, error_code: task.error_code }] : [];
+            })
+          : [],
+        draft_revision: draft?.payload.revision ?? null,
+        review:
+          review?.kind === 'review_result'
+            ? {
+                draft_revision: review.payload.draft_revision,
+                status: review.payload.status,
+              }
+            : null,
+        publication_status: isAgentWorkflow
+          ? (tasks.find((task) => task.kind === 'publication')?.status ?? null)
+          : null,
+      });
+    }
     if (path[2] === 'brief' && method === 'GET')
       return json(
         DecisionBriefResponseSchema,

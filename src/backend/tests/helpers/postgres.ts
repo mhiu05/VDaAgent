@@ -53,7 +53,7 @@ export function pgliteDriver(pg: PGlite): Driver {
   };
 }
 
-export async function createTestDatabase() {
+export async function createLegacyTestDatabase() {
   const pg = new PGlite();
   await pg.exec(supabaseShims);
   await pg.exec(
@@ -65,7 +65,26 @@ export async function createTestDatabase() {
   return pg;
 }
 
-export async function createTestRepository(): Promise<{
+export async function createTestDatabase() {
+  const pg = await createLegacyTestDatabase();
+  await pg.exec(
+    await readFile(
+      'src/backend/supabase/migrations/20260921101524_agent_workflow_persistence.sql',
+      'utf8',
+    ),
+  );
+  await pg.exec(
+    await readFile(
+      'src/backend/supabase/migrations/20260922130000_agent_stage_messages.sql',
+      'utf8',
+    ),
+  );
+  return pg;
+}
+
+export async function createTestRepository(
+  options: { workflowVersion?: 'legacy-v1' | 'agent-v1' } = {},
+): Promise<{
   pg: PGlite;
   repo: Repository;
   uploads: StoredObject[];
@@ -77,6 +96,7 @@ export async function createTestRepository(): Promise<{
     driver: pgliteDriver(pg),
     storage,
     seedTestData: true,
+    workflowVersion: options.workflowVersion,
   });
   return { pg, repo, uploads };
 }

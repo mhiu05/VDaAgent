@@ -2,6 +2,29 @@ import { z } from 'zod';
 
 export const SEMANTIC_VERSION = 'mvp-inventory-v0.2' as const;
 export const ARTIFACT_SCHEMA_VERSION = '1.1' as const;
+/**
+ * The agent workflow is intentionally registered in code.  This is not a
+ * user-provided prompt or a free-form analytics selector.
+ */
+export const DEFAULT_USE_CASE = 'slow_moving_inventory' as const;
+export const USE_CASE_CONTRACT_VERSION = 'use-case-v1' as const;
+export const UseCaseKeySchema = z.enum([DEFAULT_USE_CASE]);
+export type UseCaseKey = z.infer<typeof UseCaseKeySchema>;
+export const WorkflowVersionSchema = z.enum(['legacy-v1', 'agent-v1']);
+export type WorkflowVersion = z.infer<typeof WorkflowVersionSchema>;
+export const AgentKeySchema = z.enum([
+  'coordinator',
+  'data',
+  'comparison',
+  'chart',
+  'analyst',
+  'insight',
+  'report',
+  'reviewer',
+]);
+export type AgentKey = z.infer<typeof AgentKeySchema>;
+export const resolveUseCase = (value: { use_case?: UseCaseKey | null }): UseCaseKey =>
+  value.use_case ?? DEFAULT_USE_CASE;
 export const LIMITATION =
   'Assumption / MVP provisional — dữ liệu tổng hợp và công thức synthetic, chưa được BA/Data Owner phê duyệt.';
 export const IdSchema = z.uuid();
@@ -31,9 +54,14 @@ export const AnalysisRequestSchema = z
     data_as_of: DateSchema,
     question: z.string().trim().min(1).max(2000),
     conversation_id: IdSchema.nullable().default(null),
+    use_case: UseCaseKeySchema.default(DEFAULT_USE_CASE),
+    /** Captures an explicit bounded specialist request on newly created runs. */
+    agent_target: AgentKeySchema.nullable().default(null),
   })
   .strict();
-export type AnalysisRequest = z.infer<typeof AnalysisRequestSchema>;
+/** Input remains compatible with callers that predate the use-case field. */
+export type AnalysisRequest = z.input<typeof AnalysisRequestSchema>;
+export type ResolvedAnalysisRequest = z.output<typeof AnalysisRequestSchema>;
 
 export const CSV_COLUMNS = [
   'snapshot_date',
@@ -111,13 +139,17 @@ export const ImportRequestSchema = z
 
 export const TASK_KINDS = [
   'orchestrator',
+  'coordinator',
   'data',
   'calculation',
   'chart',
   'comparison',
+  'analyst',
   'insight',
   'validation',
   'report',
+  'reviewer',
+  'publication',
 ] as const;
 export const RunStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
 export const RunTaskSchema = z.object({
@@ -158,6 +190,8 @@ export const RunSchema = z.object({
   error_code: z.string().nullable(),
   report_artifact_id: IdSchema.nullable(),
   cancel_requested: z.boolean(),
+  /** Absent on historical payloads; nested request.use_case is the source of truth. */
+  workflow_version: WorkflowVersionSchema.optional(),
 });
 export type AnalysisRun = z.infer<typeof RunSchema>;
 
@@ -860,6 +894,272 @@ export const ReportPayloadSchema = z.object({
   decision_brief: DecisionBriefSchema.optional(),
 });
 export type ReportPayload = z.infer<typeof ReportPayloadSchema>;
+
+// Agent-workflow contracts are deliberately separate from the legacy artifact
+// union below.  Phase A only establishes typed boundaries; writers are added
+// behind the agent workflow version after persistence support is available.
+export const UseCaseCapabilitySchema = z.enum([
+  'analysis',
+  'comparison',
+  'chart',
+  'analyst_follow_up',
+  'report_revision',
+]);
+export type UseCaseCapability = z.infer<typeof UseCaseCapabilitySchema>;
+export const UseCaseDefinitionSchema = z
+  .object({
+    contract_version: z.literal(USE_CASE_CONTRACT_VERSION),
+    key: UseCaseKeySchema,
+    version: z.string().trim().min(1).max(100),
+    display_name: z.string().trim().min(1).max(200),
+    scope_policy: z
+      .object({ project_required: z.literal(true), zone_optional: z.literal(true) })
+      .strict(),
+    comparison_windows_days: z
+      .array(z.union([z.literal(7), z.literal(30), z.literal(90)]))
+      .min(1)
+      .max(3),
+    required_fields: z.array(z.string().trim().min(1).max(100)).min(1).max(100),
+    supported_dimensions: z
+      .array(z.enum(['project', 'zone', 'unit_type', 'bedrooms', 'status']))
+      .min(1)
+      .max(10),
+    capabilities: z.array(UseCaseCapabilitySchema).min(1).max(10),
+    provisional_limitation: z.string().trim().min(1).max(2_000),
+  })
+  .strict();
+export type UseCaseDefinition = z.infer<typeof UseCaseDefinitionSchema>;
+
+export const CanonicalEvidenceRefSchema = z
+  .object({
+    artifact_id: IdSchema,
+    artifact_key: z.string().trim().min(1).max(160),
+    path: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type CanonicalEvidenceRef = z.infer<typeof CanonicalEvidenceRefSchema>;
+export const WorkflowPackMetadataSchema = z
+  .object({
+    contract_version: z.string().trim().min(1).max(100),
+    pack_id: IdSchema,
+    run_id: IdSchema,
+    org_id: IdSchema,
+    use_case: UseCaseKeySchema,
+    use_case_version: z.string().trim().min(1).max(100),
+    scope: ScopeSchema,
+    data_as_of: DateSchema,
+    semantic_version: z.string().trim().min(1).max(100),
+    input_refs: z.array(IdSchema).max(100),
+    snapshot_refs: z.array(IdSchema).max(20_000),
+    source_refs: z.array(IdSchema).max(20_000),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(100),
+  })
+  .strict();
+export type WorkflowPackMetadata = z.infer<typeof WorkflowPackMetadataSchema>;
+
+export const CoordinatorDecisionSchema = z
+  .object({
+    contract_version: z.literal('coordinator-decision-v1'),
+    decision_id: IdSchema,
+    org_id: IdSchema,
+    use_case: UseCaseKeySchema,
+    use_case_version: z.string().trim().min(1).max(100),
+    scope: ScopeSchema,
+    requested_data_as_of: DateSchema,
+    effective_data_as_of: DateSchema,
+    comparison_windows_days: z
+      .array(z.union([z.literal(7), z.literal(30), z.literal(90)]))
+      .min(1)
+      .max(3),
+    entrypoint: z.enum(['interactive', 'scheduled']),
+    requested_capability: UseCaseCapabilitySchema,
+    agent_target: AgentKeySchema.nullable(),
+    action: z.enum(['new_run', 'reuse_result', 'unsupported']),
+    reuse_run_id: IdSchema.nullable(),
+    unsupported_reason: z.string().trim().min(1).max(200).nullable(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.action === 'reuse_result' && !value.reuse_run_id)
+      ctx.addIssue({ code: 'custom', path: ['reuse_run_id'], message: 'Reuse requires a run id' });
+    if (value.action !== 'reuse_result' && value.reuse_run_id)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reuse_run_id'],
+        message: 'Only reuse may name a run',
+      });
+    if (value.action === 'unsupported' && !value.unsupported_reason)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['unsupported_reason'],
+        message: 'Unsupported decisions need a reason',
+      });
+    if (value.action !== 'unsupported' && value.unsupported_reason)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['unsupported_reason'],
+        message: 'Only unsupported decisions include a reason',
+      });
+  });
+export type CoordinatorDecision = z.infer<typeof CoordinatorDecisionSchema>;
+
+export const DataAnalysisPackSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('data-analysis-pack-v1'),
+  metric_config: z.object({ slow_moving_threshold_days: z.number().int().positive() }).strict(),
+  dataset: z
+    .object({
+      row_count: z.number().int().nonnegative(),
+      query_artifact_id: IdSchema,
+      query_result_artifact_id: IdSchema,
+      calculation_artifact_id: IdSchema,
+      comparison_calculation_artifact_id: IdSchema,
+      /** A legacy-report/chart adapter produced by the Data boundary, never by a peer branch. */
+      comparison_artifact_id: IdSchema,
+    })
+    .strict(),
+  metrics: z.array(MetricSchema).max(100),
+  // The approved pinned-read boundary is 20,000 rows. Do not silently
+  // truncate deterministic unit or peer inputs when constructing a pack.
+  units: z.array(CalculatedUnitSchema).max(20_000),
+  age_buckets: CalculationPayloadSchema.shape.age_buckets,
+  breakdowns: CalculationPayloadSchema.shape.breakdowns,
+  period_comparisons: CalculationPayloadSchema.shape.period_comparisons,
+  segment_comparisons: CalculationPayloadSchema.shape.segment_comparisons,
+  notable_changes: CalculationPayloadSchema.shape.notable_changes,
+  peer_items: z.array(ComparisonItemSchema).max(20_000),
+  insight_candidates: CalculationPayloadSchema.shape.insight_candidates,
+  quality_limitations: z.array(z.string().trim().min(1).max(2_000)).max(100),
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+});
+export type DataAnalysisPack = z.infer<typeof DataAnalysisPackSchema>;
+
+export const ComparisonPackSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('comparison-pack-v1'),
+  data_analysis_pack_artifact_id: IdSchema,
+  comparisons: z.array(ComparisonItemSchema).max(20_000),
+  period_comparisons: CalculationPayloadSchema.shape.period_comparisons,
+  segment_comparisons: CalculationPayloadSchema.shape.segment_comparisons,
+  notable_changes: CalculationPayloadSchema.shape.notable_changes,
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+});
+export type ComparisonPack = z.infer<typeof ComparisonPackSchema>;
+
+export const ChartPackSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('chart-pack-v1'),
+  data_analysis_pack_artifact_id: IdSchema,
+  charts: z.array(ChartSpecSchema).max(100),
+  unavailable: z.array(ChartUnavailableSchema).max(100),
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+});
+export type ChartPack = z.infer<typeof ChartPackSchema>;
+
+export const AnalysisFindingSchema = z
+  .object({
+    finding_id: z.string().trim().min(1).max(300),
+    candidate_id: z.string().trim().min(1).max(300),
+    category: z.enum([
+      'concentration',
+      'anomaly',
+      'current_state',
+      'data_quality',
+      'trend',
+      'segment',
+    ]),
+    kind: z.enum(['descriptive', 'interpretive']),
+    statement: z.string().trim().min(1).max(2_000),
+    metric_key: MetricKeySchema,
+    support_level: z.enum(['high', 'medium', 'limited']),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(20),
+  })
+  .strict();
+export type AnalysisFinding = z.infer<typeof AnalysisFindingSchema>;
+export const AnalysisPackSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('analysis-pack-v1'),
+  data_analysis_pack_artifact_id: IdSchema,
+  findings: z.array(AnalysisFindingSchema).max(100),
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+});
+export type AnalysisPack = z.infer<typeof AnalysisPackSchema>;
+
+export const InsightPackSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('insight-pack-v1'),
+  data_analysis_pack_artifact_id: IdSchema,
+  comparison_pack_artifact_id: IdSchema,
+  chart_pack_artifact_id: IdSchema,
+  analysis_pack_artifact_id: IdSchema,
+  summary: z.string().trim().min(1).max(5_000),
+  claims: z.array(ClaimSchema).max(100),
+  selected_finding_ids: z.array(z.string().trim().min(1).max(300)).max(100),
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+  provider: z.enum(['deterministic', 'gemini', 'openai']),
+});
+export type InsightPack = z.infer<typeof InsightPackSchema>;
+
+export const ReportDraftSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('report-draft-v1'),
+  draft_id: IdSchema,
+  revision: z.number().int().min(1).max(2),
+  data_analysis_pack_artifact_id: IdSchema,
+  comparison_pack_artifact_id: IdSchema,
+  chart_pack_artifact_id: IdSchema,
+  analysis_pack_artifact_id: IdSchema,
+  insight_pack_artifact_id: IdSchema,
+  report: ReportPayloadSchema,
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+});
+export type ReportDraft = z.infer<typeof ReportDraftSchema>;
+
+export const ReviewIssueSchema = z
+  .object({
+    issue_id: z.string().trim().min(1).max(300),
+    severity: z.enum(['blocking', 'warning']),
+    category: z.enum([
+      'evidence',
+      'metric_mismatch',
+      'chart_mismatch',
+      'scope_date',
+      'contradiction',
+      'overstatement',
+      'limitation',
+    ]),
+    claim_id: z.string().trim().min(1).max(500).nullable(),
+    message: z.string().trim().min(1).max(2_000),
+    required_correction: z.string().trim().min(1).max(2_000).nullable(),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).max(20),
+  })
+  .strict();
+export type ReviewIssue = z.infer<typeof ReviewIssueSchema>;
+export const ReviewResultSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal('review-result-v1'),
+  review_id: IdSchema,
+  draft_artifact_id: IdSchema,
+  draft_id: IdSchema,
+  draft_revision: z.number().int().min(1).max(2),
+  draft_content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+  status: z.enum(['PASS', 'REVISION_REQUIRED']),
+  issues: z.array(ReviewIssueSchema).max(100),
+  summary: z.string().trim().min(1).max(5_000),
+  provider: z.enum(['deterministic', 'gemini', 'openai']),
+}).superRefine((value, ctx) => {
+  if (value.status === 'PASS' && value.issues.some((issue) => issue.severity === 'blocking'))
+    ctx.addIssue({
+      code: 'custom',
+      path: ['issues'],
+      message: 'PASS cannot contain blocking issues',
+    });
+  if (
+    value.status === 'REVISION_REQUIRED' &&
+    !value.issues.some((issue) => issue.severity === 'blocking')
+  )
+    ctx.addIssue({
+      code: 'custom',
+      path: ['issues'],
+      message: 'Revision requires a blocking issue',
+    });
+});
+export type ReviewResult = z.infer<typeof ReviewResultSchema>;
+
 const ArtifactBase = z.object({
   artifact_id: IdSchema,
   org_id: IdSchema,
@@ -906,6 +1206,11 @@ export const ArtifactSchema = z.discriminatedUnion('kind', [
   }),
   ArtifactBase.extend({ kind: z.literal('calculation'), payload: CalculationPayloadSchema }),
   ArtifactBase.extend({
+    kind: z.literal('coordinator_decision'),
+    payload: CoordinatorDecisionSchema,
+  }),
+  ArtifactBase.extend({ kind: z.literal('data_analysis_pack'), payload: DataAnalysisPackSchema }),
+  ArtifactBase.extend({
     kind: z.literal('visual_evidence'),
     payload: VisualEvidencePayloadSchema,
   }),
@@ -926,6 +1231,9 @@ export const ArtifactSchema = z.discriminatedUnion('kind', [
       calculation_artifact_id: IdSchema,
     }),
   }),
+  ArtifactBase.extend({ kind: z.literal('comparison_pack'), payload: ComparisonPackSchema }),
+  ArtifactBase.extend({ kind: z.literal('chart_pack'), payload: ChartPackSchema }),
+  ArtifactBase.extend({ kind: z.literal('analysis_pack'), payload: AnalysisPackSchema }),
   ArtifactBase.extend({
     kind: z.literal('insight'),
     payload: z.object({
@@ -935,6 +1243,9 @@ export const ArtifactSchema = z.discriminatedUnion('kind', [
       provider: z.enum(['gemini', 'openai']),
     }),
   }),
+  ArtifactBase.extend({ kind: z.literal('insight_pack'), payload: InsightPackSchema }),
+  ArtifactBase.extend({ kind: z.literal('report_draft'), payload: ReportDraftSchema }),
+  ArtifactBase.extend({ kind: z.literal('review_result'), payload: ReviewResultSchema }),
   ArtifactBase.extend({ kind: z.literal('report'), payload: ReportPayloadSchema }),
 ]);
 export type Artifact = z.infer<typeof ArtifactSchema>;
@@ -966,6 +1277,7 @@ export const ReportDefinitionInputSchema = z
     local_time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
     data_as_of_policy: z.enum(['scheduled_date', 'previous_day']).default('scheduled_date'),
     enabled: z.boolean().default(true),
+    use_case: UseCaseKeySchema.default(DEFAULT_USE_CASE),
   })
   .strict();
 export const ReportDefinitionSchema = ReportDefinitionInputSchema.extend({
@@ -975,7 +1287,8 @@ export const ReportDefinitionSchema = ReportDefinitionInputSchema.extend({
   created_at: TimestampSchema,
   next_run_at: TimestampSchema,
 });
-export type ReportDefinitionInput = z.infer<typeof ReportDefinitionInputSchema>;
+export type ReportDefinitionInput = z.input<typeof ReportDefinitionInputSchema>;
+export type ResolvedReportDefinitionInput = z.output<typeof ReportDefinitionInputSchema>;
 export type ReportDefinition = z.infer<typeof ReportDefinitionSchema>;
 export const ReportOccurrenceSchema = z.object({
   occurrence_id: IdSchema,
@@ -1084,6 +1397,8 @@ export const MessageSchema = z
     run_id: IdSchema.nullable(),
     client_turn_id: IdSchema.nullable().default(null),
     role: z.enum(['user', 'assistant']),
+    /** Null is the legacy assistant label; specialized identities are additive. */
+    sender_agent: AgentKeySchema.nullable().optional(),
     status: MessageStatusSchema.default('completed'),
     content: z.string().max(5_000),
     parts: z.array(MessagePartSchema).max(32).default([]),
@@ -1124,6 +1439,8 @@ export const AgentTurnRequestSchema = z
     data_as_of: DateSchema,
     signal_ref: SignalRefSchema.nullable().optional(),
     signal_action: z.enum(['inspect', 'analyze_segment']).nullable().optional(),
+    use_case: UseCaseKeySchema.default(DEFAULT_USE_CASE),
+    agent_target: AgentKeySchema.nullable().optional(),
   })
   .strict()
   .superRefine((turn, ctx) => {
@@ -1134,7 +1451,8 @@ export const AgentTurnRequestSchema = z
         message: 'Signal action requires a signal reference',
       });
   });
-export type AgentTurnRequest = z.infer<typeof AgentTurnRequestSchema>;
+export type AgentTurnRequest = z.input<typeof AgentTurnRequestSchema>;
+export type ResolvedAgentTurnRequest = z.output<typeof AgentTurnRequestSchema>;
 export const AgentFocusSchema = z.enum([
   'current_inventory',
   'slow_moving',
@@ -1163,7 +1481,11 @@ export const GetAnalysisResultToolInputSchema = z
   .object({ action: z.literal('get_analysis_result'), run_id: IdSchema })
   .strict();
 export const InspectSignalToolInputSchema = z
-  .object({ action: z.literal('inspect_signal'), run_id: IdSchema, signal_id: SignalRefSchema.shape.signal_id })
+  .object({
+    action: z.literal('inspect_signal'),
+    run_id: IdSchema,
+    signal_id: SignalRefSchema.shape.signal_id,
+  })
   .strict();
 export const UnsupportedDecisionSchema = z
   .object({ action: z.literal('unsupported'), reason_code: UnsupportedReasonCodeSchema })
@@ -1197,6 +1519,36 @@ export const RunDetailSchema = z.object({
   tasks: z.array(RunTaskSchema),
   events: z.array(RunEventSchema),
 });
+/**
+ * A compact, role-gated view of private workflow checkpoints. It deliberately
+ * omits draft/report prose, artifact identifiers and hashes so chat clients
+ * can render review progress without hydrating private canonical artifacts.
+ */
+export const AgentWorkflowStageStatusSchema = z
+  .object({
+    agent: AgentKeySchema,
+    status: RunTaskSchema.shape.status,
+    error_code: z.string().nullable(),
+  })
+  .strict();
+export const AgentWorkflowStatusSchema = z
+  .object({
+    run_id: IdSchema,
+    org_id: IdSchema,
+    workflow_version: WorkflowVersionSchema,
+    stages: z.array(AgentWorkflowStageStatusSchema).max(8),
+    draft_revision: z.number().int().min(1).max(2).nullable(),
+    review: z
+      .object({
+        draft_revision: z.number().int().min(1).max(2),
+        status: z.enum(['PASS', 'REVISION_REQUIRED']),
+      })
+      .strict()
+      .nullable(),
+    publication_status: RunTaskSchema.shape.status.nullable(),
+  })
+  .strict();
+export type AgentWorkflowStatus = z.infer<typeof AgentWorkflowStatusSchema>;
 export const ArtifactListSchema = z.object({
   artifacts: z.array(ArtifactSchema),
   validations: z.array(ArtifactValidationSchema),

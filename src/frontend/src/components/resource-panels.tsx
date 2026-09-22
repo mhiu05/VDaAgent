@@ -33,12 +33,14 @@ export function ScopeFields({
   zone,
   setProject,
   setZone,
+  disabled = false,
 }: {
   catalog: Catalog;
   project: string;
   zone: string;
   setProject: (value: string) => void;
   setZone: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <>
@@ -51,6 +53,7 @@ export function ScopeFields({
             setZone('');
           }}
           required
+          disabled={disabled}
         >
           <option value="" disabled>
             Chọn dự án
@@ -64,7 +67,7 @@ export function ScopeFields({
       </label>
       <label>
         Phân khu
-        <select value={zone} onChange={(event) => setZone(event.target.value)}>
+        <select value={zone} onChange={(event) => setZone(event.target.value)} disabled={disabled}>
           <option value="">Tất cả phân khu</option>
           {catalog.projects
             .find((item) => item.project_external_id === project)

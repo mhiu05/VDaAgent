@@ -5,6 +5,7 @@ import {
   getAnalysisResultTool,
   inspectSignalTool,
   modelToolNames,
+  resolveAgentTargetFollowUpAction,
 } from './tools';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
@@ -33,8 +34,11 @@ const baseContext = {
   question: 'Show inventory',
   scope: { project_external_id: 'P-ALPHA', zone_external_id: null },
   data_as_of: '2026-09-19',
+  use_case: 'slow_moving_inventory' as const,
+  agent_target: null,
   idempotency_key: 'tool-test',
   allowed_run_ids: [] as string[],
+  allowed_conversation_run_ids: [] as string[],
   allowed_signal_refs: [] as { run_id: string; signal_id: string }[],
   allowed_scopes: [{ project_external_id: 'P-ALPHA', zone_external_id: null }],
 };
@@ -64,6 +68,31 @@ async function completedBrief(repo: Repository) {
 }
 
 describe('Agent Chat typed tools', () => {
+  it('classifies @Agent text as only bounded artifact/status retrieval', () => {
+    expect(resolveAgentTargetFollowUpAction('analyst', 'Show the analysis findings.')).toBe(
+      'artifact',
+    );
+    expect(resolveAgentTargetFollowUpAction('analyst', 'Explain the validated findings.')).toBe(
+      'artifact',
+    );
+    expect(resolveAgentTargetFollowUpAction('comparison', 'Open the comparison pack.')).toBe(
+      'artifact',
+    );
+    expect(resolveAgentTargetFollowUpAction('chart', 'View the charts.')).toBe('artifact');
+    expect(resolveAgentTargetFollowUpAction('report', 'Show the report review status.')).toBe(
+      'status',
+    );
+    expect(resolveAgentTargetFollowUpAction('analyst', 'Why is Zone A deteriorating?')).toBeNull();
+    expect(
+      resolveAgentTargetFollowUpAction('comparison', 'Compare Zone A with Zone B.'),
+    ).toBeNull();
+    expect(resolveAgentTargetFollowUpAction('chart', 'Create a chart with SQL.')).toBeNull();
+    expect(
+      resolveAgentTargetFollowUpAction('report', 'Add this comparison to the report.'),
+    ).toBeNull();
+    expect(resolveAgentTargetFollowUpAction('data', 'Show the data pack.')).toBeNull();
+  });
+
   it('rejects malformed model inputs before repository execution', async () => {
     const repo = await setup();
     await expect(
@@ -119,7 +148,9 @@ describe('Agent Chat typed tools', () => {
     expect(result.kind).toBe('signal_inspection');
     if (result.kind !== 'signal_inspection') throw new Error('SIGNAL_INSPECTION_REQUIRED');
     expect(result).toMatchObject({ run: { run_id: run.run_id } });
-    expect(result.content).toBe('Tín hiệu đã xác thực và bằng chứng liên quan được liên kết bên dưới.');
+    expect(result.content).toBe(
+      'Tín hiệu đã xác thực và bằng chứng liên quan được liên kết bên dưới.',
+    );
     expect(result.content).not.toContain(signal.summary);
     expect(result.parts).toContainEqual({
       type: 'signal_ref',
@@ -171,7 +202,10 @@ describe('Agent Chat typed tools', () => {
       allowed_signal_refs: [{ run_id: run.run_id, signal_id: signal.signal_id }],
     };
     await expect(
-      createAnalysisTool(repo, viewerContext, { action: 'create_analysis', focus: 'current_inventory' }),
+      createAnalysisTool(repo, viewerContext, {
+        action: 'create_analysis',
+        focus: 'current_inventory',
+      }),
     ).rejects.toThrow('VIEWER_READ_ONLY');
     await expect(
       inspectSignalTool(repo, viewerContext, {

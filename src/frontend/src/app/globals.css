@@ -1193,7 +1193,7 @@ td small {
 }
 .task-track {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(9, 1fr);
   padding: 12px 0 19px;
   gap: 9px;
 }

@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 const org = '10000000-0000-4000-8000-000000000001';
 const beta = '10000000-0000-4000-8000-000000000002';
+const agentWorkflow = process.env.E2E_AGENT_WORKFLOW === 'true';
 const requestBody = {
   org_id: org,
   scope: { project_external_id: 'P-ALPHA', zone_external_id: null },
@@ -31,6 +32,7 @@ async function completed(api: APIRequestContext, id: string) {
 test('API: import, idempotency, report lineage, private export, scheduler and authorization', async ({
   request,
 }) => {
+  test.skip(agentWorkflow, 'Legacy regression is exercised with the default workflow flag.');
   expect((await request.get('/api/v1/session')).status()).toBe(401);
   await login(request);
   const key = crypto.randomUUID();
@@ -214,7 +216,103 @@ test('API: import, idempotency, report lineage, private export, scheduler and au
     ).status(),
   ).toBe(403);
 });
+test('Agent-v1 API: persisted identities, private checkpoints and guarded follow-up', async ({
+  request,
+}) => {
+  test.skip(!agentWorkflow, 'Run with E2E_AGENT_WORKFLOW=true to exercise the opt-in workflow.');
+  await login(request);
+  const turn = await request.post('/api/v1/conversations', {
+    data: {
+      org_id: org,
+      client_turn_id: crypto.randomUUID(),
+      text: 'Show current available inventory.',
+      scope: requestBody.scope,
+      data_as_of: requestBody.data_as_of,
+    },
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+  });
+  expect(turn.status()).toBe(202);
+  const accepted = await turn.json();
+  await completed(request, accepted.run_id);
+  const detail = await (await request.get(scoped(`/runs/${accepted.run_id}`))).json();
+  expect(detail.run).toMatchObject({ workflow_version: 'agent-v1', status: 'succeeded' });
+  const statusResponse = await request.get(scoped(`/runs/${accepted.run_id}/workflow-status`));
+  expect(statusResponse.status()).toBe(200);
+  const status = await statusResponse.json();
+  expect(status).toMatchObject({
+    run_id: accepted.run_id,
+    workflow_version: 'agent-v1',
+    draft_revision: expect.any(Number),
+    review: { status: 'PASS' },
+    publication_status: 'succeeded',
+  });
+  expect(status.stages.map((stage: { agent: string }) => stage.agent).sort()).toEqual([
+    'analyst',
+    'chart',
+    'comparison',
+    'coordinator',
+    'data',
+    'insight',
+    'report',
+    'reviewer',
+  ]);
+  const initialMessages = await (
+    await request.get(scoped(`/conversations/${accepted.conversation_id}/messages`))
+  ).json();
+  expect(
+    initialMessages.messages
+      .map((message: { sender_agent: string | null }) => message.sender_agent)
+      .filter(Boolean)
+      .sort(),
+  ).toEqual([
+    'analyst',
+    'chart',
+    'comparison',
+    'coordinator',
+    'data',
+    'insight',
+    'report',
+    'reviewer',
+  ]);
+  const followUp = await request.post(
+    `/api/v1/conversations/${accepted.conversation_id}/messages`,
+    {
+      data: {
+        org_id: org,
+        client_turn_id: crypto.randomUUID(),
+        text: 'Show the analysis findings.',
+        scope: requestBody.scope,
+        data_as_of: requestBody.data_as_of,
+        agent_target: 'analyst',
+      },
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
+    },
+  );
+  expect(followUp.status()).toBe(202);
+  expect(await followUp.json()).toMatchObject({
+    run_id: accepted.run_id,
+    assistant_status: 'completed',
+  });
+  const messagesAfterFollowUp = await (
+    await request.get(scoped(`/conversations/${accepted.conversation_id}/messages`))
+  ).json();
+  expect(messagesAfterFollowUp.messages.at(-1)).toMatchObject({
+    sender_agent: 'analyst',
+    parts: expect.arrayContaining([
+      expect.objectContaining({
+        type: 'artifact_ref',
+        kind: 'analysis_pack',
+        run_id: accepted.run_id,
+      }),
+    ]),
+  });
+  await login(request, 'viewer');
+  expect((await request.get(scoped(`/runs/${accepted.run_id}/workflow-status`))).status()).toBe(
+    403,
+  );
+});
 test('Owner UI: Project → evidence → report; analyst Zone; viewer read-only', async ({ page }) => {
+  test.skip(agentWorkflow, 'Legacy UI regression is exercised with the default workflow flag.');
   await page.goto('/');
   await page.getByLabel('Email').fill(accounts.owner);
   await page.getByLabel('Mật khẩu').fill('local-test-only');

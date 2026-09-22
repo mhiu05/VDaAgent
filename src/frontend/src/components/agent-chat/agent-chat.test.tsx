@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { Message } from '@vda/contracts';
-import { MessageThread } from './message-thread';
+import type { AgentWorkflowStatus, Message } from '@vda/contracts';
+import { MessageThread, senderLabel } from './message-thread';
+import { isReadOnlyRunView, shouldRenderAgentChat } from './run-view';
 import { taskLabel } from './run-progress';
+import { WorkflowCheckpointStatus } from './workflow-checkpoint-status';
 
 const message: Message = {
   message_id: '80000000-0000-4000-8000-000000000001',
@@ -26,6 +28,16 @@ const message: Message = {
   updated_at: '2026-09-20T00:00:00.000Z',
 };
 
+const checkpointStatus: AgentWorkflowStatus = {
+  run_id: '82000000-0000-4000-8000-000000000001',
+  org_id: '10000000-0000-4000-8000-000000000001',
+  workflow_version: 'agent-v1',
+  stages: [],
+  draft_revision: 2,
+  review: { draft_revision: 2, status: 'PASS' },
+  publication_status: 'succeeded',
+};
+
 describe('Agent Chat message presentation', () => {
   it('renders typed run/error parts and escapes message text', () => {
     const output = renderToStaticMarkup(
@@ -36,6 +48,7 @@ describe('Agent Chat message presentation', () => {
         onLoadEarlier={() => undefined}
         onOpenRun={() => undefined}
         onOpenReport={() => undefined}
+        onOpenArtifact={() => undefined}
       />,
     );
     expect(output).toContain('Lượt phân tích · failed');
@@ -46,7 +59,37 @@ describe('Agent Chat message presentation', () => {
   });
 
   it('maps only known task states to display labels', () => {
+    expect(taskLabel('coordinator')).toBe('Coordinator decision');
+    expect(taskLabel('reviewer')).toBe('Draft review');
     expect(taskLabel('calculation')).toBe('Tính chỉ số');
     expect(taskLabel('untrusted-task')).toBe('Đang xử lý');
+  });
+
+  it('keeps persisted specialist names while preserving the legacy label', () => {
+    expect(senderLabel('reviewer')).toBe('Reviewer');
+    expect(senderLabel(null)).toBe('VDaAgent');
+  });
+
+  it('renders compact draft/review state without draft contents', () => {
+    const output = renderToStaticMarkup(<WorkflowCheckpointStatus status={checkpointStatus} />);
+    expect(output).toContain('Immutable revision 2 persisted');
+    expect(output).toContain('Reviewer passed draft revision 2.');
+    expect(output).toContain('Published after deterministic gate');
+    expect(output).not.toContain('content_hash');
+  });
+
+  it('keeps unresolved and scheduled external runs non-mutating in AgentChat', () => {
+    const runId = '82000000-0000-4000-8000-000000000001';
+    expect(shouldRenderAgentChat(runId, undefined)).toBe(true);
+    expect(shouldRenderAgentChat(runId, 'agent-v1')).toBe(true);
+    expect(shouldRenderAgentChat(runId, 'legacy-v1')).toBe(false);
+
+    expect(isReadOnlyRunView(runId, null, undefined)).toBe(true);
+    expect(isReadOnlyRunView(runId, { run_id: runId, entrypoint: 'scheduled' }, 'scheduled')).toBe(
+      true,
+    );
+    expect(
+      isReadOnlyRunView(runId, { run_id: runId, entrypoint: 'interactive' }, 'interactive'),
+    ).toBe(false);
   });
 });

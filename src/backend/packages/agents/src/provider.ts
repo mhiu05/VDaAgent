@@ -226,7 +226,12 @@ export class GeminiAgentDecisionProvider implements AgentDecisionProvider {
                 properties: {
                   action: {
                     type: 'string',
-                    enum: ['create_analysis', 'get_analysis_result', 'inspect_signal', 'unsupported'],
+                    enum: [
+                      'create_analysis',
+                      'get_analysis_result',
+                      'inspect_signal',
+                      'unsupported',
+                    ],
                   },
                   focus: { type: 'string' },
                   run_id: { type: 'string' },

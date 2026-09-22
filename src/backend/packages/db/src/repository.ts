@@ -1,17 +1,24 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AnalysisRequestSchema,
+  AgentKeySchema,
   AgentTurnRequestSchema,
   ArtifactSchema,
+  ArtifactValidationSchema,
   ConversationSchema,
   MessagePartSchema,
   MessageSchema,
   PageRequestSchema,
   ReportDefinitionInputSchema,
+  RunTaskSchema,
+  RunSchema,
+  WorkflowVersionSchema,
   type AnalysisRequest,
   type AnalysisRun,
+  type AgentKey,
   type AgentTurnRequest,
   type Artifact,
+  type ArtifactOf,
   type ArtifactValidation,
   type Catalog,
   type Conversation,
@@ -32,21 +39,35 @@ import {
   type RunTask,
   type Session,
   type UnitSnapshot,
+  type WorkflowVersion,
 } from '@vda/contracts';
 import {
   localDate,
   nextScheduledAt,
   scheduledOnDate,
   parseInventoryCsv,
+  validateAgentPublication,
   validateHierarchy,
   verifyArtifact,
+  stableId,
   validateDecisionBrief,
   validateReport,
 } from '@vda/domain';
 import { postgresDriver, type Driver, type Row } from './driver';
 import { TEST_ORGS, TEST_USERS, syntheticRows } from './seed';
 import { StorageError, supabaseStorage, type StorageUploader } from './storage';
-import type { AgentTurn, Lease, Repository, QueryResult, TurnContext } from './types';
+import {
+  logicalArtifactKey,
+  normalizeArtifactKey,
+  type AgentTurn,
+  type AgentStageMessageInput,
+  type ArtifactStoreOptions,
+  type Lease,
+  type Repository,
+  type QueryResult,
+  type ReviewedDraftPublication,
+  type TurnContext,
+} from './types';
 
 export class RepositoryError extends Error {
   constructor(
@@ -70,6 +91,126 @@ const json = (row: Row) => {
   return row.payload;
 };
 const now = () => new Date().toISOString();
+// Preserve the existing persisted completion text exactly for legacy chat clients.
+const LEGACY_COMPLETION_TEXT = String.fromCharCode(
+  80,
+  104,
+  195,
+  162,
+  110,
+  32,
+  116,
+  195,
+  173,
+  99,
+  104,
+  32,
+  196,
+  8216,
+  195,
+  163,
+  32,
+  104,
+  111,
+  195,
+  160,
+  110,
+  32,
+  116,
+  104,
+  195,
+  160,
+  110,
+  104,
+  46,
+  32,
+  77,
+  225,
+  187,
+  376,
+  32,
+  68,
+  101,
+  99,
+  105,
+  115,
+  105,
+  111,
+  110,
+  32,
+  66,
+  114,
+  105,
+  101,
+  102,
+  105,
+  110,
+  103,
+  32,
+  196,
+  8216,
+  225,
+  187,
+  402,
+  32,
+  120,
+  101,
+  109,
+  32,
+  99,
+  195,
+  161,
+  99,
+  32,
+  116,
+  195,
+  173,
+  110,
+  32,
+  104,
+  105,
+  225,
+  187,
+  8225,
+  117,
+  32,
+  118,
+  195,
+  160,
+  32,
+  98,
+  225,
+  186,
+  177,
+  110,
+  103,
+  32,
+  99,
+  104,
+  225,
+  187,
+  169,
+  110,
+  103,
+  32,
+  196,
+  8216,
+  195,
+  163,
+  32,
+  120,
+  195,
+  161,
+  99,
+  32,
+  116,
+  104,
+  225,
+  187,
+  177,
+  99,
+  46,
+);
 const asTimestamp = (value: unknown, fallback = now()): string => {
   if (value instanceof Date) return value.toISOString();
   if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) return fallback;
@@ -77,6 +218,11 @@ const asTimestamp = (value: unknown, fallback = now()): string => {
 };
 const textPart = (content: string): MessagePart[] =>
   content.trim().length ? [{ type: 'text', text: content.trim() }] : [];
+const LEGACY_WORKFLOW_VERSION: WorkflowVersion = 'legacy-v1';
+function normalizeRun(row: Row): AnalysisRun {
+  const run = RunSchema.parse(json(row));
+  return { ...run, workflow_version: run.workflow_version ?? LEGACY_WORKFLOW_VERSION };
+}
 function normalizeMessage(row: Row): Message {
   const payload = json(row) as Record<string, unknown>;
   const content = typeof payload.content === 'string' ? payload.content : '';
@@ -93,6 +239,7 @@ function normalizeMessage(row: Row): Message {
     run_id: row.run_id ?? payload.run_id ?? null,
     client_turn_id: row.client_turn_id ?? payload.client_turn_id ?? null,
     role: row.role ?? payload.role ?? 'user',
+    sender_agent: row.sender_agent ?? payload.sender_agent ?? null,
     status: row.status ?? payload.status ?? 'completed',
     content,
     parts: parts.length ? parts : textPart(content),
@@ -101,6 +248,11 @@ function normalizeMessage(row: Row): Message {
       row.updated_at ?? payload.updated_at ?? row.created_at ?? payload.created_at,
     ),
   });
+}
+function messagePayload(message: Message, payloadExtra: Record<string, unknown> = {}) {
+  const { sender_agent: _senderAgent, ...payload } = message;
+  const { sender_agent: _extraSenderAgent, ...extra } = payloadExtra;
+  return { ...payload, ...extra };
 }
 function conversationFromRow(row: Row): Conversation {
   return ConversationSchema.parse({
@@ -168,13 +320,18 @@ export interface RepositoryOptions {
   storage?: StorageUploader;
   /** Test-only fixture seeding. Production startup never calls this. */
   seedTestData?: boolean;
+  /** Server-owned selection for newly created runs; existing runs retain their stored version. */
+  workflowVersion?: WorkflowVersion;
   driver?: Driver;
 }
 export async function createRepository(options: RepositoryOptions = {}): Promise<Repository> {
   const url = options.databaseUrl ?? process.env.SUPABASE_DB_URL;
   if (!url && !options.driver) fail('SUPABASE_DB_URL_REQUIRED', 503);
   const db = options.driver ?? postgresDriver(url!);
-  const repo = new SqlRepository(db, options);
+  const workflowVersion = WorkflowVersionSchema.parse(
+    options.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
+  );
+  const repo = new SqlRepository(db, { ...options, workflowVersion });
   if (options.seedTestData) await repo.seedTestData();
   return repo;
 }
@@ -395,9 +552,9 @@ class SqlRepository implements Repository {
   ): Promise<T[]> {
     return this.db.transaction(async (tx) => {
       await this.auth(tx, user, org);
-      return (await tx.query(`SELECT payload FROM ${table} WHERE org_id=$1`, [org])).map(
-        json,
-      ) as T[];
+      const rows = await tx.query(`SELECT payload FROM ${table} WHERE org_id=$1`, [org]);
+      if (table === 'runs') return rows.map(normalizeRun) as T[];
+      return rows.map(json) as T[];
     });
   }
   private async createConversation(
@@ -443,8 +600,14 @@ class SqlRepository implements Repository {
     message: Message,
     payloadExtra: Record<string, unknown> = {},
   ) {
+    if (
+      message.sender_agent !== undefined &&
+      message.sender_agent !== null &&
+      message.role !== 'assistant'
+    )
+      fail('INVALID_MESSAGE_SENDER', 422);
     await tx.query(
-      "INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,($10::jsonb #>> '{}')::jsonb)",
+      "INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,($11::jsonb #>> '{}')::jsonb)",
       [
         message.org_id,
         message.message_id,
@@ -452,30 +615,38 @@ class SqlRepository implements Repository {
         message.run_id,
         message.client_turn_id,
         message.role,
+        message.sender_agent ?? null,
         message.status,
         message.created_at,
         message.updated_at,
-        JSON.stringify({ ...message, ...payloadExtra }),
+        JSON.stringify(messagePayload(message, payloadExtra)),
       ],
     );
   }
   private async updateMessage(tx: Driver, message: Message) {
+    if (
+      message.sender_agent !== undefined &&
+      message.sender_agent !== null &&
+      message.role !== 'assistant'
+    )
+      fail('INVALID_MESSAGE_SENDER', 422);
     await tx.query(
       `UPDATE messages
-       SET run_id=$1,client_turn_id=$2,role=$3,status=$4,created_at=$5,updated_at=$6,
+       SET run_id=$1,client_turn_id=$2,role=$3,sender_agent=$4,status=$5,created_at=$6,updated_at=$7,
            payload=(CASE jsonb_typeof(payload)
              WHEN 'string' THEN (payload #>> '{}')::jsonb
              ELSE payload
-           END) || (($7::jsonb #>> '{}')::jsonb)
-       WHERE org_id=$8 AND id=$9`,
+           END) || (($8::jsonb #>> '{}')::jsonb)
+       WHERE org_id=$9 AND id=$10`,
       [
         message.run_id,
         message.client_turn_id,
         message.role,
+        message.sender_agent ?? null,
         message.status,
         message.created_at,
         message.updated_at,
-        JSON.stringify(message),
+        JSON.stringify(messagePayload(message)),
         message.org_id,
         message.message_id,
       ],
@@ -483,7 +654,7 @@ class SqlRepository implements Repository {
   }
   private async message(tx: Driver, org: string, id: string, lock = false): Promise<Message> {
     const rows = await tx.query(
-      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,status,created_at,updated_at,payload FROM messages WHERE org_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`,
+      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload FROM messages WHERE org_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`,
       [org, id],
     );
     if (!rows[0]) fail('MESSAGE_NOT_FOUND', 404);
@@ -576,7 +747,7 @@ class SqlRepository implements Repository {
       [request.org_id, user, key],
     );
     if (prior[0]) {
-      const run = json(prior[0]) as AnalysisRun;
+      const run = normalizeRun(prior[0]);
       if (run.request_hash !== requestHash) fail('IDEMPOTENCY_CONFLICT', 409);
       return run;
     }
@@ -633,6 +804,7 @@ class SqlRepository implements Repository {
       error_code: null,
       report_artifact_id: null,
       cancel_requested: false,
+      workflow_version: this.options.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
     };
     await tx.query(
       'INSERT INTO runs(org_id,id,created_by,idempotency_key,request_hash,status,fencing_token,created_at,payload,slow_moving_threshold_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
@@ -692,7 +864,7 @@ class SqlRepository implements Repository {
       [org, id],
     );
     if (!rows[0]) fail('RUN_NOT_FOUND', 404);
-    return json(rows[0]) as AnalysisRun;
+    return normalizeRun(rows[0]);
   }
   private async updateRun(tx: Driver, run: AnalysisRun, worker: string | null = null) {
     run.updated_at = now();
@@ -822,7 +994,7 @@ class SqlRepository implements Repository {
       );
       if (!conversation[0]) fail('CONVERSATION_NOT_FOUND', 404);
       const rows = await tx.query(
-        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,status,created_at,updated_at,payload
+        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
          FROM messages
          WHERE org_id=$1 AND conversation_id=$2
            AND ($3::timestamptz IS NULL OR (created_at,id) < ($3::timestamptz,$4))
@@ -848,7 +1020,7 @@ class SqlRepository implements Repository {
       [userMessage.org_id, userMessage.conversation_id],
     );
     const assistantRows = await tx.query(
-      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,status,created_at,updated_at,payload
+      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
        FROM messages WHERE org_id=$1 AND conversation_id=$2 AND client_turn_id=$3 AND role='assistant'`,
       [userMessage.org_id, userMessage.conversation_id, userMessage.client_turn_id],
     );
@@ -880,7 +1052,7 @@ class SqlRepository implements Repository {
       await this.auth(tx, user, input.org_id, true);
       await tx.query('SELECT org_id FROM organizations WHERE org_id=$1 FOR UPDATE', [input.org_id]);
       const priorRows = await tx.query(
-        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,status,created_at,updated_at,payload
+        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
          FROM messages
          WHERE org_id=$1 AND role='user'
            AND (client_turn_id=$2 OR payload #>> '{agent_turn,idempotency_key}'=$3)
@@ -998,6 +1170,7 @@ class SqlRepository implements Repository {
       status: Extract<MessageStatus, 'completed' | 'failed' | 'cancelled'>;
       content: string;
       parts: MessagePart[];
+      sender_agent?: AgentKey | null;
     },
   ): Promise<Message> {
     return this.db.transaction(async (tx) => {
@@ -1011,7 +1184,12 @@ class SqlRepository implements Repository {
         fail('TURN_MISMATCH', 409);
       if (assistant.run_id !== null) fail('TURN_HAS_RUN', 409);
       if (assistant.status !== 'in_progress') fail('TURN_TERMINAL', 409);
+      const senderAgent =
+        result.sender_agent === undefined || result.sender_agent === null
+          ? null
+          : (AgentKeySchema.parse(result.sender_agent) as AgentKey);
       assistant.status = result.status;
+      assistant.sender_agent = senderAgent;
       assistant.content = result.content;
       assistant.parts = result.parts;
       assistant.updated_at = now();
@@ -1033,11 +1211,18 @@ class SqlRepository implements Repository {
   }
   async artifacts(user: string, org: string, id: string) {
     return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
+      const role = await this.auth(tx, user, org);
       await this.run(tx, org, id);
-      const artifacts = (
+      const allArtifacts = (
         await tx.query('SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2', [org, id])
       ).map(json) as Artifact[];
+      const artifacts =
+        role === 'viewer'
+          ? allArtifacts.filter(
+              (artifact) => artifact.kind !== 'report_draft' && artifact.kind !== 'review_result',
+            )
+          : allArtifacts;
+      const visibleArtifactIds = new Set(artifacts.map((artifact) => artifact.artifact_id));
       const validations = (
         await tx.query('SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2', [org, id])
       ).map(json) as ArtifactValidation[];
@@ -1047,7 +1232,38 @@ class SqlRepository implements Repository {
           json,
         ) as ImportManifest[]
       ).filter((x) => sourceIds.has(x.import_id));
-      return { artifacts, validations, sources };
+      return {
+        artifacts,
+        validations: validations.filter((validation) =>
+          visibleArtifactIds.has(validation.artifact_id),
+        ),
+        sources,
+      };
+    });
+  }
+  async artifactByKey(user: string, org: string, runId: string, key: string): Promise<Artifact> {
+    let artifactKey: string;
+    try {
+      artifactKey = normalizeArtifactKey(key);
+    } catch {
+      fail('INVALID_ARTIFACT_KEY');
+    }
+    return this.db.transaction(async (tx) => {
+      const role = await this.auth(tx, user, org);
+      await this.run(tx, org, runId);
+      const rows = await tx.query(
+        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
+        [org, runId, artifactKey],
+      );
+      if (!rows[0]) fail('ARTIFACT_NOT_FOUND', 404);
+      const artifact = ArtifactSchema.parse(json(rows[0]));
+      if (
+        role === 'viewer' &&
+        (artifact.kind === 'report_draft' || artifact.kind === 'review_result')
+      )
+        fail('ARTIFACT_NOT_FOUND', 404);
+      verifyArtifact(artifact);
+      return artifact;
     });
   }
   async decisionBrief(user: string, org: string, id: string): Promise<DecisionBriefResponse> {
@@ -1116,7 +1332,7 @@ class SqlRepository implements Repository {
         [date.toISOString()],
       );
       if (!candidates[0]) return null;
-      const run = json(candidates[0]) as AnalysisRun;
+      const run = normalizeRun(candidates[0]);
       if (run.attempt >= 3) {
         run.status = 'failed';
         run.error_code = 'MAX_ATTEMPTS';
@@ -1214,30 +1430,46 @@ class SqlRepository implements Repository {
       return { sql, parameters, rows, row_limit: 20000, timeout_ms: 5000 };
     });
   }
-  async storeArtifact(lease: Lease, input: Artifact): Promise<Artifact> {
+  async storeArtifact(
+    lease: Lease,
+    input: Artifact,
+    options: ArtifactStoreOptions = {},
+  ): Promise<Artifact> {
     const artifact = ArtifactSchema.parse(input);
     verifyArtifact(artifact);
+    let artifactKey: string;
+    try {
+      artifactKey = logicalArtifactKey(artifact, options);
+    } catch {
+      fail('INVALID_ARTIFACT_KEY');
+    }
     return this.db.transaction(async (tx) => {
       const run = await this.fenced(tx, lease);
       if (artifact.org_id !== run.org_id || artifact.run_id !== run.run_id)
         fail('ARTIFACT_SCOPE_MISMATCH', 403);
+      // `publishReviewedDraft` is deliberately the only report writer for an
+      // opted-in run. Keeping this guard here prevents a future caller from
+      // bypassing Reviewer PASS through the otherwise generic artifact API.
+      if (run.workflow_version === 'agent-v1' && artifact.kind === 'report')
+        fail('AGENT_PUBLICATION_REQUIRED', 409);
       const prior = await tx.query(
-        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND kind=$3',
-        [run.org_id, run.run_id, artifact.kind],
+        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
+        [run.org_id, run.run_id, artifactKey],
       );
       if (prior[0]) {
-        const old = json(prior[0]) as Artifact;
+        const old = ArtifactSchema.parse(json(prior[0]));
         if (old.content_hash !== artifact.content_hash) fail('IMMUTABLE_ARTIFACT_CONFLICT', 409);
         return old;
       }
       await tx.query(
-        'INSERT INTO artifacts(org_id,id,run_id,task_id,kind,payload) VALUES($1,$2,$3,$4,$5,$6)',
+        'INSERT INTO artifacts(org_id,id,run_id,task_id,kind,artifact_key,payload) VALUES($1,$2,$3,$4,$5,$6,$7)',
         [
           artifact.org_id,
           artifact.artifact_id,
           artifact.run_id,
           artifact.task_id,
           artifact.kind,
+          artifactKey,
           JSON.stringify(artifact),
         ],
       );
@@ -1302,8 +1534,10 @@ class SqlRepository implements Repository {
   }
   private async assistantForRun(tx: Driver, run: AnalysisRun): Promise<Message> {
     const rows = await tx.query(
-      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,status,created_at,updated_at,payload
-       FROM messages WHERE org_id=$1 AND run_id=$2 AND role='assistant' FOR UPDATE`,
+      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
+       FROM messages
+       WHERE org_id=$1 AND run_id=$2 AND role='assistant' AND sender_agent IS NULL
+       FOR UPDATE`,
       [run.org_id, run.run_id],
     );
     if (rows[0]) return normalizeMessage(rows[0]);
@@ -1328,6 +1562,89 @@ class SqlRepository implements Repository {
     await this.insertMessage(tx, assistant);
     return assistant;
   }
+  async upsertStageMessage(lease: Lease, input: AgentStageMessageInput): Promise<Message> {
+    const senderAgent = AgentKeySchema.parse(input.sender_agent) as AgentKey;
+    const content = input.content.trim();
+    if (!content || content.length > 5_000) fail('INVALID_STAGE_MESSAGE', 422);
+    return this.db.transaction(async (tx) => {
+      const run = await this.fenced(tx, lease);
+      if (!run.request.conversation_id) fail('RUN_CONVERSATION_REQUIRED', 409);
+      const parts: MessagePart[] = [
+        { type: 'text', text: content },
+        { type: 'run_ref', run_id: run.run_id, status: run.status },
+      ];
+      if (input.artifact) {
+        const rows = await tx.query(
+          'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3',
+          [run.org_id, run.run_id, input.artifact.artifact_id],
+        );
+        if (!rows[0]) fail('STAGE_ARTIFACT_NOT_FOUND', 409);
+        const artifact = ArtifactSchema.parse(json(rows[0]));
+        verifyArtifact(artifact);
+        if (
+          artifact.content_hash !== input.artifact.content_hash ||
+          artifact.kind !== input.artifact.kind ||
+          artifact.kind === 'report_draft' ||
+          artifact.kind === 'review_result'
+        )
+          fail('STAGE_ARTIFACT_REFERENCE_FORBIDDEN', 422);
+        const validations = (
+          await tx.query(
+            'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND id=$3',
+            [run.org_id, run.run_id, artifact.artifact_id],
+          )
+        ).flatMap((row) => {
+          const parsed = ArtifactValidationSchema.safeParse(json(row));
+          return parsed.success ? [parsed.data] : [];
+        });
+        if (!validations.some((validation) => validation.valid))
+          fail('STAGE_ARTIFACT_VALIDATION_REQUIRED', 409);
+        parts.push({
+          type: 'artifact_ref',
+          run_id: run.run_id,
+          artifact_id: artifact.artifact_id,
+          kind: artifact.kind,
+        });
+      }
+      const messageId = stableId(`${run.run_id}:stage-message:${senderAgent}`);
+      const existingRows = await tx.query(
+        'SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload FROM messages WHERE org_id=$1 AND id=$2 FOR UPDATE',
+        [run.org_id, messageId],
+      );
+      const date = now();
+      const message = MessageSchema.parse({
+        message_id: messageId,
+        org_id: run.org_id,
+        conversation_id: run.request.conversation_id,
+        run_id: run.run_id,
+        client_turn_id: null,
+        role: 'assistant',
+        sender_agent: senderAgent,
+        status: 'completed',
+        content,
+        parts,
+        created_at: existingRows[0] ? normalizeMessage(existingRows[0]).created_at : date,
+        updated_at: date,
+      });
+      if (existingRows[0]) {
+        const existing = normalizeMessage(existingRows[0]);
+        if (
+          existing.org_id !== run.org_id ||
+          existing.run_id !== run.run_id ||
+          existing.conversation_id !== run.request.conversation_id ||
+          existing.client_turn_id !== null ||
+          existing.role !== 'assistant' ||
+          existing.sender_agent !== senderAgent
+        )
+          fail('STAGE_MESSAGE_ID_CONFLICT', 409);
+        await this.updateMessage(tx, message);
+      } else {
+        await this.insertMessage(tx, message);
+      }
+      await this.touchConversation(tx, run.org_id, message.conversation_id, date);
+      return message;
+    });
+  }
   private async finalizeRunAssistant(
     tx: Driver,
     run: AnalysisRun,
@@ -1338,9 +1655,17 @@ class SqlRepository implements Repository {
     },
   ) {
     const assistant = await this.assistantForRun(tx, run);
+    const useLegacyCompletedPayload =
+      run.workflow_version === 'agent-v1' &&
+      result.status === 'completed' &&
+      run.report_artifact_id !== null;
     assistant.status = result.status;
-    assistant.content = result.content;
-    assistant.parts = result.parts;
+    assistant.content = useLegacyCompletedPayload ? LEGACY_COMPLETION_TEXT : result.content;
+    assistant.parts = useLegacyCompletedPayload
+      ? result.parts.map((part, index) =>
+          index === 0 && part.type === 'text' ? { ...part, text: LEGACY_COMPLETION_TEXT } : part,
+        )
+      : result.parts;
     assistant.updated_at = now();
     await this.updateMessage(tx, assistant);
     await this.touchConversation(tx, run.org_id, assistant.conversation_id, assistant.updated_at);
@@ -1348,6 +1673,7 @@ class SqlRepository implements Repository {
   async completeRun(lease: Lease, id: string) {
     await this.db.transaction(async (tx) => {
       const run = await this.fenced(tx, lease);
+      if (run.workflow_version === 'agent-v1') fail('AGENT_PUBLICATION_REQUIRED', 409);
       const rows = await tx.query(
         'SELECT a.payload,v.payload AS validation FROM artifacts a JOIN validations v ON v.org_id=a.org_id AND v.id=a.id WHERE a.org_id=$1 AND a.run_id=$2 AND a.id=$3 AND a.kind=$4',
         [run.org_id, run.run_id, id, 'report'],
@@ -1417,6 +1743,266 @@ class SqlRepository implements Repository {
           })),
         ],
       });
+    });
+  }
+  /**
+   * The agent workflow publishes only through this short, fenced transaction.
+   * It re-reads the exact immutable draft/review graph before creating the
+   * final legacy-compatible report marker and terminal assistant message.
+   */
+  async publishReviewedDraft(lease: Lease, input: ReviewedDraftPublication): Promise<ReportRecord> {
+    const report = ArtifactSchema.parse(input.report);
+    const publicationTask = RunTaskSchema.parse(input.publication_task);
+    if (report.kind !== 'report') fail('INVALID_REPORT', 422);
+    return this.db.transaction(async (tx) => {
+      const run = await this.fenced(tx, lease);
+      if (run.workflow_version !== 'agent-v1') fail('AGENT_PUBLICATION_NOT_SELECTED', 409);
+      if (run.report_artifact_id !== null) fail('DUPLICATE_PUBLICATION', 409);
+      if (
+        publicationTask.org_id !== run.org_id ||
+        publicationTask.run_id !== run.run_id ||
+        publicationTask.task_id !== stableId(`${run.run_id}:task:publication`) ||
+        publicationTask.kind !== 'publication' ||
+        publicationTask.status !== 'running' ||
+        publicationTask.attempt !== run.attempt ||
+        publicationTask.dependencies.length !== 1 ||
+        publicationTask.dependencies[0] !== 'reviewer'
+      ) {
+        fail('INVALID_PUBLICATION_TASK', 422);
+      }
+      const persistedTaskRows = await tx.query(
+        'SELECT payload FROM tasks WHERE org_id=$1 AND run_id=$2 AND id=$3 FOR UPDATE',
+        [run.org_id, run.run_id, publicationTask.task_id],
+      );
+      const persistedTask = RunTaskSchema.safeParse(json(persistedTaskRows[0] ?? {}));
+      if (
+        !persistedTask.success ||
+        persistedTask.data.org_id !== run.org_id ||
+        persistedTask.data.run_id !== run.run_id ||
+        persistedTask.data.task_id !== stableId(`${run.run_id}:task:publication`) ||
+        persistedTask.data.kind !== 'publication' ||
+        persistedTask.data.status !== 'running' ||
+        persistedTask.data.attempt !== run.attempt ||
+        persistedTask.data.dependencies.length !== 1 ||
+        persistedTask.data.dependencies[0] !== 'reviewer'
+      )
+        fail('INVALID_PUBLICATION_TASK', 422);
+
+      // Recheck both predecessors while holding the run fence. The caller's
+      // in-memory stage context is advisory only: publication is authorized
+      // by these persisted, successful Report and Reviewer checkpoints.
+      const predecessorRequirements = [
+        { kind: 'report', dependencies: ['insight'] },
+        { kind: 'reviewer', dependencies: ['report'] },
+      ] as const;
+      for (const requirement of predecessorRequirements) {
+        const taskId = stableId(`${run.run_id}:task:${requirement.kind}`);
+        const rows = await tx.query(
+          'SELECT payload FROM tasks WHERE org_id=$1 AND run_id=$2 AND id=$3 FOR UPDATE',
+          [run.org_id, run.run_id, taskId],
+        );
+        const task = RunTaskSchema.safeParse(json(rows[0] ?? {}));
+        if (
+          !task.success ||
+          task.data.task_id !== taskId ||
+          task.data.org_id !== run.org_id ||
+          task.data.run_id !== run.run_id ||
+          task.data.kind !== requirement.kind ||
+          task.data.status !== 'succeeded' ||
+          task.data.attempt !== run.attempt ||
+          task.data.error_code !== null ||
+          task.data.dependencies.length !== requirement.dependencies.length ||
+          task.data.dependencies.some(
+            (dependency, index) => dependency !== requirement.dependencies[index],
+          )
+        )
+          fail('INVALID_PUBLICATION_PREDECESSOR', 422);
+      }
+
+      const existingReportArtifact = await tx.query(
+        'SELECT id FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
+        [run.org_id, run.run_id, 'report'],
+      );
+      const existingRecord = await tx.query(
+        'SELECT id FROM reports WHERE org_id=$1 AND run_id=$2',
+        [run.org_id, run.run_id],
+      );
+      if (existingReportArtifact[0] || existingRecord[0]) fail('DUPLICATE_PUBLICATION', 409);
+
+      const artifactRows = await tx.query(
+        'SELECT id,artifact_key,payload FROM artifacts WHERE org_id=$1 AND run_id=$2',
+        [run.org_id, run.run_id],
+      );
+      const artifacts = artifactRows.map((row) => ArtifactSchema.parse(json(row))) as Artifact[];
+      const artifactKeys = new Map(
+        artifactRows.map((row) => [String(row.id), String(row.artifact_key)]),
+      );
+      const validations = (
+        await tx.query('SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2', [
+          run.org_id,
+          run.run_id,
+        ])
+      ).map((row) => ArtifactValidationSchema.safeParse(json(row)));
+      if (
+        artifacts.some(
+          (artifact) =>
+            !validations.some(
+              (validation) =>
+                validation.success &&
+                validation.data.artifact_id === artifact.artifact_id &&
+                validation.data.org_id === run.org_id &&
+                validation.data.run_id === run.run_id &&
+                validation.data.valid === true,
+            ),
+        )
+      )
+        fail('PUBLICATION_VALIDATION_REQUIRED', 422);
+      const draft = artifacts.find((artifact) => artifact.artifact_id === input.draft_artifact_id);
+      const review = artifacts.find(
+        (artifact) => artifact.artifact_id === input.review_artifact_id,
+      );
+      if (draft?.kind !== 'report_draft' || review?.kind !== 'review_result')
+        fail('PUBLICATION_DRAFT_REVIEW_REQUIRED', 422);
+      const sourceIds = new Set(artifacts.flatMap((artifact) => artifact.source_refs));
+      const imports = await tx.query('SELECT id FROM imports WHERE org_id=$1', [run.org_id]);
+      const importIds = new Set(imports.map((row) => String(row.id)));
+      if ([...sourceIds].some((sourceId) => !importIds.has(sourceId)))
+        fail('MISSING_IMPORT_MANIFEST', 422);
+      if (report.task_id !== publicationTask.task_id) fail('INVALID_PUBLICATION_TASK', 422);
+      try {
+        validateAgentPublication(
+          draft as ArtifactOf<'report_draft'>,
+          review as ArtifactOf<'review_result'>,
+          report as ArtifactOf<'report'>,
+          artifacts,
+          run,
+          artifactKeys,
+        );
+      } catch (error) {
+        if (error instanceof Error && /^[A-Z_]{1,80}$/.test(error.message))
+          fail(error.message, 422);
+        throw error;
+      }
+
+      await tx.query(
+        'INSERT INTO artifacts(org_id,id,run_id,task_id,kind,artifact_key,payload) VALUES($1,$2,$3,$4,$5,$6,$7)',
+        [
+          report.org_id,
+          report.artifact_id,
+          report.run_id,
+          report.task_id,
+          report.kind,
+          'report',
+          JSON.stringify(report),
+        ],
+      );
+      await insertBatches(
+        tx,
+        'INSERT INTO artifact_inputs(org_id,run_id,artifact_id,input_id)',
+        report.input_refs.map((artifactId) => [
+          run.org_id,
+          run.run_id,
+          report.artifact_id,
+          artifactId,
+        ]),
+      );
+      await insertBatches(
+        tx,
+        'INSERT INTO artifact_snapshots(org_id,run_id,artifact_id,snapshot_id)',
+        report.snapshot_refs.map((snapshotId) => [
+          run.org_id,
+          run.run_id,
+          report.artifact_id,
+          snapshotId,
+        ]),
+      );
+      await insertBatches(
+        tx,
+        'INSERT INTO artifact_sources(org_id,artifact_id,import_id)',
+        report.source_refs.map((sourceId) => [run.org_id, report.artifact_id, sourceId]),
+      );
+      const validation: ArtifactValidation = {
+        artifact_id: report.artifact_id,
+        org_id: run.org_id,
+        run_id: run.run_id,
+        validated_at: now(),
+        validator_version: 'mvp-validator-v1',
+        valid: true,
+        checks: ['schema', 'hash', 'tenant', 'lineage', 'review-pass', 'publication-gate'],
+      };
+      await tx.query('INSERT INTO validations(org_id,id,run_id,payload) VALUES($1,$2,$3,$4)', [
+        run.org_id,
+        validation.artifact_id,
+        run.run_id,
+        JSON.stringify(validation),
+      ]);
+      const completedTask: RunTask = {
+        ...persistedTask.data,
+        status: 'succeeded',
+        error_code: null,
+      };
+      await tx.query('UPDATE tasks SET payload=$4 WHERE org_id=$1 AND run_id=$2 AND id=$3', [
+        run.org_id,
+        run.run_id,
+        completedTask.task_id,
+        JSON.stringify(completedTask),
+      ]);
+      const publicationEvent: RunEvent = {
+        event_id: randomUUID(),
+        run_id: run.run_id,
+        org_id: run.org_id,
+        created_at: now(),
+        task_id: completedTask.task_id,
+        message: 'publication: succeeded',
+      };
+      await tx.query('INSERT INTO events(org_id,id,run_id,payload) VALUES($1,$2,$3,$4)', [
+        run.org_id,
+        publicationEvent.event_id,
+        run.run_id,
+        JSON.stringify(publicationEvent),
+      ]);
+      run.status = 'succeeded';
+      run.report_artifact_id = report.artifact_id;
+      run.lease_until = null;
+      await this.updateRun(tx, run);
+      const record: ReportRecord = {
+        report_id: randomUUID(),
+        org_id: run.org_id,
+        run_id: run.run_id,
+        artifact_id: report.artifact_id,
+        created_at: now(),
+        occurrence_id: run.occurrence_id,
+      };
+      await tx.query(
+        'INSERT INTO reports(org_id,id,run_id,artifact_id,payload) VALUES($1,$2,$3,$4,$5)',
+        [run.org_id, record.report_id, run.run_id, report.artifact_id, JSON.stringify(record)],
+      );
+      // Draft and review records are intentionally owner/analyst-only. The
+      // shared completion message carries public artifact references only;
+      // authorized clients hydrate private workflow records separately.
+      const referencedArtifacts = [...artifacts, report].filter(
+        (artifact) => artifact.kind !== 'report_draft' && artifact.kind !== 'review_result',
+      );
+      await this.finalizeRunAssistant(tx, run, {
+        status: 'completed',
+        content:
+          'PhÃ¢n tÃ­ch Ä‘Ã£ hoÃ n thÃ nh. Má»Ÿ Decision Briefing Ä‘á»ƒ xem cÃ¡c tÃ­n hiá»‡u vÃ  báº±ng chá»©ng Ä‘Ã£ xÃ¡c thá»±c.',
+        parts: [
+          {
+            type: 'text',
+            text: 'PhÃ¢n tÃ­ch Ä‘Ã£ hoÃ n thÃ nh. Má»Ÿ Decision Briefing Ä‘á»ƒ xem cÃ¡c tÃ­n hiá»‡u vÃ  báº±ng chá»©ng Ä‘Ã£ xÃ¡c thá»±c.',
+          },
+          { type: 'run_ref', run_id: run.run_id, status: 'succeeded' },
+          { type: 'report_ref', run_id: run.run_id, report_id: record.report_id },
+          ...referencedArtifacts.map((artifact) => ({
+            type: 'artifact_ref' as const,
+            run_id: run.run_id,
+            artifact_id: artifact.artifact_id,
+            kind: artifact.kind,
+          })),
+        ],
+      });
+      return record;
     });
   }
   async failRun(lease: Lease, code: string) {
