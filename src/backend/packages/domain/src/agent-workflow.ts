@@ -145,6 +145,7 @@ function expectedArtifactKey(artifact: Artifact): string | null {
     case 'analysis_pack':
     case 'insight':
     case 'insight_pack':
+    case 'decision_intelligence_pack':
     case 'report':
       return artifact.kind;
     case 'query':
@@ -189,6 +190,7 @@ function expectedTaskKind(artifact: Artifact): string | null {
       return 'analyst';
     case 'insight':
     case 'insight_pack':
+    case 'decision_intelligence_pack':
       return 'insight';
     case 'report_draft':
       return 'report';
@@ -259,6 +261,13 @@ function expectedReportProjection(
     'insight_pack',
   );
   const insight = singleInputOfKind(insightPack, byId, 'insight');
+  const decisionPack = draft.payload.decision_intelligence_artifact_id
+    ? requiredArtifact(
+        byId,
+        draft.payload.decision_intelligence_artifact_id,
+        'decision_intelligence_pack',
+      )
+    : null;
   return {
     title: `Inventory report \u00c2\u00b7 ${run.request.scope.zone_external_id ?? run.request.scope.project_external_id}`,
     summary: insight.payload.summary,
@@ -276,6 +285,7 @@ function expectedReportProjection(
       run.request.scope,
       run.request.data_as_of,
     ),
+    ...(decisionPack ? { decision_intelligence_artifact_id: decisionPack.artifact_id } : {}),
   };
 }
 
@@ -316,6 +326,13 @@ function expectedDraftEvidenceRefs(
     'insight_pack',
   );
   const insight = singleInputOfKind(insightPack, byId, 'insight');
+  const decisionPack = draft.payload.decision_intelligence_artifact_id
+    ? requiredArtifact(
+        byId,
+        draft.payload.decision_intelligence_artifact_id,
+        'decision_intelligence_pack',
+      )
+    : null;
   const base: CanonicalEvidenceRef[] = [
     { artifact_id: data.artifact_id, artifact_key: 'data_analysis_pack', path: 'payload.metrics' },
     {
@@ -342,6 +359,15 @@ function expectedDraftEvidenceRefs(
       path: 'payload.charts',
     },
     { artifact_id: insight.artifact_id, artifact_key: 'insight', path: 'payload.claims' },
+    ...(decisionPack
+      ? [
+          {
+            artifact_id: decisionPack.artifact_id,
+            artifact_key: 'decision_intelligence_pack',
+            path: 'payload.decision_brief',
+          },
+        ]
+      : []),
   ];
   if (draft.payload.revision === 1) return base;
   const review = draft.input_refs
@@ -373,12 +399,16 @@ function validatePackReferences(
   const chartPack = requiredArtifact(byId, payload.chart_pack_artifact_id, 'chart_pack');
   const analysisPack = requiredArtifact(byId, payload.analysis_pack_artifact_id, 'analysis_pack');
   const insightPack = requiredArtifact(byId, payload.insight_pack_artifact_id, 'insight_pack');
+  const decisionPack = payload.decision_intelligence_artifact_id
+    ? requiredArtifact(byId, payload.decision_intelligence_artifact_id, 'decision_intelligence_pack')
+    : null;
   const packs: Array<{ artifact: Artifact; metadata: WorkflowPackMetadata }> = [
     { artifact: data, metadata: data.payload },
     { artifact: comparisonPack, metadata: comparisonPack.payload },
     { artifact: chartPack, metadata: chartPack.payload },
     { artifact: analysisPack, metadata: analysisPack.payload },
     { artifact: insightPack, metadata: insightPack.payload },
+    ...(decisionPack ? [{ artifact: decisionPack, metadata: decisionPack.payload }] : []),
   ];
   if (
     !packs.every(
@@ -444,7 +474,9 @@ export function validateReportDraftArtifact(
   if (
     payload.draft_id !== stableId(`${run.run_id}:report-draft`) ||
     payload.pack_id !== stableId(`${run.run_id}:report-draft:${payload.revision}`) ||
-    payload.report.decision_brief === undefined
+    payload.report.decision_brief === undefined ||
+    (payload.decision_intelligence_artifact_id !== undefined &&
+      payload.report.decision_intelligence_artifact_id !== payload.decision_intelligence_artifact_id)
   )
     throw new AgentWorkflowValidationError('INVALID_DRAFT_IDENTITY');
   validatePackReferences(draft, byId, artifacts, run, artifactKeys);
@@ -602,6 +634,9 @@ export function validateAgentPublication(
     draft.payload.report.chart_artifact_id,
     draft.payload.report.comparison_artifact_id,
     insight?.artifact_id ?? '',
+    ...(draft.payload.decision_intelligence_artifact_id
+      ? [draft.payload.decision_intelligence_artifact_id]
+      : []),
   ];
   if (!sameIds(report.input_refs, expectedInputs))
     throw new AgentWorkflowValidationError('INVALID_PUBLICATION_LINEAGE');

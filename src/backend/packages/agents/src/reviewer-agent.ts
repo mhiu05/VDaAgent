@@ -205,6 +205,13 @@ function resolveInput(input: ReviewerAgentInput): ResolvedReviewerInput {
     draft.payload.insight_pack_artifact_id,
     'insight_pack',
   );
+  const decisionIntelligencePack = draft.payload.decision_intelligence_artifact_id
+    ? requiredArtifact(
+        byId,
+        draft.payload.decision_intelligence_artifact_id,
+        'decision_intelligence_pack',
+      )
+    : undefined;
   const query = requiredArtifact(byId, data.payload.dataset.query_artifact_id, 'query');
   const queryResult = requiredArtifact(
     byId,
@@ -230,7 +237,14 @@ function resolveInput(input: ReviewerAgentInput): ResolvedReviewerInput {
   const insight = inputArtifactOfKind(insightPack, byId, 'insight');
 
   try {
-    for (const artifact of [data, comparisonPack, chartPack, analysisPack, insightPack])
+    for (const artifact of [
+      data,
+      comparisonPack,
+      chartPack,
+      analysisPack,
+      insightPack,
+      ...(decisionIntelligencePack ? [decisionIntelligencePack] : []),
+    ])
       assertPackMetadata(artifact, artifact.payload, input.run);
     validateDataAnalysisPack(data.payload, {
       run: input.run,
@@ -305,6 +319,9 @@ function resolveInput(input: ReviewerAgentInput): ResolvedReviewerInput {
       analysis_pack: analysisPack,
       insight,
       insight_pack: insightPack,
+      ...(decisionIntelligencePack
+        ? { decision_intelligence_pack: decisionIntelligencePack }
+        : {}),
     },
   };
 }

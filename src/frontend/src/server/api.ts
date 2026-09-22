@@ -11,6 +11,7 @@ import {
   ConversationPageSchema,
   ConversationSchema,
   DecisionBriefResponseSchema,
+  DecisionIntelligenceResponseSchema,
   ExportRequestSchema,
   ExportResponseSchema,
   IdSchema,
@@ -257,6 +258,11 @@ async function handle(request: Request, path: string[]): Promise<Response> {
       return json(
         DecisionBriefResponseSchema,
         await repo.decisionBrief(actor.user_id, orgFromQuery(), id),
+      );
+    if (path[2] === 'decision-intelligence' && method === 'GET')
+      return json(
+        DecisionIntelligenceResponseSchema,
+        await repo.decisionIntelligence(actor.user_id, orgFromQuery(), id),
       );
     if (path[2] === 'cancel' && method === 'POST') {
       const input = OrgBody.parse(await body(request));

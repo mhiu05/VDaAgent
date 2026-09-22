@@ -7,7 +7,7 @@ export const ARTIFACT_SCHEMA_VERSION = '1.1' as const;
  * user-provided prompt or a free-form analytics selector.
  */
 export const DEFAULT_USE_CASE = 'slow_moving_inventory' as const;
-export const USE_CASE_CONTRACT_VERSION = 'use-case-v1' as const;
+export const USE_CASE_CONTRACT_VERSION = 'use-case-v2' as const;
 export const UseCaseKeySchema = z.enum([DEFAULT_USE_CASE]);
 export type UseCaseKey = z.infer<typeof UseCaseKeySchema>;
 export const WorkflowVersionSchema = z.enum(['legacy-v1', 'agent-v1']);
@@ -824,6 +824,27 @@ export const SupportedNextActionSchema = z
   })
   .strict();
 export type SupportedNextAction = z.infer<typeof SupportedNextActionSchema>;
+/** These actions are investigation/navigation candidates, never autonomous business actions. */
+export const DecisionActionKindSchema = z.enum([
+  'inspect_entities',
+  'compare_segments',
+  'review_pricing',
+  'review_demand',
+  'review_sales_activity',
+  'validate_candidate_driver',
+  'open_report_section',
+  'navigate_to_evidence',
+]);
+export type DecisionActionKind = z.infer<typeof DecisionActionKindSchema>;
+export const PriorityEntityTypeSchema = z.enum([
+  'unit',
+  'zone',
+  'unit_type',
+  'bedrooms',
+  'status',
+  'project',
+]);
+export type PriorityEntityType = z.infer<typeof PriorityEntityTypeSchema>;
 export const DecisionBriefSchema = z
   .object({
     version: z.literal(DECISION_BRIEF_VERSION),
@@ -861,6 +882,9 @@ export const DecisionBriefSchema = z
     });
   });
 export type DecisionBrief = z.infer<typeof DecisionBriefSchema>;
+/** Explicit historical aliases keep report and /brief consumers byte-compatible. */
+export const DecisionBriefV1Schema = DecisionBriefSchema;
+export type DecisionBriefV1 = DecisionBrief;
 export const ReportSectionSchema = z.object({
   key: z.enum([
     'executive_summary',
@@ -892,6 +916,8 @@ export const ReportPayloadSchema = z.object({
   sections: z.array(ReportSectionSchema),
   limitations: z.array(z.string()),
   decision_brief: DecisionBriefSchema.optional(),
+  /** Canonical v2 pack for new runs; the embedded v1 brief remains a compatibility projection. */
+  decision_intelligence_artifact_id: IdSchema.optional(),
 });
 export type ReportPayload = z.infer<typeof ReportPayloadSchema>;
 
@@ -906,9 +932,78 @@ export const UseCaseCapabilitySchema = z.enum([
   'report_revision',
 ]);
 export type UseCaseCapability = z.infer<typeof UseCaseCapabilitySchema>;
+export const DecisionMaterialityRuleSchema = z
+  .object({
+    rule_id: z.string().trim().min(1).max(160),
+    metric_key: MetricKeySchema,
+    delta_kind: z.enum(['relative_pct', 'percentage_points']),
+    watch_threshold: z.number().positive(),
+    material_threshold: z.number().positive(),
+    direction: z.enum(['higher_is_worse', 'higher_is_better', 'context_only']),
+    comparability_required: z.literal(true),
+  })
+  .strict()
+  .superRefine((rule, ctx) => {
+    if (rule.material_threshold < rule.watch_threshold)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['material_threshold'],
+        message: 'Material threshold must be at least the watch threshold',
+      });
+  });
+export type DecisionMaterialityRule = z.infer<typeof DecisionMaterialityRuleSchema>;
+export const DecisionPriorityPolicySchema = z
+  .object({
+    entity_types: z.array(PriorityEntityTypeSchema).min(1).max(6),
+    max_units: z.number().int().min(1).max(20),
+    max_segments: z.number().int().min(1).max(20),
+    max_total: z.number().int().min(1).max(40),
+    tie_breakers: z.array(z.enum(['entity_type', 'entity_key'])).min(1).max(2),
+  })
+  .strict();
+export type DecisionPriorityPolicy = z.infer<typeof DecisionPriorityPolicySchema>;
+export const DecisionActionPolicySchema = z
+  .object({
+    rule_id: z.string().trim().min(1).max(160),
+    kind: DecisionActionKindSchema,
+    min_support: z.enum(['high', 'medium', 'exploratory']),
+    target_entity_types: z.array(PriorityEntityTypeSchema).max(6),
+    label_template_id: z.string().trim().min(1).max(160),
+    rationale_template_id: z.string().trim().min(1).max(160),
+  })
+  .strict();
+export type DecisionActionPolicy = z.infer<typeof DecisionActionPolicySchema>;
+export const DecisionVisualizationPolicySchema = z
+  .object({
+    preferred_intents: z.array(ChartIntentSchema).min(1).max(8),
+    primary_cap: z.number().int().min(1).max(3),
+    comparison_required_intents: z.array(ChartIntentSchema).max(8),
+  })
+  .strict();
+export type DecisionVisualizationPolicy = z.infer<typeof DecisionVisualizationPolicySchema>;
+export const DecisionAudienceProfileSchema = z
+  .object({
+    audience_key: z.literal('sales_operations'),
+    decision_horizon: z.string().trim().min(1).max(160),
+    terminology: z.enum(['concise_operational']),
+    visible_limitations_required: z.literal(true),
+  })
+  .strict();
+export type DecisionAudienceProfile = z.infer<typeof DecisionAudienceProfileSchema>;
+export const DecisionUseCasePolicySchema = z
+  .object({
+    version: z.string().trim().min(1).max(100),
+    materiality: z.array(DecisionMaterialityRuleSchema).min(1).max(30),
+    priority: DecisionPriorityPolicySchema,
+    actions: z.array(DecisionActionPolicySchema).min(1).max(20),
+    visualization: DecisionVisualizationPolicySchema,
+    audience: DecisionAudienceProfileSchema,
+  })
+  .strict();
+export type DecisionUseCasePolicy = z.infer<typeof DecisionUseCasePolicySchema>;
 export const UseCaseDefinitionSchema = z
   .object({
-    contract_version: z.literal(USE_CASE_CONTRACT_VERSION),
+    contract_version: z.union([z.literal('use-case-v1'), z.literal(USE_CASE_CONTRACT_VERSION)]),
     key: UseCaseKeySchema,
     version: z.string().trim().min(1).max(100),
     display_name: z.string().trim().min(1).max(200),
@@ -926,8 +1021,18 @@ export const UseCaseDefinitionSchema = z
       .max(10),
     capabilities: z.array(UseCaseCapabilitySchema).min(1).max(10),
     provisional_limitation: z.string().trim().min(1).max(2_000),
+    /** Required for v2 registry entries; absent historical definitions remain parseable. */
+    decision_policy: DecisionUseCasePolicySchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((definition, ctx) => {
+    if (definition.contract_version === USE_CASE_CONTRACT_VERSION && !definition.decision_policy)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['decision_policy'],
+        message: 'A v2 use-case definition requires a decision policy',
+      });
+  });
 export type UseCaseDefinition = z.infer<typeof UseCaseDefinitionSchema>;
 
 export const CanonicalEvidenceRefSchema = z
@@ -938,6 +1043,256 @@ export const CanonicalEvidenceRefSchema = z
   })
   .strict();
 export type CanonicalEvidenceRef = z.infer<typeof CanonicalEvidenceRefSchema>;
+export const CanonicalMetricRefSchema = CanonicalEvidenceRefSchema.extend({
+  metric_key: MetricKeySchema,
+}).strict();
+export type CanonicalMetricRef = z.infer<typeof CanonicalMetricRefSchema>;
+export const EntityRefSchema = z
+  .object({
+    type: PriorityEntityTypeSchema,
+    key: z.string().trim().min(1).max(300),
+    label: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type EntityRef = z.infer<typeof EntityRefSchema>;
+export const ArtifactHandoffSchema = z
+  .object({
+    completeness: z.enum(['complete', 'partial', 'insufficient']),
+    available_components: z.array(z.string().trim().min(1).max(100)).max(100),
+    missing_components: z
+      .array(
+        z
+          .object({
+            component: z.string().trim().min(1).max(100),
+            reason: z.string().trim().min(1).max(2_000),
+            required_for_publication: z.boolean(),
+          })
+          .strict(),
+      )
+      .max(100),
+    optional_inputs_present: z.array(z.string().trim().min(1).max(100)).max(100),
+    optional_inputs_missing: z.array(z.string().trim().min(1).max(100)).max(100),
+  })
+  .strict();
+export type ArtifactHandoff = z.infer<typeof ArtifactHandoffSchema>;
+export const DecisionKpiCardSchema = z
+  .object({
+    kpi_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    label: z.string().trim().min(1).max(300),
+    metric_key: MetricKeySchema,
+    value: MetricValueSchema.nullable(),
+    unit: MetricUnitSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/).nullable(),
+    status: z.enum(['available', 'unavailable']),
+    metric_ref: CanonicalMetricRefSchema,
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(30),
+  })
+  .strict();
+export type DecisionKpiCard = z.infer<typeof DecisionKpiCardSchema>;
+export const MaterialChangeSchema = z
+  .object({
+    change_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    rule_id: z.string().trim().min(1).max(160),
+    metric_key: MetricKeySchema,
+    period_days: z.union([z.literal(7), z.literal(30), z.literal(90)]),
+    current_value: MetricValueSchema,
+    comparison_value: MetricValueSchema,
+    delta: DeltaValueSchema,
+    delta_unit: MetricUnitSchema,
+    unit: MetricUnitSchema,
+    direction: z.enum(['improving', 'deteriorating', 'context_only']),
+    severity: z.enum(['watch', 'material']),
+    comparable: z.literal(true),
+    metric_refs: z.array(CanonicalMetricRefSchema).min(2).max(4),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(30),
+  })
+  .strict();
+export type MaterialChange = z.infer<typeof MaterialChangeSchema>;
+export const HotspotSchema = z
+  .object({
+    hotspot_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    entity: EntityRefSchema,
+    metric_key: MetricKeySchema,
+    value: MetricValueSchema,
+    unit: MetricUnitSchema,
+    metric_ref: CanonicalMetricRefSchema,
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(30),
+  })
+  .strict();
+export type Hotspot = z.infer<typeof HotspotSchema>;
+export const BusinessImplicationSchema = z
+  .object({
+    implication_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    kind: z.enum(['descriptive', 'candidate']),
+    support_level: z.enum(['high', 'medium', 'limited']),
+    template_id: z.string().trim().min(1).max(160),
+    text: z.string().trim().min(1).max(2_000),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(30),
+  })
+  .strict();
+export type BusinessImplication = z.infer<typeof BusinessImplicationSchema>;
+export const DecisionWatchoutSchema = z
+  .object({
+    watchout_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    label: z.string().trim().min(1).max(300),
+    reason: z.string().trim().min(1).max(2_000),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).max(20),
+  })
+  .strict();
+export type DecisionWatchout = z.infer<typeof DecisionWatchoutSchema>;
+export const DataQualitySummarySchema = z
+  .object({
+    status: z.enum(['available', 'limited', 'unavailable']),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(100),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+  })
+  .strict();
+export type DataQualitySummary = z.infer<typeof DataQualitySummarySchema>;
+export const DECISION_BRIEF_V2_VERSION = 'decision-brief-v2' as const;
+export const DecisionBriefV2Schema = z
+  .object({
+    version: z.literal(DECISION_BRIEF_V2_VERSION),
+    headline: z.string().trim().min(1).max(1_000),
+    status: z.enum(['improving', 'stable', 'deteriorating', 'mixed', 'insufficient_evidence']),
+    scope: ScopeSchema,
+    requested_data_as_of: DateSchema,
+    effective_snapshot_date: DateSchema.nullable(),
+    semantic_version: z.string().trim().min(1).max(100),
+    kpi_cards: z.array(DecisionKpiCardSchema).max(12),
+    material_changes: z.array(MaterialChangeSchema).max(20),
+    hotspots: z.array(HotspotSchema).max(20),
+    business_implications: z.array(BusinessImplicationSchema).max(20),
+    watchouts: z.array(DecisionWatchoutSchema).max(30),
+    data_quality_summary: DataQualitySummarySchema,
+    primary_visual_ids: z.array(z.string().trim().min(1).max(300)).max(3),
+    priority_entity_ids: z.array(z.string().trim().min(1).max(300)).max(40),
+    action_candidate_ids: z.array(z.string().trim().min(1).max(300)).max(40),
+    drilldown_ids: z.array(z.string().trim().min(1).max(300)).max(100),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(100),
+  })
+  .strict();
+export type DecisionBriefV2 = z.infer<typeof DecisionBriefV2Schema>;
+export const AnyDecisionBriefSchema = z.discriminatedUnion('version', [
+  DecisionBriefV1Schema,
+  DecisionBriefV2Schema,
+]);
+export type AnyDecisionBrief = z.infer<typeof AnyDecisionBriefSchema>;
+export const VisualStorySchema = z
+  .object({
+    version: z.literal('visual-story-v1'),
+    headline: z.string().trim().min(1).max(1_000),
+    ordered_visuals: z
+      .array(
+        z
+          .object({
+            chart_id: z.string().trim().min(1).max(300),
+            role: z.enum(['primary', 'supporting']),
+            display_priority: z.number().int().min(1).max(100),
+            reason: z.string().trim().min(1).max(1_000),
+          })
+          .strict(),
+      )
+      .max(20),
+    primary_visual_ids: z.array(z.string().trim().min(1).max(300)).max(3),
+    supporting_visual_ids: z.array(z.string().trim().min(1).max(300)).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(100),
+  })
+  .strict();
+export type VisualStory = z.infer<typeof VisualStorySchema>;
+export const PriorityEntitySchema = z
+  .object({
+    priority_entity_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    entity: EntityRefSchema,
+    rank: z.number().int().positive(),
+    tier: z.enum(['critical', 'high', 'medium', 'watch']),
+    policy_rule_ids: z.array(z.string().trim().min(1).max(160)).min(1).max(20),
+    reason_codes: z.array(z.string().trim().min(1).max(160)).min(1).max(20),
+    metric_refs: z.array(CanonicalMetricRefSchema).min(1).max(20),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+    support_level: z.enum(['high', 'medium', 'limited']),
+    action_candidate_ids: z.array(z.string().trim().min(1).max(300)).max(20),
+    drilldown_ids: z.array(z.string().trim().min(1).max(300)).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(30),
+  })
+  .strict();
+export type PriorityEntity = z.infer<typeof PriorityEntitySchema>;
+export const DrillDownContextSchema = z
+  .object({
+    run_id: IdSchema,
+    org_id: IdSchema,
+    use_case: UseCaseKeySchema,
+    use_case_version: z.string().trim().min(1).max(100),
+    scope: ScopeSchema,
+    requested_data_as_of: DateSchema,
+    effective_snapshot_date: DateSchema.nullable(),
+    semantic_version: z.string().trim().min(1).max(100),
+    snapshot_refs: z.array(IdSchema).max(20_000),
+  })
+  .strict();
+export type DrillDownContext = z.infer<typeof DrillDownContextSchema>;
+export const TypedFilterSchema = z
+  .object({
+    dimension: z.enum(['project', 'zone', 'unit_type', 'bedrooms', 'status']),
+    operator: z.literal('equals'),
+    value: z.string().trim().min(1).max(300),
+  })
+  .strict();
+export type TypedFilter = z.infer<typeof TypedFilterSchema>;
+const DrillDownBaseSchema = z.object({
+  drilldown_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+  label: z.string().trim().min(1).max(500),
+  context: DrillDownContextSchema,
+});
+export const DrillDownSchema = z.discriminatedUnion('kind', [
+  DrillDownBaseSchema.extend({
+    kind: z.literal('open_report_section'),
+    section_key: ReportSectionSchema.shape.key,
+  }).strict(),
+  DrillDownBaseSchema.extend({
+    kind: z.literal('open_chart'),
+    chart_id: z.string().trim().min(1).max(300),
+    chart_pack_artifact_id: IdSchema,
+  }).strict(),
+  DrillDownBaseSchema.extend({
+    kind: z.literal('open_evidence'),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+  }).strict(),
+  DrillDownBaseSchema.extend({
+    kind: z.literal('inspect_entities'),
+    entity_refs: z.array(EntityRefSchema).min(1).max(20),
+    filters: z.array(TypedFilterSchema).max(10),
+  }).strict(),
+  DrillDownBaseSchema.extend({
+    kind: z.literal('compare_segment'),
+    dimension: z.enum(['zone', 'unit_type', 'bedrooms', 'status']),
+    segment_key: z.string().trim().min(1).max(300),
+  }).strict(),
+  DrillDownBaseSchema.extend({
+    kind: z.literal('start_scoped_analysis'),
+    target_scope: ScopeSchema,
+  }).strict(),
+]);
+export type DrillDown = z.infer<typeof DrillDownSchema>;
+export const ActionCandidateSchema = z
+  .object({
+    action_candidate_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    kind: DecisionActionKindSchema,
+    label: z.string().trim().min(1).max(500),
+    rationale: z.string().trim().min(1).max(2_000),
+    policy_rule_id: z.string().trim().min(1).max(160),
+    support_level: z.enum(['high', 'medium', 'exploratory']),
+    target_entity_ids: z.array(z.string().trim().min(1).max(300)).max(20),
+    target_signal_ids: z.array(z.string().trim().min(1).max(300)).max(20),
+    drilldown_id: z.string().trim().min(1).max(300),
+    evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(20),
+    limitations: z.array(z.string().trim().min(1).max(2_000)).max(30),
+  })
+  .strict();
+export type ActionCandidate = z.infer<typeof ActionCandidateSchema>;
 export const WorkflowPackMetadataSchema = z
   .object({
     contract_version: z.string().trim().min(1).max(100),
@@ -1096,6 +1451,85 @@ export const InsightPackSchema = WorkflowPackMetadataSchema.extend({
 });
 export type InsightPack = z.infer<typeof InsightPackSchema>;
 
+export const DECISION_INTELLIGENCE_PACK_VERSION = 'decision-intelligence-pack-v1' as const;
+export const DecisionIntelligencePackSchema = WorkflowPackMetadataSchema.extend({
+  contract_version: z.literal(DECISION_INTELLIGENCE_PACK_VERSION),
+  requested_data_as_of: DateSchema,
+  effective_snapshot_date: DateSchema.nullable(),
+  data_analysis_pack_artifact_id: IdSchema,
+  comparison_pack_artifact_id: IdSchema,
+  chart_pack_artifact_id: IdSchema,
+  analysis_pack_artifact_id: IdSchema,
+  insight_pack_artifact_id: IdSchema,
+  decision_brief: DecisionBriefV2Schema,
+  visual_story: VisualStorySchema,
+  priority_entities: z.array(PriorityEntitySchema).max(40),
+  action_candidates: z.array(ActionCandidateSchema).max(40),
+  drilldowns: z.array(DrillDownSchema).max(100),
+  handoff: ArtifactHandoffSchema,
+  evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
+}).superRefine((pack, ctx) => {
+  const unique = (values: string[], path: (string | number)[]) => {
+    if (new Set(values).size !== values.length)
+      ctx.addIssue({ code: 'custom', path, message: 'Duplicate identifier' });
+  };
+  const entities = pack.priority_entities.map((entity) => entity.priority_entity_id);
+  const actions = pack.action_candidates.map((action) => action.action_candidate_id);
+  const drilldowns = pack.drilldowns.map((drilldown) => drilldown.drilldown_id);
+  unique(entities, ['priority_entities']);
+  unique(actions, ['action_candidates']);
+  unique(drilldowns, ['drilldowns']);
+  const ranks = pack.priority_entities.map((entity) => entity.rank).sort((a, b) => a - b);
+  if (ranks.some((rank, index) => rank !== index + 1))
+    ctx.addIssue({ code: 'custom', path: ['priority_entities'], message: 'Ranks must be contiguous' });
+  if (
+    pack.decision_brief.primary_visual_ids.length > 3 ||
+    new Set(pack.decision_brief.primary_visual_ids).size !== pack.decision_brief.primary_visual_ids.length
+  )
+    ctx.addIssue({ code: 'custom', path: ['decision_brief', 'primary_visual_ids'], message: 'Invalid primary visuals' });
+  const visualIds = pack.visual_story.ordered_visuals.map((visual) => visual.chart_id);
+  unique(visualIds, ['visual_story', 'ordered_visuals']);
+  if (
+    pack.decision_brief.primary_visual_ids.some((id) => !visualIds.includes(id)) ||
+    pack.visual_story.primary_visual_ids.some((id) => !visualIds.includes(id))
+  )
+    ctx.addIssue({ code: 'custom', path: ['visual_story'], message: 'Unknown visual reference' });
+  if (
+    pack.decision_brief.priority_entity_ids.some((id) => !entities.includes(id)) ||
+    pack.decision_brief.action_candidate_ids.some((id) => !actions.includes(id)) ||
+    pack.decision_brief.drilldown_ids.some((id) => !drilldowns.includes(id))
+  )
+    ctx.addIssue({ code: 'custom', path: ['decision_brief'], message: 'Unknown decision component' });
+  for (const [index, entity] of pack.priority_entities.entries()) {
+    if (
+      entity.action_candidate_ids.some((id) => !actions.includes(id)) ||
+      entity.drilldown_ids.some((id) => !drilldowns.includes(id))
+    )
+      ctx.addIssue({ code: 'custom', path: ['priority_entities', index], message: 'Unknown entity target' });
+  }
+  for (const [index, action] of pack.action_candidates.entries()) {
+    if (
+      action.target_entity_ids.some((id) => !entities.includes(id)) ||
+      !drilldowns.includes(action.drilldown_id)
+    )
+      ctx.addIssue({ code: 'custom', path: ['action_candidates', index], message: 'Unknown action target' });
+  }
+  for (const [index, drilldown] of pack.drilldowns.entries()) {
+    if (
+      drilldown.context.run_id !== pack.run_id ||
+      drilldown.context.org_id !== pack.org_id ||
+      drilldown.context.use_case !== pack.use_case ||
+      drilldown.context.use_case_version !== pack.use_case_version ||
+      drilldown.context.requested_data_as_of !== pack.requested_data_as_of ||
+      drilldown.context.effective_snapshot_date !== pack.effective_snapshot_date ||
+      drilldown.context.semantic_version !== pack.semantic_version ||
+      JSON.stringify(drilldown.context.scope) !== JSON.stringify(pack.scope)
+    )
+      ctx.addIssue({ code: 'custom', path: ['drilldowns', index, 'context'], message: 'Drill-down context must match the pack' });
+  }
+});
+export type DecisionIntelligencePack = z.infer<typeof DecisionIntelligencePackSchema>;
+
 export const ReportDraftSchema = WorkflowPackMetadataSchema.extend({
   contract_version: z.literal('report-draft-v1'),
   draft_id: IdSchema,
@@ -1105,6 +1539,8 @@ export const ReportDraftSchema = WorkflowPackMetadataSchema.extend({
   chart_pack_artifact_id: IdSchema,
   analysis_pack_artifact_id: IdSchema,
   insight_pack_artifact_id: IdSchema,
+  /** Required by the agent-v1 graph for newly produced decision-ready drafts. */
+  decision_intelligence_artifact_id: IdSchema.optional(),
   report: ReportPayloadSchema,
   evidence_refs: z.array(CanonicalEvidenceRefSchema).min(1).max(2_000),
 });
@@ -1244,6 +1680,10 @@ export const ArtifactSchema = z.discriminatedUnion('kind', [
     }),
   }),
   ArtifactBase.extend({ kind: z.literal('insight_pack'), payload: InsightPackSchema }),
+  ArtifactBase.extend({
+    kind: z.literal('decision_intelligence_pack'),
+    payload: DecisionIntelligencePackSchema,
+  }),
   ArtifactBase.extend({ kind: z.literal('report_draft'), payload: ReportDraftSchema }),
   ArtifactBase.extend({ kind: z.literal('review_result'), payload: ReviewResultSchema }),
   ArtifactBase.extend({ kind: z.literal('report'), payload: ReportPayloadSchema }),
@@ -1357,6 +1797,20 @@ export const SignalRefSchema = z
   })
   .strict();
 export type SignalRef = z.infer<typeof SignalRefSchema>;
+export const DecisionRefSchema = z
+  .object({
+    run_id: IdSchema,
+    component_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+  })
+  .strict();
+export type DecisionRef = z.infer<typeof DecisionRefSchema>;
+export const DrillDownRefSchema = z
+  .object({
+    run_id: IdSchema,
+    drilldown_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+  })
+  .strict();
+export type DrillDownRef = z.infer<typeof DrillDownRefSchema>;
 export const MessagePartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string().trim().min(1).max(5_000) }).strict(),
   z.object({ type: z.literal('run_ref'), run_id: IdSchema, status: RunStatusSchema }).strict(),
@@ -1374,6 +1828,20 @@ export const MessagePartSchema = z.discriminatedUnion('type', [
       type: z.literal('signal_ref'),
       run_id: IdSchema,
       signal_id: z.string().regex(/^[a-z0-9][a-z0-9:._-]*$/),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('decision_ref'),
+      run_id: IdSchema,
+      component_id: DecisionRefSchema.shape.component_id,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('drilldown_ref'),
+      run_id: IdSchema,
+      drilldown_id: DrillDownRefSchema.shape.drilldown_id,
     })
     .strict(),
   z
@@ -1439,6 +1907,7 @@ export const AgentTurnRequestSchema = z
     data_as_of: DateSchema,
     signal_ref: SignalRefSchema.nullable().optional(),
     signal_action: z.enum(['inspect', 'analyze_segment']).nullable().optional(),
+    drilldown_ref: DrillDownRefSchema.nullable().optional(),
     use_case: UseCaseKeySchema.default(DEFAULT_USE_CASE),
     agent_target: AgentKeySchema.nullable().optional(),
   })
@@ -1449,6 +1918,12 @@ export const AgentTurnRequestSchema = z
         code: 'custom',
         path: ['signal_action'],
         message: 'Signal action requires a signal reference',
+      });
+    if (turn.signal_ref && turn.drilldown_ref && turn.signal_ref.run_id !== turn.drilldown_ref.run_id)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['drilldown_ref'],
+        message: 'Signal and drill-down references must name the same run',
       });
   });
 export type AgentTurnRequest = z.input<typeof AgentTurnRequestSchema>;
@@ -1569,6 +2044,37 @@ export const DecisionBriefResponseSchema = z
   })
   .strict();
 export type DecisionBriefResponse = z.infer<typeof DecisionBriefResponseSchema>;
+export const DecisionIntelligenceResponseSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      status: z.literal('available'),
+      run_id: IdSchema,
+      org_id: IdSchema,
+      report_artifact_id: IdSchema,
+      decision_intelligence_artifact_id: IdSchema,
+      decision_intelligence: DecisionIntelligencePackSchema,
+      validations: z.array(ArtifactValidationSchema),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal('legacy_report_brief'),
+      run_id: IdSchema,
+      org_id: IdSchema,
+      decision_brief: DecisionBriefSchema,
+      report_artifact_id: IdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal('unavailable'),
+      run_id: IdSchema,
+      org_id: IdSchema,
+      reason: z.enum(['RUN_NOT_SUCCEEDED', 'DECISION_ARTIFACT_NOT_AVAILABLE']),
+    })
+    .strict(),
+]);
+export type DecisionIntelligenceResponse = z.infer<typeof DecisionIntelligenceResponseSchema>;
 export const ReportDetailSchema = z.object({
   report: ReportRecordSchema,
   artifact: ArtifactSchema,

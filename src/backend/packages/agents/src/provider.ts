@@ -69,13 +69,38 @@ export type AgentDecisionContext = {
       supported_next_action_ids: string[];
     }>;
   } | null;
+  /** Compact canonical decision metadata; it never grants the provider calculation authority. */
+  active_decision?: {
+    run_id: string;
+    scope: Scope;
+    requested_data_as_of: string;
+    effective_snapshot_date: string | null;
+    status: 'improving' | 'stable' | 'deteriorating' | 'mixed' | 'insufficient_evidence';
+    priority_entities: Array<{
+      priority_entity_id: string;
+      label: string;
+      rank: number;
+      tier: 'critical' | 'high' | 'medium' | 'watch';
+      support_level: 'high' | 'medium' | 'limited';
+      limitations: string[];
+    }>;
+    action_candidates: Array<{
+      action_candidate_id: string;
+      label: string;
+      support_level: 'high' | 'medium' | 'exploratory';
+      drilldown_id: string;
+      limitations: string[];
+    }>;
+    drilldown_ids: string[];
+    limitations: string[];
+  } | null;
   requested_signal_ref: SignalRef | null;
 };
 export interface AgentDecisionProvider {
   decide(context: AgentDecisionContext): Promise<AgentDecision>;
 }
 const decisionInstructions =
-  'Choose exactly one action for a VDa inventory request. Supported actions are create_analysis, get_analysis_result, inspect_signal, or unsupported. Never calculate a metric, create a factual answer, SQL, an ID, a scope, a permission, or an action outside the supplied schema. create_analysis must use only a supplied focus enum; it may select scope_ref only from catalog.projects and their zones. get_analysis_result may use only a run_id from allowed_run_ids. inspect_signal may use only a run_id and signal_id listed in active_brief.signals. If scope_changed or date_changed is true, create_analysis is required. A request for causality must be unsupported. Return JSON only.';
+  'Choose exactly one action for a VDa inventory request. Supported actions are create_analysis, get_analysis_result, inspect_signal, or unsupported. active_decision contains validated component IDs, labels, support and limitations only; it is context, not authority to calculate values, rank entities, or invent actions. Never calculate a metric, create a factual answer, SQL, an ID, a scope, a permission, or an action outside the supplied schema. create_analysis must use only a supplied focus enum; it may select scope_ref only from catalog.projects and their zones. get_analysis_result may use only a run_id from allowed_run_ids. inspect_signal may use only a run_id and signal_id listed in active_brief.signals. If scope_changed or date_changed is true, create_analysis is required. A request for causality must be unsupported. Return JSON only.';
 
 function narrativeFromClaimIds(
   parsed: z.infer<typeof NarrativeSchema>,

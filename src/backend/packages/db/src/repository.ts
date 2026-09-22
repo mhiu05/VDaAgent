@@ -24,6 +24,7 @@ import {
   type Conversation,
   type ConversationPage,
   type DecisionBriefResponse,
+  type DecisionIntelligenceResponse,
   type ImportManifest,
   type Message,
   type MessagePage,
@@ -1321,6 +1322,92 @@ class SqlRepository implements Repository {
         report_artifact_id: report.artifact_id,
         calculation_artifact_id: calculation.artifact_id,
         evidence_artifact_ids: [calculation.artifact_id],
+        validations,
+      };
+    });
+  }
+  async decisionIntelligence(
+    user: string,
+    org: string,
+    id: string,
+  ): Promise<DecisionIntelligenceResponse> {
+    return this.db.transaction(async (tx) => {
+      await this.auth(tx, user, org);
+      const run = await this.run(tx, org, id);
+      // Decision reads are scoped to the already-authorized run.
+      if (run.status !== 'succeeded' || run.report_artifact_id === null)
+        return {
+          status: 'unavailable',
+          run_id: run.run_id,
+          org_id: run.org_id,
+          reason: 'RUN_NOT_SUCCEEDED',
+        };
+      const placeholder = '$';
+      const reportRows = await tx.query(
+        `SELECT payload FROM artifacts WHERE org_id=${placeholder}1 AND run_id=${placeholder}2 AND id=${placeholder}3 AND kind='report'`,
+        [org, id, run.report_artifact_id],
+      );
+      if (!reportRows[0])
+        return { status: 'unavailable', run_id: run.run_id, org_id: run.org_id, reason: 'DECISION_ARTIFACT_NOT_AVAILABLE' };
+      const report = ArtifactSchema.parse(json(reportRows[0]));
+      if (report.kind !== 'report') fail('INVALID_DECISION_REPORT_LINEAGE', 409);
+      verifyArtifact(report);
+      const decisionId = report.payload.decision_intelligence_artifact_id;
+      if (!decisionId) {
+        if (report.payload.decision_brief === undefined)
+          return {
+            status: 'unavailable',
+            run_id: run.run_id,
+            org_id: run.org_id,
+            reason: 'DECISION_ARTIFACT_NOT_AVAILABLE',
+          };
+        return {
+          status: 'legacy_report_brief',
+          run_id: run.run_id,
+          org_id: run.org_id,
+          decision_brief: report.payload.decision_brief,
+          report_artifact_id: report.artifact_id,
+        };
+      }
+      const decisionRows = await tx.query(
+        `SELECT payload FROM artifacts WHERE org_id=${placeholder}1 AND run_id=${placeholder}2 AND id=${placeholder}3 AND kind='decision_intelligence_pack'`,
+        [org, id, decisionId],
+      );
+      if (!decisionRows[0]) fail('INVALID_DECISION_PACK_LINEAGE', 409);
+      const decision = ArtifactSchema.parse(json(decisionRows[0]));
+      if (
+        decision.kind !== 'decision_intelligence_pack' ||
+        decision.org_id !== org ||
+        decision.run_id !== id ||
+        decision.payload.run_id !== id ||
+        decision.payload.org_id !== org ||
+        decision.payload.requested_data_as_of !== run.request.data_as_of ||
+        JSON.stringify(decision.payload.scope) !== JSON.stringify(run.request.scope) ||
+        !report.input_refs.includes(decision.artifact_id)
+      )
+        fail('INVALID_DECISION_PACK_LINEAGE', 409);
+      verifyArtifact(decision);
+      const validations = (
+        await tx.query(
+          `SELECT payload FROM validations WHERE org_id=${placeholder}1 AND run_id=${placeholder}2 AND (id=${placeholder}3 OR id=${placeholder}4)`,
+          [org, id, report.artifact_id, decision.artifact_id],
+        )
+      ).map(json) as ArtifactValidation[];
+      if (
+        ![report.artifact_id, decision.artifact_id].every((artifactId) =>
+          validations.some(
+            (validation) => validation.artifact_id === artifactId && validation.valid,
+          ),
+        )
+      )
+        fail('UNVALIDATED_DECISION_INTELLIGENCE', 409);
+      return {
+        status: 'available',
+        run_id: run.run_id,
+        org_id: run.org_id,
+        report_artifact_id: report.artifact_id,
+        decision_intelligence_artifact_id: decision.artifact_id,
+        decision_intelligence: decision.payload,
         validations,
       };
     });

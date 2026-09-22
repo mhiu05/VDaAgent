@@ -118,19 +118,27 @@ describe('Insight Agent and immutable ReportDraft workflow', () => {
       analysis_pack_artifact_id: result.analysis_pack.artifact_id,
       provider: 'gemini',
     });
+    expect(result.decision_intelligence_pack.payload).toMatchObject({
+      decision_brief: {
+        version: 'decision-brief-v2',
+        requested_data_as_of: run.request.data_as_of,
+      },
+      insight_pack_artifact_id: result.insight_pack.artifact_id,
+    });
     expect(result.report_draft.payload).toMatchObject({
       revision: 1,
       draft_id: stableId(`${run.run_id}:report-draft`),
       data_analysis_pack_artifact_id: result.data_analysis_pack.artifact_id,
       insight_pack_artifact_id: result.insight_pack.artifact_id,
+      decision_intelligence_artifact_id: result.decision_intelligence_pack.artifact_id,
     });
     expect(
       await repo.artifactByKey(TEST_USERS.owner, run.org_id, run.run_id, 'report_draft:1'),
     ).toEqual(result.report_draft);
-    expect(bundle.artifacts).toHaveLength(15);
+    expect(bundle.artifacts).toHaveLength(16);
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-    expect(bundle.validations).toHaveLength(15);
+    expect(bundle.validations).toHaveLength(16);
     expect(bundle.validations.every((validation) => validation.valid)).toBe(true);
 
     expect(() => ReportPayloadSchema.parse(result.report_draft.payload.report)).not.toThrow();
@@ -171,9 +179,10 @@ describe('Insight Agent and immutable ReportDraft workflow', () => {
     expect(storeArtifact).not.toHaveBeenCalled();
     expect(recovered.insight).toEqual(firstInsight.insight);
     expect(recovered.insight_pack).toEqual(firstInsight.insight_pack);
+    expect(recovered.decision_intelligence_pack).toEqual(firstInsight.decision_intelligence_pack);
     expect(recovered.report_draft).toEqual(firstDraft.report_draft);
-    expect(bundle.artifacts).toHaveLength(15);
-    expect(new Set(bundle.artifacts.map((artifact) => artifact.artifact_id)).size).toBe(15);
+    expect(bundle.artifacts).toHaveLength(16);
+    expect(new Set(bundle.artifacts.map((artifact) => artifact.artifact_id)).size).toBe(16);
   }, 30_000);
 
   it('preserves branch checkpoints and leaves no draft or report when the bounded provider fails', async () => {

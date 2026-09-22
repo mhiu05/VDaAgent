@@ -9,11 +9,16 @@ import {
   type ReviewResult,
   type WorkflowPackMetadata,
 } from '@vda/contracts';
-import { readArtifactPath } from '@vda/domain';
+import {
+  projectDecisionBriefV1Compatibility,
+  readArtifactPath,
+  validateDecisionIntelligencePack,
+} from '@vda/domain';
 import { buildDecisionBrief } from '@vda/semantic';
 import { validateInsightPack, type InsightAgentInput } from './insight-agent';
 import { canonical, stableId, validateReport, verifyArtifact } from './integrity';
 import { reportSections } from './report-sections';
+import { getDecisionUseCasePolicy } from './use-cases';
 
 export class ReportAgentError extends Error {
   constructor(readonly code: 'REPORT_AGENT_INPUT_INVALID' | 'REPORT_AGENT_OUTPUT_INVALID') {
@@ -24,6 +29,8 @@ export class ReportAgentError extends Error {
 export type ReportAgentInput = InsightAgentInput & {
   run: AnalysisRun;
   insight_pack: ArtifactOf<'insight_pack'>;
+  /** Optional only for validating historical test/legacy draft inputs. New workflow runs require it. */
+  decision_intelligence_pack?: ArtifactOf<'decision_intelligence_pack'>;
 };
 
 /**
@@ -77,12 +84,23 @@ function legacyCompatibleReport(input: ReportAgentInput): ReportPayload {
     comparison_artifact_id: comparison.artifact_id,
     sections: reportSections(calculation, chart, comparison, insight),
     limitations: [...calculation.limitations, ...calculation.payload.quality_limitations],
-    decision_brief: buildDecisionBrief(
-      calculation.payload,
-      calculation.artifact_id,
-      run.request.scope,
-      run.request.data_as_of,
-    ),
+    decision_brief: input.decision_intelligence_pack
+      ? projectDecisionBriefV1Compatibility({
+          ...input,
+          policy: getDecisionUseCasePolicy(
+            run.request.use_case,
+            input.decision_intelligence_pack.payload.use_case_version,
+          ),
+        })
+      : buildDecisionBrief(
+          calculation.payload,
+          calculation.artifact_id,
+          run.request.scope,
+          run.request.data_as_of,
+        ),
+    ...(input.decision_intelligence_pack
+      ? { decision_intelligence_artifact_id: input.decision_intelligence_pack.artifact_id }
+      : {}),
   };
 }
 
@@ -100,6 +118,14 @@ function resolveInput(input: ReportAgentInput): ResolvedReportInput {
     throw new ReportAgentError('REPORT_AGENT_INPUT_INVALID');
   try {
     validateInsightPack(input.insight_pack.payload, input);
+    if (input.decision_intelligence_pack)
+      validateDecisionIntelligencePack(input.decision_intelligence_pack.payload, {
+        ...input,
+        policy: getDecisionUseCasePolicy(
+          input.run.request.use_case,
+          input.decision_intelligence_pack.payload.use_case_version,
+        ),
+      });
   } catch {
     throw new ReportAgentError('REPORT_AGENT_INPUT_INVALID');
   }
@@ -149,6 +175,9 @@ function expectedDraft(input: ReportAgentInput): ReportDraft {
       resolved.chart_pack.artifact_id,
       resolved.analysis_pack.artifact_id,
       resolved.insight_pack.artifact_id,
+      ...(resolved.decision_intelligence_pack
+        ? [resolved.decision_intelligence_pack.artifact_id]
+        : []),
     ].sort(),
     snapshot_refs: data.snapshot_refs,
     source_refs: data.source_refs,
@@ -160,6 +189,9 @@ function expectedDraft(input: ReportAgentInput): ReportDraft {
     chart_pack_artifact_id: resolved.chart_pack.artifact_id,
     analysis_pack_artifact_id: resolved.analysis_pack.artifact_id,
     insight_pack_artifact_id: resolved.insight_pack.artifact_id,
+    ...(resolved.decision_intelligence_pack
+      ? { decision_intelligence_artifact_id: resolved.decision_intelligence_pack.artifact_id }
+      : {}),
     report,
     evidence_refs: [
       evidence(resolved.data_analysis_pack, 'data_analysis_pack', 'payload.metrics'),
@@ -171,6 +203,15 @@ function expectedDraft(input: ReportAgentInput): ReportDraft {
       evidence(resolved.comparison, 'data.comparison', 'payload.items'),
       evidence(resolved.visual_evidence, 'chart.visual_evidence', 'payload.charts'),
       evidence(resolved.insight, 'insight', 'payload.claims'),
+      ...(resolved.decision_intelligence_pack
+        ? [
+            evidence(
+              resolved.decision_intelligence_pack,
+              'decision_intelligence_pack',
+              'payload.decision_brief',
+            ),
+          ]
+        : []),
     ],
   });
 }
@@ -229,6 +270,9 @@ function expectedRevisionDraft(input: ReportRevisionAgentInput): ReportDraft {
     resolved.chart_pack.artifact_id,
     resolved.analysis_pack.artifact_id,
     resolved.insight_pack.artifact_id,
+    ...(resolved.decision_intelligence_pack
+      ? [resolved.decision_intelligence_pack.artifact_id]
+      : []),
     input.review_result.artifact_id,
   ].sort();
   return ReportDraftSchema.parse({
@@ -252,6 +296,9 @@ function expectedRevisionDraft(input: ReportRevisionAgentInput): ReportDraft {
     chart_pack_artifact_id: resolved.chart_pack.artifact_id,
     analysis_pack_artifact_id: resolved.analysis_pack.artifact_id,
     insight_pack_artifact_id: resolved.insight_pack.artifact_id,
+    ...(resolved.decision_intelligence_pack
+      ? { decision_intelligence_artifact_id: resolved.decision_intelligence_pack.artifact_id }
+      : {}),
     report,
     evidence_refs: uniqueEvidence([
       ...expectedDraft(resolved).evidence_refs,

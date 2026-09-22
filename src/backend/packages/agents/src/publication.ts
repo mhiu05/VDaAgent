@@ -28,6 +28,7 @@ export type PublicationArtifactInput = {
   comparison: ArtifactOf<'comparison'>;
   visual_evidence: ArtifactOf<'visual_evidence'>;
   insight: ArtifactOf<'insight'>;
+  decision_intelligence_pack: ArtifactOf<'decision_intelligence_pack'>;
 };
 
 /**
@@ -36,8 +37,8 @@ export type PublicationArtifactInput = {
  * persist it and transition the run.
  */
 export function buildPublicationArtifact(input: PublicationArtifactInput): ArtifactOf<'report'> {
-  const { run, task, draft, review, calculation, comparison, visual_evidence, insight } = input;
-  for (const artifact of [draft, review, calculation, comparison, visual_evidence, insight])
+  const { run, task, draft, review, calculation, comparison, visual_evidence, insight, decision_intelligence_pack } = input;
+  for (const artifact of [draft, review, calculation, comparison, visual_evidence, insight, decision_intelligence_pack])
     verifyArtifact(artifact);
   const body = {
     artifact_id: stableId(`${run.run_id}:artifact:report`),
@@ -58,6 +59,7 @@ export function buildPublicationArtifact(input: PublicationArtifactInput): Artif
       comparison.artifact_id,
       visual_evidence.artifact_id,
       insight.artifact_id,
+      decision_intelligence_pack.artifact_id,
     ].sort(),
     snapshot_refs: [...draft.snapshot_refs].sort(),
     source_refs: [...draft.source_refs].sort(),
@@ -106,6 +108,7 @@ export async function executePublicationStage(
       comparison: reviewed.comparison,
       visual_evidence: reviewed.visual_evidence,
       insight: reviewed.insight,
+      decision_intelligence_pack: reviewed.decision_intelligence_pack,
     });
     validateAgentPublication(
       reviewed.report_draft,

@@ -244,9 +244,12 @@ export async function getAnalysisResultTool(
   const parsed = GetAnalysisResultToolInputSchema.parse(input);
   if (!context.allowed_run_ids.includes(parsed.run_id)) throw new Error('RUN_REFERENCE_FORBIDDEN');
   const { run } = await repository.getRun(context.user_id, context.org_id, parsed.run_id);
-  const [{ artifacts }, reports] = await Promise.all([
+  const [{ artifacts }, reports, decision] = await Promise.all([
     repository.artifacts(context.user_id, context.org_id, parsed.run_id),
     repository.listReports(context.user_id, context.org_id),
+    repository
+      .decisionIntelligence(context.user_id, context.org_id, parsed.run_id)
+      .catch(() => null),
   ]);
   const report = reports.find((item) => item.run_id === parsed.run_id);
   const parts: MessagePart[] = [
@@ -258,6 +261,12 @@ export async function getAnalysisResultTool(
       kind: artifact.kind,
     })),
   ];
+  if (decision?.status === 'available')
+    parts.push({
+      type: 'decision_ref',
+      run_id: run.run_id,
+      component_id: decision.decision_intelligence.pack_id,
+    });
   if (report) parts.push({ type: 'report_ref', run_id: run.run_id, report_id: report.report_id });
   return {
     kind: 'analysis_result',
@@ -370,6 +379,21 @@ export async function getAgentTargetFollowUp(
         policy.artifact_key,
       );
       if (!artifact) continue;
+      const decision = await repository
+        .decisionIntelligence(context.user_id, context.org_id, run.run_id)
+        .catch(() => null);
+      const decisionPack =
+        decision?.status === 'available' ? decision.decision_intelligence : null;
+      const decisionArtifactIds =
+        decisionPack
+          ? new Set([
+              decisionPack.data_analysis_pack_artifact_id,
+              decisionPack.comparison_pack_artifact_id,
+              decisionPack.chart_pack_artifact_id,
+              decisionPack.analysis_pack_artifact_id,
+              decisionPack.insight_pack_artifact_id,
+            ])
+          : null;
       return {
         kind: 'agent_target_follow_up',
         run,
@@ -377,6 +401,15 @@ export async function getAgentTargetFollowUp(
         content: policy.content,
         parts: [
           { type: 'run_ref', run_id: run.run_id, status: run.status },
+          ...(decisionArtifactIds?.has(artifact.artifact_id)
+            ? [
+                {
+                  type: 'decision_ref' as const,
+                  run_id: run.run_id,
+                  component_id: decisionPack!.pack_id,
+                },
+              ]
+            : []),
           {
             type: 'artifact_ref',
             run_id: run.run_id,

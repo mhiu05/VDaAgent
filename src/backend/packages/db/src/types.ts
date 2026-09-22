@@ -10,6 +10,7 @@ import type {
   Conversation,
   ConversationPage,
   DecisionBriefResponse,
+  DecisionIntelligenceResponse,
   ImportManifest,
   Message,
   MessagePage,
@@ -166,6 +167,11 @@ export interface Repository {
     artifactKey: string,
   ): Promise<Artifact>;
   decisionBrief(userId: string, orgId: string, runId: string): Promise<DecisionBriefResponse>;
+  decisionIntelligence(
+    userId: string,
+    orgId: string,
+    runId: string,
+  ): Promise<DecisionIntelligenceResponse>;
   claimRun(workerId: string, now?: Date, leaseMs?: number): Promise<Lease | null>;
   renewLease(lease: Lease, leaseMs?: number): Promise<void>;
   assertLease(lease: Lease): Promise<void>;

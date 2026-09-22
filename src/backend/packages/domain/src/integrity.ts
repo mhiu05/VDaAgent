@@ -197,6 +197,11 @@ export function validateReport(
       request.payload.data_as_of,
     );
   }
+  if (report.decision_intelligence_artifact_id !== undefined) {
+    const decision = byId.get(report.decision_intelligence_artifact_id);
+    if (decision?.kind !== 'decision_intelligence_pack')
+      throw new Error('INVALID_DECISION_INTELLIGENCE_REFERENCE');
+  }
   const required = MetricKeySchema.options;
   if (
     calc.payload.metrics.length !== required.length ||

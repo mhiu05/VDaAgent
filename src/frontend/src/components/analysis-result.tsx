@@ -8,12 +8,14 @@ import type {
   CalculatedUnit,
   DecisionBrief,
   DecisionBriefResponse,
+  DecisionIntelligenceResponse,
   DecisionSignal,
   ReportPayload,
   VisualEvidencePayload,
 } from '@vda/contracts';
 import { ChartRenderer, ChartUnavailableView } from './chart-renderer';
 import { formatChartValue, formatMetricValue } from '../lib/chart-format';
+import { DecisionIntelligenceView } from './decision-intelligence';
 
 const KPI_KEYS = new Set([
   'total_inventory',
@@ -311,6 +313,7 @@ export function DecisionBriefView({
 
 export function AnalysisResult({
   artifacts,
+  decision = null,
   brief = null,
   briefStatus = 'idle',
   detailsLoading = false,
@@ -322,6 +325,7 @@ export function AnalysisResult({
   onReport,
 }: {
   artifacts: Artifact[];
+  decision?: DecisionIntelligenceResponse | null;
   brief?: DecisionBriefResponse | null;
   briefStatus?: BriefLoadState;
   detailsLoading?: boolean;
@@ -332,6 +336,7 @@ export function AnalysisResult({
   canInspect?: boolean;
   onReport?: () => void;
 }) {
+  const decisionPack = decision?.status === 'available' ? decision.decision_intelligence : null;
   const calculation = artifacts.find(
     (item): item is ArtifactOf<'calculation'> => item.kind === 'calculation',
   );
@@ -349,6 +354,8 @@ export function AnalysisResult({
           Loading the validated decision briefing…
         </section>
       );
+    if (decisionPack)
+      return <DecisionIntelligenceView pack={decisionPack} onEvidence={onEvidence} onLoadDetails={onLoadDetails} />;
     if (brief)
       return (
         <div className="result-stack">
@@ -506,7 +513,7 @@ export function AnalysisResult({
       </div>
     </div>
   );
-  if (!brief)
+  if (!brief && !decisionPack)
     return (
       <div className="result-stack">
         {briefStatus === 'unavailable' && (
@@ -520,13 +527,17 @@ export function AnalysisResult({
     );
   return (
     <div className="result-stack">
-      <DecisionBriefView
-        brief={brief.decision_brief}
-        onEvidence={onEvidence}
-        onInspectSignal={(signalId) => onInspectSignal?.(brief.run_id, signalId)}
-        onAnalyzeSegment={(signalId) => onAnalyzeSegment?.(brief.run_id, signalId)}
-        canInspect={canInspect}
-      />
+      {decisionPack ? (
+        <DecisionIntelligenceView pack={decisionPack} onEvidence={onEvidence} onLoadDetails={onLoadDetails} />
+      ) : brief ? (
+        <DecisionBriefView
+          brief={brief.decision_brief}
+          onEvidence={onEvidence}
+          onInspectSignal={(signalId) => onInspectSignal?.(brief.run_id, signalId)}
+          onAnalyzeSegment={(signalId) => onAnalyzeSegment?.(brief.run_id, signalId)}
+          canInspect={canInspect}
+        />
+      ) : null}
       <details className="card decision-details" open>
         <summary>Charts, units and detailed artifacts</summary>
         {detailed}
@@ -538,23 +549,28 @@ export function AnalysisResult({
 export function ReportBody({
   payload,
   dataAsOf,
+  decision,
   visualEvidence,
   onEvidence,
 }: {
   payload: ReportPayload;
   dataAsOf: string;
+  decision?: DecisionIntelligenceResponse | null;
   visualEvidence?: VisualEvidencePayload;
   onEvidence: (id: string) => void;
 }) {
+  const decisionPack = decision?.status === 'available' ? decision.decision_intelligence : null;
   return (
     <article className="report-body">
       <span className="eyebrow">BÁO CÁO TỒN KHO · {dataAsOf}</span>
       <h1>{payload.title}</h1>
       <p className="report-summary">{payload.summary}</p>
       <span className="badge">Assumption / MVP provisional</span>
-      {payload.decision_brief && (
+      {decisionPack ? (
+        <DecisionIntelligenceView pack={decisionPack} onEvidence={onEvidence} />
+      ) : payload.decision_brief ? (
         <DecisionBriefView brief={payload.decision_brief} onEvidence={onEvidence} />
-      )}
+      ) : null}
       <div className="claim-list">
         {payload.sections.map((section) => (
           <button

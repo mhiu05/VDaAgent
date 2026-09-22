@@ -71,7 +71,12 @@ function assistantRunIds(messages: Message[]): string[] {
     .filter((message) => message.role === 'assistant')
     .flatMap((message) => message.parts)
     .flatMap((part) =>
-      part.type === 'run_ref' || part.type === 'signal_ref' ? [part.run_id] : [],
+      part.type === 'run_ref' ||
+      part.type === 'signal_ref' ||
+      part.type === 'decision_ref' ||
+      part.type === 'drilldown_ref'
+        ? [part.run_id]
+        : [],
     );
   return [...new Set(ids)].slice(0, 5);
 }
@@ -116,7 +121,40 @@ export class ConversationContextBuilder {
     const conversationRunIds = assistantRunIds(page.messages);
     const candidates = runIds(page.messages, input.signal_ref);
     let activeBrief: AgentDecisionContext['active_brief'] = null;
+    let activeDecision: NonNullable<AgentDecisionContext['active_decision']> | null = null;
     for (const runId of candidates) {
+      try {
+        const decision = await this.repository.decisionIntelligence(userId, input.org_id, runId);
+        if (decision.status === 'available') {
+          const pack = decision.decision_intelligence;
+          activeDecision = {
+            run_id: decision.run_id,
+            scope: pack.decision_brief.scope,
+            requested_data_as_of: pack.decision_brief.requested_data_as_of,
+            effective_snapshot_date: pack.decision_brief.effective_snapshot_date,
+            status: pack.decision_brief.status,
+            priority_entities: pack.priority_entities.map((entity) => ({
+              priority_entity_id: entity.priority_entity_id,
+              label: entity.entity.label,
+              rank: entity.rank,
+              tier: entity.tier,
+              support_level: entity.support_level,
+              limitations: entity.limitations,
+            })),
+            action_candidates: pack.action_candidates.map((action) => ({
+              action_candidate_id: action.action_candidate_id,
+              label: action.label,
+              support_level: action.support_level,
+              drilldown_id: action.drilldown_id,
+              limitations: action.limitations,
+            })),
+            drilldown_ids: pack.drilldowns.map((drilldown) => drilldown.drilldown_id),
+            limitations: pack.decision_brief.limitations,
+          };
+        }
+      } catch {
+        // Historical runs may have only the v1 compatibility brief.
+      }
       try {
         const brief = await this.repository.decisionBrief(userId, input.org_id, runId);
         const signals = [
@@ -141,10 +179,10 @@ export class ConversationContextBuilder {
               .map((action) => action.action_id),
           })),
         };
-        break;
       } catch {
         // A run without a validated briefing is not eligible for signal inspection.
       }
+      if (activeDecision && activeBrief) break;
     }
     const requestedSignalRef =
       input.signal_ref &&
@@ -152,6 +190,7 @@ export class ConversationContextBuilder {
       activeBrief.signals.some((signal) => signal.signal_id === input.signal_ref?.signal_id)
         ? input.signal_ref
         : null;
+    const activeResult = activeBrief ?? activeDecision;
     let analysisScope = input.scope;
     if (input.signal_action === 'analyze_segment') {
       const signal = activeBrief?.signals.find(
@@ -183,8 +222,8 @@ export class ConversationContextBuilder {
         question: input.text,
         scope: analysisScope,
         data_as_of: input.data_as_of,
-        scope_changed: activeBrief ? !sameScope(analysisScope, activeBrief.scope) : false,
-        date_changed: activeBrief ? input.data_as_of !== activeBrief.requested_data_as_of : false,
+        scope_changed: activeResult ? !sameScope(analysisScope, activeResult.scope) : false,
+        date_changed: activeResult ? input.data_as_of !== activeResult.requested_data_as_of : false,
         role,
         catalog: {
           projects: catalog.projects.slice(0, 50).map((project) => ({
@@ -196,6 +235,7 @@ export class ConversationContextBuilder {
         recent_messages: compactMessages(page.messages),
         allowed_run_ids: candidates,
         active_brief: activeBrief,
+        active_decision: activeDecision,
         requested_signal_ref: requestedSignalRef,
       },
     };

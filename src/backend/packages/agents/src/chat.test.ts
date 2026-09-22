@@ -280,6 +280,18 @@ describe('Agent Chat follow-up orchestration', () => {
   it('routes an explicit safe @Agent artifact follow-up without a model and persists its sender', async () => {
     const repo = await setup({ workflowVersion: 'agent-v1' });
     const initial = await completedAgentConversationRun(repo);
+    const decision = await repo.decisionIntelligence(
+      TEST_USERS.viewer,
+      TEST_ORGS.alpha,
+      initial.run_id!,
+    );
+    expect(decision.status).toBe('available');
+    if (decision.status !== 'available') throw new Error('DECISION_INTELLIGENCE_REQUIRED');
+    expect(decision.decision_intelligence.decision_brief).toMatchObject({
+      version: 'decision-brief-v2',
+      requested_data_as_of: '2026-09-19',
+    });
+    expect(decision.decision_intelligence.priority_entities).not.toHaveLength(0);
     let decisions = 0;
     const noTargetModel: AgentDecisionProvider = {
       decide: async () => {
@@ -323,6 +335,11 @@ describe('Agent Chat follow-up orchestration', () => {
       run_id: initial.run_id,
       artifact_id: expect.any(String),
       kind: 'analysis_pack',
+    });
+    expect(response?.parts).toContainEqual({
+      type: 'decision_ref',
+      run_id: initial.run_id,
+      component_id: decision.decision_intelligence.pack_id,
     });
 
     const rejected = await orchestrator.submit(

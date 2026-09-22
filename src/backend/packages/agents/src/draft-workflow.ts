@@ -1,5 +1,9 @@
 import { RepositoryError, type Lease, type Repository } from '@vda/db';
-import { validateReportDraftArtifact } from '@vda/domain';
+import {
+  buildDecisionIntelligencePack,
+  validateDecisionIntelligencePack,
+  validateReportDraftArtifact,
+} from '@vda/domain';
 import { bindClaims, verifyArtifact } from './integrity';
 import {
   buildInsightPack,
@@ -29,10 +33,12 @@ import {
 } from './workflow-support';
 import { AGENT_WORKFLOW_DAG } from './workflow';
 import { type ArtifactKind, type ArtifactOf, type RunTask } from '@vda/contracts';
+import { getDecisionUseCasePolicy } from './use-cases';
 
 export type AgentInsightStageResult = PersistedAgentBranchStageResult & {
   insight: ArtifactOf<'insight'>;
   insight_pack: ArtifactOf<'insight_pack'>;
+  decision_intelligence_pack: ArtifactOf<'decision_intelligence_pack'>;
 };
 
 export type AgentDraftStageResult = AgentInsightStageResult & {
@@ -83,28 +89,58 @@ function insightInput(persisted: PersistedAgentBranchStageResult): InsightSource
   };
 }
 
+function decisionInput(
+  persisted: PersistedAgentBranchStageResult,
+  insightPack: ArtifactOf<'insight_pack'>,
+  run: Lease['run'],
+) {
+  return {
+    run,
+    data_analysis_pack: persisted.data_analysis_pack,
+    calculation: persisted.calculation,
+    comparison: persisted.comparison,
+    comparison_pack: persisted.comparison_pack,
+    visual_evidence: persisted.visual_evidence,
+    chart_pack: persisted.chart_pack,
+    analysis_pack: persisted.analysis_pack,
+    insight_pack: insightPack,
+    policy: getDecisionUseCasePolicy(
+      run.request.use_case,
+      persisted.data_analysis_pack.payload.use_case_version,
+    ),
+  };
+}
+
 /** Rehydrates and validates the exact Insight checkpoint before Report composition. */
 export async function loadInsightStageArtifacts(
   repository: Repository,
   lease: Lease,
 ): Promise<AgentInsightStageResult> {
   const persisted = await loadBranchStageArtifacts(repository, lease);
-  const [detail, insight, insightPack] = await Promise.all([
+  const [detail, insight, insightPack, decisionPack] = await Promise.all([
     repository.getRun(lease.run.created_by, lease.run.org_id, lease.run.run_id),
     optionalArtifact(repository, lease, 'insight', 'insight'),
     optionalArtifact(repository, lease, 'insight_pack', 'insight_pack'),
+    optionalArtifact(
+      repository,
+      lease,
+      'decision_intelligence_pack',
+      'decision_intelligence_pack',
+    ),
   ]);
   if (
     detail.tasks.find((task) => task.kind === 'insight')?.status !== 'succeeded' ||
     !insight ||
-    !insightPack
+    !insightPack ||
+    !decisionPack
   )
     throw new Error('INVALID_INSIGHT_STAGE_ARTIFACT');
   const input = { ...insightInput(persisted), insight };
   validateInsightPack(insightPack.payload, input);
+  validateDecisionIntelligencePack(decisionPack.payload, decisionInput(persisted, insightPack, detail.run));
   await repository.assertLease(lease);
   await persistAgentStageMessage({ repository, lease }, 'insight', insightPack);
-  return { ...persisted, insight, insight_pack: insightPack };
+  return { ...persisted, insight, insight_pack: insightPack, decision_intelligence_pack: decisionPack };
 }
 
 /**
@@ -124,17 +160,33 @@ export async function executeInsightStage(
   try {
     const persisted = await loadBranchStageArtifacts(repository, lease);
     const source = insightInput(persisted);
-    const [priorInsight, priorPack] = await Promise.all([
+    const [priorInsight, priorPack, priorDecisionPack] = await Promise.all([
       optionalArtifact(repository, lease, 'insight', 'insight'),
       optionalArtifact(repository, lease, 'insight_pack', 'insight_pack'),
+      optionalArtifact(
+        repository,
+        lease,
+        'decision_intelligence_pack',
+        'decision_intelligence_pack',
+      ),
     ]);
     if (priorPack) {
-      if (!priorInsight) throw new Error('INVALID_INSIGHT_STAGE_ARTIFACT');
+      if (!priorInsight || !priorDecisionPack) throw new Error('INVALID_INSIGHT_STAGE_ARTIFACT');
       validateInsightPack(priorPack.payload, { ...source, insight: priorInsight });
+      validateDecisionIntelligencePack(
+        priorDecisionPack.payload,
+        decisionInput(persisted, priorPack, lease.run),
+      );
       if (!isCurrentSuccessfulTask(context, active)) await checkpoint('succeeded');
       await persistAgentStageMessage(context, 'insight', priorPack);
-      return { ...persisted, insight: priorInsight, insight_pack: priorPack };
+      return {
+        ...persisted,
+        insight: priorInsight,
+        insight_pack: priorPack,
+        decision_intelligence_pack: priorDecisionPack,
+      };
     }
+    if (priorDecisionPack) throw new Error('INVALID_INSIGHT_STAGE_ARTIFACT');
     if (context.tasks.get(active)?.status === 'succeeded')
       throw new Error('INVALID_INSIGHT_STAGE_ARTIFACT');
     const task = await checkpoint('running');
@@ -175,9 +227,33 @@ export async function executeInsightStage(
       limitations: payload.limitations,
       checks: ['schema', 'hash', 'tenant', 'lineage', 'bounded-narrative'],
     });
+    const decisionPayload = buildDecisionIntelligencePack(
+      decisionInput(persisted, insightPack, lease.run),
+    );
+    validateDecisionIntelligencePack(decisionPayload, decisionInput(persisted, insightPack, lease.run));
+    const decisionPack = await persistStageArtifact(context, {
+      kind: 'decision_intelligence_pack',
+      key: 'decision_intelligence_pack',
+      task,
+      payload: decisionPayload,
+      inputs: [
+        persisted.data_analysis_pack,
+        persisted.comparison_pack,
+        persisted.chart_pack,
+        persisted.analysis_pack,
+        insightPack,
+      ],
+      limitations: decisionPayload.limitations,
+      checks: ['schema', 'hash', 'tenant', 'lineage', 'deterministic-decision-intelligence'],
+    });
     await checkpoint('succeeded');
     await persistAgentStageMessage(context, 'insight', insightPack);
-    return { ...persisted, insight, insight_pack: insightPack };
+    return {
+      ...persisted,
+      insight,
+      insight_pack: insightPack,
+      decision_intelligence_pack: decisionPack,
+    };
   } catch (error) {
     try {
       await checkpoint('failed', workflowFailureCode(error, 'INSIGHT_AGENT_FAILED'));
@@ -259,6 +335,7 @@ export async function executeReportDraftStage(
         persisted.chart_pack,
         persisted.analysis_pack,
         persisted.insight_pack,
+        persisted.decision_intelligence_pack,
       ],
       limitations: payload.limitations,
       checks: ['schema', 'hash', 'tenant', 'lineage', 'legacy-report-compatibility'],

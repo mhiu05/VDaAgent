@@ -6,11 +6,13 @@ import { z } from 'zod';
 import {
   ArtifactListSchema,
   DecisionBriefResponseSchema,
+  DecisionIntelligenceResponseSchema,
   RunDetailSchema,
   type AgentKey,
   type AgentWorkflowStatus,
   type Catalog,
   type DecisionBriefResponse,
+  type DecisionIntelligenceResponse,
   type AgentTurnRequest,
   type Message,
 } from '@vda/contracts';
@@ -84,6 +86,7 @@ export function AgentChat({
     sources: [],
   });
   const [brief, setBrief] = useState<DecisionBriefResponse | null>(null);
+  const [decision, setDecision] = useState<DecisionIntelligenceResponse | null>(null);
   const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'available' | 'unavailable'>(
     'idle',
   );
@@ -133,6 +136,7 @@ export function AgentChat({
     setRunMessageId(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     setError('');
     void loadConversations(null, false).then((page) => {
@@ -166,6 +170,7 @@ export function AgentChat({
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     void listConversationMessages(orgId, selectedConversationId, { limit: 30 }).then(
       (page) => {
@@ -214,6 +219,7 @@ export function AgentChat({
     if (!visibleRunId) return;
     const pollingRunId: string = visibleRunId;
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     setBundle({ artifacts: [], validations: [], sources: [] });
     setWorkflowStatus(null);
@@ -241,13 +247,22 @@ export function AgentChat({
         if (detail.run.status === 'succeeded') {
           if (!obsolete) setBriefStatus('loading');
           try {
-            const nextBrief = await api(
-              scoped(`/runs/${pollingRunId}/brief`, orgId),
-              DecisionBriefResponseSchema,
+            const nextDecision = await api(
+              scoped(`/runs/${pollingRunId}/decision-intelligence`, orgId),
+              DecisionIntelligenceResponseSchema,
             );
-            if (!obsolete) {
-              setBrief(nextBrief);
-              setBriefStatus('available');
+            if (!obsolete) setDecision(nextDecision);
+            if (nextDecision.status === 'available') {
+              if (!obsolete) setBriefStatus('available');
+            } else {
+              const nextBrief = await api(
+                scoped(`/runs/${pollingRunId}/brief`, orgId),
+                DecisionBriefResponseSchema,
+              );
+              if (!obsolete) {
+                setBrief(nextBrief);
+                setBriefStatus('available');
+              }
             }
           } catch (cause) {
             if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
@@ -306,6 +321,7 @@ export function AgentChat({
     setRunId(null);
     setRunMessageId(null);
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     setEvidenceId(null);
     setError('');
@@ -320,6 +336,7 @@ export function AgentChat({
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     setDetailsLoading(false);
     setEvidenceId(null);
@@ -359,6 +376,7 @@ export function AgentChat({
       setRunDetail(null);
       setBundle({ artifacts: [], validations: [], sources: [] });
       setBrief(null);
+      setDecision(null);
       setBriefStatus(accepted.run_id ? 'idle' : 'unavailable');
       await loadConversations(null, false);
       await loadMessages(accepted.conversation_id, null, false);
@@ -507,6 +525,7 @@ export function AgentChat({
           >
             <AnalysisResult
               artifacts={bundle.artifacts}
+              decision={decision}
               brief={brief}
               briefStatus={briefStatus}
               detailsLoading={detailsLoading}

@@ -8,6 +8,7 @@ import {
   ArtifactListSchema,
   CatalogSchema,
   DecisionBriefResponseSchema,
+  DecisionIntelligenceResponseSchema,
   ExportResponseSchema,
   MessageSchema,
   ReportDetailSchema,
@@ -18,6 +19,7 @@ import {
   type ArtifactOf,
   type Catalog,
   type DecisionBriefResponse,
+  type DecisionIntelligenceResponse,
   type Role,
   type Session,
 } from '@vda/contracts';
@@ -360,6 +362,7 @@ function WorkspaceShell({
     sources: [],
   });
   const [brief, setBrief] = useState<DecisionBriefResponse | null>(null);
+  const [decision, setDecision] = useState<DecisionIntelligenceResponse | null>(null);
   const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'available' | 'unavailable'>(
     'idle',
   );
@@ -406,6 +409,19 @@ function WorkspaceShell({
         if (detail.run.status === 'succeeded') {
           if (!cancelled) setBriefStatus('loading');
           try {
+            const nextDecision = await api(
+              scoped(`/runs/${runId}/decision-intelligence`, orgId),
+              DecisionIntelligenceResponseSchema,
+            );
+            if (!cancelled) setDecision(nextDecision);
+            if (nextDecision.status === 'available') {
+              if (!cancelled) setBriefStatus('available');
+              return;
+            }
+          } catch (cause) {
+            if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
+          }
+          try {
             const nextBrief = await api(
               scoped(`/runs/${runId}/brief`, orgId),
               DecisionBriefResponseSchema,
@@ -447,6 +463,7 @@ function WorkspaceShell({
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     setDetailsLoading(false);
     setReport(null);
@@ -463,6 +480,7 @@ function WorkspaceShell({
     setConversationId(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
     setBrief(null);
+    setDecision(null);
     setBriefStatus('idle');
     setDetailsLoading(false);
     setError('');
@@ -501,13 +519,21 @@ function WorkspaceShell({
   async function openReport(id: string) {
     setBusy(true);
     setError('');
+    setDecision(null);
     try {
       const detail = await api(scoped(`/reports/${id}`, orgId), ReportDetailSchema);
-      const nextBundle = await api(
-        scoped(`/runs/${detail.report.run_id}/artifacts`, orgId),
-        ArtifactListSchema,
-      );
+      const [nextBundle, nextDecision] = await Promise.all([
+        api(scoped(`/runs/${detail.report.run_id}/artifacts`, orgId), ArtifactListSchema),
+        api(
+          scoped(`/runs/${detail.report.run_id}/decision-intelligence`, orgId),
+          DecisionIntelligenceResponseSchema,
+        ).catch((cause: unknown) => {
+          if (cause instanceof ApiError && cause.status === 404) return null;
+          throw cause;
+        }),
+      ]);
       setBundle(nextBundle);
+      setDecision(nextDecision);
       setReport(detail);
       setTab('reports');
     } catch (cause) {
@@ -971,6 +997,7 @@ function WorkspaceShell({
                   )}
                   <AnalysisResult
                     artifacts={bundle.artifacts}
+                    decision={decision}
                     brief={brief}
                     briefStatus={briefStatus}
                     detailsLoading={detailsLoading}
@@ -1025,6 +1052,7 @@ function WorkspaceShell({
                     <ReportBody
                       payload={report.artifact.payload}
                       dataAsOf={report.artifact.data_as_of}
+                      decision={decision}
                       visualEvidence={
                         bundle.artifacts.find(
                           (item): item is ArtifactOf<'visual_evidence'> =>

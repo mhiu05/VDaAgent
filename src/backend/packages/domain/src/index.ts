@@ -2,6 +2,7 @@ import { parse } from 'csv-parse/sync';
 export * from './integrity';
 export * from './report-sections';
 export * from './agent-workflow';
+export * from './decision-intelligence';
 import {
   CSV_COLUMNS,
   SnapshotRowSchema,

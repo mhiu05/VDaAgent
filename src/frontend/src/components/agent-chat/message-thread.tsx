@@ -113,6 +113,26 @@ export function MessageThread({
                     Validated signal <ArrowUpRight size={13} />
                   </button>
                 );
+              if (part.type === 'decision_ref')
+                return (
+                  <button
+                    className='text-button agent-reference'
+                    key={`${message.message_id}:decision:${index}`}
+                    onClick={() => onOpenRun(part.run_id, message.message_id)}
+                  >
+                    Decision intelligence <ArrowUpRight size={13} />
+                  </button>
+                );
+              if (part.type === 'drilldown_ref')
+                return (
+                  <button
+                    className='text-button agent-reference'
+                    key={`${message.message_id}:drilldown:${index}`}
+                    onClick={() => onOpenRun(part.run_id, message.message_id)}
+                  >
+                    Validated drill-down <ArrowUpRight size={13} />
+                  </button>
+                );
               if (part.type === 'error')
                 return (
                   <p
