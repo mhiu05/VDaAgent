@@ -1811,6 +1811,578 @@ export const DrillDownRefSchema = z
   })
   .strict();
 export type DrillDownRef = z.infer<typeof DrillDownRefSchema>;
+
+/** A report reference always retains the run that produced it. */
+export const ReportReferenceSchema = z.object({ run_id: IdSchema, report_id: IdSchema }).strict();
+export type ReportReference = z.infer<typeof ReportReferenceSchema>;
+
+/** Explicit aliases make capability observations self-describing without changing message refs. */
+export const DecisionReferenceSchema = DecisionRefSchema;
+export type DecisionReference = DecisionRef;
+export const DrillDownReferenceSchema = DrillDownRefSchema;
+export type DrillDownReference = DrillDownRef;
+
+/**
+ * Grok workspace selections are references only. The browser must never send
+ * rendered dashboard text, organization identity, role, or canonical values.
+ */
+const ComponentIdSchema = z.string().trim().regex(/^[a-z0-9][a-z0-9:._-]*$/).max(200);
+const EvidencePathSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_$.[\]-]+$/)
+  .max(500);
+
+export const CapabilityModeSchema = z.enum(['grok', 'data', 'insight', 'compare', 'chart', 'report']);
+export type CapabilityMode = z.infer<typeof CapabilityModeSchema>;
+
+export const AgentFocusSchema = z.enum([
+  'current_inventory',
+  'slow_moving',
+  'inventory_comparison',
+  'price_distribution',
+  'peer_comparison',
+  'full_report',
+]);
+export type AgentFocus = z.infer<typeof AgentFocusSchema>;
+
+export const DashboardSelectionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('kpi'), kpi_id: ComponentIdSchema }).strict(),
+  z.object({ kind: z.literal('chart'), chart_id: ComponentIdSchema }).strict(),
+  z
+    .object({ kind: z.literal('priority'), priority_entity_id: ComponentIdSchema })
+    .strict(),
+  z.object({ kind: z.literal('insight'), insight_id: ComponentIdSchema }).strict(),
+  z.object({ kind: z.literal('action'), action_candidate_id: ComponentIdSchema }).strict(),
+]);
+export type DashboardSelection = z.infer<typeof DashboardSelectionSchema>;
+
+export const EvidenceReferenceSchema = z
+  .object({
+    artifact_id: IdSchema,
+    evidence_path: EvidencePathSchema.nullable().default(null),
+  })
+  .strict();
+export type EvidenceReference = z.infer<typeof EvidenceReferenceSchema>;
+
+/**
+ * The workspace snapshot is navigation state, not an authorization grant.
+ * These compact reference shapes deliberately retain the producing run so a
+ * server can reject cross-run descendants before anything reaches a provider.
+ */
+export const WorkspaceModeV1Schema = z.enum(['agent_chat', 'report_dashboard']);
+export type WorkspaceModeV1 = z.infer<typeof WorkspaceModeV1Schema>;
+export const RunRefV1Schema = z.object({ run_id: IdSchema }).strict();
+export type RunRefV1 = z.infer<typeof RunRefV1Schema>;
+export const ReportRefV1Schema = z.object({ run_id: IdSchema, report_id: IdSchema }).strict();
+export type ReportRefV1 = z.infer<typeof ReportRefV1Schema>;
+export const ArtifactRefV1Schema = z.object({ run_id: IdSchema, artifact_id: IdSchema }).strict();
+export type ArtifactRefV1 = z.infer<typeof ArtifactRefV1Schema>;
+export const ChartRefV1Schema = z.object({ run_id: IdSchema, chart_id: ComponentIdSchema }).strict();
+export type ChartRefV1 = z.infer<typeof ChartRefV1Schema>;
+export const PriorityEntityRefV1Schema = z
+  .object({ run_id: IdSchema, priority_entity_id: ComponentIdSchema })
+  .strict();
+export type PriorityEntityRefV1 = z.infer<typeof PriorityEntityRefV1Schema>;
+export const DrilldownRefV1Schema = z
+  .object({ run_id: IdSchema, drilldown_id: ComponentIdSchema })
+  .strict();
+export type DrilldownRefV1 = z.infer<typeof DrilldownRefV1Schema>;
+export const WorkspaceEvidenceRefV1Schema = z
+  .object({ run_id: IdSchema, artifact_id: IdSchema, evidence_path: EvidencePathSchema })
+  .strict();
+export type WorkspaceEvidenceRefV1 = z.infer<typeof WorkspaceEvidenceRefV1Schema>;
+
+export const WorkspaceContextV1Schema = z
+  .object({
+    version: z.literal(1),
+    mode: WorkspaceModeV1Schema,
+    org_id: IdSchema,
+    conversation_id: IdSchema.nullable(),
+    scope: ScopeSchema,
+    data_as_of: DateSchema,
+    active_run_ref: RunRefV1Schema.nullable(),
+    active_report_ref: ReportRefV1Schema.nullable(),
+    active_artifact_ref: ArtifactRefV1Schema.nullable(),
+    dashboard_selection: z
+      .object({
+        chart_ref: ChartRefV1Schema.nullable(),
+        priority_entity_ref: PriorityEntityRefV1Schema.nullable(),
+      })
+      .strict()
+      .nullable(),
+    drilldown: DrilldownRefV1Schema.nullable(),
+    evidence_ref: WorkspaceEvidenceRefV1Schema.nullable(),
+  })
+  .strict();
+export type WorkspaceContextV1 = z.infer<typeof WorkspaceContextV1Schema>;
+
+export const ContextResolutionIssueV1Schema = z
+  .object({
+    ref_kind: z.enum([
+      'run',
+      'report',
+      'artifact',
+      'chart',
+      'priority_entity',
+      'drilldown',
+      'evidence',
+    ]),
+    code: z.enum(['NO_AUTHORIZED_RESULT', 'STALE_CONTEXT', 'MISSING_CONTEXT']),
+    disposition: z.enum(['drop', 'replace', 'reject']),
+  })
+  .strict();
+export type ContextResolutionIssueV1 = z.infer<typeof ContextResolutionIssueV1Schema>;
+
+export const AgentRuntimeErrorCodeSchema = z.enum([
+  'UNSUPPORTED_REQUEST',
+  'UNSUPPORTED_CAUSAL_REQUEST',
+  'UNSUPPORTED_SCOPE',
+  'MISSING_CONTEXT',
+  'NO_AUTHORIZED_RESULT',
+  'STALE_CONTEXT',
+  'PROVIDER_UNAVAILABLE',
+  'PROVIDER_TIMEOUT',
+  'PROVIDER_OUTPUT_INVALID',
+  'RUNTIME_LIMIT_EXCEEDED',
+  'CAPABILITY_DENIED',
+  'CAPABILITY_UNAVAILABLE',
+  'CAPABILITY_OUTPUT_INVALID',
+  'GROUNDING_INVALID',
+  'TURN_CANCELLED',
+]);
+export type AgentRuntimeErrorCode = z.infer<typeof AgentRuntimeErrorCodeSchema>;
+
+export const ClaimReferenceSchema = z
+  .object({ run_id: IdSchema, artifact_id: IdSchema, claim_id: ComponentIdSchema })
+  .strict();
+export type ClaimReference = z.infer<typeof ClaimReferenceSchema>;
+
+export const MetricReferenceSchema = z
+  .object({
+    run_id: IdSchema,
+    artifact_id: IdSchema,
+    metric_key: MetricKeySchema,
+    evidence_path: EvidencePathSchema,
+  })
+  .strict();
+export type MetricReference = z.infer<typeof MetricReferenceSchema>;
+
+export const ArtifactReferenceSchema = z
+  .object({ run_id: IdSchema, artifact_id: IdSchema, kind: z.string().trim().min(1).max(100) })
+  .strict();
+export type ArtifactReference = z.infer<typeof ArtifactReferenceSchema>;
+
+export const EvidenceRefV1Schema = z
+  .object({ run_id: IdSchema, artifact_id: IdSchema, evidence_path: EvidencePathSchema })
+  .strict();
+export type EvidenceRefV1 = z.infer<typeof EvidenceRefV1Schema>;
+
+export const QualityReferenceSchema = z
+  .object({
+    run_id: IdSchema,
+    artifact_id: IdSchema,
+    quality_id: ComponentIdSchema,
+    kind: z.enum(['limitation', 'quality']),
+  })
+  .strict();
+export type QualityReference = z.infer<typeof QualityReferenceSchema>;
+
+export const RunReferenceSchema = z
+  .object({ run_id: IdSchema, status: RunStatusSchema })
+  .strict();
+export type RunReference = z.infer<typeof RunReferenceSchema>;
+
+/**
+ * Server-produced, non-numeric presentation data that a provider may use to
+ * describe an authorized component. Values and quantitative payloads remain
+ * in canonical artifacts and are rendered separately.
+ */
+export const CapabilityDisplayFragmentKindSchema = z.enum([
+  'status',
+  'kpi',
+  'visual',
+  'priority_entity',
+  'insight',
+  'action',
+  'drilldown',
+  'report',
+  'artifact',
+]);
+export type CapabilityDisplayFragmentKind = z.infer<typeof CapabilityDisplayFragmentKindSchema>;
+export const CapabilityDisplaySupportLevelSchema = z.enum([
+  'high',
+  'medium',
+  'limited',
+  'exploratory',
+]);
+export type CapabilityDisplaySupportLevel = z.infer<typeof CapabilityDisplaySupportLevelSchema>;
+export const CapabilityDisplayFragmentSchema = z
+  .object({
+    kind: CapabilityDisplayFragmentKindSchema,
+    run_id: IdSchema,
+    component_id: ComponentIdSchema,
+    label: z.string().trim().min(1).max(500),
+    support_level: CapabilityDisplaySupportLevelSchema.nullable().default(null),
+    limitation_ids: z.array(ComponentIdSchema).max(12).default([]),
+  })
+  .strict();
+export type CapabilityDisplayFragment = z.infer<typeof CapabilityDisplayFragmentSchema>;
+
+export const WorkspaceActionV1Schema = z.discriminatedUnion('type', [
+  z
+    .object({ type: z.literal('open_dashboard'), run_id: IdSchema, report_id: IdSchema.nullable() })
+    .strict(),
+  z
+    .object({ type: z.literal('open_drilldown'), run_id: IdSchema, drilldown_id: ComponentIdSchema })
+    .strict(),
+  z
+    .object({ type: z.literal('focus_visual'), run_id: IdSchema, chart_id: ComponentIdSchema })
+    .strict(),
+  z
+    .object({
+      type: z.literal('focus_priority_entity'),
+      run_id: IdSchema,
+      priority_entity_id: ComponentIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('open_evidence'),
+      run_id: IdSchema,
+      artifact_id: IdSchema,
+      evidence_path: EvidencePathSchema.nullable(),
+    })
+    .strict(),
+  z.object({ type: z.literal('switch_capability_mode'), mode: CapabilityModeSchema }).strict(),
+]);
+export type WorkspaceActionV1 = z.infer<typeof WorkspaceActionV1Schema>;
+
+/** The P0 planner can select only these server-registered operations. */
+export const AgentCapabilityIdV1Schema = z.enum([
+  'create_analysis',
+  'get_analysis_result',
+  'inspect_signal',
+  'inspect_decision_intelligence',
+  'inspect_visual',
+  'inspect_priority_entity',
+  'inspect_evidence',
+  'get_report_context',
+  'inspect_agent_checkpoint',
+]);
+export type AgentCapabilityIdV1 = z.infer<typeof AgentCapabilityIdV1Schema>;
+/** @deprecated Use AgentCapabilityIdV1. Retained as an internal type alias. */
+export const CapabilityNameSchema = AgentCapabilityIdV1Schema;
+export type CapabilityName = AgentCapabilityIdV1;
+
+const CapabilityStepIdSchema = z.string().trim().regex(/^[a-z][a-z0-9_-]{0,63}$/);
+export const CreateAnalysisCapabilityInputSchema = z
+  .object({ focus: AgentFocusSchema.nullable().default(null) })
+  .strict();
+export const GetAnalysisResultCapabilityInputSchema = z.object({ run_id: IdSchema }).strict();
+export const InspectSignalCapabilityInputSchema = z
+  .object({ run_id: IdSchema, signal_id: ComponentIdSchema })
+  .strict();
+export const InspectDecisionIntelligenceCapabilityInputSchema = z.object({ run_id: IdSchema }).strict();
+export const InspectVisualCapabilityInputSchema = z
+  .object({ run_id: IdSchema, chart_id: ComponentIdSchema })
+  .strict();
+export const InspectPriorityEntityCapabilityInputSchema = z
+  .object({ run_id: IdSchema, priority_entity_id: ComponentIdSchema })
+  .strict();
+export const InspectEvidenceCapabilityInputSchema = z
+  .object({ run_id: IdSchema, artifact_id: IdSchema, evidence_path: EvidencePathSchema })
+  .strict();
+export const GetReportContextCapabilityInputSchema = z
+  .object({ run_id: IdSchema, report_id: IdSchema })
+  .strict();
+export const InspectAgentCheckpointCapabilityInputSchema = z
+  .object({ agent_target: z.enum(['analyst', 'comparison', 'chart', 'report']) })
+  .strict();
+
+export const CapabilityInvocationSchema = z.discriminatedUnion('capability_id', [
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('create_analysis'),
+      input: CreateAnalysisCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('get_analysis_result'),
+      input: GetAnalysisResultCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('inspect_signal'),
+      input: InspectSignalCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('inspect_decision_intelligence'),
+      input: InspectDecisionIntelligenceCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('inspect_visual'),
+      input: InspectVisualCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('inspect_priority_entity'),
+      input: InspectPriorityEntityCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('inspect_evidence'),
+      input: InspectEvidenceCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('get_report_context'),
+      input: GetReportContextCapabilityInputSchema,
+    })
+    .strict(),
+  z
+    .object({
+      step_id: CapabilityStepIdSchema,
+      capability_id: z.literal('inspect_agent_checkpoint'),
+      input: InspectAgentCheckpointCapabilityInputSchema,
+    })
+    .strict(),
+]);
+export type CapabilityInvocation = z.infer<typeof CapabilityInvocationSchema>;
+
+export const AgentPlanV1Schema = z
+  .object({
+    version: z.literal('agent-plan-v1'),
+    intent: z.string().trim().min(1).max(120),
+    steps: z.array(CapabilityInvocationSchema).max(3),
+    answer_mode: z.enum(['grounded', 'queued', 'unavailable']),
+    unsupported_reason: AgentRuntimeErrorCodeSchema.nullable().default(null),
+  })
+  .strict()
+  .superRefine((plan, ctx) => {
+    if (new Set(plan.steps.map((step) => step.step_id)).size !== plan.steps.length)
+      ctx.addIssue({ code: 'custom', path: ['steps'], message: 'Plan step IDs must be unique' });
+    if (new Set(plan.steps.map((step) => step.capability_id)).size !== plan.steps.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['steps'],
+        message: 'Each capability can be invoked at most once per plan',
+      });
+    const hasCreate = plan.steps.some((step) => step.capability_id === 'create_analysis');
+    if (plan.answer_mode === 'grounded' && plan.steps.length === 0)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['steps'],
+        message: 'A grounded plan requires at least one read capability',
+      });
+    if (
+      plan.answer_mode === 'queued' &&
+      (plan.steps.length !== 1 || !hasCreate || plan.unsupported_reason !== null)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['steps'],
+        message: 'A queued plan must contain only create_analysis',
+      });
+    if (
+      plan.answer_mode === 'unavailable' &&
+      (plan.steps.length !== 0 || plan.unsupported_reason === null)
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['unsupported_reason'],
+        message: 'An unavailable plan has no steps and requires a normalized reason',
+      });
+  });
+export type AgentPlanV1 = z.infer<typeof AgentPlanV1Schema>;
+
+export const GroundingReferenceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('run'), ref: RunReferenceSchema }).strict(),
+  z.object({ type: z.literal('claim'), ref: ClaimReferenceSchema }).strict(),
+  z.object({ type: z.literal('metric'), ref: MetricReferenceSchema }).strict(),
+  z.object({ type: z.literal('artifact'), ref: ArtifactReferenceSchema }).strict(),
+  z.object({ type: z.literal('evidence'), ref: EvidenceRefV1Schema }).strict(),
+  z.object({ type: z.literal('quality'), ref: QualityReferenceSchema }).strict(),
+]);
+export type GroundingReference = z.infer<typeof GroundingReferenceSchema>;
+export const GroundingRefV1Schema = GroundingReferenceSchema;
+export type GroundingRefV1 = GroundingReference;
+
+export const CanonicalAgentObservationV1Schema = z
+  .object({
+    observation_id: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+    kind: z.enum(['claim', 'metric', 'decision', 'status', 'limitation']),
+    availability: z.enum(['available', 'unavailable', 'pending', 'failed']),
+    canonical_text: z.string().trim().min(1).max(1_200),
+    display_value: z.string().trim().min(1).max(240).nullable(),
+    support_level: CapabilityDisplaySupportLevelSchema.nullable(),
+    grounding_refs: z.array(GroundingReferenceSchema).max(12),
+  })
+  .strict()
+  .superRefine((observation, ctx) => {
+    if (
+      observation.availability === 'available' &&
+      ['claim', 'metric', 'decision'].includes(observation.kind) &&
+      observation.grounding_refs.length === 0
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['grounding_refs'],
+        message: 'Available factual observations require grounding references',
+      });
+  });
+export type CanonicalAgentObservationV1 = z.infer<typeof CanonicalAgentObservationV1Schema>;
+
+export const AvailableWorkspaceActionV1Schema = z
+  .object({
+    action_id: z.string().trim().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+    action: WorkspaceActionV1Schema,
+  })
+  .strict();
+export type AvailableWorkspaceActionV1 = z.infer<typeof AvailableWorkspaceActionV1Schema>;
+
+export const CapabilityResultV1Schema = z
+  .object({
+    version: z.literal('capability-result-v1'),
+    capability_id: AgentCapabilityIdV1Schema,
+    status: z.enum(['available', 'unavailable', 'pending', 'failed']),
+    observations: z.array(CanonicalAgentObservationV1Schema).max(12),
+    available_workspace_actions: z.array(AvailableWorkspaceActionV1Schema).max(8).default([]),
+    queued_run_ref: RunReferenceSchema.nullable().default(null),
+    error_code: AgentRuntimeErrorCodeSchema.nullable().default(null),
+  })
+  .strict()
+  .superRefine((result, ctx) => {
+    if (new Set(result.observations.map((item) => item.observation_id)).size !== result.observations.length)
+      ctx.addIssue({ code: 'custom', path: ['observations'], message: 'Observation IDs must be unique' });
+    if (
+      new Set(result.available_workspace_actions.map((item) => item.action_id)).size !==
+      result.available_workspace_actions.length
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['available_workspace_actions'],
+        message: 'Workspace action IDs must be unique',
+      });
+    if (result.status === 'pending' && result.queued_run_ref === null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['queued_run_ref'],
+        message: 'Pending capability results require a committed run reference',
+      });
+    if (result.status !== 'pending' && result.queued_run_ref !== null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['queued_run_ref'],
+        message: 'Only pending capability results may include a queued run reference',
+      });
+  });
+export type CapabilityResultV1 = z.infer<typeof CapabilityResultV1Schema>;
+
+export const GroundedResponseSelectionV1Schema = z
+  .object({
+    version: z.literal('grounded-response-selection-v1'),
+    status: z.enum(['complete', 'partial', 'queued', 'unavailable']),
+    title_key: z.enum([
+      'analysis_answer',
+      'analysis_queued',
+      'analysis_partial',
+      'analysis_unavailable',
+    ]),
+    blocks: z
+      .array(
+        z
+          .object({
+            kind: z.enum(['summary', 'detail', 'limitation']),
+            observation_ids: z.array(z.string().trim().regex(/^[a-z][a-z0-9_-]{0,63}$/)).max(12),
+          })
+          .strict(),
+      )
+      .max(8),
+    workspace_action_ids: z
+      .array(z.string().trim().regex(/^[a-z][a-z0-9_-]{0,63}$/))
+      .max(8),
+    queued_run_ref: RunReferenceSchema.nullable(),
+    error_code: AgentRuntimeErrorCodeSchema.nullable(),
+  })
+  .strict()
+  .superRefine((selection, ctx) => {
+    const observationIds = selection.blocks.flatMap((block) => block.observation_ids);
+    if (observationIds.length > 12)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['blocks'],
+        message: 'A grounded response may select at most twelve observations',
+      });
+    if (new Set(observationIds).size !== observationIds.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['blocks'],
+        message: 'Observation IDs may be selected only once',
+      });
+    if (new Set(selection.workspace_action_ids).size !== selection.workspace_action_ids.length)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['workspace_action_ids'],
+        message: 'Workspace action IDs may be selected only once',
+      });
+  });
+export type GroundedResponseSelectionV1 = z.infer<typeof GroundedResponseSelectionV1Schema>;
+
+/** @deprecated The runtime now uses ID-only GroundedResponseSelectionV1. */
+export const GroundedAssistantResponseV1Schema = GroundedResponseSelectionV1Schema;
+export type GroundedAssistantResponseV1 = GroundedResponseSelectionV1;
+
+export const AgentActivityEventV1Schema = z
+  .object({
+    version: z.literal('agent-activity-v1'),
+    sequence: z.number().int().nonnegative(),
+    type: z.enum([
+      'context_started',
+      'context_ready',
+      'tool_started',
+      'tool_completed',
+      'run_created',
+      'run_progress',
+      'artifact_ready',
+      'answer_started',
+      'answer_completed',
+      'error',
+    ]),
+    label: z.enum([
+      'understanding_context',
+      'inspecting_context',
+      'starting_analysis',
+      'analysis_queued',
+      'analysis_progress',
+      'preparing_answer',
+      'answer_ready',
+      'safe_error',
+    ]),
+    capability: CapabilityNameSchema.nullable().default(null),
+    run_id: IdSchema.nullable().default(null),
+    artifact_id: IdSchema.nullable().default(null),
+    error_code: AgentRuntimeErrorCodeSchema.nullable().default(null),
+  })
+  .strict();
+export type AgentActivityEventV1 = z.infer<typeof AgentActivityEventV1Schema>;
 export const MessagePartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string().trim().min(1).max(5_000) }).strict(),
   z.object({ type: z.literal('run_ref'), run_id: IdSchema, status: RunStatusSchema }).strict(),
@@ -1844,6 +2416,11 @@ export const MessagePartSchema = z.discriminatedUnion('type', [
       drilldown_id: DrillDownRefSchema.shape.drilldown_id,
     })
     .strict(),
+  z.object({ type: z.literal('claim_ref'), ref: ClaimReferenceSchema }).strict(),
+  z.object({ type: z.literal('metric_ref'), ref: MetricReferenceSchema }).strict(),
+  z.object({ type: z.literal('evidence_ref'), ref: EvidenceRefV1Schema }).strict(),
+  z.object({ type: z.literal('workspace_action'), action: WorkspaceActionV1Schema }).strict(),
+  z.object({ type: z.literal('quality_ref'), ref: QualityReferenceSchema }).strict(),
   z
     .object({
       type: z.literal('error'),
@@ -1908,6 +2485,7 @@ export const AgentTurnRequestSchema = z
     signal_ref: SignalRefSchema.nullable().optional(),
     signal_action: z.enum(['inspect', 'analyze_segment']).nullable().optional(),
     drilldown_ref: DrillDownRefSchema.nullable().optional(),
+    workspace_context: WorkspaceContextV1Schema.nullable().optional(),
     use_case: UseCaseKeySchema.default(DEFAULT_USE_CASE),
     agent_target: AgentKeySchema.nullable().optional(),
   })
@@ -1925,18 +2503,32 @@ export const AgentTurnRequestSchema = z
         path: ['drilldown_ref'],
         message: 'Signal and drill-down references must name the same run',
       });
+    const workspace = turn.workspace_context;
+    if (!workspace) return;
+    if (workspace.org_id !== turn.org_id)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['workspace_context', 'org_id'],
+        message: 'Workspace organization must match the turn organization',
+      });
+    if (
+      workspace.scope.project_external_id !== turn.scope.project_external_id ||
+      workspace.scope.zone_external_id !== turn.scope.zone_external_id
+    )
+      ctx.addIssue({
+        code: 'custom',
+        path: ['workspace_context', 'scope'],
+        message: 'Workspace scope must match the turn scope',
+      });
+    if (workspace.data_as_of !== turn.data_as_of)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['workspace_context', 'data_as_of'],
+        message: 'Workspace data_as_of must match the turn data_as_of',
+      });
   });
 export type AgentTurnRequest = z.input<typeof AgentTurnRequestSchema>;
 export type ResolvedAgentTurnRequest = z.output<typeof AgentTurnRequestSchema>;
-export const AgentFocusSchema = z.enum([
-  'current_inventory',
-  'slow_moving',
-  'inventory_comparison',
-  'price_distribution',
-  'peer_comparison',
-  'full_report',
-]);
-export type AgentFocus = z.infer<typeof AgentFocusSchema>;
 export const UnsupportedReasonCodeSchema = z.enum([
   'UNSUPPORTED_REQUEST',
   'UNSUPPORTED_CAUSAL_REQUEST',
@@ -1982,6 +2574,38 @@ export const AgentTurnAcceptedSchema = z
   })
   .strict();
 export type AgentTurnAccepted = z.infer<typeof AgentTurnAcceptedSchema>;
+/**
+ * The only events emitted by the optional POST-over-fetch turn stream. Activity
+ * remains the bounded public projection; the terminal frame either identifies
+ * the persisted turn or reports a deliberately generic transport failure.
+ */
+export const AgentTurnStreamEventV1Schema = z.discriminatedUnion('type', [
+  z
+    .object({
+      version: z.literal('agent-turn-stream-v1'),
+      sequence: z.number().int().nonnegative(),
+      type: z.literal('activity'),
+      activity: AgentActivityEventV1Schema,
+    })
+    .strict(),
+  z
+    .object({
+      version: z.literal('agent-turn-stream-v1'),
+      sequence: z.number().int().nonnegative(),
+      type: z.literal('terminal'),
+      accepted: AgentTurnAcceptedSchema.nullable(),
+      error_code: AgentRuntimeErrorCodeSchema.nullable(),
+    })
+    .strict()
+    .superRefine((event, ctx) => {
+      if ((event.accepted === null) === (event.error_code === null))
+        ctx.addIssue({
+          code: 'custom',
+          message: 'A terminal stream event must contain either an accepted turn or an error code',
+        });
+    }),
+]);
+export type AgentTurnStreamEventV1 = z.infer<typeof AgentTurnStreamEventV1Schema>;
 export const ProblemSchema = z.object({
   type: z.string(),
   title: z.string(),
@@ -2093,6 +2717,9 @@ export const SetupSchema = z.object({
   mode: z.literal('supabase'),
   llm_primary_provider: z.enum(['gemini', 'openai']),
   llm_fallback_provider: z.enum(['gemini', 'openai']),
+  grok_runtime_enabled: z.boolean().default(false),
+  grok_workspace_enabled: z.boolean().default(false),
+  grok_sse_enabled: z.boolean().default(false),
   development_role_bypass: z.boolean(),
   ready: z.boolean(),
   message: z.string(),

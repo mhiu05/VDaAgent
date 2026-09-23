@@ -35,7 +35,7 @@ function narrativeProvider(): NarrativeProvider {
 }
 
 describe('agent workflow artifact visibility', () => {
-  it('hides report drafts and reviews from viewers while owners and analysts can hydrate them', async () => {
+  it('keeps workflow-private artifacts out of public, validated artifact reads', async () => {
     const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
     resources.push({ repo, close: () => pg.close() });
     const run = await repo.createRun(TEST_USERS.owner, request, 'agent-artifact-visibility');
@@ -74,5 +74,24 @@ describe('agent workflow artifact visibility', () => {
     await expect(
       repo.artifactByKey(TEST_USERS.viewer, run.org_id, run.run_id, 'review_result:1'),
     ).rejects.toThrow('ARTIFACT_NOT_FOUND');
-  }, 60_000);
+
+    for (const user of [TEST_USERS.owner, TEST_USERS.viewer]) {
+      await expect(
+        repo.publicArtifactById(user, run.org_id, run.run_id, result.report.artifact_id),
+      ).resolves.toEqual(result.report);
+      await expect(
+        repo.publicArtifactsByIds(user, run.org_id, run.run_id, [
+          result.report.artifact_id,
+          result.report_draft.artifact_id,
+          result.review_result.artifact_id,
+        ]),
+      ).resolves.toEqual([result.report]);
+      await expect(
+        repo.publicArtifactById(user, run.org_id, run.run_id, result.report_draft.artifact_id),
+      ).rejects.toThrow('ARTIFACT_NOT_FOUND');
+      await expect(
+        repo.publicArtifactById(user, run.org_id, run.run_id, result.review_result.artifact_id),
+      ).rejects.toThrow('ARTIFACT_NOT_FOUND');
+    }
+  }, 120_000);
 });

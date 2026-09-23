@@ -280,6 +280,7 @@ export async function executeReportRevisionStage(
         prior.chart_pack,
         prior.analysis_pack,
         prior.insight_pack,
+        prior.decision_intelligence_pack,
         prior.review_result,
       ],
       limitations: payload.limitations,

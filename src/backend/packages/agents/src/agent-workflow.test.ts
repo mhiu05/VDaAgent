@@ -11,6 +11,12 @@ import { type NarrativeProvider } from './provider';
 import { type ReviewerProvider, type ReviewerProviderInput } from './reviewer-agent';
 import { getAgentTargetFollowUp } from './tools';
 
+// PGlite runs its SQL work on the test process's event loop, so timer-based
+// worker heartbeats cannot run while an integration scenario is executing.
+// Keep the fixture lease longer than the heaviest deterministic scenario; the
+// recovery tests below still explicitly advance past this duration.
+const PGLITE_LEASE_MS = 240_000;
+
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 
 afterEach(async () => {
@@ -44,8 +50,12 @@ async function start(key: string) {
   const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, key);
-  const lease = await repo.claimRun(`${key}-worker`);
+  const lease = await repo.claimRun(`${key}-worker`, new Date(), PGLITE_LEASE_MS);
   if (!lease || lease.run.run_id !== run.run_id) throw new Error('LEASE_REQUIRED');
+  const renewLease = repo.renewLease.bind(repo);
+  vi.spyOn(repo, 'renewLease').mockImplementation((candidate, leaseMs) =>
+    renewLease(candidate, leaseMs ?? PGLITE_LEASE_MS),
+  );
   return { repo, run, lease };
 }
 
@@ -203,7 +213,7 @@ describe('terminal Agent workflow publication gate', () => {
     // A terminal/stale lease cannot create a second report on a retry.
     await expect(executePublicationStage(repo, lease)).rejects.toThrow('LEASE_LOST');
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toHaveLength(1);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('allows one evidence-bound revision, then publishes revision two after its PASS', async () => {
     const { repo, run, lease } = await start('agent-workflow-revision');
@@ -254,10 +264,11 @@ describe('terminal Agent workflow publication gate', () => {
         result.comparison.artifact_id,
         result.visual_evidence.artifact_id,
         result.insight.artifact_id,
+        result.decision_intelligence_pack.artifact_id,
       ].sort(),
     );
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toHaveLength(1);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('never turns a reviewer provider failure into PASS or a published report', async () => {
     const { repo, run, lease } = await start('agent-workflow-reviewer-failure');
@@ -282,7 +293,7 @@ describe('terminal Agent workflow publication gate', () => {
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'review_result')).toBe(false);
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('stops terminal publication after the second required revision', async () => {
     const { repo, run, lease } = await start('agent-workflow-revision-limit');
@@ -313,7 +324,7 @@ describe('terminal Agent workflow publication gate', () => {
     );
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('fails closed on retry when persisted revision two still requires revision', async () => {
     const { repo, run, lease } = await start('agent-workflow-revision-limit-recovery');
@@ -354,7 +365,7 @@ describe('terminal Agent workflow publication gate', () => {
     );
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('publishes exactly once when a reclaimed lease resumes from a persisted PASS review', async () => {
     const { repo, run, lease } = await start('agent-workflow-publication-recovery');
@@ -374,7 +385,7 @@ describe('terminal Agent workflow publication gate', () => {
     expect(review.review_result.payload.status).toBe('PASS');
     const replacement = await repo.claimRun(
       'agent-workflow-recovery-replacement',
-      new Date(Date.now() + 60_000),
+      new Date(Date.now() + PGLITE_LEASE_MS + 1_000),
     );
     if (!replacement || replacement.run.run_id !== run.run_id) throw new Error('LEASE_REQUIRED');
     const result = await executeAgentWorkflow(repo, replacement, {
@@ -400,7 +411,7 @@ describe('terminal Agent workflow publication gate', () => {
       });
     expect(bundle.artifacts.filter((artifact) => artifact.kind === 'report')).toHaveLength(1);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toHaveLength(1);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('re-adopts a persisted PASS review when publication starts on a reclaimed lease', async () => {
     const { repo, run, lease } = await start('agent-workflow-direct-publication-recovery');
@@ -410,7 +421,7 @@ describe('terminal Agent workflow publication gate', () => {
 
     const replacement = await repo.claimRun(
       'agent-workflow-direct-publication-replacement',
-      new Date(Date.now() + 60_000),
+      new Date(Date.now() + PGLITE_LEASE_MS + 1_000),
     );
     if (!replacement || replacement.run.run_id !== run.run_id) throw new Error('LEASE_REQUIRED');
     const result = await executePublicationStage(repo, replacement);
@@ -429,7 +440,7 @@ describe('terminal Agent workflow publication gate', () => {
         error_code: null,
       });
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toHaveLength(1);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('cannot publish a persisted PASS review after cancellation', async () => {
     const { repo, run, lease } = await start('agent-workflow-publication-cancelled');
@@ -446,7 +457,7 @@ describe('terminal Agent workflow publication gate', () => {
     expect(taskStatus(detail, 'publication')).toBeUndefined();
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('cannot publish a persisted PASS review from a stale fencing owner', async () => {
     const { repo, run, lease } = await start('agent-workflow-publication-stale-owner');
@@ -456,7 +467,7 @@ describe('terminal Agent workflow publication gate', () => {
 
     const replacement = await repo.claimRun(
       'agent-workflow-replacement',
-      new Date(Date.now() + 60_000),
+      new Date(Date.now() + PGLITE_LEASE_MS + 1_000),
     );
     expect(replacement?.run.run_id).toBe(run.run_id);
     expect(replacement?.fencing_token).toBeGreaterThan(lease.fencing_token);
@@ -467,7 +478,7 @@ describe('terminal Agent workflow publication gate', () => {
     expect(detail.run).toMatchObject({ status: 'running', report_artifact_id: null });
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 
   it('rejects a revision-required review at the publication gate without writing a report', async () => {
     const { repo, run, lease } = await start('agent-workflow-gate-reject');
@@ -487,5 +498,5 @@ describe('terminal Agent workflow publication gate', () => {
     expect(taskStatus(detail, 'publication')).toBe('failed');
     expect(bundle.artifacts.some((artifact) => artifact.kind === 'report')).toBe(false);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
-  }, 60_000);
+  }, PGLITE_LEASE_MS);
 });

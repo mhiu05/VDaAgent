@@ -32,7 +32,7 @@ describe('deterministic Coordinator adapter', () => {
     const decision = coordinateRun({ run });
     expect(decision).toMatchObject({
       use_case: 'slow_moving_inventory',
-      use_case_version: 'slow-moving-inventory-v1',
+      use_case_version: 'slow-moving-inventory-v2',
       scope: request.scope,
       requested_data_as_of: request.data_as_of,
       effective_data_as_of: request.data_as_of,

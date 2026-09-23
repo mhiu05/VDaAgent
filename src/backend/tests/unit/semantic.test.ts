@@ -132,7 +132,7 @@ describe('shared contracts and configuration', () => {
     ).toBe(false);
     expect(ArtifactSchema.safeParse({ kind: 'report', provisional: false }).success).toBe(false);
   });
-  it('requires Gemini primary credentials and OpenAI fallback credentials', () => {
+  it('keeps legacy narration configured while gating runtime providers behind default-off flags', () => {
     const supabase = {
       NEXT_PUBLIC_SUPABASE_URL: 'https://example.supabase.co',
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'publishable-test-key',
@@ -158,6 +158,55 @@ describe('shared contracts and configuration', () => {
         .AGENT_WORKFLOW_ENABLED,
     ).toBe(true);
     expect(getConfig({ ...supabase, ...providers }).AGENT_WORKFLOW_ENABLED).toBe(false);
+    const runtimeDisabled = getConfig({ ...supabase, ...providers });
+    expect(runtimeDisabled.GROK_RUNTIME_ENABLED).toBe(false);
+    expect(runtimeDisabled.GROK_WORKSPACE_ENABLED).toBe(false);
+    expect(runtimeDisabled.GROK_SSE_ENABLED).toBe(false);
+    expect(runtimeDisabled.AGENT_LLM_PRIMARY_PROVIDER).toBe('gemini');
+    expect(runtimeDisabled.AGENT_LLM_FALLBACK_PROVIDER).toBe('openai');
+    expect(runtimeDisabled.AGENT_PROVIDER_TIMEOUT_MS).toBe(12_000);
+    expect(runtimeDisabled.AGENT_TURN_TIMEOUT_MS).toBe(45_000);
+    expect(runtimeDisabled.XAI_REQUIRE_ZDR).toBe(false);
+    expect(
+      getConfig({
+        ...supabase,
+        ...providers,
+        GROK_RUNTIME_ENABLED: 'true',
+        AGENT_LLM_PRIMARY_PROVIDER: 'gemini',
+        AGENT_LLM_FALLBACK_PROVIDER: 'openai',
+      }).GROK_RUNTIME_ENABLED,
+    ).toBe(true);
+    const xaiRuntime = {
+      GROK_RUNTIME_ENABLED: 'true' as const,
+      AGENT_LLM_PRIMARY_PROVIDER: 'xai' as const,
+      AGENT_LLM_FALLBACK_PROVIDER: 'gemini' as const,
+      XAI_API_KEY: 'test-xai-key',
+      XAI_MODEL: 'grok-test',
+      NODE_ENV: 'production',
+    };
+    expect(
+      getConfig({ ...supabase, ...providers, ...xaiRuntime, XAI_BASE_URL: 'https://api.x.ai/v1' })
+        .XAI_BASE_URL,
+    ).toBe('https://api.x.ai/v1');
+    expect(
+      getConfig({
+        ...supabase,
+        ...providers,
+        ...xaiRuntime,
+        XAI_BASE_URL: 'https://us.api.x.ai/v1',
+      }).XAI_BASE_URL,
+    ).toBe('https://us.api.x.ai/v1');
+    for (const unsafeBaseUrl of [
+      'http://api.x.ai/v1',
+      'https://api.x.ai.evil.example/v1',
+      'https://api.x.ai:443/v1',
+      'https://user@api.x.ai/v1',
+      'https://api.x.ai/v1?redirect=evil',
+      'https://api.x.ai/other',
+    ])
+      expect(() =>
+        getConfig({ ...supabase, ...providers, ...xaiRuntime, XAI_BASE_URL: unsafeBaseUrl }),
+      ).toThrow('XAI_BASE_URL');
     expect(() =>
       getConfig({
         ...supabase,
@@ -204,6 +253,13 @@ describe('shared contracts and configuration', () => {
         OPENAI_API_KEY: 'test-openai-key',
         OPENAI_MODEL: 'gpt-test',
         NEXT_PUBLIC_SUPABASE_SECRET_KEY: 'forbidden-test-value',
+      }),
+    ).toThrow('NEXT_PUBLIC_');
+    expect(() =>
+      getConfig({
+        ...supabase,
+        ...providers,
+        NEXT_PUBLIC_XAI_API_KEY: 'forbidden-test-value',
       }),
     ).toThrow('NEXT_PUBLIC_');
     expect(() =>

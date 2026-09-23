@@ -7,6 +7,10 @@ import { artifactHash, SAFE_SUMMARY } from './integrity';
 import { executeReportRevisionStage, executeReviewerStage } from './review-workflow';
 import { buildReviewResult, validateReviewResult, type ReviewerAgentInput } from './reviewer-agent';
 
+// PGlite executes SQL on the test process's event loop, so the production
+// worker heartbeat cannot advance during a heavy draft/revision fixture.
+const PGLITE_LEASE_MS = 240_000;
+
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 
 afterEach(async () => {
@@ -37,8 +41,12 @@ async function draftInput(key: string): Promise<ReviewerAgentInput> {
   const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, key);
-  const lease = await repo.claimRun(`${key}-worker`);
+  const lease = await repo.claimRun(`${key}-worker`, new Date(), PGLITE_LEASE_MS);
   if (!lease || lease.run.run_id !== run.run_id) throw new Error('LEASE_REQUIRED');
+  const renewLease = repo.renewLease.bind(repo);
+  vi.spyOn(repo, 'renewLease').mockImplementation((candidate, leaseMs) =>
+    renewLease(candidate, leaseMs ?? PGLITE_LEASE_MS),
+  );
   const result = await executeAgentThroughDraft(repo, lease, provider);
   const bundle = await repo.artifacts(TEST_USERS.owner, run.org_id, run.run_id);
   return { run: lease.run, report_draft: result.report_draft, artifacts: bundle.artifacts };
@@ -63,8 +71,12 @@ async function persistedRevisionTwoInput(key: string): Promise<ReviewerAgentInpu
   const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, key);
-  const lease = await repo.claimRun(`${key}-worker`);
+  const lease = await repo.claimRun(`${key}-worker`, new Date(), PGLITE_LEASE_MS);
   if (!lease || lease.run.run_id !== run.run_id) throw new Error('LEASE_REQUIRED');
+  const renewLease = repo.renewLease.bind(repo);
+  vi.spyOn(repo, 'renewLease').mockImplementation((candidate, leaseMs) =>
+    renewLease(candidate, leaseMs ?? PGLITE_LEASE_MS),
+  );
   const first = await executeAgentThroughDraft(repo, lease, provider);
   const claim = first.report_draft.payload.report.claims[0];
   if (!claim) throw new Error('MISSING_TEST_CLAIM');
@@ -92,7 +104,7 @@ describe('Reviewer Agent', () => {
       input_refs: [input.report_draft.artifact_id],
     });
     expect(() => validateReviewResult(result, input)).not.toThrow();
-  }, 30_000);
+  }, PGLITE_LEASE_MS);
 
   it('returns a structured blocking correction only for a known evidence-bound claim', async () => {
     const input = await draftInput('reviewer-correction');
@@ -125,7 +137,7 @@ describe('Reviewer Agent', () => {
         correction: { code: 'REQUIRE_EVIDENCE_BOUND_WORDING', claim_id: claim.claim_id },
       }),
     ).not.toThrow();
-  }, 30_000);
+  }, PGLITE_LEASE_MS);
 
   it('accepts a bounded revision-two draft only when it names the prior blocking review', async () => {
     const revisionTwo = await persistedRevisionTwoInput('reviewer-revision-two');
@@ -137,7 +149,7 @@ describe('Reviewer Agent', () => {
       draft_artifact_id: revisionTwo.report_draft.artifact_id,
     });
     expect(() => validateReviewResult(result, revisionTwo)).not.toThrow();
-  }, 30_000);
+  }, PGLITE_LEASE_MS);
 
   it('fails closed on a cross-tenant graph and requires revision for a hash-valid altered draft', async () => {
     const input = await draftInput('reviewer-invalid-draft');
@@ -174,5 +186,5 @@ describe('Reviewer Agent', () => {
         artifacts: [foreignArtifact, ...input.artifacts.slice(1)],
       }),
     ).toThrow('REVIEWER_AGENT_INPUT_INVALID');
-  }, 30_000);
+  }, PGLITE_LEASE_MS);
 });

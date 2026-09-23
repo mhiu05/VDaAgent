@@ -216,6 +216,9 @@ export async function createAnalysisTool(
   const parsed = CreateAnalysisToolInputSchema.parse(input);
   const role = await repository.authorize(context.user_id, context.org_id, true);
   if (!mutationAllowed(role)) throw new Error('VIEWER_READ_ONLY');
+  // The legacy chat router may choose an exact catalog scope from its closed
+  // decision schema. The P0 capability registry omits `scope_ref` entirely,
+  // so its create path always falls back to the server-authorized context.
   const scope = parsed.scope_ref ?? context.scope;
   if (!context.allowed_scopes.some((candidate) => sameScope(candidate, scope)))
     throw new Error('SCOPE_REFERENCE_FORBIDDEN');

@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "agent-plan-v1"
+    },
+    "intent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "steps": {
+      "maxItems": 3,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "create_analysis"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "focus": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "current_inventory",
+                          "slow_moving",
+                          "inventory_comparison",
+                          "price_distribution",
+                          "peer_comparison",
+                          "full_report"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "focus"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "get_analysis_result"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "inspect_signal"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "signal_id": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[a-z0-9][a-z0-9:._-]*$"
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "signal_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "inspect_decision_intelligence"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "run_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "inspect_visual"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "chart_id": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[a-z0-9][a-z0-9:._-]*$"
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "chart_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "inspect_priority_entity"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "priority_entity_id": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[a-z0-9][a-z0-9:._-]*$"
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "priority_entity_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "inspect_evidence"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "artifact_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "evidence_path": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^[A-Za-z0-9_$.[\\]-]+$"
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "artifact_id",
+                  "evidence_path"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "get_report_context"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "report_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "run_id",
+                  "report_id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "step_id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+              },
+              "capability_id": {
+                "type": "string",
+                "const": "inspect_agent_checkpoint"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "agent_target": {
+                    "type": "string",
+                    "enum": [
+                      "analyst",
+                      "comparison",
+                      "chart",
+                      "report"
+                    ]
+                  }
+                },
+                "required": [
+                  "agent_target"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "step_id",
+              "capability_id",
+              "input"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "answer_mode": {
+      "type": "string",
+      "enum": [
+        "grounded",
+        "queued",
+        "unavailable"
+      ]
+    },
+    "unsupported_reason": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "UNSUPPORTED_REQUEST",
+            "UNSUPPORTED_CAUSAL_REQUEST",
+            "UNSUPPORTED_SCOPE",
+            "MISSING_CONTEXT",
+            "NO_AUTHORIZED_RESULT",
+            "STALE_CONTEXT",
+            "PROVIDER_UNAVAILABLE",
+            "PROVIDER_TIMEOUT",
+            "PROVIDER_OUTPUT_INVALID",
+            "RUNTIME_LIMIT_EXCEEDED",
+            "CAPABILITY_DENIED",
+            "CAPABILITY_UNAVAILABLE",
+            "CAPABILITY_OUTPUT_INVALID",
+            "GROUNDING_INVALID",
+            "TURN_CANCELLED"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "intent",
+    "steps",
+    "answer_mode",
+    "unsupported_reason"
+  ],
+  "additionalProperties": false
+}

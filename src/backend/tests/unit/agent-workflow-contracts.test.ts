@@ -1,20 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   AgentKeySchema,
+  AgentPlanV1Schema,
   AgentTurnRequestSchema,
   AgentWorkflowStatusSchema,
   AnalysisPackSchema,
   AnalysisRequestSchema,
+  CapabilityResultV1Schema,
   ChartPackSchema,
   ComparisonPackSchema,
   CoordinatorDecisionSchema,
   DataAnalysisPackSchema,
   InsightPackSchema,
+  MessageSchema,
   ReportDraftSchema,
   RunSchema,
   ReviewResultSchema,
   UseCaseDefinitionSchema,
   UseCaseKeySchema,
+  WorkspaceContextV1Schema,
 } from '@vda/contracts';
 import { UnknownUseCaseError, getUseCaseDefinition, useCases } from '@vda/agents';
 import { analyze, compare, selectLatest } from '@vda/semantic';
@@ -345,6 +349,157 @@ describe('Phase A agent-workflow contracts', () => {
     expect(
       AgentWorkflowStatusSchema.safeParse({ ...status, draft_content_hash: 'a'.repeat(64) })
         .success,
+    ).toBe(false);
+  });
+
+  it('keeps legacy turns and messages compatible while validating workspace context strictly', () => {
+    const legacyTurn = {
+      org_id: ORG,
+      client_turn_id: ids.user,
+      text: 'Show slow-moving inventory.',
+      scope,
+      data_as_of: date,
+    };
+    expect(AgentTurnRequestSchema.parse(legacyTurn).workspace_context).toBeUndefined();
+    const workspaceContext = {
+      version: 1 as const,
+      mode: 'agent_chat' as const,
+      org_id: ORG,
+      conversation_id: null,
+      scope,
+      data_as_of: date,
+      active_run_ref: null,
+      active_report_ref: null,
+      active_artifact_ref: null,
+      dashboard_selection: null,
+      drilldown: null,
+      evidence_ref: null,
+    };
+    expect(
+      WorkspaceContextV1Schema.parse(workspaceContext),
+    ).toMatchObject(workspaceContext);
+    expect(
+      AgentTurnRequestSchema.safeParse({
+        ...legacyTurn,
+        workspace_context: {
+          ...workspaceContext,
+          org_id: ids.user,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      WorkspaceContextV1Schema.safeParse({
+        ...workspaceContext,
+        drilldown: { run_id: ids.run, drilldown_id: 'd'.repeat(201) },
+      }).success,
+    ).toBe(false);
+
+    const message = {
+      message_id: ids.decision,
+      org_id: ORG,
+      conversation_id: ids.user,
+      run_id: null,
+      client_turn_id: null,
+      role: 'assistant' as const,
+      sender_agent: null,
+      status: 'completed' as const,
+      content: 'A legacy reference-only response.',
+      parts: [{ type: 'run_ref' as const, run_id: ids.run, status: 'succeeded' as const }],
+      created_at: '2026-09-19T00:00:00.000Z',
+    };
+    expect(MessageSchema.parse(message)).toMatchObject(message);
+    expect(
+      MessageSchema.safeParse({
+        ...message,
+        parts: [
+          {
+            type: 'metric_ref',
+            ref: {
+              run_id: ids.run,
+              artifact_id: ids.calculationArtifact,
+              metric_key: 'available_inventory',
+              evidence_path: 'payload.metrics[0].value',
+            },
+          },
+          {
+            type: 'workspace_action',
+            action: { type: 'focus_visual', run_id: ids.run, chart_id: 'available_inventory' },
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it('bounds and closes runtime plans before any executor is introduced', () => {
+    const plan = {
+      version: 'agent-plan-v1',
+      intent: 'inspect',
+      answer_mode: 'grounded',
+      unsupported_reason: null,
+      steps: [
+        {
+          step_id: 'inspect-result',
+          capability_id: 'get_analysis_result',
+          input: { run_id: ids.run },
+        },
+        {
+          step_id: 'inspect-decision',
+          capability_id: 'inspect_decision_intelligence',
+          input: { run_id: ids.run },
+        },
+        {
+          step_id: 'inspect-visual',
+          capability_id: 'inspect_visual',
+          input: { run_id: ids.run, chart_id: 'available_inventory' },
+        },
+      ],
+    } as const;
+    expect(AgentPlanV1Schema.parse(plan)).toMatchObject(plan);
+    expect(AgentPlanV1Schema.safeParse({ ...plan, steps: [...plan.steps, plan.steps[0]] }).success).toBe(
+      false,
+    );
+    expect(
+      AgentPlanV1Schema.safeParse({
+        ...plan,
+        steps: [{ step_id: 'bad', capability_id: 'sql', input: { query: 'select 1' } }],
+      }).success,
+    ).toBe(false);
+    expect(
+      AgentPlanV1Schema.safeParse({
+        ...plan,
+        answer_mode: 'unsupported',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps capability observations compact and typed', () => {
+    const observation = {
+      version: 'capability-result-v1' as const,
+      capability_id: 'inspect_decision_intelligence' as const,
+      status: 'available' as const,
+      observations: [
+        {
+          observation_id: 'inventory-priority',
+          kind: 'decision' as const,
+          availability: 'available' as const,
+          canonical_text: 'Inventory priority requires attention.',
+          display_value: null,
+          support_level: 'high' as const,
+          grounding_refs: [
+            { type: 'run' as const, ref: { run_id: ids.run, status: 'succeeded' as const } },
+          ],
+        },
+      ],
+      available_workspace_actions: [],
+      queued_run_ref: null,
+      error_code: null,
+    };
+    expect(CapabilityResultV1Schema.parse(observation)).toMatchObject(observation);
+    expect(
+      CapabilityResultV1Schema.safeParse({
+        ...observation,
+        narrative: 'Provider-authored content is not a capability result.',
+      }).success,
     ).toBe(false);
   });
 });

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "ref_kind": {
+      "type": "string",
+      "enum": [
+        "run",
+        "report",
+        "artifact",
+        "chart",
+        "priority_entity",
+        "drilldown",
+        "evidence"
+      ]
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "NO_AUTHORIZED_RESULT",
+        "STALE_CONTEXT",
+        "MISSING_CONTEXT"
+      ]
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "drop",
+        "replace",
+        "reject"
+      ]
+    }
+  },
+  "required": [
+    "ref_kind",
+    "code",
+    "disposition"
+  ],
+  "additionalProperties": false
+}

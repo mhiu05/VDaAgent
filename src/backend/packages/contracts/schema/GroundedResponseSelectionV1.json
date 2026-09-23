@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "grounded-response-selection-v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "queued",
+        "unavailable"
+      ]
+    },
+    "title_key": {
+      "type": "string",
+      "enum": [
+        "analysis_answer",
+        "analysis_queued",
+        "analysis_partial",
+        "analysis_unavailable"
+      ]
+    },
+    "blocks": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "detail",
+              "limitation"
+            ]
+          },
+          "observation_ids": {
+            "maxItems": 12,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "observation_ids"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "workspace_action_ids": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+      }
+    },
+    "queued_run_ref": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          "required": [
+            "run_id",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "UNSUPPORTED_REQUEST",
+            "UNSUPPORTED_CAUSAL_REQUEST",
+            "UNSUPPORTED_SCOPE",
+            "MISSING_CONTEXT",
+            "NO_AUTHORIZED_RESULT",
+            "STALE_CONTEXT",
+            "PROVIDER_UNAVAILABLE",
+            "PROVIDER_TIMEOUT",
+            "PROVIDER_OUTPUT_INVALID",
+            "RUNTIME_LIMIT_EXCEEDED",
+            "CAPABILITY_DENIED",
+            "CAPABILITY_UNAVAILABLE",
+            "CAPABILITY_OUTPUT_INVALID",
+            "GROUNDING_INVALID",
+            "TURN_CANCELLED"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "status",
+    "title_key",
+    "blocks",
+    "workspace_action_ids",
+    "queued_run_ref",
+    "error_code"
+  ],
+  "additionalProperties": false
+}

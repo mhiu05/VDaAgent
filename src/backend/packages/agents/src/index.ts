@@ -16,6 +16,15 @@ import { ChartBuilder, chartPayloadFingerprint, validateVisualEvidence } from '.
 import { reportSections } from './report-sections';
 export * from './integrity';
 export * from './provider';
+export * from './runtime-limits';
+export * from './runtime-provider';
+export * from './runtime-context';
+export * from './capability-registry';
+export * from './planner';
+export * from './answer-composer';
+export * from './activity';
+export * from './runtime';
+export * from './xai-provider';
 export * from './chart-builder';
 export * from './chat';
 export * from './comparison-agent';

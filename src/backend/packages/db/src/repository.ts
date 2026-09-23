@@ -1267,6 +1267,112 @@ class SqlRepository implements Repository {
       return artifact;
     });
   }
+  async publicArtifactById(
+    user: string,
+    org: string,
+    runId: string,
+    artifactId: string,
+  ): Promise<Artifact> {
+    return this.db.transaction(async (tx) => {
+      await this.auth(tx, user, org);
+      await this.run(tx, org, runId);
+      const rows = await tx.query(
+        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3',
+        [org, runId, artifactId],
+      );
+      if (!rows[0]) fail('ARTIFACT_NOT_FOUND', 404);
+      const artifact = ArtifactSchema.parse(json(rows[0]));
+      verifyArtifact(artifact);
+      if (
+        artifact.org_id !== org ||
+        artifact.run_id !== runId ||
+        artifact.artifact_id !== artifactId
+      )
+        fail('ARTIFACT_NOT_FOUND', 404);
+      // Draft and reviewer artifacts are never conversational context, even
+      // when the caller has a role that can inspect the workflow internally.
+      if (artifact.kind === 'report_draft' || artifact.kind === 'review_result')
+        fail('ARTIFACT_NOT_FOUND', 404);
+      const validations = (
+        await tx.query(
+          'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND id=$3',
+          [org, runId, artifact.artifact_id],
+        )
+      ).flatMap((row) => {
+        const parsed = ArtifactValidationSchema.safeParse(json(row));
+        return parsed.success ? [parsed.data] : [];
+      });
+      if (
+        !validations.some(
+          (validation) =>
+            validation.valid &&
+            validation.artifact_id === artifact.artifact_id &&
+            validation.org_id === org &&
+            validation.run_id === runId,
+        )
+      )
+        fail('PUBLIC_ARTIFACT_VALIDATION_REQUIRED', 409);
+      return artifact;
+    });
+  }
+  async publicArtifactsByIds(
+    user: string,
+    org: string,
+    runId: string,
+    artifactIds: readonly string[],
+  ): Promise<Artifact[]> {
+    const ids = [...new Set(artifactIds)].slice(0, 100);
+    if (!ids.length) return [];
+    return this.db.transaction(async (tx) => {
+      await this.auth(tx, user, org);
+      await this.run(tx, org, runId);
+      const rows = await tx.query(
+        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id = ANY($3::text[])',
+        [org, runId, ids],
+      );
+      const candidates = rows.flatMap((row) => {
+        const parsed = ArtifactSchema.safeParse(json(row));
+        if (!parsed.success) return [];
+        const artifact = parsed.data;
+        try {
+          verifyArtifact(artifact);
+        } catch {
+          return [];
+        }
+        if (
+          artifact.org_id !== org ||
+          artifact.run_id !== runId ||
+          !ids.includes(artifact.artifact_id) ||
+          artifact.kind === 'report_draft' ||
+          artifact.kind === 'review_result'
+        )
+          return [];
+        return [artifact];
+      });
+      if (!candidates.length) return [];
+      const validations = (
+        await tx.query(
+          'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND id = ANY($3::text[])',
+          [org, runId, candidates.map((artifact) => artifact.artifact_id)],
+        )
+      ).flatMap((row) => {
+        const parsed = ArtifactValidationSchema.safeParse(json(row));
+        return parsed.success ? [parsed.data] : [];
+      });
+      const validIds = new Set(
+        validations
+          .filter(
+            (validation) =>
+              validation.valid &&
+              validation.org_id === org &&
+              validation.run_id === runId &&
+              candidates.some((artifact) => artifact.artifact_id === validation.artifact_id),
+          )
+          .map((validation) => validation.artifact_id),
+      );
+      return candidates.filter((artifact) => validIds.has(artifact.artifact_id));
+    });
+  }
   async decisionBrief(user: string, org: string, id: string): Promise<DecisionBriefResponse> {
     return this.db.transaction(async (tx) => {
       await this.auth(tx, user, org);

@@ -9,6 +9,7 @@ import {
   type AnalysisRequest,
   type AnalysisRun,
   type Artifact,
+  type ArtifactValidation,
 } from '@vda/contracts';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
@@ -53,6 +54,18 @@ function analysisRequestArtifact(run: AnalysisRun, artifactId: string, taskId: s
     ...body,
     content_hash: artifactHash(body as Omit<Artifact, 'content_hash'>),
   });
+}
+
+function artifactValidation(artifact: Artifact, valid: boolean): ArtifactValidation {
+  return {
+    artifact_id: artifact.artifact_id,
+    org_id: artifact.org_id,
+    run_id: artifact.run_id,
+    validated_at: artifact.created_at,
+    validator_version: 'mvp-validator-v1',
+    valid,
+    checks: ['test'],
+  };
 }
 
 async function prepareArtifactTask(repo: Repository, lease: Lease) {
@@ -303,6 +316,59 @@ describe('durable tenant repository', () => {
     await expect(
       repo.storeArtifact(lease!, conflicting, { artifact_key: 'analysis_request:2' }),
     ).rejects.toThrow('IMMUTABLE_ARTIFACT_CONFLICT');
+  });
+  it('reads only a valid, public artifact from its authorized run', async () => {
+    const { repo } = await setup();
+    const run = await repo.createRun(TEST_USERS.owner, request, 'public-artifact');
+    const lease = await repo.claimRun('public-artifact-worker');
+    expect(lease?.run.run_id).toBe(run.run_id);
+    const taskId = await prepareArtifactTask(repo, lease!);
+    const artifact = analysisRequestArtifact(
+      run,
+      '60000000-0000-4000-8000-000000000014',
+      taskId,
+    );
+    await repo.storeArtifact(lease!, artifact);
+
+    await expect(
+      repo.publicArtifactById(TEST_USERS.owner, run.org_id, run.run_id, artifact.artifact_id),
+    ).rejects.toThrow('PUBLIC_ARTIFACT_VALIDATION_REQUIRED');
+    await expect(
+      repo.publicArtifactsByIds(TEST_USERS.owner, run.org_id, run.run_id, [artifact.artifact_id]),
+    ).resolves.toEqual([]);
+    await repo.validateArtifact(lease!, artifactValidation(artifact, false));
+    await expect(
+      repo.publicArtifactById(TEST_USERS.owner, run.org_id, run.run_id, artifact.artifact_id),
+    ).rejects.toThrow('PUBLIC_ARTIFACT_VALIDATION_REQUIRED');
+    await repo.validateArtifact(lease!, artifactValidation(artifact, true));
+    await expect(
+      repo.publicArtifactById(TEST_USERS.owner, run.org_id, run.run_id, artifact.artifact_id),
+    ).resolves.toEqual(artifact);
+    await expect(
+      repo.publicArtifactsByIds(TEST_USERS.owner, run.org_id, run.run_id, [
+        artifact.artifact_id,
+        artifact.artifact_id,
+        '60000000-0000-4000-8000-000000000099',
+      ]),
+    ).resolves.toEqual([artifact]);
+    await expect(
+      repo.publicArtifactById(TEST_USERS.beta, run.org_id, run.run_id, artifact.artifact_id),
+    ).rejects.toThrow('WORKSPACE_FORBIDDEN');
+
+    const otherRun = await repo.createRun(TEST_USERS.owner, request, 'other-public-artifact-run');
+    await expect(
+      repo.publicArtifactById(
+        TEST_USERS.owner,
+        otherRun.org_id,
+        otherRun.run_id,
+        artifact.artifact_id,
+      ),
+    ).rejects.toThrow('ARTIFACT_NOT_FOUND');
+    await expect(
+      repo.publicArtifactsByIds(TEST_USERS.owner, otherRun.org_id, otherRun.run_id, [
+        artifact.artifact_id,
+      ]),
+    ).resolves.toEqual([]);
   });
   it('claims exclusively across connections, rejects stale and cancelled leases', async () => {
     const { repo } = await setup();

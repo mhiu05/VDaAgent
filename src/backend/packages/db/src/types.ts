@@ -166,6 +166,27 @@ export interface Repository {
     runId: string,
     artifactKey: string,
   ): Promise<Artifact>;
+  /**
+   * Returns one validated, non-private artifact from the exact authorized run.
+   * This intentionally is not a general artifact search surface.
+   */
+  publicArtifactById(
+    userId: string,
+    orgId: string,
+    runId: string,
+    artifactId: string,
+  ): Promise<Artifact>;
+  /**
+   * Bounded exact-ID variant for server-owned allowlists. It never searches by
+   * user input and silently omits missing, private, invalid, or unvalidated
+   * artifacts so callers cannot turn it into an existence oracle.
+   */
+  publicArtifactsByIds(
+    userId: string,
+    orgId: string,
+    runId: string,
+    artifactIds: readonly string[],
+  ): Promise<Artifact[]>;
   decisionBrief(userId: string, orgId: string, runId: string): Promise<DecisionBriefResponse>;
   decisionIntelligence(
     userId: string,

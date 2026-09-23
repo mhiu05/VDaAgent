@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "agent-activity-v1"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "context_started",
+        "context_ready",
+        "tool_started",
+        "tool_completed",
+        "run_created",
+        "run_progress",
+        "artifact_ready",
+        "answer_started",
+        "answer_completed",
+        "error"
+      ]
+    },
+    "label": {
+      "type": "string",
+      "enum": [
+        "understanding_context",
+        "inspecting_context",
+        "starting_analysis",
+        "analysis_queued",
+        "analysis_progress",
+        "preparing_answer",
+        "answer_ready",
+        "safe_error"
+      ]
+    },
+    "capability": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "create_analysis",
+            "get_analysis_result",
+            "inspect_signal",
+            "inspect_decision_intelligence",
+            "inspect_visual",
+            "inspect_priority_entity",
+            "inspect_evidence",
+            "get_report_context",
+            "inspect_agent_checkpoint"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "run_id": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "artifact_id": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error_code": {
+      "default": null,
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "UNSUPPORTED_REQUEST",
+            "UNSUPPORTED_CAUSAL_REQUEST",
+            "UNSUPPORTED_SCOPE",
+            "MISSING_CONTEXT",
+            "NO_AUTHORIZED_RESULT",
+            "STALE_CONTEXT",
+            "PROVIDER_UNAVAILABLE",
+            "PROVIDER_TIMEOUT",
+            "PROVIDER_OUTPUT_INVALID",
+            "RUNTIME_LIMIT_EXCEEDED",
+            "CAPABILITY_DENIED",
+            "CAPABILITY_UNAVAILABLE",
+            "CAPABILITY_OUTPUT_INVALID",
+            "GROUNDING_INVALID",
+            "TURN_CANCELLED"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "sequence",
+    "type",
+    "label",
+    "capability",
+    "run_id",
+    "artifact_id",
+    "error_code"
+  ],
+  "additionalProperties": false
+}
