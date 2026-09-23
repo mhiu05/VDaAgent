@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import Link from 'next/link';
 import { z } from 'zod';
 import {
@@ -50,8 +50,14 @@ import { ApiError, api, dateTime, errorMessage, post, scoped } from '../lib/clie
 import { AnalysisResult, ReportBody } from './analysis-result';
 import { AgentChat } from './agent-chat/agent-chat';
 import { shouldRenderAgentChat } from './agent-chat/run-view';
+import { CapabilityRail, capabilityLabel } from './capability-rail';
 import { EvidenceDrawer } from './evidence';
+import { GrokWorkspace } from './grok-workspace';
 import { HistoryPanel, ImportsPanel, SchedulesPanel, ScopeFields } from './resource-panels';
+import {
+  initialWorkspaceContextState,
+  workspaceContextReducer,
+} from './workspace-context';
 
 type Setup = z.infer<typeof SetupSchema>;
 type RunDetail = z.infer<typeof RunDetailSchema>;
@@ -346,6 +352,10 @@ function WorkspaceShell({
   const orgId = organization.org_id;
   const canWrite = organization.role !== 'viewer';
   const [tab, setTab] = useState<Tab>('analysis');
+  const [workspaceContextState, dispatchWorkspaceContext] = useReducer(
+    workspaceContextReducer,
+    initialWorkspaceContextState,
+  );
   const [catalog, setCatalog] = useState<Catalog>({ projects: [], latest_snapshot_date: null });
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [project, setProject] = useState('');
@@ -372,6 +382,7 @@ function WorkspaceShell({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pollEpoch, setPollEpoch] = useState(0);
+  const grokWorkspaceEnabled = setup?.grok_workspace_enabled === true;
   const refreshCatalog = useCallback(async () => {
     const value = await api(scoped('/catalog', orgId), CatalogSchema);
     setCatalog(value);
@@ -457,8 +468,21 @@ function WorkspaceShell({
       if (timer) clearTimeout(timer);
     };
   }, [runId, orgId, pollEpoch]);
+  function updateWorkspaceProject(value: string) {
+    setProject(value);
+    dispatchWorkspaceContext({ type: 'clear_for_scope_change' });
+  }
+  function updateWorkspaceZone(value: string) {
+    setZone(value);
+    dispatchWorkspaceContext({ type: 'clear_for_scope_change' });
+  }
+  function updateWorkspaceDataAsOf(value: string) {
+    setDataAsOf(value);
+    dispatchWorkspaceContext({ type: 'clear_for_scope_change' });
+  }
   function selectRun(id: string, conversation?: string) {
     setRunId(id);
+    dispatchWorkspaceContext({ type: 'set_active_run', run_id: id });
     setConversationId(conversation ?? null);
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
@@ -475,6 +499,7 @@ function WorkspaceShell({
   }
   function clearSelectedRun() {
     setRunId(null);
+    dispatchWorkspaceContext({ type: 'set_active_run', run_id: null });
     setRunDetail(null);
     setMessages([]);
     setConversationId(null);
@@ -583,7 +608,10 @@ function WorkspaceShell({
   const active = runDetail && ['queued', 'running'].includes(runDetail.run.status);
   const selectedArtifact = bundle.artifacts.find((item) => item.artifact_id === evidenceId);
   const renderAgentChat = shouldRenderAgentChat(runId, runDetail?.run.workflow_version);
-  const currentNav = navigation.find((item) => item.id === tab)!;
+  const currentNavName =
+    grokWorkspaceEnabled && tab === 'analysis'
+      ? capabilityLabel(workspaceContextState.mode)
+      : navigation.find((item) => item.id === tab)!.name;
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -611,7 +639,41 @@ function WorkspaceShell({
           </label>
           <ChevronDown size={14} />
         </div>
-        <p className="nav-caption">WORKSPACE</p>
+        {grokWorkspaceEnabled ? (
+          <>
+            <CapabilityRail
+              mode={workspaceContextState.mode}
+              onMode={(mode) => {
+                dispatchWorkspaceContext({ type: 'set_mode', mode });
+                setEvidenceId(null);
+                setTab('analysis');
+              }}
+            />
+            <p className="nav-caption">RESOURCES</p>
+            <nav aria-label="Workspace resources">
+              {navigation
+                .filter((item) => item.id !== 'analysis')
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    className={'nav-item ' + (tab === item.id ? 'active' : '')}
+                    onClick={() => {
+                      setTab(item.id);
+                      setEvidenceId(null);
+                      if (item.id === 'reports') setReport(null);
+                    }}
+                    aria-current={tab === item.id ? 'page' : undefined}
+                  >
+                    <item.icon size={18} />
+                    {item.name}
+                    {tab === item.id && <span className="nav-dot" />}
+                  </button>
+                ))}
+            </nav>
+          </>
+        ) : (
+          <>
+            <p className="nav-caption">WORKSPACE</p>
         <nav aria-label="Điều hướng chính">
           {navigation.map((item) => (
             <button
@@ -630,6 +692,8 @@ function WorkspaceShell({
             </button>
           ))}
         </nav>
+          </>
+        )}
         <div className="sidebar-bottom">
           <div className="trust-note">
             <Workflow size={22} />
@@ -658,7 +722,7 @@ function WorkspaceShell({
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumbs">
-            Workspace <span>/</span> <strong>{currentNav.name}</strong>
+            Workspace <span>/</span> <strong>{currentNavName}</strong>
           </div>
           <div className="topbar-status">
             <span className="live-dot" />
@@ -674,14 +738,14 @@ function WorkspaceShell({
               <span className="eyebrow">
                 {tab === 'analysis' ? 'INVENTORY INTELLIGENCE' : 'VDaAgent WORKSPACE'}
               </span>
-              <h1>{currentNav.name}</h1>
+              <h1>{currentNavName}</h1>
               <p>
                 {tab === 'analysis'
                   ? 'Hiểu dữ liệu. Khám phá bằng chứng. Tự tin với từng nhận định.'
                   : 'Phân tích có thể kiểm chứng, trong cùng một không gian.'}
               </p>
             </div>
-            {tab === 'analysis' && runId && (
+            {tab === 'analysis' && !grokWorkspaceEnabled && runId && (
               <button className="secondary" onClick={clearSelectedRun}>
                 <Plus size={16} />
                 Mở Agent Chat
@@ -722,7 +786,53 @@ function WorkspaceShell({
             </div>
           ) : (
             <>
-              {tab === 'analysis' && runId && !renderAgentChat && (
+              {tab === 'analysis' && grokWorkspaceEnabled && (
+                <GrokWorkspace
+                  orgId={orgId}
+                  organizationName={organization.name}
+                  catalog={catalog}
+                  canWrite={canWrite}
+                  sseEnabled={
+                    setup?.grok_runtime_enabled === true && setup.grok_sse_enabled === true
+                  }
+                  project={project}
+                  zone={zone}
+                  dataAsOf={dataAsOf}
+                  workspaceState={workspaceContextState}
+                  workspaceRevision={workspaceContextState.revision}
+                  staleSelectionCleared={workspaceContextState.stale_selection_cleared}
+                  onProject={updateWorkspaceProject}
+                  onZone={updateWorkspaceZone}
+                  onDataAsOf={updateWorkspaceDataAsOf}
+                  onActiveRunChange={(value) =>
+                    dispatchWorkspaceContext({ type: 'set_active_run', run_id: value })
+                  }
+                  onWorkspaceAction={(action, expectedRevision) =>
+                    dispatchWorkspaceContext({
+                      type: 'apply_workspace_action',
+                      action,
+                      expected_revision: expectedRevision,
+                    })
+                  }
+                  onDashboardSelectionChange={(selection, runId) =>
+                    dispatchWorkspaceContext({
+                      type: 'set_dashboard_selection',
+                      selection,
+                      run_id: runId,
+                    })
+                  }
+                  onActiveArtifactChange={(artifactId) =>
+                    dispatchWorkspaceContext({
+                      type: 'set_active_artifact',
+                      artifact_id: artifactId,
+                    })
+                  }
+                  onClearStaleNotice={() =>
+                    dispatchWorkspaceContext({ type: 'clear_stale_notice' })
+                  }
+                />
+              )}
+              {tab === 'analysis' && !grokWorkspaceEnabled && runId && !renderAgentChat && (
                 <div className="result-stack">
                   <section className="card analysis-composer">
                     <header className="section-heading">
@@ -1009,11 +1119,20 @@ function WorkspaceShell({
                   />
                 </div>
               )}
-              {tab === 'analysis' && renderAgentChat && (
+              {tab === 'analysis' && !grokWorkspaceEnabled && renderAgentChat && (
                 <AgentChat
                   orgId={orgId}
                   catalog={catalog}
                   canWrite={canWrite}
+                  sseEnabled={setup?.grok_runtime_enabled === true && setup.grok_sse_enabled === true}
+                  workspaceState={workspaceContextState}
+                  workspaceMode="agent_chat"
+                  onActiveRunChange={(value) =>
+                    dispatchWorkspaceContext({ type: 'set_active_run', run_id: value })
+                  }
+                  onWorkspaceAction={(action) =>
+                    dispatchWorkspaceContext({ type: 'apply_workspace_action', action })
+                  }
                   externalRunId={runId}
                   onClearExternalRun={clearSelectedRun}
                   onReport={(id) => void openReport(id)}

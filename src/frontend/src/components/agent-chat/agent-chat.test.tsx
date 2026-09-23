@@ -5,6 +5,7 @@ import { MessageThread, senderLabel } from './message-thread';
 import { isReadOnlyRunView, shouldRenderAgentChat } from './run-view';
 import { taskLabel } from './run-progress';
 import { WorkflowCheckpointStatus } from './workflow-checkpoint-status';
+import { ActivityTimeline } from './activity-timeline';
 
 const message: Message = {
   message_id: '80000000-0000-4000-8000-000000000001',
@@ -76,6 +77,60 @@ describe('Agent Chat message presentation', () => {
     expect(output).toContain('Reviewer passed draft revision 2.');
     expect(output).toContain('Published after deterministic gate');
     expect(output).not.toContain('content_hash');
+  });
+
+  it('renders only fixed safe activity labels', () => {
+    const output = renderToStaticMarkup(
+      <ActivityTimeline
+        events={[
+          {
+            version: 'agent-activity-v1',
+            sequence: 0,
+            type: 'error',
+            label: 'safe_error',
+            capability: null,
+            run_id: null,
+            artifact_id: null,
+            error_code: 'PROVIDER_UNAVAILABLE',
+          },
+        ]}
+      />,
+    );
+    expect(output).toContain('The assistant completed with a safe status');
+    expect(output).not.toContain('PROVIDER_UNAVAILABLE');
+  });
+
+  it('renders a validated workspace action as a fixed-label control', () => {
+    const output = renderToStaticMarkup(
+      <MessageThread
+        messages={[
+          {
+            ...message,
+            parts: [
+              {
+                type: 'workspace_action',
+                action: {
+                  type: 'open_evidence',
+                  run_id: '82000000-0000-4000-8000-000000000001',
+                  artifact_id: '40000000-0000-4000-8000-000000000001',
+                  evidence_path: null,
+                },
+              },
+            ],
+          },
+        ]}
+        loading={false}
+        hasEarlier={false}
+        onLoadEarlier={() => undefined}
+        onOpenRun={() => undefined}
+        onOpenReport={() => undefined}
+        onOpenArtifact={() => undefined}
+        onWorkspaceAction={() => undefined}
+      />,
+    );
+    expect(output).toContain('Open authorized evidence');
+    expect(output).toContain('<button');
+    expect(output).not.toContain('40000000-0000-4000-8000-000000000001');
   });
 
   it('keeps unresolved and scheduled external runs non-mutating in AgentChat', () => {

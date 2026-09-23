@@ -166,9 +166,15 @@ export function ChartUnavailableView({ state }: { state: ChartUnavailable }) {
   );
 }
 
-export function ChartRenderer({ spec }: { spec: ChartSpec }) {
-  return (
-    <section className={`chart-spec chart-${spec.chart_type}`} data-chart-id={spec.chart_id}>
+export function ChartRenderer({
+  spec,
+  onDrilldown,
+}: {
+  spec: ChartSpec;
+  onDrilldown?: () => void;
+}) {
+  const content = (
+    <>
       <header className="chart-spec-heading">
         <div>
           <h3>{spec.title}</h3>
@@ -194,6 +200,23 @@ export function ChartRenderer({ spec }: { spec: ChartSpec }) {
           ))}
         </ul>
       )}
+    </>
+  );
+  if (onDrilldown)
+    return (
+      <button
+        className={`chart-spec chart-${spec.chart_type} chart-spec-interactive`}
+        data-chart-id={spec.chart_id}
+        type="button"
+        onClick={onDrilldown}
+        aria-label={`Inspect ${spec.title}`}
+      >
+        {content}
+      </button>
+    );
+  return (
+    <section className={`chart-spec chart-${spec.chart_type}`} data-chart-id={spec.chart_id}>
+      {content}
     </section>
   );
 }

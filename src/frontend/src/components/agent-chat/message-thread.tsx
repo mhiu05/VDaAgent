@@ -2,7 +2,7 @@
 
 import { createElement } from 'react';
 import { ArrowUpRight, FileText, LoaderCircle } from 'lucide-react';
-import type { Message } from '@vda/contracts';
+import type { Message, WorkspaceActionV1 } from '@vda/contracts';
 
 const senderLabels: Record<NonNullable<Message['sender_agent']>, string> = {
   coordinator: 'Coordinator',
@@ -24,6 +24,14 @@ const errorLabels: Record<string, string> = {
   ANALYSIS_ACTION_FAILED: 'Không thể khởi tạo hoặc tải kết quả phân tích.',
   RUN_CANCELLED: 'Lượt phân tích đã bị hủy.',
 };
+const workspaceActionLabels: Record<WorkspaceActionV1['type'], string> = {
+  open_dashboard: 'Open authorized dashboard',
+  open_drilldown: 'Open authorized drill-down',
+  focus_visual: 'Focus authorized chart',
+  focus_priority_entity: 'Focus authorized priority',
+  open_evidence: 'Open authorized evidence',
+  switch_capability_mode: 'Switch workspace capability',
+};
 
 export function MessageThread({
   messages,
@@ -33,6 +41,7 @@ export function MessageThread({
   onOpenRun,
   onOpenReport,
   onOpenArtifact,
+  onWorkspaceAction,
 }: {
   messages: Message[];
   loading: boolean;
@@ -41,6 +50,7 @@ export function MessageThread({
   onOpenRun: (runId: string, messageId: string) => void;
   onOpenReport: (reportId: string) => void;
   onOpenArtifact: (runId: string, artifactId: string) => void;
+  onWorkspaceAction?: (action: WorkspaceActionV1) => void;
 }) {
   return (
     <section className="agent-thread" aria-label="Nội dung hội thoại">
@@ -84,7 +94,15 @@ export function MessageThread({
                   <button
                     className="text-button agent-reference"
                     key={`${message.message_id}:report:${index}`}
-                    onClick={() => onOpenReport(part.report_id)}
+                    onClick={() =>
+                      onWorkspaceAction
+                        ? onWorkspaceAction({
+                            type: 'open_dashboard',
+                            run_id: part.run_id,
+                            report_id: part.report_id,
+                          })
+                        : onOpenReport(part.report_id)
+                    }
                   >
                     <FileText size={13} /> Báo cáo đã liên kết
                   </button>
@@ -95,7 +113,15 @@ export function MessageThread({
                   {
                     className: 'text-button agent-reference',
                     key: [message.message_id, 'artifact', index].join(':'),
-                    onClick: () => onOpenArtifact(part.run_id, part.artifact_id),
+                    onClick: () =>
+                      onWorkspaceAction
+                        ? onWorkspaceAction({
+                            type: 'open_evidence',
+                            run_id: part.run_id,
+                            artifact_id: part.artifact_id,
+                            evidence_path: null,
+                          })
+                        : onOpenArtifact(part.run_id, part.artifact_id),
                   },
                   createElement(FileText, { size: 13 }),
                   ' Bằng chứng · ',
@@ -118,7 +144,15 @@ export function MessageThread({
                   <button
                     className='text-button agent-reference'
                     key={`${message.message_id}:decision:${index}`}
-                    onClick={() => onOpenRun(part.run_id, message.message_id)}
+                    onClick={() =>
+                      onWorkspaceAction
+                        ? onWorkspaceAction({
+                            type: 'open_dashboard',
+                            run_id: part.run_id,
+                            report_id: null,
+                          })
+                        : onOpenRun(part.run_id, message.message_id)
+                    }
                   >
                     Decision intelligence <ArrowUpRight size={13} />
                   </button>
@@ -128,10 +162,45 @@ export function MessageThread({
                   <button
                     className='text-button agent-reference'
                     key={`${message.message_id}:drilldown:${index}`}
-                    onClick={() => onOpenRun(part.run_id, message.message_id)}
+                    onClick={() =>
+                      onWorkspaceAction
+                        ? onWorkspaceAction({
+                            type: 'open_drilldown',
+                            run_id: part.run_id,
+                            drilldown_id: part.drilldown_id,
+                          })
+                        : onOpenRun(part.run_id, message.message_id)
+                    }
                   >
                     Validated drill-down <ArrowUpRight size={13} />
                   </button>
+                );
+              if (
+                part.type === 'claim_ref' ||
+                part.type === 'metric_ref' ||
+                part.type === 'evidence_ref' ||
+                part.type === 'quality_ref'
+              )
+                return (
+                  <span className='agent-reference' key={`${message.message_id}:${part.type}:${index}`}>
+                    Grounded {part.type.replace('_ref', '').replace('_', ' ')}
+                  </span>
+                );
+              if (part.type === 'workspace_action' && onWorkspaceAction)
+                return (
+                  <button
+                    className="text-button agent-reference"
+                    key={message.message_id + ':action:' + index}
+                    onClick={() => onWorkspaceAction(part.action)}
+                  >
+                    {workspaceActionLabels[part.action.type]} <ArrowUpRight size={13} />
+                  </button>
+                );
+              if (part.type === 'workspace_action')
+                return (
+                  <span className='agent-reference' key={`${message.message_id}:action:${index}`}>
+                    Suggested workspace action
+                  </span>
                 );
               if (part.type === 'error')
                 return (

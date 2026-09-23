@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { z } from 'zod';
 import {
@@ -8,13 +8,17 @@ import {
   DecisionBriefResponseSchema,
   DecisionIntelligenceResponseSchema,
   RunDetailSchema,
+  type AgentActivityEventV1,
   type AgentKey,
+  type CapabilityMode,
   type AgentWorkflowStatus,
   type Catalog,
   type DecisionBriefResponse,
   type DecisionIntelligenceResponse,
   type AgentTurnRequest,
   type Message,
+  type WorkspaceActionV1,
+  type WorkspaceModeV1,
 } from '@vda/contracts';
 import {
   ApiError,
@@ -29,14 +33,21 @@ import {
   sendTurn,
   type TurnRequestIdentity,
 } from '../../lib/client-api';
+import { sendTurnStream } from '../../lib/sse';
 import { AnalysisResult } from '../analysis-result';
 import { EvidenceDrawer } from '../evidence';
 import { Composer } from './composer';
+import { ActivityTimeline } from './activity-timeline';
 import { ConversationList } from './conversation-list';
 import { MessageThread } from './message-thread';
 import { isReadOnlyRunView } from './run-view';
 import { RunProgress } from './run-progress';
 import { WorkflowCheckpointStatus } from './workflow-checkpoint-status';
+import {
+  initialWorkspaceContextState,
+  toWorkspaceContext,
+  type WorkspaceContextState,
+} from '../workspace-context';
 
 type RunDetail = z.infer<typeof RunDetailSchema>;
 type ArtifactList = z.infer<typeof ArtifactListSchema>;
@@ -53,6 +64,22 @@ export function AgentChat({
   orgId,
   catalog,
   canWrite,
+  sseEnabled = false,
+  project: controlledProject,
+  zone: controlledZone,
+  dataAsOf: controlledDataAsOf,
+  activeRunId: controlledRunId,
+  workspaceState,
+  workspaceMode = 'agent_chat',
+  workspaceLayout = false,
+  showConversationList = true,
+  capabilityMode,
+  focusComposerRequest,
+  onProject,
+  onZone,
+  onDataAsOf,
+  onActiveRunChange,
+  onWorkspaceAction,
   externalRunId,
   onClearExternalRun,
   onReport,
@@ -60,6 +87,25 @@ export function AgentChat({
   orgId: string;
   catalog: Catalog;
   canWrite: boolean;
+  sseEnabled?: boolean;
+  project?: string;
+  zone?: string;
+  dataAsOf?: string;
+  activeRunId?: string | null;
+  /** Existing navigation state; converted to a wire snapshot only on submit. */
+  workspaceState?: WorkspaceContextState;
+  /** Wire mode is deliberately separate from the richer UI capability mode. */
+  workspaceMode?: WorkspaceModeV1;
+  /** Enables compact report-dashboard presentation behavior. */
+  workspaceLayout?: boolean;
+  showConversationList?: boolean;
+  capabilityMode?: CapabilityMode;
+  focusComposerRequest?: number;
+  onProject?: (value: string) => void;
+  onZone?: (value: string) => void;
+  onDataAsOf?: (value: string) => void;
+  onActiveRunChange?: (value: string | null) => void;
+  onWorkspaceAction?: (action: WorkspaceActionV1) => void;
   externalRunId?: string | null;
   onClearExternalRun?: () => void;
   onReport?: (reportId: string) => void;
@@ -71,9 +117,9 @@ export function AgentChat({
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
-  const [project, setProject] = useState(catalog.projects[0]?.project_external_id ?? '');
-  const [zone, setZone] = useState('');
-  const [dataAsOf, setDataAsOf] = useState(catalog.latest_snapshot_date ?? '');
+  const [localProject, setLocalProject] = useState(catalog.projects[0]?.project_external_id ?? '');
+  const [localZone, setLocalZone] = useState('');
+  const [localDataAsOf, setLocalDataAsOf] = useState(catalog.latest_snapshot_date ?? '');
   const [draft, setDraft] = useState('');
   const [agentTarget, setAgentTarget] = useState<AgentKey | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
@@ -98,15 +144,64 @@ export function AgentChat({
   const [cancelling, setCancelling] = useState(false);
   const [retryTurn, setRetryTurn] = useState<RetryTurn | null>(null);
   const [error, setError] = useState('');
+  const [activity, setActivity] = useState<AgentActivityEventV1[]>([]);
+  const project = controlledProject ?? localProject;
+  const zone = controlledZone ?? localZone;
+  const dataAsOf = controlledDataAsOf ?? localDataAsOf;
+  const runIsControlled = controlledRunId !== undefined;
+  const workspaceControlled = workspaceLayout && onWorkspaceAction !== undefined;
+  const selectedRunId = runIsControlled ? controlledRunId : runId;
+  const onActiveRunChangeRef = useRef(onActiveRunChange);
 
   useEffect(() => {
-    setProject((value) =>
-      catalog.projects.some((item) => item.project_external_id === value)
-        ? value
-        : (catalog.projects[0]?.project_external_id ?? ''),
-    );
-    setDataAsOf((value) => value || catalog.latest_snapshot_date || '');
-  }, [catalog]);
+    onActiveRunChangeRef.current = onActiveRunChange;
+  }, [onActiveRunChange]);
+
+  function updateProject(value: string) {
+    if (controlledProject === undefined) setLocalProject(value);
+    onProject?.(value);
+  }
+  function updateZone(value: string) {
+    if (controlledZone === undefined) setLocalZone(value);
+    onZone?.(value);
+  }
+  function updateDataAsOf(value: string) {
+    if (controlledDataAsOf === undefined) setLocalDataAsOf(value);
+    onDataAsOf?.(value);
+  }
+  const updateActiveRun = useCallback(
+    (value: string | null) => {
+      if (!runIsControlled) setRunId(value);
+      onActiveRunChangeRef.current?.(value);
+    },
+    [runIsControlled],
+  );
+
+  const buildWorkspaceContext = useCallback(
+    (conversationId: string | null, activeRunId?: string | null) => {
+      const state = workspaceState ?? initialWorkspaceContextState;
+      return toWorkspaceContext(state, {
+        org_id: orgId,
+        conversation_id: conversationId,
+        scope: { project_external_id: project, zone_external_id: zone || null },
+        data_as_of: dataAsOf,
+        mode: workspaceMode,
+        active_run_id: activeRunId ?? selectedRunId ?? state.active_run_id,
+      });
+    },
+    [dataAsOf, orgId, project, selectedRunId, workspaceMode, workspaceState, zone],
+  );
+
+  useEffect(() => {
+    if (controlledProject === undefined)
+      setLocalProject((value) =>
+        catalog.projects.some((item) => item.project_external_id === value)
+          ? value
+          : (catalog.projects[0]?.project_external_id ?? ''),
+      );
+    if (controlledDataAsOf === undefined)
+      setLocalDataAsOf((value) => value || catalog.latest_snapshot_date || '');
+  }, [catalog, controlledDataAsOf, controlledProject]);
 
   const loadConversations = useCallback(
     async (cursor: string | null, append: boolean) => {
@@ -130,7 +225,7 @@ export function AgentChat({
   useEffect(() => {
     setSelectedConversationId(null);
     setMessages([]);
-    setRunId(null);
+    if (!runIsControlled) updateActiveRun(null);
     setRunMessageId(null);
     setRunDetail(null);
     setRunMessageId(null);
@@ -138,13 +233,14 @@ export function AgentChat({
     setBrief(null);
     setDecision(null);
     setBriefStatus('idle');
+    setActivity([]);
     setError('');
     void loadConversations(null, false).then((page) => {
       if (!externalRunId && page?.conversations[0]) {
         setSelectedConversationId(page.conversations[0].conversation_id);
       }
     });
-  }, [externalRunId, loadConversations, orgId]);
+  }, [externalRunId, loadConversations, orgId, runIsControlled, updateActiveRun]);
 
   const loadMessages = useCallback(
     async (conversationId: string, cursor: string | null, appendEarlier: boolean) => {
@@ -172,6 +268,7 @@ export function AgentChat({
     setBrief(null);
     setDecision(null);
     setBriefStatus('idle');
+    setActivity([]);
     void listConversationMessages(orgId, selectedConversationId, { limit: 30 }).then(
       (page) => {
         if (obsolete) return;
@@ -193,6 +290,7 @@ export function AgentChat({
       setRunMessageId(null);
       return;
     }
+    if (runIsControlled) return;
     const latest = [...messages].reverse().find((message) => {
       if (message.role !== 'assistant') return false;
       return message.run_id !== null || message.parts.some((part) => part.type === 'run_ref');
@@ -200,18 +298,30 @@ export function AgentChat({
     const referencedRunId =
       latest?.run_id ?? latest?.parts.find((part) => part.type === 'run_ref')?.run_id ?? null;
     if (latest && referencedRunId) {
-      setRunId(referencedRunId);
+      updateActiveRun(referencedRunId);
       setRunMessageId(latest.message_id);
     }
-  }, [externalRunId, messages]);
+  }, [externalRunId, messages, runIsControlled, updateActiveRun]);
 
-  const visibleRunId = externalRunId ?? runId;
+  const visibleRunId = externalRunId ?? selectedRunId;
+  const currentRunDetail =
+    runDetail && runDetail.run.run_id === visibleRunId ? runDetail : null;
+  useEffect(() => {
+    setRunDetail(null);
+    setWorkflowStatus(null);
+    setBundle({ artifacts: [], validations: [], sources: [] });
+    setBrief(null);
+    setDecision(null);
+    setBriefStatus('idle');
+    setDetailsLoading(false);
+    setEvidenceId(null);
+  }, [visibleRunId]);
   useEffect(() => {
     if (!visibleRunId) setWorkflowStatus(null);
   }, [visibleRunId]);
   const scheduledReadOnly = isReadOnlyRunView(
     externalRunId,
-    runDetail?.run ?? null,
+    currentRunDetail?.run ?? null,
     conversations.find((conversation) => conversation.conversation_id === selectedConversationId)
       ?.kind,
   );
@@ -243,6 +353,13 @@ export function AgentChat({
         if (externalRunId && conversationId) {
           if (selectedConversationId !== conversationId) setSelectedConversationId(conversationId);
           void loadMessages(conversationId, null, false);
+        }
+        if (workspaceControlled && terminalStatuses.has(detail.run.status)) {
+          if (!obsolete) {
+            void loadConversations(null, false);
+            if (selectedConversationId) void loadMessages(selectedConversationId, null, false);
+          }
+          return;
         }
         if (detail.run.status === 'succeeded') {
           if (!obsolete) setBriefStatus('loading');
@@ -303,11 +420,15 @@ export function AgentChat({
     orgId,
     selectedConversationId,
     visibleRunId,
+    workspaceControlled,
   ]);
 
   const selectedArtifact = useMemo(
-    () => bundle.artifacts.find((artifact) => artifact.artifact_id === evidenceId),
-    [bundle.artifacts, evidenceId],
+    () =>
+      currentRunDetail
+        ? bundle.artifacts.find((artifact) => artifact.artifact_id === evidenceId)
+        : undefined,
+    [bundle.artifacts, currentRunDetail, evidenceId],
   );
   const reportId = useMemo(() => {
     for (const message of [...messages].reverse())
@@ -318,12 +439,13 @@ export function AgentChat({
   function selectConversation(id: string) {
     onClearExternalRun?.();
     setSelectedConversationId(id);
-    setRunId(null);
+    updateActiveRun(null);
     setRunMessageId(null);
     setBrief(null);
     setDecision(null);
     setBriefStatus('idle');
     setEvidenceId(null);
+    setActivity([]);
     setError('');
   }
   function newConversation() {
@@ -331,7 +453,7 @@ export function AgentChat({
     setSelectedConversationId(null);
     setMessages([]);
     setMessageCursor(null);
-    setRunId(null);
+    updateActiveRun(null);
     setRunMessageId(null);
     setRunDetail(null);
     setBundle({ artifacts: [], validations: [], sources: [] });
@@ -343,16 +465,23 @@ export function AgentChat({
     setDraft('');
     setAgentTarget(null);
     setRetryTurn(null);
+    setActivity([]);
     setError('');
   }
   async function submit(providedAttempt?: RetryTurn) {
-    const attempt = providedAttempt ??
+    // The compatibility fields and versioned snapshot intentionally come
+    // from one derived object. That keeps the browser from accidentally
+    // sending two different scope/date views of the same turn.
+    const workspaceContext = buildWorkspaceContext(selectedConversationId);
+    const attempt =
+      providedAttempt ??
       retryTurn ?? {
         input: {
           text: draft.trim(),
-          scope: { project_external_id: project, zone_external_id: zone || null },
-          data_as_of: dataAsOf,
+          scope: workspaceContext.scope,
+          data_as_of: workspaceContext.data_as_of,
           agent_target: agentTarget,
+          workspace_context: workspaceContext,
         },
         identity: createTurnIdentity(),
         conversationId: selectedConversationId ?? undefined,
@@ -360,18 +489,34 @@ export function AgentChat({
     if (!attempt.input.text || busy || !canWrite || scheduledReadOnly) return;
     setBusy(true);
     setError('');
+    setActivity([]);
     try {
-      const accepted = await sendTurn(
-        orgId,
-        attempt.input,
-        attempt.identity,
-        attempt.conversationId,
-      );
+      let accepted: Awaited<ReturnType<typeof sendTurn>>;
+      try {
+        accepted = sseEnabled
+          ? await sendTurnStream(
+              orgId,
+              attempt.input,
+              attempt.identity,
+              (event) =>
+                setActivity((current) =>
+                  event.sequence > (current[current.length - 1]?.sequence ?? -1)
+                    ? [...current, event]
+                    : current,
+                ),
+              attempt.conversationId,
+            )
+          : await sendTurn(orgId, attempt.input, attempt.identity, attempt.conversationId);
+      } catch (cause) {
+        if (!(sseEnabled && cause instanceof ApiError && [404, 406].includes(cause.status)))
+          throw cause;
+        accepted = await sendTurn(orgId, attempt.input, attempt.identity, attempt.conversationId);
+      }
       setRetryTurn(null);
       setDraft('');
       setAgentTarget(null);
       setSelectedConversationId(accepted.conversation_id);
-      setRunId(accepted.run_id);
+      updateActiveRun(accepted.run_id);
       setRunMessageId(accepted.assistant_message_id);
       setRunDetail(null);
       setBundle({ artifacts: [], validations: [], sources: [] });
@@ -382,6 +527,8 @@ export function AgentChat({
       await loadMessages(accepted.conversation_id, null, false);
     } catch (cause) {
       setRetryTurn(attempt);
+      if (attempt.conversationId) void loadMessages(attempt.conversationId, null, false);
+      void loadConversations(null, false);
       setError(errorMessage(cause));
     } finally {
       setBusy(false);
@@ -393,16 +540,18 @@ export function AgentChat({
     action: Extract<NonNullable<TurnInput['signal_action']>, 'inspect' | 'analyze_segment'>,
   ) {
     if (!canWrite || busy || scheduledReadOnly) return;
+    const workspaceContext = buildWorkspaceContext(selectedConversationId, runId);
     const attempt: RetryTurn = {
       input: {
         text:
           action === 'inspect'
             ? 'Inspect this validated signal.'
             : 'Analyze this validated zone segment.',
-        scope: { project_external_id: project, zone_external_id: zone || null },
-        data_as_of: dataAsOf,
+        scope: workspaceContext.scope,
+        data_as_of: workspaceContext.data_as_of,
         signal_ref: { run_id: runId, signal_id: signalId },
         signal_action: action,
+        workspace_context: workspaceContext,
       },
       identity: createTurnIdentity(),
       conversationId: selectedConversationId ?? undefined,
@@ -425,7 +574,7 @@ export function AgentChat({
     }
   }
   async function loadRunArtifacts() {
-    if (!visibleRunId || bundle.artifacts.length || detailsLoading) return;
+    if (!visibleRunId || !currentRunDetail || bundle.artifacts.length || detailsLoading) return;
     setDetailsLoading(true);
     try {
       setBundle(await api(scoped(`/runs/${visibleRunId}/artifacts`, orgId), ArtifactListSchema));
@@ -461,7 +610,7 @@ export function AgentChat({
 
   return (
     <div className="agent-chat-layout">
-      <ConversationList
+      {showConversationList && <ConversationList
         conversations={conversations}
         selectedId={selectedConversationId}
         loading={loadingConversations}
@@ -469,8 +618,15 @@ export function AgentChat({
         onNew={newConversation}
         onSelect={selectConversation}
         onLoadMore={() => conversationCursor && void loadConversations(conversationCursor, true)}
-      />
+      />}
       <div className="agent-chat-main">
+        {!showConversationList && (
+          <div className="agent-chat-compact-controls">
+            <button className="text-button" onClick={newConversation}>
+              New conversation
+            </button>
+          </div>
+        )}
         {error && (
           <div className="error-box" role="alert">
             <CircleAlert size={18} />
@@ -486,15 +642,16 @@ export function AgentChat({
             )}
           </div>
         )}
-        {runDetail && (
+        {currentRunDetail && (
           <RunProgress
-            detail={runDetail}
+            detail={currentRunDetail}
             canWrite={canWrite && !scheduledReadOnly}
             cancelling={cancelling}
             onCancel={() => void cancelRun()}
           />
         )}
-        {workflowStatus && <WorkflowCheckpointStatus status={workflowStatus} />}
+        <ActivityTimeline events={activity} />
+        {currentRunDetail && workflowStatus && <WorkflowCheckpointStatus status={workflowStatus} />}
         <MessageThread
           messages={messages}
           loading={loadingMessages}
@@ -506,18 +663,19 @@ export function AgentChat({
           }
           onOpenRun={(id, messageId) => {
             onClearExternalRun?.();
-            setRunId(id);
+            updateActiveRun(id);
             setRunMessageId(messageId);
           }}
           onOpenReport={(id) => onReport?.(id)}
           onOpenArtifact={(artifactRunId, artifactId) => {
             onClearExternalRun?.();
-            setRunId(artifactRunId);
+            updateActiveRun(artifactRunId);
             setRunMessageId(null);
             void openEvidence(artifactId, artifactRunId);
           }}
+          onWorkspaceAction={onWorkspaceAction}
         />
-        {runDetail?.run.status === 'succeeded' && (
+        {!workspaceControlled && currentRunDetail?.run.status === 'succeeded' && (
           <div
             className="agent-run-result"
             data-agent-message-id={runMessageId ?? undefined}
@@ -548,19 +706,22 @@ export function AgentChat({
           project={project}
           zone={zone}
           dataAsOf={dataAsOf}
+          capabilityMode={capabilityMode}
+          focusRequest={focusComposerRequest}
+          showAgentTarget={capabilityMode === undefined}
           draft={draft}
           busy={busy}
           agentTarget={agentTarget}
           scheduledReadOnly={scheduledReadOnly}
-          onProject={setProject}
-          onZone={setZone}
-          onDate={setDataAsOf}
+          onProject={updateProject}
+          onZone={updateZone}
+          onDate={updateDataAsOf}
           onDraft={setDraft}
           onAgentTarget={setAgentTarget}
           onSubmit={() => void submit()}
         />
       </div>
-      {selectedArtifact && (
+      {!workspaceControlled && selectedArtifact && (
         <EvidenceDrawer
           artifact={selectedArtifact}
           artifacts={bundle.artifacts}

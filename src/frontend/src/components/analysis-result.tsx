@@ -14,19 +14,9 @@ import type {
   VisualEvidencePayload,
 } from '@vda/contracts';
 import { ChartRenderer, ChartUnavailableView } from './chart-renderer';
-import { formatChartValue, formatMetricValue } from '../lib/chart-format';
+import { formatChartValue } from '../lib/chart-format';
 import { DecisionIntelligenceView } from './decision-intelligence';
-
-const KPI_KEYS = new Set([
-  'total_inventory',
-  'available_inventory',
-  'available_inventory_rate',
-  'inventory_change_30d',
-  'median_inventory_age_days',
-  'slow_moving_rate',
-  'median_price_per_area',
-  'missing_inventory_age_rate',
-]);
+import { ReportDashboard } from './report-dashboard';
 
 const decimal = (value: string | null) => {
   if (value === null) return '—';
@@ -559,102 +549,13 @@ export function ReportBody({
   visualEvidence?: VisualEvidencePayload;
   onEvidence: (id: string) => void;
 }) {
-  const decisionPack = decision?.status === 'available' ? decision.decision_intelligence : null;
   return (
-    <article className="report-body">
-      <span className="eyebrow">BÁO CÁO TỒN KHO · {dataAsOf}</span>
-      <h1>{payload.title}</h1>
-      <p className="report-summary">{payload.summary}</p>
-      <span className="badge">Assumption / MVP provisional</span>
-      {decisionPack ? (
-        <DecisionIntelligenceView pack={decisionPack} onEvidence={onEvidence} />
-      ) : payload.decision_brief ? (
-        <DecisionBriefView brief={payload.decision_brief} onEvidence={onEvidence} />
-      ) : null}
-      <div className="claim-list">
-        {payload.sections.map((section) => (
-          <button
-            className="claim"
-            key={section.key}
-            onClick={() => section.artifact_refs[0] && onEvidence(section.artifact_refs[0])}
-          >
-            <FileCheck2 size={18} />
-            <span>
-              {section.title} · {section.status}
-            </span>
-            <ArrowUpRight size={15} />
-          </button>
-        ))}
-      </div>
-      {visualEvidence ? (
-        <div className="chart-kpi-grid report-metrics">
-          {visualEvidence.charts
-            .filter((spec) => spec.chart_type === 'kpi')
-            .map((spec) => (
-              <ChartRenderer key={spec.chart_id} spec={spec} />
-            ))}
-        </div>
-      ) : (
-        <div className="metrics-grid report-metrics">
-          {payload.metrics
-            .filter((metric) => KPI_KEYS.has(metric.key))
-            .map((metric) => (
-              <button
-                key={metric.key}
-                className="metric-card"
-                onClick={() => onEvidence(payload.calculation_artifact_id)}
-              >
-                <span className="metric-label">
-                  {metric.label}
-                  <ArrowUpRight size={14} />
-                </span>
-                <strong>{formatMetricValue(metric)}</strong>
-              </button>
-            ))}
-        </div>
-      )}
-      {visualEvidence && (
-        <section>
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">VISUAL EVIDENCE</span>
-              <h2>Biểu đồ đã lưu và kiểm tra</h2>
-            </div>
-            <button className="text-button" onClick={() => onEvidence(payload.chart_artifact_id)}>
-              Xem nguồn gốc <ArrowUpRight size={14} />
-            </button>
-          </div>
-          <VisualEvidenceGrid payload={visualEvidence} />
-        </section>
-      )}
-      <h2>Nhận định và bằng chứng</h2>
-      <div className="claim-list">
-        {payload.claims.map((claim) => (
-          <button
-            className="claim"
-            key={claim.claim_id}
-            onClick={() => onEvidence(claim.evidence_artifact_id)}
-          >
-            <FileCheck2 size={18} />
-            <span>{claim.text}</span>
-            <ArrowUpRight size={15} />
-          </button>
-        ))}
-      </div>
-      <UnitTable
-        units={payload.units}
-        onEvidence={() => onEvidence(payload.calculation_artifact_id)}
-      />
-      <h2>Giới hạn sử dụng</h2>
-      <ul>
-        {payload.limitations.map((item, index) => (
-          <li key={index}>{item}</li>
-        ))}
-      </ul>
-      <p className="muted">
-        Các giá trị được đọc từ artifact báo cáo đã lưu. Bản xuất sử dụng cùng dữ liệu đã được kiểm
-        tra.
-      </p>
-    </article>
+    <ReportDashboard
+      payload={payload}
+      dataAsOf={dataAsOf}
+      decision={decision}
+      visualEvidence={visualEvidence}
+      onEvidence={onEvidence}
+    />
   );
 }

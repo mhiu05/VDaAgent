@@ -1,8 +1,8 @@
 'use client';
 
-import { createElement, type ChangeEvent } from 'react';
+import { createElement, useEffect, useRef, type ChangeEvent } from 'react';
 import { Send, ShieldCheck, Sparkles } from 'lucide-react';
-import type { AgentKey, Catalog } from '@vda/contracts';
+import type { AgentKey, CapabilityMode, Catalog } from '@vda/contracts';
 import { ScopeFields } from '../resource-panels';
 
 const suggestions = [
@@ -20,6 +20,14 @@ const agentTargets: Array<{ value: AgentKey | null; label: string }> = [
   { value: 'chart', label: 'Chart' },
   { value: 'report', label: 'Report' },
 ];
+const modePlaceholders: Record<CapabilityMode, string> = {
+  grok: 'Ask about the authorized inventory context.',
+  data: 'Ask about validated data and availability.',
+  insight: 'Ask for evidence-backed insights.',
+  compare: 'Ask to compare authorized results.',
+  chart: 'Ask about a validated visual.',
+  report: 'Ask about the current report context.',
+};
 
 export function Composer({
   catalog,
@@ -27,6 +35,9 @@ export function Composer({
   project,
   zone,
   dataAsOf,
+  capabilityMode,
+  focusRequest,
+  showAgentTarget = true,
   draft,
   busy,
   agentTarget,
@@ -43,6 +54,9 @@ export function Composer({
   project: string;
   zone: string;
   dataAsOf: string;
+  capabilityMode?: CapabilityMode;
+  focusRequest?: number;
+  showAgentTarget?: boolean;
   draft: string;
   busy: boolean;
   agentTarget: AgentKey | null;
@@ -54,8 +68,12 @@ export function Composer({
   onAgentTarget: (value: AgentKey | null) => void;
   onSubmit: () => void;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const disabled = !canWrite || busy || scheduledReadOnly;
   const ready = !disabled && !!project && !!dataAsOf && !!draft.trim();
+  useEffect(() => {
+    if (focusRequest) textareaRef.current?.focus();
+  }, [focusRequest]);
   return (
     <section className="agent-composer card">
       <header className="section-heading">
@@ -68,7 +86,9 @@ export function Composer({
             <p>Agent chỉ khởi tạo các phân tích tồn kho có bằng chứng.</p>
           </div>
         </div>
-        <span className="badge">Project / Zone</span>
+        <span className="badge">
+          {capabilityMode ? 'Mode: ' + capabilityMode : 'Project / Zone'}
+        </span>
       </header>
       <div className="scope-row">
         <ScopeFields
@@ -89,8 +109,9 @@ export function Composer({
             disabled={disabled}
           />
         </label>
-        <label>
-          Agent target
+        {showAgentTarget && (
+          <label>
+            Agent target
           {createElement(
             'select',
             {
@@ -108,11 +129,13 @@ export function Composer({
               ),
             ),
           )}
-        </label>
+          </label>
+        )}
       </div>
       <label className="question-label">
         <span className="sr-only">Câu hỏi phân tích</span>
         <textarea
+          ref={textareaRef}
           aria-label="Câu hỏi phân tích"
           value={draft}
           onChange={(event) => onDraft(event.target.value)}
@@ -124,7 +147,11 @@ export function Composer({
           }}
           maxLength={2000}
           rows={3}
-          placeholder="Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?"
+          placeholder={
+            capabilityMode
+              ? modePlaceholders[capabilityMode]
+              : 'Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?'
+          }
           disabled={disabled}
         />
       </label>
