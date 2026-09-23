@@ -1,1539 +1,1029 @@
-# Decision Intelligence Product Contract — Repository-Aware Implementation Plan
-
-Review date: 2026-09-22
-Repository: VDaAgent
-Implementation target: Terra
-
-## 1. Recommended outcome
-
-VDaAgent should evolve its existing `DecisionBrief` rather than replace it, and should persist a new, first-class `decision_intelligence_pack` artifact containing:
-
-- `DecisionBrief v2`
-- `VisualStory v1`
-- `PriorityEntity[]`
-- `ActionCandidate[]`
-- `DrillDown[]`
-- explicit handoff completeness, evidence, metric, scope, snapshot, version, and limitation metadata
-
-The pack should be built deterministically at the end of the existing Insight task, after `InsightPack` is available and before `ReportDraft` is created. It should not be a new agent, a new queue task, or a second runtime. The existing `insight` task remains the checkpoint owner and persists both `insight_pack` and `decision_intelligence_pack` with separate artifact keys.
-
-The existing Report Agent, Reviewer, publication validator, report UI, and Agent Chat should consume this artifact instead of independently reconstructing decision semantics. `ReportPayload.decision_brief` should remain as a backward-compatible projection for existing report consumers, but the new pack must be the canonical source for newly produced runs.
-
-No database migration is required. The existing JSONB artifact store, free-text artifact `kind`, per-run `artifact_key` uniqueness, lineage columns, immutability triggers, and artifact validations are sufficient. This change requires contract, builder, validator, orchestration, API, and UI work only.
-
-Expected user-facing result:
-
-> A Sales Operations user opens a completed run and immediately sees a compact, evidence-backed decision brief: current KPIs, material movements, the main concentration, two or three primary visuals, ranked entities to inspect, bounded next-action candidates, and drill-down links that preserve the original run, scope, date, semantic version, authorization, and evidence lineage. The detailed report and evidence remain available beneath that decision layer. Agent Chat uses exactly the same artifact.
-
-## 2. Non-negotiable design constraints
-
-The implementation must preserve the repository's evidence-first boundaries:
-
-1. `@vda/semantic` and Data Agent remain the sole canonical numeric calculation boundary.
-2. LLM providers may select or phrase only bounded, already-supported content. They must not calculate KPIs, deltas, rankings, materiality, contribution, or chart values.
-3. Comparison, priority, action eligibility, and drill-down eligibility must be deterministic and configuration-driven.
-4. Every numeric display must resolve to a canonical metric/evidence path from the same run and scope.
-5. A new decision pack must not read a different snapshot or silently broaden/narrow scope.
-6. Generic contract/runtime code must not contain slow-moving-inventory conditionals. Slow-moving rules belong in the use-case definition/policy registry.
-7. Reviewer semantic checks and deterministic publication validation remain separate.
-8. New runs fail closed when their decision artifact is invalid. Historical runs without it continue to render.
-9. Existing `agent-v1` retries, leases, fencing, idempotent artifact writes, and maximum two draft/review attempts remain unchanged.
-10. Do not add unrestricted SQL, autonomous business actions, unbounded agent loops, a new worker, or a second queue.
-
-## 3. Repository state observed during review
-
-The required pre-review checks were run:
-
-- `git status --short --branch`: branch `main` tracks `origin/main`.
-- `docs/implementation_plan.md` was already modified and contained an earlier draft of this review.
-- `docs/architecture/` was untracked and was treated as unrelated user/team work.
-- `git diff --stat` and `git diff -- docs/implementation_plan.md` were inspected before editing. No implementation file was modified.
-
-This document intentionally supersedes the earlier draft at the requested deliverable path. The untracked architecture material and all implementation files remain untouched.
-
-## 4. Actual runtime flow today
-
-### 4.1 Agent workflow
-
-`agent-v1` currently runs this bounded DAG:
-
-```text
-POST /api/v1/analyses
-or AgentChatOrchestrator.submit(...)
-or scheduler occurrence
-  → SqlRepository.buildRun(...)
-      src/backend/packages/db/src/repository.ts
-  → worker claimRun(...)
-      src/backend/worker/src/index.ts
-  → executeAgentWorkflow(...)
-      src/backend/packages/agents/src/agent-workflow.ts
-  → coordinateRun(...) + Data Agent
-      src/backend/packages/agents/src/coordinator.ts
-      src/backend/packages/agents/src/data-agent.ts
-      persists analysis_request, coordinator_decision, query,
-      query_result, calculation, comparison_calculation,
-      comparison compatibility artifact, data_analysis_pack
-  → executeIndependentBranches(...) via Promise.allSettled
-      src/backend/packages/agents/src/branch-workflow.ts
-      ├─ buildComparisonPack(...)
-      ├─ buildChartPack(...)
-      └─ buildAnalysisPack(...)
-  → executeInsightStage(...)
-      src/backend/packages/agents/src/draft-workflow.ts
-      persists insight + insight_pack
-  → executeReportDraftStage(...)
-      src/backend/packages/agents/src/draft-workflow.ts
-      persists report_draft
-  → reviewer stage
-      src/backend/packages/agents/src/review-workflow.ts
-      persists review_result
-  → executePublicationStage(...)
-      src/backend/packages/agents/src/publication.ts
-  → SqlRepository.publishReviewedDraft(...)
-      src/backend/packages/db/src/repository.ts
-      atomically persists final report + report record
-  → GET /api/v1/reports/:id and GET /api/v1/runs/:id/brief
-      src/frontend/src/server/api.ts
-  → Workspace / AgentChat / AnalysisResult / ChartRenderer
-      src/frontend/src/components/workspace.tsx
-      src/frontend/src/components/agent-chat/agent-chat.tsx
-      src/frontend/src/components/analysis-result.tsx
-      src/frontend/src/components/chart-renderer.tsx
-```
+# VDaAgent Agent P0 Implementation Plan
 
-`AGENT_WORKFLOW_DAG` in `src/backend/packages/agents/src/workflow.ts` is:
+## 1. Executive summary
 
-```text
-coordinator
-  → data
-      → comparison ─┐
-      → chart ──────┼→ insight → report → reviewer → publication
-      → analyst ────┘
-```
+VDaAgent already has most of the deterministic data plane needed for a safe P0 agent: tenant-scoped repositories, asynchronous analysis runs, validated public artifacts, report reconstruction, decision intelligence, chart provenance, claim/evidence schemas, Agent Chat persistence, and a legacy deterministic router. The current worktree also contains an early typed workspace context, capability registry, planner/runtime, provider adapters, grounded composer, optional Grok workspace, and optional SSE path.
 
-The worker dispatches based on the workflow version pinned on the run:
+That runtime is not yet P0-complete. Its largest gaps are authorization granularity for stale workspace references, closed capability/output validation, exact execution-budget enforcement, explicit `@Agent` parity, configured deadline use, and answer grounding. In particular, the current composer blocks unsupported numeric prose but can still accept an unsupported qualitative statement associated with an unrelated valid reference.
 
-- `agent-v1` → `executeAgentWorkflow`
-- `legacy-v1` → `executeLease`
+The chosen architecture is:
 
-The new decision artifact should be inserted without changing the task DAG:
+> Authorize one typed workspace snapshot on the server, validate one bounded plan before any execution, run at most three registered capabilities sequentially, convert deterministic results into canonical observations, and let the model select observation/action IDs only. The server reconstructs the final answer.
 
-```text
-... comparison/chart/analyst
-  → insight + insight_pack
-  → deterministic decision_intelligence_pack   ← new artifact boundary
-  → report_draft
-  → reviewer
-  → technical publication validation
-  → final report
-```
+P0 requires no database migration, new endpoint, SSE dependency, Grok-dashboard dependency, or mandatory xAI integration. Gemini/OpenAI remain the normal provider path, xAI stays opt-in, and the legacy handler remains the feature-flag rollback.
 
-### 4.2 Current persistence and authorization flow
+## 2. Scope and success criteria
 
-`SqlRepository.storeArtifact` validates the Zod artifact union, content hash, scope, lineage, and keyed idempotency before storing an immutable artifact. `supabase/schemas/006_agent_workflow_persistence.sql`:
+### 2.1 In scope
 
-- adds `artifact_key`;
-- makes `(org_id, run_id, artifact_key)` unique;
-- leaves `kind` as text rather than a database enum;
-- retains JSONB payload storage;
-- applies row-level security and immutability controls.
+- Complete client and server workspace-context contracts.
+- Tenant-, conversation-, scope-, date-, run-, artifact-, and child-reference authorization.
+- A closed registry of nine deterministic capabilities.
+- One bounded provider planner and one bounded provider composer per turn.
+- Whole-plan preflight, sequential execution, precise budgets, deadlines, idempotency, and partial-result rules.
+- Canonical observations and deterministic answer reconstruction.
+- Compatibility with current Agent Chat, explicit agent targets, existing workspace actions, JSON polling, and the optional Grok layout.
+- Metadata-only observability, focused tests, rollout, and rollback.
 
-`SqlRepository.auth` verifies server-side organization membership. Artifact and run reads are scoped by `org_id` and `run_id`. `artifactByKey` additionally hides private `report_draft` and `review_result` artifacts from viewers. The new decision artifact is publication-facing and should have the same viewer visibility as `report`, `chart_pack`, and `insight_pack`, not the restricted draft/review visibility.
+### 2.2 Out of scope
 
-`claimRun` provides bounded attempts, lease ownership, and fencing. `publishReviewedDraft` re-reads persisted artifacts and validations and publishes atomically only after a matching PASS review. These mechanisms should be reused unchanged.
+- Autonomous loops, DAG execution, parallel tools, output chaining, and unbounded retries.
+- General SQL/code execution, external web search, or provider-defined tools.
+- New analytics, report semantics, or duplicate data-access paths.
+- Provider-authored factual prose.
+- New database tables or persisted agent memory.
+- Requiring SSE, the Grok dashboard, or xAI.
+- Removing the legacy runtime during P0.
 
-## 5. Findings against the 30 review questions
+### 2.3 P0 success
 
-### 5.1 Contracts, semantics, and current signals
+A P0 turn either:
 
-1. **Current canonical artifact contracts.**
-   `src/backend/packages/contracts/src/index.ts` defines the discriminated `ArtifactSchema` and typed payloads. The quantitative source is `calculation`/`CalculationPayloadSchema`, with `DataAnalysisPackSchema` as the agent-workflow handoff. `ComparisonPackSchema`, `ChartPackSchema`, `AnalysisPackSchema`, `InsightPackSchema`, `ReportDraftSchema`, `ReviewResultSchema`, and final `ReportPayloadSchema` form the downstream chain.
+1. returns a server-reconstructed, fully grounded answer from authorized public artifacts;
+2. queues exactly one existing asynchronous analysis run and returns its committed reference;
+3. returns a typed unavailable/partial response; or
+4. fails with a normalized non-disclosing error.
 
-2. **Existing slim brief.**
-   Yes. `DecisionBriefSchema` and `buildDecisionBrief` already exist. The current `decision-brief-v1` includes scope, requested/effective dates, current-state signals, material changes, one “where to look” concentration, data-quality signals, two hard-coded actions, and limitations. It is embedded as optional `ReportPayload.decision_brief` rather than persisted independently. This contract should be versioned and evolved, not replaced with a parallel “summary” model.
+No provider can select an unregistered capability, expand scope, forge a reference or action, create more than one run, or introduce an unsupported analytical claim.
 
-3. **Shared schemas and versioning.**
-   `src/backend/packages/contracts/src/index.ts` owns `SEMANTIC_VERSION`, `ARTIFACT_SCHEMA_VERSION`, `USE_CASE_CONTRACT_VERSION`, all Zod schemas, and inferred TypeScript types. `src/backend/packages/contracts/src/export.ts` generates JSON Schemas into `src/backend/packages/contracts/schema/*.json`. Pack-level versions are literal `contract_version` fields.
+## 3. Current repository assessment
 
-4. **Scope, refs, snapshots, and limitations.**
-   `ScopeSchema` currently supports required `project` and optional `zone`. `WorkflowPackMetadataSchema` contains `run_id`, `org_id`, use-case/version, scope, `data_as_of`, semantic version, input/snapshot/source refs, and limitations. `CanonicalEvidenceRefSchema` contains artifact ID/key/path. `ChartProvenanceBindingSchema` and chart provenance bind displayed values to source paths. `DecisionEvidenceRefSchema` is a smaller role-aware ref used by the current brief. Limitations appear on artifacts, packs, signals, charts, findings, report sections, and the report. There is no reusable canonical metric-ref type and no explicit handoff completeness object yet.
+### 3.1 Implemented and reusable
 
-5. **Slow-moving semantic definition.**
-   The use-case registry is `src/backend/packages/agents/src/use-cases.ts`; `slowMovingInventory` defines the current scope policy, comparison windows, fields, dimensions, capabilities, version, and provisional limitation. Quantitative metric definitions are in `src/backend/packages/semantic/src/registry.ts`, and calculation/materiality/candidate logic is in `src/backend/packages/semantic/src/index.ts`.
+- Legacy Agent Chat has deterministic routing for create analysis, get result, inspect signal, unsupported causal requests, and explicit analyst/comparison/chart/report targets.
+- Organization membership, conversation persistence, turn idempotency, analysis queueing, worker lifecycle, cancellation, and polling already exist.
+- Deterministic analysis/report/decision-intelligence/chart/evidence tooling and typed artifact schemas are mature.
+- Claim binding, report validation, metric/evidence references, publication workflow, and public-artifact filtering provide a strong grounding boundary.
+- The current worktree introduces `WorkspaceContextV1`, `RuntimeContextBuilder`, a registry, `AgentPlanV1`, `AgentRuntime`, runtime providers, a composer, and BFF/frontend wiring.
+- The BFF selects the new runtime behind `GROK_RUNTIME_ENABLED`; the legacy handler remains intact.
+- Runtime execution is already sequential and returns immediately after a run is queued.
+- Existing message JSON can store reconstructed text, typed references, and workspace actions.
 
-6. **Existing registry/policy mechanism.**
-   There is a typed use-case registry, but `UseCaseDefinitionSchema` lacks materiality, priority, action, visualization, and audience policies. Current `notableChangeRules` and `insightPriorityRules` are hard-coded in `@vda/semantic`. The registry should be extended and made accessible below the Agents package so domain validation and Data execution share the same canonical policy.
+### 3.2 Partially implemented
 
-7. **Decision signals available deterministically today.**
-   Current snapshots/history support:
+- Workspace context includes run/report/artifact and dashboard selections, but organization, conversation, scope, and data-as-of still live partly outside it.
+- The context builder reauthorizes known objects, but one stale descendant can currently invalidate more context than necessary.
+- Eight capabilities are registered, but registration and output validation are not fully fail-closed.
+- The plan is bounded to three steps, but all logical/provider attempt and mutation/new-run budgets are not uniformly enforced.
+- A 45-second runtime deadline exists as a constant while configuration validation also accepts `AGENT_TURN_TIMEOUT_MS`; there is no single enforced source.
+- The composer verifies reference membership and rejects numeric model prose, but arbitrary qualitative model prose remains possible.
+- Runtime/provider telemetry exists, but it must be normalized and proven content-free.
+- Optional SSE, Grok UI, and xAI work exists and must be separated from core acceptance.
 
-   - total and available inventory;
-   - available-inventory rate;
-   - median and p75 inventory age;
-   - slow-moving units/rate and configured age buckets;
-   - 7/30/90-day period comparisons when snapshots exist;
-   - concentrations by zone, unit type, bedrooms, and status;
-   - unit-level age, availability, status, price, price/area, and slow-moving classification;
-   - peer price/area gaps where comparable peers exist;
-   - missing age/price/area rates and snapshot coverage;
-   - deterministic ranking by supported current values and, after a bounded enrichment, additive contribution to inventory change.
+### 3.3 Missing for P0
 
-8. **Signals requiring future warehouse fields.**
-   Keep optional/unavailable until modeled:
+- Complete typed client snapshot and server-authorized context contract.
+- Granular stale-reference resolution that preserves valid parents.
+- Exact nine-capability inventory including explicit agent checkpoint parity.
+- Duplicate registry detection and common output parsing.
+- Full-plan preflight before side effects, duplicate-call rejection, create-analysis-only plan, and exact fallback/counter semantics.
+- Canonical observation output from every capability.
+- ID-only composition and deterministic answer rendering.
+- Complete timeout, partial failure, cancellation/replay, cross-tenant, and compatibility tests.
 
-   - leads, inquiries, views, visits, and demand trend;
-   - funnel conversion, reservation, cancellation, and transaction velocity;
-   - sales owner/activity/follow-up history;
-   - pricing-change history, discount chronology, and days since price change;
-   - causal driver validation;
-   - cross-project portfolio ranking when the run is scoped to one project;
-   - policy-approved price-band semantics. Current price can be bucketed technically, but no canonical business band policy exists.
+### 3.4 No new persistence required
 
-9. **Comparison capabilities.**
-   `CalculationPayloadSchema` and the private `buildPeriodComparisons`/`detectChanges` functions in `src/backend/packages/semantic/src/index.ts` already provide current/comparison values, absolute/relative/percentage-point deltas, snapshot refs, abstention reasons, and material/watch classification through `notable_changes`. `ComparisonPack` currently projects this data exactly. It does not expose explicit comparability status, rank, contribution-to-total-change, or temporal segment contribution. Current `segment_comparisons` compare segments against a reference segment, not each segment’s contribution to period movement.
+Existing conversations, messages, analysis runs, artifacts, and idempotency keys are sufficient. Plans, prompts, provider output, authorized projections, and observation bundles remain ephemeral.
 
-10. **Chart semantics.**
-    `ChartSpecSchema` supports intent, type, title, subtitle, free-text purpose, axes, series, deterministic data, provenance/bindings, and limitations. `buildChartPack` and chart integrity checks prevent invented values. It does not yet support typed purpose, takeaway, primary/supporting role, highlighted entities, annotations, reference lines, comparison context, display priority, or drill-down IDs.
+### 3.5 Provider decision
 
-11. **Analyst descriptive vs interpretive output.**
-    `AnalysisFindingSchema.kind` already distinguishes `descriptive` and `interpretive` and carries support level/evidence/limitations. The current `analyst-agent.ts` emits only deterministic descriptive findings. This is a sound boundary. Candidate-driver statements may be added later only as explicitly qualified `interpretive` findings with bounded evidence and `limited`/`medium` support.
+Preserve the repository's established Gemini/OpenAI support and fallback ordering. Keep the existing xAI adapter available only through explicit configuration. Correct `.env.example` so xAI is not the required or effective default for P0.
 
-12. **Compact Insight synthesis.**
-    `InsightPackSchema` already provides a compact summary, exact claims, selected finding IDs, evidence refs, limitations, and provider. The provider adapter is deliberately constrained and cannot change canonical claim values. It is a useful input, but it is not a complete decision artifact: it lacks materiality structure, priority entities, actions, visual story, drill-down, and handoff status.
+### 3.6 Transport and UI decision
 
-### 5.2 Report, review, persistence, API, and UI
+The P0 correctness path is the existing JSON turn endpoint plus run polling. Optional SSE may report status and the optional Grok layout may consume the same contracts, but neither is an acceptance dependency.
 
-13. **Current ReportDraft.**
-    `ReportDraftSchema` references Data, Comparison, Chart, Analysis, and Insight packs, carries revision 1–2, embeds the complete structured `ReportPayload`, and has evidence refs. It does not reference a decision pack.
+### 3.7 Duplicated and obsolete paths
 
-14. **Report output format.**
-    Report output is structured JSON, not Markdown or HTML. `ReportPayloadSchema` carries summary, claims, metrics, units, artifact IDs, typed report sections, limitations, and optional embedded DecisionBrief. React components render it; exports produce JSON/CSV.
-
-15. **First-class insertion point.**
-    Persist `decision_intelligence_pack` after `InsightPack` and before `ReportDraft`. This is the smallest stable boundary because all deterministic branch results and bounded Insight synthesis exist there, while Report has not yet duplicated presentation semantics. The ReportDraft should reference it, and the final report should carry its artifact ID plus a compatibility projection of its brief.
-
-16. **Existing publication validation.**
-    `validateReport` in `src/backend/packages/domain/src/integrity.ts` validates lineage, exact metrics/units, claim grounding, chart values/bindings, comparison and insight references, report sections, and the optional current brief. `validateAgentPublication` in `src/backend/packages/domain/src/agent-workflow.ts` validates the whole persisted agent graph, artifact keys, metadata, review binding, and final report. `publishReviewedDraft` performs this again inside the publication transaction.
-
-17. **Reviewer semantics today.**
-    `reviewer-agent.ts` and `review-workflow.ts` currently rehydrate the persisted graph and deterministically rerun Data, Comparison, Chart, Analysis, Insight, ReportDraft, lineage, scope/date, metric, chart, and limitation checks. The optional provider boundary can request only the single `REQUIRE_EVIDENCE_BOUND_WORDING` correction and cannot independently PASS or rewrite content. Although `ReviewIssueSchema` lists contradiction, overstatement, and limitation categories, there is not yet a general semantic review implementation for those categories, nor decision-readiness checks for materiality, priority, actions, visual takeaway, drill-down, or audience suitability.
-
-18. **Deterministic vs semantic decision-readiness checks.**
-    Deterministic checks must cover schema/version validity, ref resolution, exact values, same org/run/scope/date/version, chart integrity, priority-policy ordering, action allowlist, support thresholds, drill-down filters/targets, handoff completeness, and cross-run/cross-tenant rejection. Semantic review should cover whether the headline and implications are supported, materiality is not overstated, candidate drivers are qualified, action language matches support, takeaways match visuals, important limitations are prominent, and the result is useful to Sales Operations.
-
-19. **Artifact persistence/versioning.**
-    Artifacts are immutable JSONB records with `schema_version`, `semantic_version`, `data_as_of`, input/snapshot/source refs, content hash, org/run/task IDs, and typed payload contract versions. Agent artifacts additionally have stable `artifact_key` slots. This is sufficient for a new artifact.
-
-20. **Can a new artifact type be added without migration?**
-    Yes. `artifacts.kind` is text and payload is JSONB. `006_agent_workflow_persistence.sql` keys artifacts by `artifact_key` rather than a closed database enum. Add the Zod union member, expected-key mapping, repository/domain validation, and writers/readers. No table, index, trigger, RLS, or enum change is required.
-
-21. **Migration decision.**
-    No DB migration. Add one only if product requirements later demand a separately indexed/queryable decision entity outside the artifact model. That is not needed for the first implementation and would duplicate existing lineage and authorization.
-
-22. **Report fetch path.**
-    `GET /api/v1/reports/:id` in `src/frontend/src/server/api.ts` calls repository report lookup and returns `ReportDetailSchema`. `workspace.tsx` fetches the final report and, for details/evidence, the run artifact bundle.
-
-23. **Agent Chat artifact loading.**
-    `AgentChat` first fetches `GET /runs/:id/brief` after run success. It lazily loads `GET /runs/:id/artifacts` only when detailed artifacts/evidence are needed. Server-side `AgentChatOrchestrator` and tools load authorized run artifacts and current brief through the repository. Agent-target follow-ups are routed by `tools.ts`.
-
-24. **Existing lazy loading.**
-    Yes. The brief-first/full-artifacts-later pattern already exists in `agent-chat.tsx` and `workspace.tsx`. The new API should preserve it by returning a compact decision pack response whose components contain refs rather than duplicated full unit/chart datasets.
-
-25. **API exposure.**
-    Add canonical `GET /api/v1/runs/:id/decision-intelligence` returning a typed `DecisionIntelligenceResponse`. Keep `GET /api/v1/runs/:id/brief` and `DecisionBriefResponseSchema` byte-compatible with v1 consumers: for a new run it returns the pack’s deterministic v1 compatibility projection, and for an old run it returns the embedded v1 brief. The new endpoint carries `DecisionBriefV2` and the other four components. Both routes must use repository authorization and existing `private, no-store` response headers.
-
-26. **Historical reports.**
-    Historical reports without any brief remain readable as today. Historical reports with `decision-brief-v1` render through the existing component or a compatibility adapter. The new endpoint may synthesize a non-persisted, explicitly `legacy_report_brief` response with empty/unavailable new sections; it must never rebuild old metrics using a newer semantic version.
-
-27. **Drill-down ownership.**
-    The intent and immutable context belong in typed artifact `DrillDown` objects. Server resolution/authorization belongs in the existing API/repository layer. Rendering and tab/filter selection belong in `workspace.tsx`/`AgentChat` route state. Reuse existing `signal_ref`/`signal_action` and evidence-drawer concepts, but do not treat the current two-value `signal_action` enum as the full navigation model. Do not store opaque frontend URLs as canonical drill-downs.
-
-28. **Run states, retry, idempotency, and leases.**
-    Because the pack is a second keyed output of the existing Insight task, no task graph or scheduler change is needed. The Insight checkpoint succeeds only after both `insight_pack` and `decision_intelligence_pack` are valid and stored. On retry, stable artifact keys and content-hash idempotency return the same records; conflicting recomputation fails. Lease/fencing checks already wrap stage writes. Report waits on the existing Insight predecessor.
-
-29. **Tenant/workspace protection.**
-    `SqlRepository.auth` verifies org membership server-side; run/artifact/report queries bind org and run; viewer write attempts are denied. The new repository read must first authorize the run in the requested org and then load the keyed artifact from that same run. Never accept org/run identifiers from refs without checking them against the authorized root run.
-
-30. **Cross-boundary validation.**
-    Each decision ref must resolve to an artifact in the same org/run; its artifact key, semantic version, `data_as_of`, scope, snapshot refs, and source refs must match or be an allowed subset of the canonical Data pack. Metric/evidence paths must exist. Drill-down filters must be allowlisted by the use case and represent a same-scope subset. Any cross-run, cross-scope, cross-version, or cross-tenant ref is blocking.
-
-## 6. Capability/status matrix
-
-| Target area | Current status | Repository evidence | Required change |
+- Do not create separate period, segment, peer, chart-story, or report-status analytics; adapt existing artifacts.
+- Do not turn workspace actions into capabilities.
+- Do not persist a second workspace/conversation state model.
+- Do not keep the current free-prose composer as a fallback inside the new runtime.
+- Do not delete the legacy deterministic router until post-P0 migration criteria are met.
+
+## 4. Existing architecture to preserve
+
+The P0 must preserve these repository invariants:
+
+1. Agent Chat remains the primary entry point; the new runtime stays behind `GROK_RUNTIME_ENABLED` until the migration gate is accepted.
+2. The BFF remains the tenant and conversation authority. The browser never authorizes an organization, run, report, artifact, chart, entity, or evidence reference.
+3. Existing deterministic analytics, report reconstruction, decision-intelligence, chart-provenance, and public-artifact repository methods remain the data plane.
+4. Analysis creation stays asynchronous. The request queues at most one run and returns; the worker, polling, and existing run lifecycle remain authoritative.
+5. Validated public artifacts are the only artifact content exposed to the agent. Draft and review payloads are never provider context.
+6. Existing claim, metric, evidence, report, and workspace-action contracts remain the base primitives; P0 adds a canonical observation envelope rather than a parallel evidence model.
+7. The existing conversation/message persistence model remains authoritative. Runtime plans, prompts, provider responses, and internal observations are ephemeral.
+8. The current writer/owner mutation policy remains unchanged. Registry role metadata cannot bypass the BFF's turn-level authorization.
+9. JSON request/response and polling are sufficient for P0. SSE and the Grok dashboard may coexist behind their own flags but are not required by the runtime.
+10. Gemini and OpenAI remain the supported planner/composer path. xAI is an optional adapter and must not become a P0 dependency or default.
+
+## 5. Gap analysis
+
+| Area | Current state | P0 gap | Required outcome |
 |---|---|---|---|
-| DecisionBrief | Partially exists | `DecisionBriefSchema`; `buildDecisionBrief`; optional report field | Version to v2 and make it a component of a persisted decision pack; preserve v1 |
-| VisualStory | Partially exists | deterministic `ChartSpec`/`ChartPack` with purpose/provenance | Add typed narrative/order/highlights/annotations/reference lines/drill-down refs |
-| PriorityEntities | Missing | only one max-concentration `where_to_look` signal | Add policy-driven, deterministic ranked entity contract/builder |
-| ActionCandidates | Partially exists | two hard-coded `SupportedNextAction` kinds | Add use-case allowlist, support level, policy refs, typed targets, limitations |
-| DrillDown | Partially exists | evidence drawer; `signal_ref`; inspect/analyze-zone action | Add first-class typed drill-downs and invariant-preserving resolver |
-| Artifact handoff completeness | Missing | refs/limitations exist but no completeness state | Add versioned handoff schema to new pack and v2 workflow packs |
-| Use-case materiality policy | Partially exists | hard-coded `notableChangeRules` | Move/configure under slow-moving use-case policy |
-| Use-case priority policy | Missing | hard-coded insight-candidate ranking only | Add ordered eligibility/ranking/tie-break policy |
-| Use-case action policy | Missing | hard-coded current brief actions | Add allowlisted action rules and support gates |
-| Visualization policy | Missing | ChartBuilder emits deterministic charts but no primary story | Add preferred intents, max-primary, required context, ordering |
-| Reviewer decision readiness | Missing | generic evidence/overstatement/limitation categories | Add decision-specific semantic categories and checks |
-| Backward compatibility | Already exists in part | optional brief and historical tests | Add version unions/adapters; never require new pack for old runs |
-| New autonomous decision agent | Should not be added | existing Insight→Report boundary is sufficient | Build a deterministic domain artifact in Insight checkpoint |
-| New queue/runtime | Should not be added | current DAG, leases, scheduler, workers suffice | Reuse existing task/artifact model |
-| Demand/funnel/activity conclusions | Should not be added yet | source schema lacks fields | Keep optional/unavailable and state missing inputs |
-| Free-form priority/action generation | Should not be added | would bypass deterministic policy | LLM may only select/phrase from bounded IDs if enabled later |
+| Legacy chat routing | Deterministic one-intent/one-tool flow, including explicit agent-target shortcuts | Cannot compose bounded multi-capability reads | Keep as rollback path; new runtime owns bounded planning |
+| Workspace context | Active report/run/chart/entity/drilldown/evidence are partially modeled | Organization, conversation, scope, and data-as-of coherence are split across envelopes; one stale child can invalidate the whole context | One typed client snapshot, one server-authorized snapshot, granular stale-resolution results |
+| Capability registry | Eight capabilities and centralized role/mode/budget metadata exist | No explicit-agent checkpoint capability; duplicate IDs can overwrite; output validation is not uniformly central | Exact nine-capability inventory, fail-fast registration, common input/output validation |
+| Planner | One structured plan, maximum three steps | Limits are not fully enforced; duplicate capabilities and create-after-read are possible; no exact fallback-attempt contract | Validate the complete plan before execution; create-analysis must be the only step |
+| Runtime | Sequential execution and queued-run return exist | Configured timeout is not used; planner/composer counters are not enforced; partial/unavailable behavior is ambiguous | Exact budgets, configured deadline, deterministic failure policy |
+| Composer | Checks grounding references and blocks numeric model prose | Arbitrary qualitative prose can still be paired with unrelated references; capabilities do not emit canonical claim observations | Model selects canonical observation/action IDs only; server renders final prose |
+| Explicit `@Agent` | Legacy deterministic checkpoints exist | Runtime flag changes behavior | Add deterministic `inspect_agent_checkpoint` capability with parity tests |
+| Provider configuration | Gemini, OpenAI, and xAI adapters exist | Example environment makes xAI the effective default | Preserve Gemini/OpenAI ordering; leave xAI opt-in |
+| Persistence | Existing message JSON and artifact references are sufficient | No gap requiring a migration | Add no database objects |
+| UI integration | Agent Chat, optional Grok workspace, JSON polling, and optional SSE exist | Runtime must not require dashboard or SSE | Agent Chat works in both current layouts using the same request contract |
+| Tests | Initial context, registry, runtime, and composer tests exist | Boundary, stale-child, budget, timeout, canonical-render, and compatibility coverage is incomplete | Add contract, unit, integration, frontend, and regression coverage listed below |
 
-## 7. Target architecture
+## 6. Target architecture
 
-### 7.1 First-class artifact choice
+```mermaid
+flowchart LR
+    UI[Agent Chat UI] --> REQ[AgentTurnRequestV1]
+    REQ --> BFF[BFF turn route]
+    BFF --> CTX[RuntimeContextBuilder]
+    CTX --> AUTH[AuthorizedAgentContextV1]
+    AUTH --> PLAN[Planner provider]
+    PLAN --> VAL[Whole-plan preflight]
+    VAL --> REG[CapabilityRegistry]
+    REG --> DATA[Existing deterministic tools and repositories]
+    DATA --> OBS[CanonicalAgentObservationV1 bundle]
+    OBS --> COMP[Composer provider selects IDs]
+    COMP --> RENDER[Deterministic response renderer]
+    RENDER --> MSG[Existing persisted assistant message]
+    MSG --> UI
 
-Use a **new persisted artifact** named `decision_intelligence_pack`, while **evolving the existing DecisionBrief contract** inside it.
-
-Do not make the complete pack merely a field on `ReportPayload`:
-
-- Report is produced too late and would keep chat/dashboard coupled to report generation.
-- The full pack would duplicate chart, priority, action, and drill-down semantics in every report payload.
-- A separately keyed artifact can be validated, fetched slim-first, linked from multiple product surfaces, and versioned independently.
-
-Do not replace `DecisionBrief`:
-
-- v1 already has useful signal/evidence semantics and current UI/API consumers.
-- A discriminated version union provides safe history support.
-- The v2 brief can preserve familiar signal concepts while referencing richer pack components.
-
-Do not add a new task or agent:
-
-- All required source packs exist by the end of the current Insight task.
-- Construction and ranking are deterministic.
-- The existing task graph already provides the correct dependency and retry boundary.
-
-### 7.2 Target flow
-
-```text
-Coordinator
-  → Data Agent / @vda/semantic canonical calculations
-      → DataAnalysisPack v2
-          ├─ ComparisonPack v2
-          ├─ ChartPack v2
-          └─ AnalysisPack v1/v2
-              → InsightPack v2
-                  → buildDecisionIntelligencePack(...)
-                      policy + canonical packs only
-                  → persisted decision_intelligence_pack
-                      ├─ ReportDraft v2 consumes artifact
-                      ├─ Reviewer checks decision readiness
-                      ├─ publication validates exact graph
-                      ├─ report embeds compatibility brief + artifact ID
-                      ├─ Decision Intelligence API
-                      ├─ decision-first report UI
-                      └─ Agent Chat context/follow-ups
+    BFF -. flag off .-> LEGACY[Legacy Agent Chat path]
+    DATA -. create_analysis .-> QUEUE[Existing analysis queue and worker]
+    UI -. polling .-> QUEUE
 ```
 
-### 7.3 Package ownership
+Trust changes at the BFF boundary. Client context is a navigation hint; `AuthorizedAgentContextV1` is the only context available to planning and capability execution. Provider output is a selection request, never an authorization decision or a source of analytical prose.
 
-Recommended ownership:
+## 7. Typed workspace context
 
-- `@vda/contracts`: all schemas, versions, enums, and response types.
-- `@vda/semantic`: generic deterministic calculations for materiality, contribution, comparability, and canonical metric extraction; functions accept policy inputs.
-- `@vda/domain`: canonical use-case registry/policies, deterministic decision-pack assembly, invariant validation, and compatibility projection. This package is shared by Agents and DB and already depends on Contracts and Semantic.
-- `@vda/agents`: orchestration only—load packs/policy, call domain builder, persist pack, pass it to Report/Reviewer/chat tools.
-- `@vda/db`: authorized reads and publication-time graph validation.
-- frontend: render typed components and execute typed navigation intent through existing APIs/state.
+### 7.1 Client contract
 
-Move the canonical use-case registry from `src/backend/packages/agents/src/use-cases.ts` to `src/backend/packages/domain/src/use-cases.ts`. Leave `agents/src/use-cases.ts` as a temporary compatibility re-export. This avoids duplicating policies and lets both `SqlRepository` publication validation and agents resolve the same versioned policy without introducing a dependency from DB/Domain back to Agents.
-
-The registry must retain both `slow-moving-inventory-v1` and `slow-moving-inventory-v2` and expose a version-aware lookup such as `getUseCaseDefinition(key, version)`. The persisted `CoordinatorDecision.use_case_version` is the retry/recovery pin: Data and every downstream stage must resolve policy from that persisted version, not from “current default.” This prevents a partially completed v1 run from resuming under v2 policy and conflicting with immutable keyed artifacts.
-
-## 8. Proposed contract model
-
-The following shapes are illustrative Zod-aligned TypeScript. Terra should follow the existing `.strict()`, bounded-array, bounded-string, literal-version, and `superRefine` conventions in `@vda/contracts`.
-
-### 8.1 Shared references and handoff
+Extend the existing workspace-context schema instead of creating a second request model:
 
 ```ts
-const CanonicalMetricRefSchema = z.object({
-  artifact_id: IdSchema,
-  artifact_key: z.string().min(1).max(160),
-  path: z.string().min(1).max(500),
-  metric_key: MetricKeySchema,
-}).strict();
-
-const ArtifactHandoffSchema = z.object({
-  completeness: z.enum(['complete', 'partial', 'insufficient']),
-  available_components: z.array(z.string().min(1).max(100)).max(100),
-  missing_components: z.array(z.object({
-    component: z.string().min(1).max(100),
-    reason: z.string().min(1).max(2_000),
-    required_for_publication: z.boolean(),
-  }).strict()).max(100),
-  optional_inputs_present: z.array(z.string().min(1).max(100)).max(100),
-  optional_inputs_missing: z.array(z.string().min(1).max(100)).max(100),
-}).strict();
-```
-
-For v2 pack contracts, `handoff` is required. Historical v1 pack schemas remain parseable unchanged. Do not make the field optional on a schema whose literal version claims v2.
-
-### 8.2 DecisionBrief v2
-
-Keep `DecisionBriefV1Schema` exactly compatible with current persisted reports and keep the existing `DecisionBriefSchema`/`DecisionBrief` exports as v1 aliases during migration. Introduce `DecisionBriefV2Schema` separately; use a version union only at explicit version-aware read boundaries:
-
-```ts
-const AnyDecisionBriefSchema = z.discriminatedUnion('version', [
-  DecisionBriefV1Schema,
-  DecisionBriefV2Schema,
-]);
-```
-
-V2 should contain:
-
-```ts
-{
-  version: 'decision-brief-v2';
-  headline: string;
-  status: 'improving' | 'stable' | 'deteriorating' | 'mixed' | 'insufficient_evidence';
-  scope: Scope;
-  requested_data_as_of: DateString;
-  effective_snapshot_date: DateString | null;
-  semantic_version: string;
-  kpi_cards: DecisionKpiCard[];
-  material_changes: MaterialChange[];
-  hotspots: Hotspot[];
-  business_implications: BusinessImplication[];
-  watchouts: DecisionWatchout[];
-  data_quality_summary: DataQualitySummary;
-  primary_visual_ids: string[];
-  priority_entity_ids: string[];
-  action_candidate_ids: string[];
-  drilldown_ids: string[];
-  evidence_refs: CanonicalEvidenceRef[];
-  limitations: string[];
-}
-```
-
-Rules:
-
-- Headline is a deterministic template for the first implementation, derived from the highest-priority supported signal. It contains no unreferenced number.
-- Status is a deterministic situation classification from the highest-priority comparable material-change rules. Artifact readiness belongs only in `handoff.completeness`; do not overload the business status with transport/completeness state.
-- KPI values use `CanonicalMetricRef` and do not copy numbers unless the schema also validates exact equality to the ref.
-- Every change includes window, comparison value, delta unit, comparability, materiality rule ID, and evidence refs.
-- Business implications are bounded policy templates such as “inventory is concentrated in {entity}; inspect the contributing units.” They must be labeled descriptive or candidate implication and include support level.
-- Arrays may be empty only with explicit handoff/limitation reasons.
-
-### 8.3 VisualStory and ChartSpec v2
-
-Add a versioned ChartSpec path rather than changing historical `chart-spec-v1` semantics in place. `ChartSpecV2` retains all v1 numeric provenance and adds:
-
-```ts
-{
-  version: 'chart-spec-v2';
-  // existing fields...
-  purpose: 'current_state' | 'change' | 'concentration' |
-           'comparison' | 'distribution' | 'data_quality';
-  takeaway: string;
-  story_role: 'primary' | 'supporting';
-  display_priority: number;
-  highlight_entities: EntityRef[];
-  annotations: Array<{
-    annotation_id: string;
-    label: string;
-    binding: ChartBinding;
-  }>;
-  reference_lines: Array<{
-    reference_id: string;
-    label: string;
-    value: number;
-    unit: MetricUnit;
-    binding: ChartBinding;
-  }>;
-  comparison_context: {
-    window_days: 7 | 30 | 90;
-    current_snapshot_ref: Id;
-    comparison_snapshot_ref: Id;
+type WorkspaceContextV1 = {
+  version: 1;
+  mode: agent_chat | report_dashboard;
+  org_id: string;
+  conversation_id: string | null;
+  scope: AnalysisScopeV1;
+  data_as_of: string;
+  active_run_ref: RunRefV1 | null;
+  active_report_ref: ReportRefV1 | null;
+  active_artifact_ref: ArtifactRefV1 | null;
+  dashboard_selection: {
+    chart_ref: ChartRefV1 | null;
+    priority_entity_ref: PriorityEntityRefV1 | null;
   } | null;
-  drilldown_ids: string[];
-}
+  drilldown: DrilldownRefV1 | null;
+  evidence_ref: EvidenceRefV1 | null;
+};
 ```
 
-Annotations and reference-line values must use the same binding validator as chart series. No free numeric annotation is allowed.
+During compatibility, `AgentTurnRequestV1` keeps its existing top-level organization, scope, and date fields. When `workspace_context` is present, the BFF requires equality with those fields. The route remains authoritative for conversation identity. The frontend constructs both representations from the same reducer state so they cannot drift accidentally.
 
-`VisualStory` should be compact and avoid copying chart data:
+Do not add a generic dashboard ID. The repository currently has one report-dashboard context; chart selection and priority-entity selection are the concrete active visual/entity concepts.
+
+### 7.2 Server-only authorized contract
 
 ```ts
-{
-  version: 'visual-story-v1';
-  headline: string;
-  ordered_visuals: Array<{
-    chart_id: string;
-    role: 'primary' | 'supporting';
-    display_priority: number;
-    reason: string;
+type AuthorizedAgentContextV1 = {
+  version: 1;
+  org_id: string;
+  actor: AuthorizedActorV1;
+  conversation: AuthorizedConversationRefV1;
+  scope: AnalysisScopeV1;
+  data_as_of: string;
+  mode: WorkspaceContextV1[mode];
+  active_run: PublicRunContextV1 | null;
+  active_report: PublicReportContextV1 | null;
+  active_artifact: PublicArtifactContextV1 | null;
+  active_chart: PublicChartContextV1 | null;
+  active_priority_entity: PublicPriorityEntityContextV1 | null;
+  drilldown: AuthorizedDrilldownContextV1 | null;
+  evidence: PublicEvidenceContextV1 | null;
+  available_workspace_actions: AvailableWorkspaceActionV1[];
+  resolution_issues: ContextResolutionIssueV1[];
+};
+```
+
+`ContextResolutionIssueV1` contains only `ref_kind`, normalized `code`, and `disposition: drop | replace | reject`. It must not expose existence across tenants.
+
+### 7.3 Resolution and stale-reference policy
+
+Apply these rules in this order:
+
+1. Reject organization or route-conversation mismatch before any provider call.
+2. Reject invalid scope/date syntax and any workspace/top-level coherence mismatch.
+3. Resolve every reference through organization-scoped repository methods and publication rules.
+4. If the root run is inaccessible, return `NO_AUTHORIZED_RESULT`; do not disclose whether it exists.
+5. If an authorized run has a different scope or data-as-of, drop the run and every descendant. The existing fresh-analysis shortcut may be offered only to a writer/owner; viewers receive an unavailable result.
+6. If a report is invalid, private, stale, or not a descendant of the accepted run, drop the report and its descendants while preserving a valid run.
+7. If the report was omitted, the server may select the current validated public report for the accepted run.
+8. Invalid chart, entity, drilldown, or evidence children are dropped individually. A valid parent remains usable.
+9. If the user explicitly asks for a dropped child, the relevant capability returns a typed unavailable observation instead of silently substituting a different child.
+10. Never merge facts or children from different runs, even when scope and date labels match.
+11. Bound the provider-facing projection after authorization; raw artifact payloads and private workflow metadata do not enter prompts.
+
+## 8. Capability registry
+
+### 8.1 Exact P0 inventory
+
+| Capability ID | Mutates | Minimum role | Modes | Input source | Deterministic output |
+|---|---:|---|---|---|---|
+| `create_analysis` | Yes | writer | agent chat, report dashboard | Authorized scope/date plus optional focus label | Queued run/status observation and run reference |
+| `get_analysis_result` | No | viewer | both | Authorized run reference | Public run/report status and summary observations |
+| `inspect_signal` | No | viewer | both | Authorized run plus signal key | Canonical metric/claim observations |
+| `inspect_decision_intelligence` | No | viewer | both | Authorized validated report | Priority, risk, lever, action, and caveat observations |
+| `inspect_visual` | No | viewer | report dashboard | Authorized chart reference | Chart title, measure, comparison, and provenance observations |
+| `inspect_priority_entity` | No | viewer | report dashboard | Authorized entity reference | Entity-level priority and supporting observations |
+| `inspect_evidence` | No | viewer | both | Authorized evidence reference | Exact public evidence observation |
+| `get_report_context` | No | viewer | both | Authorized report reference | Bounded report-section observations |
+| `inspect_agent_checkpoint` | No | viewer for public reads; writer for report status as currently enforced | both | Explicit client agent target plus authorized context | Legacy-equivalent analyst/comparison/chart/report checkpoint observations |
+
+This inventory is closed for P0. Period comparison, segment, peer, visual story, chart lookup, and report context are represented by the existing public artifacts and inspection capabilities. Report creation and cancellation remain existing UI/API operations, not provider-callable capabilities.
+
+### 8.2 Registry invariants
+
+- Registering a duplicate capability ID throws during process initialization.
+- The registry owns input parsing, role/mode checks, exact required-context checks, mutation classification, invocation budget checks, execution, and output parsing.
+- Executors receive only `AuthorizedAgentContextV1` and parsed inputs. They cannot receive raw client references.
+- Output schemas emit canonical observations and typed references; arbitrary text is not a capability result.
+- `create_analysis` takes scope/date from authorized context. A planner-controlled `scope_ref` is removed. An optional `focus` is only a routing label and cannot change deterministic analytics.
+- `inspect_agent_checkpoint` reuses the existing explicit-target helper and public artifact readers. It must not duplicate analytics or synthesize new findings.
+- Existing workspace actions remain a separate allowlisted contract. They are not registered capabilities and are never invented by a provider.
+
+## 9. Planner and runtime contract
+
+### 9.1 Plan
+
+Retain a deliberately small plan schema:
+
+```ts
+type AgentPlanV1 = {
+  version: 1;
+  intent: string;
+  steps: Array<{
+    step_id: string;
+    capability_id: AgentCapabilityIdV1;
+    input: unknown;
   }>;
-  primary_visual_ids: string[]; // maximum 3
-  supporting_visual_ids: string[];
-  limitations: string[];
-}
+  answer_mode: grounded | queued | unavailable;
+  unsupported_reason: string | null;
+};
 ```
 
-The `ChartPack` remains the canonical chart-data container. `VisualStory` controls selection and order by chart ID.
+P0 has no dependency graph, output chaining, speculative execution, or provider-defined parallelism. Steps execute in declared order. Independent reads remain sequential so authorization changes, deadlines, audit events, and partial-result semantics are unambiguous.
 
-### 8.4 PriorityEntity
+### 9.2 Exact budgets
 
-```ts
-{
-  priority_entity_id: string;
-  entity: {
-    type: 'unit' | 'zone' | 'unit_type' | 'bedrooms' | 'status' | 'project';
-    key: string;
-    label: string;
-  };
-  rank: number;
-  tier: 'critical' | 'high' | 'medium' | 'watch';
-  policy_rule_ids: string[];
-  reason_codes: string[];
-  metric_refs: CanonicalMetricRef[];
-  evidence_refs: CanonicalEvidenceRef[];
-  support_level: 'high' | 'medium' | 'limited';
-  action_candidate_ids: string[];
-  drilldown_ids: string[];
-  limitations: string[];
-}
-```
+- One logical planner stage, with at most two provider attempts: configured primary, then configured fallback.
+- Maximum three planned steps and three capability calls.
+- Maximum one invocation of any capability ID per turn.
+- Maximum one mutating call and one newly created analysis run.
+- A plan containing `create_analysis` must contain that step only.
+- One logical composer stage, with at most two provider attempts: configured primary, then fallback.
+- Maximum 12 recent conversation messages and five historical run summaries in provider context.
+- Maximum 24 KiB serialized provider context/observation projection.
+- Default per-provider-attempt timeout: 12 seconds.
+- Default and hard maximum synchronous turn deadline: 45 seconds.
+- The analysis job continues asynchronously outside that deadline after its transaction commits.
 
-First implementation:
+All limits are constants with configuration validation where operators may lower them. The runtime must use the validated configured deadline rather than a hard-coded duplicate.
 
-- emit unit, zone, and unit-type priorities only when their required canonical inputs exist;
-- allow bedrooms/status as generic segment entities but do not force them into the top list;
-- do not emit project priority for a single-project run;
-- do not emit price-band priority until a business band policy exists;
-- use ordered rules and stable tie-breaks (`entity.type` then `entity.key`), not opaque LLM ranking;
-- cap each entity type and total output through policy.
+### 9.3 Preflight and execution
 
-### 8.5 ActionCandidate
+Before the first capability executes, validate the full plan:
 
-```ts
-{
-  action_candidate_id: string;
-  kind:
-    | 'inspect_entities'
-    | 'compare_segments'
-    | 'review_pricing'
-    | 'review_demand'
-    | 'review_sales_activity'
-    | 'validate_candidate_driver'
-    | 'open_report_section'
-    | 'navigate_to_evidence';
-  label: string;
-  rationale: string;
-  policy_rule_id: string;
-  support_level: 'high' | 'medium' | 'exploratory';
-  target_entity_ids: string[];
-  target_signal_ids: string[];
-  drilldown_id: string;
-  evidence_refs: CanonicalEvidenceRef[];
-  limitations: string[];
-}
-```
+1. Parse the plan and normalize IDs.
+2. Require unique step IDs and unique capability IDs.
+3. Resolve every capability from the closed registry.
+4. Parse every input.
+5. Validate role, mode, and required authorized context.
+6. Enforce all step, invocation, mutation, and new-run budgets.
+7. Require `create_analysis` to be the sole step and `answer_mode: queued`.
+8. Require grounded plans to contain only read capabilities.
+9. Reject provider-supplied references that are not exact members of authorized context.
+10. Record only capability IDs and normalized status metadata.
 
-These are navigation/investigation candidates, never autonomous business decisions. Emit `review_demand` or `review_sales_activity` only when corresponding inputs exist; absence of those inputs belongs in `handoff.optional_inputs_missing`, not in an invented conclusion. `review_pricing` is allowed when a supported peer-price signal exists and must be described as a review, not a price-change recommendation.
+An invalid primary plan may use the configured fallback planner once. If the fallback is absent or invalid, execute no capability and return a normalized planning error.
 
-### 8.6 DrillDown
+Execution is sequential. Re-check the deadline and authorization-sensitive prerequisites before each call. Planner and composer counters are incremented by the runtime, not inferred from provider telemetry. Idempotent replay by `client_turn_id` returns the already committed turn/run and does not consume another new-run budget.
 
-Use a discriminated union with immutable context on every variant:
+### 9.4 Runtime result policy
+
+- Authorization denial or detected tenant/context change fails the turn and suppresses partial facts.
+- An unavailable first step returns a typed unavailable answer.
+- An unavailable later step returns validated earlier observations plus a limitation observation and `partial` status.
+- A normalized technical failure on a later safe read may return validated earlier observations plus a generic limitation; raw error text is never included.
+- A mutation failure fails the turn; no response implies that a run was created unless the committed run reference exists.
+- A queued analysis is represented as a canonical pending/status observation, not invented progress prose.
+- Cancellation follows the existing run API. A canceled client wait does not roll back a committed queued run.
+
+## 10. Grounded answer composition
+
+### 10.1 Canonical observation contract
+
+Every capability returns observations that can be rendered without provider-authored facts:
 
 ```ts
-type DrillDownContext = {
-  run_id: Id;
-  org_id: Id;
-  use_case: UseCaseKey;
-  use_case_version: string;
-  scope: Scope;
-  requested_data_as_of: DateString;
-  effective_snapshot_date: DateString | null;
-  semantic_version: string;
-  snapshot_refs: Id[];
+type CanonicalAgentObservationV1 = {
+  observation_id: string;
+  kind: claim | metric | decision | status | limitation;
+  availability: available | unavailable | pending | failed;
+  canonical_text: string;
+  display_value: string | null;
+  support_level: SupportLevelV1 | null;
+  grounding_refs: GroundingRefV1[];
 };
 
-type DrillDown =
-  | { kind: 'open_report_section'; section_key: ReportSectionKey; context: DrillDownContext; ... }
-  | { kind: 'open_chart'; chart_id: string; chart_pack_artifact_id: Id; context: DrillDownContext; ... }
-  | { kind: 'open_evidence'; evidence_refs: CanonicalEvidenceRef[]; context: DrillDownContext; ... }
-  | { kind: 'inspect_entities'; entity_refs: EntityRef[]; filters: TypedFilter[]; context: DrillDownContext; ... }
-  | { kind: 'compare_segment'; dimension: SupportedDimension; segment_key: string; context: DrillDownContext; ... }
-  | { kind: 'start_scoped_analysis'; target_scope: Scope; context: DrillDownContext; ... };
+type AvailableWorkspaceActionV1 = {
+  action_id: string;
+  action: WorkspaceActionV1;
+};
 ```
 
-`TypedFilter` must use an operator enum and typed value, and its dimension must occur in the resolved use-case policy. In-run variants only alter view state over existing artifacts. `start_scoped_analysis` is explicitly a new run via the existing analysis endpoint, with the same requested `data_as_of` and a server-validated subset scope; it must not masquerade as same-run evidence.
+Observation IDs are turn-local opaque IDs. Canonical text and display values are constructed from validated deterministic artifacts. Numeric formatting happens before provider composition using repository conventions. A null value stays null and is rendered as unavailable; it is never converted to zero or guessed.
 
-### 8.7 DecisionIntelligencePack
+### 10.2 Provider response contract
+
+The composer may select and order supplied IDs, but it cannot write analytical prose:
 
 ```ts
-{
-  contract_version: 'decision-intelligence-pack-v1';
-  pack_id: Id;
-  run_id: Id;
-  org_id: Id;
-  use_case: UseCaseKey;
-  use_case_version: string;
-  scope: Scope;
-  data_as_of: DateString;
-  requested_data_as_of: DateString;
-  effective_snapshot_date: DateString | null;
-  semantic_version: string;
-  input_refs: Id[];
-  snapshot_refs: Id[];
-  source_refs: Id[];
-  data_analysis_pack_artifact_id: Id;
-  comparison_pack_artifact_id: Id;
-  chart_pack_artifact_id: Id;
-  analysis_pack_artifact_id: Id;
-  insight_pack_artifact_id: Id;
-  decision_brief: DecisionBriefV2;
-  visual_story: VisualStory;
-  priority_entities: PriorityEntity[];
-  action_candidates: ActionCandidate[];
-  drilldowns: DrillDown[];
-  handoff: ArtifactHandoff;
-  evidence_refs: CanonicalEvidenceRef[];
-  limitations: string[];
-}
+type GroundedResponseSelectionV1 = {
+  version: 1;
+  status: complete | partial | queued | unavailable;
+  title_key:
+    | analysis_answer
+    | analysis_queued
+    | analysis_partial
+    | analysis_unavailable;
+  blocks: Array<{
+    kind: summary | detail | limitation;
+    observation_ids: string[];
+  }>;
+  workspace_action_ids: string[];
+  queued_run_ref: RunRefV1 | null;
+  error_code: AgentPublicErrorCodeV1 | null;
+};
 ```
 
-Cross-field refinements must enforce unique IDs, valid internal references, a maximum of three primary visuals, ranked entities with contiguous unique ranks, action kinds allowed by policy, and drill-down targets that exist in the same pack/input graph.
-
-## 9. Use-case policy design
-
-### 9.1 Generic policy contracts
-
-Extend `UseCaseDefinitionSchema` to a v2 contract with:
-
-- `materiality_policy`: ordered metric/delta rules, comparability requirement, watch/material thresholds, outcome direction (`higher_is_worse`, `higher_is_better`, or `context_only`), and rule IDs;
-- `priority_policy`: supported entity types, eligibility predicates, ordered sort keys, tier rules, maximum results, and deterministic tie-breaks;
-- `action_policy`: allowlisted action kind, triggering rule/signal type, minimum support, target type, label/rationale template ID;
-- `visualization_policy`: preferred chart intents, primary count cap, required comparison context, and ordering;
-- `audience_profile`: audience key (`sales_operations`), decision horizon, terminology, and visible-limitations requirement.
-
-Policies should contain data and template IDs, not executable functions or LLM prompts. Generic evaluators in Semantic/Domain interpret them.
-
-### 9.2 Slow-moving-inventory policy
-
-Version the use case to `slow-moving-inventory-v2` and encode:
-
-**Materiality**
-
-- Preserve the current behavior represented by `notableChangeRules`:
-  - inventory count relative delta: watch at 10%, material at 20%;
-  - rate delta: watch at 5 percentage points, material at 10 percentage points;
-  - price relative delta: watch at 10%, material at 20%.
-- Require comparable current and prior snapshots.
-- Preserve zero-baseline behavior and explicit abstention rather than division-by-zero substitution.
-- Limit contribution-to-total-change to additive metrics such as available inventory and slow-moving-unit count. Never compute contribution for medians, quantiles, or rates.
-- Mark available inventory, slow-moving-unit count/rate, and age as `higher_is_worse`; mark price change `context_only`. Derive `DecisionBriefV2.status` deterministically: detrimental and beneficial material signals together are `mixed`; detrimental only is `deteriorating`; beneficial only is `improving`; comparable inputs with no watch/material signal are `stable`; no comparable change is `insufficient_evidence`. A contextual price movement cannot determine status by itself.
-
-**Priority**
-
-- Eligible unit: within the canonical current scope/snapshot and currently available; slow-moving units rank before non-slow-moving units.
-- Unit ordering: slow-moving classification, age bucket severity, age days descending, then stable unit key. A supported peer price/area gap may be a reason code, not a causal score.
-- Eligible zone/unit type: supported breakdown with non-null denominator.
-- Segment ordering: material contribution to additive change, then slow-moving count, then slow-moving rate, then available count, then stable segment key.
-- Tier thresholds must reuse existing slow-moving threshold and approved age buckets. Do not invent new business thresholds. The current >180-day bucket may support `critical` only because it is already canonical.
-- Cap results (for example five units and three segments) in configuration.
-
-**Actions**
-
-- `inspect_entities` for any ranked entity.
-- `compare_segments` for supported zone/unit-type/bedroom/status concentration or change.
-- `review_pricing` only when peer-price evidence is comparable; wording stays exploratory.
-- `validate_candidate_driver` only for a qualified interpretive finding.
-- `open_report_section` and `navigate_to_evidence` for all supported signals.
-- Do not emit demand or sales-activity actions until those inputs are present.
-
-**Visualization**
-
-- Prefer one current-state/KPI view, one material-change/trend view, and one concentration view.
-- Maximum three primary visuals.
-- Demote price distribution or peer comparison to supporting unless a material price signal is selected.
-- Charts without required comparison context may still be supporting but cannot make a change takeaway.
-
-**Audience**
-
-- `sales_operations`
-- concise operational labels;
-- explicit support and limitations;
-- no causal or prescriptive language without corresponding support;
-- priority is “where to inspect first,” not “what the business must do.”
-
-### 9.3 Generic/runtime separation
-
-Generic code may switch on contract enums such as `ActionKind` or `DrillDown.kind`. It must not contain checks such as `if (useCase === 'slow_moving_inventory')` in Report, Reviewer, API, chat, or UI. The resolved v2 policy controls behavior. Slow-moving-specific field names, thresholds, templates, and ordering live in the versioned use-case definition only.
-
-## 10. Deterministic vs hybrid responsibilities
-
-| Component | First implementation | Reason |
-|---|---|---|
-| KPI cards | Deterministic | Exact canonical metrics |
-| Material changes | Deterministic | Existing period deltas + policy |
-| Segment contribution | Deterministic | Additive snapshot comparison only |
-| Hotspots/concentrations | Deterministic | Breakdown values + stable ordering |
-| Priority entities | Deterministic | Policy eligibility/ranking/tie-break |
-| Action eligibility | Deterministic | Policy allowlist/support gates |
-| Drill-downs | Deterministic | Typed refs and approved filters |
-| Visual selection/order | Deterministic | Visualization policy and chart availability |
-| Headline | Deterministic template in the first implementation | Avoid new semantic risk |
-| Business implications | Deterministic bounded templates | No unsupported causal inference |
-| Chart takeaway | Deterministic template from bound metric/change | Must match chart exactly |
-| Candidate driver wording | Hybrid, optional | Only from an `interpretive` finding, clearly qualified |
-| Prose polish | Hybrid, optional | LLM may select/rephrase bounded IDs without adding facts |
-
-No new LLM agent is needed. If provider-assisted wording is added after the deterministic release, it should use the existing bounded provider pattern from `insight-agent.ts` and be validated against selected signal/finding IDs.
-
-## 11. Contract/schema/type changes
-
-All paths below are real repository paths. Additive historical schemas must remain available wherever persisted old artifacts are parsed.
-
-| File / symbol | Current role | Required change | Backward compatibility | Validation impact |
-|---|---|---|---|---|
-| `src/backend/packages/contracts/src/index.ts` / `DecisionBriefSchema` | Strict `decision-brief-v1` embedded in reports and returned by `/brief` | Alias the current schema/type as `DecisionBriefV1Schema`/`DecisionBriefV1`; retain `DecisionBriefSchema` and `DecisionBrief` as v1 compatibility exports; add separate `DecisionBriefV2Schema`/`DecisionBriefV2` and optional `AnyDecisionBriefSchema` union for version-aware internal readers | Existing report and `/brief` shapes remain byte-compatible | V2 validates component IDs/refs without widening the legacy route |
-| same / `DecisionSignalSchema` | Numeric signal with evidence roles | Reuse for v1; add v2 KPI/change/hotspot schemas | No v1 field changes | Exact metric/delta binding |
-| same / `SupportedNextActionSchema` | Two hard-coded action kinds | Keep for v1; add `ActionCandidateSchema` | Historical action behavior remains | Policy allowlist, support, targets, drill-down |
-| same / `CanonicalEvidenceRefSchema` | Artifact ID/key/path | Add `CanonicalMetricRefSchema` and `EntityRefSchema` | Additive | Resolve same-run key/path/metric |
-| same / `WorkflowPackMetadataSchema` | Common pack metadata | Keep v1; add v2 metadata with requested/effective dates and `handoff` | V1 packs remain valid | Scope/date/version parity |
-| same / `UseCaseDefinitionSchema` | Registry definition v1 | Add v2 union and five policy schemas | Old coordinator versions are not reinterpreted | Validate IDs, dimensions, actions, caps, templates |
-| same / `DataAnalysisPackSchema` | Canonical Data handoff | Add v2 segment-period contribution/comparability/handoff | Keep v1 in union | Exact calculation projection |
-| same / `ComparisonPackSchema` | Comparison projection | Add v2 ranks, comparability, contribution, materiality refs | Keep v1 | Recompute/check order/contribution |
-| same / `ChartSpecSchema` / `ChartPackSchema` | Numeric charts | Add v2 story metadata and handoff | Keep chart/pack v1 | Bind annotations, refs, takeaways |
-| same / `AnalysisPackSchema` | Typed findings | Add v2 only if structured candidate-driver linkage is required | V1 remains accepted | Interpretive qualification |
-| same / `InsightPackSchema` | Summary/claims | Add v2 handoff and structured selected IDs; no new numbers | Keep v1 | IDs must resolve |
-| same / new `DecisionIntelligencePackSchema` | None | Add canonical aggregate contract | Absence allowed for old runs | Strong cross-field/graph validation |
-| same / `ReportDraftSchema` | Five source-pack refs | Add v2 decision-pack ref | Keep v1 | Report must project pack |
-| same / `ReportSectionSchema` | Fixed detailed-report section keys | Add decision-facing section keys only if Report sections directly link brief/story/priorities/actions; otherwise leave detailed keys unchanged and render the decision pack above them | Old keys remain accepted | Section refs must resolve in the same report graph |
-| same / `ReportPayloadSchema` | Final structured report | Add optional `decision_intelligence_artifact_id`; keep optional v1 `decision_brief` as the compatibility projection | No-brief/v1 reports parse unchanged | For new reports, ID names the exact pack and embedded v1 brief equals the pack’s compatibility projection |
-| same / `ReviewIssueSchema` | Generic review categories | Add decision support/materiality/priority/action/visual/drilldown/audience categories | Existing categories remain | Decision-specific review |
-| same / `ArtifactSchema` | Closed Zod union | Add `decision_intelligence_pack` | DB kind is text | Typed storage/read |
-| same / `DecisionBriefResponseSchema` | Slim v1 endpoint | Keep unchanged; add separate `DecisionIntelligenceResponseSchema` | Current route and clients keep the v1 shape | Both responses validate before return |
-| same / `MessagePartSchema` | Chat refs | Add `decision_ref`/`drilldown_ref`; keep `signal_ref` | Existing messages parse | Reauthorize each action |
-| same / `AgentTurnRequestSchema` | Signal action | Add typed drill-down ref/action; keep current fields | Existing clients work | Resolve server-side |
-| `src/backend/packages/contracts/src/export.ts` | JSON Schema exporter | Export pack/response/v2 packs/policies | Existing schemas remain | Generated fixtures |
-| `src/backend/packages/contracts/schema/*.json` | Generated contracts | Regenerate via `pnpm contracts:export` | Additive/versioned | Commit with source |
+The server validates that every selected observation/action ID was supplied, every grounding reference is still authorized and belongs to the accepted run, status is coherent with observation availability, and queued run references match the committed result. It then reconstructs the existing message text, typed parts, references, and actions from canonical values.
+
+The provider receives no facility for free-form findings, numbers, follow-up prompts, URLs, reference objects, or workspace actions. It may only choose IDs and ordering. Therefore an unsupported qualitative statement cannot be made valid by attaching an unrelated reference.
+
+### 10.3 Deterministic fallback
+
+If both composer attempts fail, time out, exceed bounds, or select invalid IDs, use a deterministic renderer:
+
+1. Keep observations in capability/observation order.
+2. Use the first available observation as the summary.
+3. Put remaining available observations in details.
+4. Append normalized limitation observations.
+5. Include only precomputed actions compatible with final status.
+6. Render queued/unavailable titles from fixed application strings.
+
+This fallback must produce the same grounding guarantees as a successful composer and must not call another model.
+
+## 11. Integration design
+
+### 11.1 Backend turn flow
+
+1. Authenticate the session and authorize organization membership.
+2. Resolve the conversation from the route/body and enforce the existing turn-write policy.
+3. Parse `AgentTurnRequestV1` and workspace/top-level coherence.
+4. Return an existing idempotent turn for the same `client_turn_id` when present.
+5. Build `AuthorizedAgentContextV1`.
+6. If the runtime flag is off, call the unchanged legacy handler.
+7. If the flag is on, project bounded context and call the planner.
+8. Preflight the complete plan.
+9. Execute capabilities sequentially through the registry.
+10. Convert results to canonical observations.
+11. Compose by ID and deterministically render the existing assistant message shape.
+12. Persist the user/assistant messages and exact committed run/artifact references through current repository methods.
+13. Return the current JSON response. Existing polling remains the queued-run completion path.
+
+### 11.2 Frontend flow
+
+- A single workspace-context builder reads organization, route conversation, scope, date, active report/run, dashboard selection, drilldown, and evidence state.
+- Both the current Agent Chat layout and optional Grok workspace pass the same snapshot to the client API.
+- Explicit agent target remains an explicit request field and is checked against `inspect_agent_checkpoint` input.
+- Existing message components render reconstructed text and typed references/actions; no model response is rendered directly.
+- Existing action allowlists and navigation reducers remain authoritative.
+- SSE may enhance progress when enabled, but removing or disabling SSE must not change correctness.
+
+## 12. Contract and type changes
+
+| Path | Change |
+|---|---|
+| `src/backend/packages/contracts/src/index.ts` | Extend `WorkspaceContextV1`; add authorized-context projection types only if they belong in shared server packages; add canonical observation, response-selection, resolution-issue, and capability ID schemas |
+| `src/backend/packages/contracts/src/export.ts` | Export the new public/runtime-safe contracts |
+| `src/backend/packages/contracts/schema/*.json` | Add or update JSON schemas for request, workspace context, observations, plan, and response selection |
+| `src/backend/packages/contracts/test/agent-workflow-contracts.test.ts` | Assert parsing, closed enums, bounds, null semantics, and compatibility |
+| `src/backend/packages/db/src/types.ts` | Add repository return types only where existing public artifact/run readers need typed projections |
+| `src/backend/packages/agents/src/runtime-context.ts` | Build the authoritative context and granular resolution issues |
+| `src/backend/packages/agents/src/capability-registry.ts` | Register the exact inventory and central validation |
+| `src/backend/packages/agents/src/planner.ts` | Enforce the final plan schema and bounded provider projection |
+| `src/backend/packages/agents/src/runtime-limits.ts` | Define and validate exact limits and configured deadline |
+| `src/backend/packages/agents/src/runtime.ts` | Implement preflight, counters, deadline, sequential execution, and failure policy |
+| `src/backend/packages/agents/src/answer-composer.ts` | Replace free-prose validation with ID selection and deterministic rendering |
+| `src/backend/packages/agents/src/runtime-provider.ts` | Expose bounded planner/composer attempts with normalized failures |
+| `src/frontend/lib/workspace-context.ts` | Construct the complete client snapshot from current state |
+| `src/frontend/lib/client-api.ts` | Send the snapshot without changing the public response path |
+
+Names should follow existing repository naming during implementation; the contracts above define semantics, not permission to create duplicate near-equivalents.
+
+## 13. API and event surface
+
+No new endpoint is required. Extend the existing agent-turn request with the versioned workspace snapshot and preserve existing response compatibility. Continue to use current endpoints for run status, cancellation, artifacts, reports, and conversation history.
+
+If existing SSE code remains, its events are optional presentation events. They must contain only identifiers and normalized status, must be tenant-authorized on reconnect, and must not become a source of analytical data. P0 acceptance is based on the JSON turn endpoint plus polling.
+
+## 14. Persistence and migrations
+
+No table, column, index, queue, or migration is required.
+
+Persist:
+
+- Existing user and assistant messages.
+- Existing typed grounding references and workspace actions in message JSON.
+- Existing analysis run and artifact records.
+- Existing idempotency association for `client_turn_id`.
+
+Do not persist:
+
+- Plans or rejected plans.
+- Provider prompts or raw provider output.
+- Chain-of-thought or reasoning.
+- Ephemeral authorized-context projections.
+- Canonical observation bundles after the final message is reconstructed.
+- Raw tool errors or private artifact payloads.
+
+Repository additions should be limited to scoped public readers such as batch artifact lookup when required to revalidate references efficiently.
+
+## 15. Authorization and security
+
+- Treat every client field and every provider field as untrusted.
+- Resolve organization and conversation from authenticated route context and existing membership checks.
+- Use organization-scoped repository methods for all references.
+- Apply exact-run lineage checks to reports, charts, entities, drilldowns, evidence, claims, and metrics.
+- Expose only validated public artifacts; exclude draft/review/internal workflow payloads.
+- Keep current owner/writer mutation policy. Viewer capability metadata supports read semantics only and does not grant permission to create a persisted chat turn where the current product forbids it.
+- Normalize not-found and forbidden references to the same public error where disclosure would reveal cross-tenant existence.
+- Reject arbitrary URLs, action payloads, capability names, schema keys, and provider-selected references.
+- Bound counts and serialized bytes before every provider call.
+- Do not log prompts, user text, canonical values, evidence content, secrets, or model reasoning.
+- Reauthorize immediately before a mutation and before persisting final references.
+
+## 16. Failure behavior
+
+| Condition | Public behavior | Capability execution | Partial facts |
+|---|---|---|---|
+| Invalid request/coherence | Normalized validation error | None | No |
+| Unauthorized org/conversation/root | `NO_AUTHORIZED_RESULT` or existing authorization response | None | No |
+| Stale optional child | Parent context retained; child resolution issue recorded | Other valid reads may run | Yes, when requested answer remains supported |
+| Planner primary invalid/timeout | Try configured fallback once | None before a valid plan | No |
+| Planner fallback invalid/timeout | Normalized planning unavailable | None | No |
+| Plan exceeds any budget | Normalized invalid plan | None | No |
+| First read unavailable | Typed unavailable answer | Stop | No |
+| Later read unavailable | Partial answer plus canonical limitation | Stop | Yes |
+| Later read technical failure | Partial only for normalized safe-read failure | Stop | Yes |
+| Any authorization change during execution | Normalized authorization failure | Stop | No |
+| Mutation failure before commit | Normalized create failure | Stop | No |
+| Mutation commits but response times out | Idempotent replay returns committed run | No duplicate mutation | Only committed status |
+| Composer primary invalid/timeout | Try fallback once | Already completed capabilities are not repeated | Observations retained |
+| Composer fallback invalid/timeout | Deterministic renderer | No additional capabilities | Yes |
+| Turn deadline reached | Normalized timeout or deterministic safe partial result | Stop | Only already validated reads |
+| Queued run later fails/cancels | Existing polling/status UI shows canonical run state | No implicit retry | No invented findings |
+
+## 17. Observability
+
+Reuse current runtime/provider telemetry and activity plumbing, adding metadata-only events:
+
+- Turn: `client_turn_id`, organization-safe correlation ID, runtime flag variant, mode, final status, normalized error code, total duration, timeout flag.
+- Context: build duration, accepted reference-kind counts, dropped/replaced/rejected counts, serialized provider-context bytes.
+- Planner: provider family, duration, attempt number, fallback-used flag, validation status, selected capability IDs and count.
+- Capability: capability ID, ordinal, duration, normalized outcome, mutation flag, and already-public run/artifact IDs where current policy permits.
+- Composer: provider family, duration, attempt number, fallback-used flag, selected observation/action counts, deterministic-renderer flag.
+- Idempotency: new or replayed turn/run, without message contents.
+
+Never log prompts, conversation text, canonical text/value fields, evidence content, artifact payloads, provider raw responses, secrets, or reasoning. SSE is not a telemetry store.
+
+## 18. Test strategy
+
+### 18.1 Contract tests
+
+- Complete and legacy-compatible `AgentTurnRequestV1` parsing.
+- Closed capability, status, title, observation-kind, and resolution-code enums.
+- Maximum plan steps, observation/action counts, string sizes, and serialized-byte guards.
+- Null metric/display values remain null.
+- Unknown keys, arbitrary URLs, arbitrary action payloads, and free-form composer text are rejected.
+
+### 18.2 Runtime-context tests
+
+- Organization, route conversation, scope, and data-as-of coherence.
+- Cross-tenant run/report/artifact/chart/entity/evidence references do not disclose existence.
+- Run scope/date mismatch drops the complete lineage.
+- Stale report preserves an authorized run.
+- Stale chart/entity/drilldown/evidence drops only that child.
+- Omitted optional references remain null without error.
+- Omitted report resolves only a validated public report for the accepted run.
+- Private draft/review artifacts are excluded.
+- Provider projection is count- and byte-bounded.
+
+### 18.3 Registry and capability tests
+
+- Exact nine-ID inventory and metadata.
+- Duplicate registration fails startup.
+- Common input and output schemas are always applied.
+- Forged provider references are rejected before executor invocation.
+- Role, mode, required-context, duplicate-call, mutation, and run budgets.
+- `create_analysis` uses authorized scope/date and queues exactly one run.
+- Every read returns canonical observations with exact grounding references.
+- Null/unavailable data produces typed observations.
+- `inspect_agent_checkpoint` matches legacy analyst/comparison/chart/report behavior.
 
-Do not bump `ARTIFACT_SCHEMA_VERSION` merely to add a union member. Component `contract_version` fields are the correct boundary unless the artifact envelope itself changes incompatibly.
-
-## 12. Upstream deterministic enrichment
+### 18.4 Planner/runtime tests
 
-### 12.1 Comparison/materiality
+- Planner is called once logically and no capability runs before full preflight.
+- Primary/fallback attempt maximum is two.
+- Three calls succeed; four fail with zero calls.
+- Duplicate capability ID fails with zero calls.
+- One mutation/new-run limit and create-analysis-only-plan rule.
+- Declared order is preserved and no parallel calls occur.
+- Configured provider timeout and 45-second turn deadline are actually used.
+- First unavailable, later unavailable, later safe-read error, and authorization-change semantics.
+- Queued, pending, failed, canceled, and idempotently replayed run behavior.
+- Composer is called once logically; execution is not repeated on composer fallback.
+- Raw provider/tool errors never reach persisted messages or responses.
 
-Modify the generic calculations in `src/backend/packages/semantic/src/index.ts`:
+### 18.5 Composer tests
 
-1. Replace direct reads of module-level `notableChangeRules` with a passed `MaterialityPolicy` resolved from the use case.
-2. Preserve half-up decimal behavior, zero-baseline abstention, snapshot matching, and evidence paths.
-3. Add explicit comparability: `comparable`, `missing_current`, `missing_comparison`, `zero_baseline`, `incompatible_scope`, or `unsupported_metric`.
-4. Add temporal segment comparison for additive metrics only:
-   - match current and comparison rows by canonical unit/entity key;
-   - aggregate the same dimension under both snapshots;
-   - calculate segment absolute change;
-   - calculate `contribution_to_total_change = segment_change / total_change` only when total change is non-zero and the metric is additive;
-   - retain current/comparison snapshot refs and canonical evidence paths;
-   - do not coerce missing segments to zero unless a complete snapshot proves absence.
-5. Rank comparable segment changes deterministically and attach materiality policy rule IDs.
-6. Add canonical segment `slow_moving_units` breakdowns (or an equivalently evidence-bound count projection from `CalculatedUnit[]`) before the priority policy uses slow-moving counts. The current `buildBreakdowns` output does not contain that metric, so the decision builder must not infer it from rates.
+- The provider can select only supplied observation/action IDs.
+- Exact canonical values and claim/evidence references survive rendering.
+- Cross-run, forged, duplicate, unavailable-as-complete, and mismatched queued-run selections fail.
+- Unsupported qualitative prose is structurally impossible.
+- Null values render unavailable and never as zero.
+- Limitation observations are retained in partial answers.
+- Deterministic fallback is grounded and stable.
+- Persisted text and typed parts reconstruct the same answer.
 
-`src/backend/packages/agents/src/data-agent.ts` remains the only stage that invokes these calculations. `buildDataAnalysisPack` must project the enriched output exactly. `comparison-agent.ts` must remain non-calculating: it may sort/project canonical comparison records but must not derive new numbers.
+### 18.6 Integration and frontend tests
 
-### 12.2 Chart semantics
+- Runtime flag off preserves the legacy response.
+- Runtime flag on supports legacy Agent Chat layout and optional Grok workspace.
+- Both layouts send equivalent complete workspace snapshots.
+- Explicit agent target behavior is preserved.
+- Viewer/writer/owner authorization remains unchanged.
+- JSON plus polling completes a queued run with SSE disabled.
+- Stale child selection produces a safe unavailable/partial answer while the valid parent remains usable.
+- Workspace actions remain allowlisted after round-trip and navigation.
+- Refresh/reload renders persisted reconstructed messages without runtime-only state.
 
-Modify `src/backend/packages/agents/src/chart-agent.ts` and the existing chart builder:
+### 18.7 Regression suite
 
-- generate `ChartSpecV2` from canonical values only;
-- select purpose/takeaway templates from visualization policy;
-- attach highlights only when entity refs exist;
-- bind every annotation/reference line to a metric/evidence path;
-- leave a chart `unavailable` when required context is absent;
-- do not invent benchmark/reference-line values;
-- extend existing numeric-integrity validation to new metadata.
+Run the repository's existing contract, database, tools/provider, semantic, chart, decision-intelligence, artifact, workflow/publication, BFF agent-chat, and frontend workspace/chat suites. Add targeted tests first; run broader package and repository checks only after each phase's focused tests pass.
 
-### 12.3 Analyst and Insight
+## 19. Compatibility and migration
 
-The first implementation does not need broader Analyst generation:
+- Keep `GROK_RUNTIME_ENABLED` as the server-side migration gate. The disabled path calls legacy behavior without constructing a provider plan.
+- Accept legacy requests without `workspace_context` during rollout; derive the minimal snapshot from existing top-level fields and route identity. Emit metadata-only adoption telemetry.
+- When the snapshot is present, require exact coherence. Do not silently prefer one conflicting copy.
+- Persist the existing assistant message shape so old clients and history reloads continue to render.
+- Introduce capability/observation schemas additively, then switch the flagged runtime atomically to ID-only composition.
+- Default planner/composer configuration to the repository's established Gemini/OpenAI order. Keep xAI behind explicit opt-in configuration and remove it from required example defaults.
+- Roll out to development, then internal organizations, then a bounded percentage/allowlist. Compare normalized completion/error/timeout and grounding-fallback rates.
+- Roll back by disabling the runtime flag. No data rollback or schema migration is required.
+- Remove the compatibility derivation and legacy handler only after adoption telemetry shows no legacy callers and parity/regression gates pass.
 
-- `analyst-agent.ts` continues producing deterministic descriptive findings.
-- Existing `kind` and `support_level` fields are sufficient.
-- Candidate-driver support may later use qualified `interpretive` findings, never priority facts.
+## 20. Phased implementation plan
 
-`insight-agent.ts` should add only structured selection IDs/handoff metadata needed by the builder. Its LLM boundary cannot introduce claims, numeric values, entity ranks, actions, or drill-downs.
+Each phase is independently reviewable and testable. Do not combine phases merely because they touch the same file; preserve the logical commit boundaries below.
 
-## 13. Decision artifact builder
+### Phase 0 - Reconcile the current runtime worktree
 
-Add `src/backend/packages/domain/src/decision-intelligence.ts` with pure functions:
+**Goal:** Establish a reviewed baseline for the partially implemented P0 runtime without changing product behavior.
 
-- `buildDecisionIntelligencePack(input, useCaseDefinition)`
-- `validateDecisionIntelligencePack(pack, graph, useCaseDefinition)`
-- `projectDecisionBriefV1Compatibility(pack)` only when a v1 response is needed
-- helpers for KPI/change selection, priority ranking, action expansion, visual selection, and drill-down creation
+**Current implementation reused:** The uncommitted workspace-context, registry, planner, runtime, provider, composer, BFF, frontend, and test files already present in the repository.
 
-Inputs are persisted Data, Comparison, Chart, Analysis, and Insight packs plus the exact use-case definition. The builder must not query the warehouse, call an LLM, or read mutable “latest” state.
+**Gap:** The worktree mixes implemented P0 primitives with optional Grok/SSE/xAI work, and documentation currently overstates completion.
 
-Build order:
+**Files to modify/add:** Review only all current diffs; update `docs/context.md` and `docs/implementation_plan.md` if their claims conflict with verified code. Add no production file.
 
-1. Validate metadata equality and lineage for all inputs.
-2. Build handoff completeness.
-3. Select policy-approved canonical KPI cards.
-4. Select watch/material comparison changes.
-5. Select supported hotspots.
-6. Rank priority entities with policy/tie-breaks.
-7. Select charts and assemble VisualStory.
-8. Expand action rules over supported signals/entities.
-9. Create drill-downs with immutable context.
-10. Generate deterministic headline, implications, watchouts, and data-quality summary.
-11. Deduplicate limitations/refs in stable order.
-12. Parse and graph-validate the pack.
+**Contracts:** Inventory each new schema and map it to a current consumer. Mark duplicate or unused types before later phases.
 
-Stable ordering and IDs are required for retry idempotency. IDs derive from canonical keys/rule IDs, not random UUIDs.
+**Backend:** Trace one legacy turn and one flagged-runtime turn from the BFF through persistence. Record which current helpers are authoritative.
 
-## 14. Changes by logical stage
+**Frontend:** Trace context construction and message rendering in both layouts; identify optional Grok/SSE dependencies.
 
-### Coordinator
+**Persistence:** Confirm current message/run/artifact persistence and idempotency are sufficient.
 
-**Input:** resolve the default `UseCaseDefinition v2` from Domain for a new run, or the already persisted Coordinator version during recovery.
-**Output:** keep `CoordinatorDecision` and record `slow-moving-inventory-v2` for newly coordinated runs.
-**Validate:** capability and exact policy version exist; downstream resolution uses `CoordinatorDecision.use_case_version`.
-**Unchanged:** deterministic routing, scope/date/reuse/unsupported rules.
+**Auth/security:** Confirm the route, organization membership, conversation write gate, and public artifact boundary before preserving any new path.
 
-### Data Agent
+**Implementation steps:**
 
-**Input:** version-pinned definition from the persisted Coordinator decision, including materiality policy and priority-required metrics/dimensions.
-**Output:** DataAnalysisPack v2 with comparability, additive contribution, policy IDs, and handoff.
-**Validate:** generic policy evaluator and exact projection.
-**Unchanged:** warehouse authority, deterministic calculation, no LLM.
+1. Capture `git status` and focused diffs; assign each changed file to core P0, optional feature, test, or documentation.
+2. Compare exported schemas with all call sites and remove no concurrent/user work.
+3. Trace provider defaults and flag behavior, explicitly identifying xAI and SSE as optional.
+4. Write a short baseline checklist in the implementation PR description; make no behavioral cleanup.
 
-### Comparison
+**Tests:** No new tests. Run existing focused tests only if code must change during reconciliation.
 
-**Input:** DataAnalysisPack v2.
-**Output:** ComparisonPack v2 projects ranks/materiality/comparability/contribution.
-**Validate:** projection equality and stable order.
-**Unchanged:** no model, query, or independent arithmetic.
+**Acceptance criteria:** Every current diff has an owner and phase; no optional feature is a prerequisite; no undocumented schema or persistence dependency remains.
 
-### Chart
+**Dependencies:** None.
 
-**Input:** DataAnalysisPack v2 and visualization policy.
-**Output:** ChartPack/ChartSpec v2 story/render metadata.
-**Validate:** semantic integrity plus numeric binding.
-**Unchanged:** every number remains deterministic/evidence-bound.
+**Rollback/defer:** Documentation/inventory changes are independently revertible. Defer optional Grok dashboard, SSE, and xAI work without blocking Phase 1.
 
-### Analyst
+### Phase 1 - Finalize shared contracts and limits
 
-**Input:** optional policy vocabulary/support rules.
-**Output:** no required v1 change; v2 only if candidate drivers ship.
-**Validate:** interpretive findings require qualification/support/evidence/limitation.
-**Unchanged:** no metric or priority calculation.
+**Goal:** Make the closed P0 protocol parseable and bounded before runtime behavior changes.
 
-### Insight
+**Current implementation reused:** Existing `AgentTurnRequestV1`, workspace context, plan, response, grounding, action, claim, metric, and reference schemas.
 
-**Input:** existing branch/Data packs plus policy.
-**Output:** persist InsightPack then DecisionIntelligencePack before task success; return both.
-**Validate:** Domain builder; recovery requires both keys for v2.
-**Unchanged:** bounded provider/safe fallback.
+**Gap:** The workspace snapshot is incomplete; observation/composer contracts permit too much text; enums and size limits are not final.
 
-### Report
+**Files to modify/add:**
 
-**Input:** load the pack in `executeReportDraftStage`/`report-agent.ts`.
-**Output:** ReportDraft v2 references it; ReportPayload links it and embeds only `projectDecisionBriefV1Compatibility(pack)` for existing consumers; the full v2 decision layer is rendered from the pack above the existing detailed sections.
-**Validate:** exact pack link plus exact v1 compatibility projection; Report must not reconstruct priorities, actions, visual order, or drill-downs.
-**Unchanged:** structured JSON, exact metrics/units, revision cap.
+- `src/backend/packages/contracts/src/index.ts`
+- `src/backend/packages/contracts/src/export.ts`
+- Relevant files under `src/backend/packages/contracts/schema/`
+- `src/backend/packages/contracts/test/agent-workflow-contracts.test.ts`
+- `src/backend/packages/agents/src/runtime-limits.ts`
+- `src/backend/packages/agents/src/runtime-limits.test.ts` if the current test file exists; otherwise add it
 
-### Reviewer
+**Contracts:** Implement Sections 7, 8, 9, and 10 exactly: complete `WorkspaceContextV1`, closed nine-ID capability enum, `CanonicalAgentObservationV1`, `AvailableWorkspaceActionV1`, `GroundedResponseSelectionV1`, and resolution issues. Preserve legacy request parsing during rollout.
 
-**Input:** decision pack and graph.
-**Output:** decision-specific ReviewIssue categories.
-**Validate:** semantic review consumes deterministic prechecks and cannot redo arithmetic.
-**Unchanged:** two revisions, evidence-bound corrections, deterministic final status.
+**Backend:** Export a single limit object used by planner, registry, runtime, context builder, and providers. Validate operator overrides and cap the turn deadline at 45 seconds.
 
-### Technical Validator / Publication
+**Frontend:** Consume the extended public workspace type without yet populating new fields outside tests.
 
-**Input:** pack in expected keys/publication graph.
-**Output:** checks cover schema, graph, policy, drill-down, report projection.
-**Validate:** `validateDecisionIntelligencePack`.
-**Unchanged:** atomic publication, PASS/hash binding, leases, in-transaction revalidation.
+**Persistence:** None.
 
-## 15. Technical validation specification
+**Auth/security:** Do not place server-authorized objects, roles, or private payload types in the client request schema. Apply strict objects and closed enums.
 
-Implement deterministic blocking checks in `src/backend/packages/domain/src/decision-intelligence.ts`, `integrity.ts`, and `agent-workflow.ts`.
+**Implementation steps:**
 
-### Schema and graph
+1. Add the complete workspace snapshot with version and bounded nullable selections.
+2. Add canonical observation and action-ID schemas; remove free-form analytical fields from the composer output.
+3. Close capability and public error/status enums.
+4. Encode count, length, and byte-related structural limits where schema validation can enforce them.
+5. Centralize runtime numeric limits and validated configuration.
+6. Export generated/hand-maintained JSON schemas using current repository conventions.
+7. Update contract fixtures and consumers to compile against additive fields.
 
-- Parse every contract/version.
-- Pack, artifact envelope, run, org, task, and artifact key agree.
-- All five input IDs exist and match their declared kinds/keys.
-- Required predecessor refs are complete.
-- Evidence/metric refs resolve to allowed input paths.
-- Signal/entity/action/drill-down/chart IDs are unique and resolve.
+**Tests:** Parsing success, legacy compatibility, unknown-key rejection, enum closure, count/string bounds, null preservation, and free-prose rejection.
 
-### Scope, time, and tenancy
+**Acceptance criteria:** Contracts compile; fixtures round-trip; no composer schema accepts analytical prose, arbitrary refs/actions, or URLs; all runtime components import one limits source.
 
-- All refs belong to one org/run.
-- Use-case/version, scope, requested date, effective snapshot, semantic version, snapshot refs, and source refs agree with Coordinator/Data.
-- Drill-down cannot broaden scope or change snapshot.
-- `start_scoped_analysis` only narrows to a supported scope and retains requested date.
-- API reauthorizes the root run and never trusts client-provided org context.
+**Dependencies:** Phase 0.
 
-### Metrics, comparison, and charts
+**Rollback/defer:** Additive request fields can be reverted while legacy requests continue. Do not proceed to provider cutover until all consumers compile.
 
-- KPI/change/hotspot values and units/currency equal canonical refs.
-- Comparison windows and snapshot refs exist.
-- Materiality exactly matches versioned policy.
-- Contribution occurs only for additive metrics and recomputes under current Decimal/rounding rules.
-- Ranks/tiers match eligibility/order/tie-break policy.
-- Chart values, annotations, reference lines, highlights, and takeaways resolve to bindings.
-- Primary visuals exist, are unique/ordered, and number at most three.
+### Phase 2 - Build authoritative workspace context
 
-### Actions and drill-downs
+**Goal:** Convert an untrusted navigation snapshot into one granular, bounded, server-authorized context.
 
-- Action kind is policy-allowed and its trigger meets minimum support.
-- Wording comes from a registered template, not free-form prescription.
-- Every action points to an existing drill-down.
-- Filter dimensions/operators are allowlisted; values exist in same-scope data.
-- Report-section/chart/evidence targets exist.
+**Current implementation reused:** Existing `RuntimeContextBuilder`, organization-scoped repository readers, artifact validation, report reconstruction, decision-intelligence projection, chart/evidence lookup, and frontend context reducer.
 
-### Handoff and report projection
+**Gap:** Scope/date/org/conversation are split; stale handling is all-or-nothing; child lineage and disclosure behavior need exact rules.
 
-- `complete` requires all policy-required components.
-- `partial`/`insufficient` list concrete reasons.
-- Missing optional demand/funnel/activity inputs block only if policy makes them required.
-- ReportDraft references the exact pack.
-- New report `decision_intelligence_artifact_id` names the exact pack and its embedded v1 brief exactly equals `projectDecisionBriefV1Compatibility(pack)`.
-- Publication includes pack lineage/validation.
+**Files to modify/add:**
 
-Cross-run, cross-scope, cross-tenant, or unresolved refs are blocking, never warnings.
+- `src/backend/packages/agents/src/runtime-context.ts`
+- `src/backend/packages/agents/src/runtime-context.test.ts`
+- `src/backend/packages/db/src/types.ts`
+- `src/backend/packages/db/src/repository.ts`
+- Existing repository tests covering public artifact lookup
+- `src/backend/apps/server/src/api/agent-chat.ts`
+- `src/frontend/lib/workspace-context.ts`
+- `src/frontend/lib/workspace-context.test.ts`
+- `src/frontend/lib/client-api.ts`
+- `src/frontend/components/agent-chat.tsx`
+- `src/frontend/components/workspace.tsx`
+- Optional Grok-workspace consumer only if it currently builds its own snapshot
 
-## 16. Semantic review specification
+**Contracts:** Produce `AuthorizedAgentContextV1` and granular `ContextResolutionIssueV1`; keep them server-only except for public normalized errors.
 
-Extend `src/backend/packages/agents/src/reviewer-agent.ts` and `review-workflow.ts` to ask:
+**Backend:** Make the route conversation authoritative; enforce request coherence; resolve root-to-child lineage; preserve valid parents when optional children are stale; bound the provider projection.
 
-- Does the headline reflect the highest-priority supported signal?
-- Is “material” used only for policy-marked material changes?
-- Are implications proportional to support?
-- Are candidate drivers explicitly qualified/non-causal?
-- Are actions investigations rather than autonomous decisions?
-- Does each takeaway match its chart and comparison context?
-- Are the primary visuals decision-relevant?
-- Are missing windows, incomplete coverage, and optional-input gaps visible?
-- Is the brief useful to Sales Operations?
+**Frontend:** Build both compatibility fields and `workspace_context` from one state selector. Include explicit nulls for absent optional selections and route conversation identity.
 
-The reviewer may request evidence-bound wording/visibility corrections. It must not alter a number, rank, tier, classification, binding, action eligibility, or filter; add unsupported content; claim causality; override deterministic failure; or independently return PASS.
+**Persistence:** Reuse current scoped readers. Add only a typed/batched public artifact reader if necessary; no schema migration.
 
-Keep the provider boundary narrower than report generation. Add an internal `DecisionReviewRequestSchema` whose response contains only an allowlisted issue code, target component kind/ID, and correction kind such as `qualify_wording`, `surface_limitation`, `demote_visual`, or `remove_unsupported_implication`. Server code must resolve the target, render the final `ReviewIssue` from templates, reject unknown/duplicate/unresolvable requests, and retain the current rule that provider output cannot manufacture PASS. Deterministic validation runs before and after any correction. A configured provider failure follows the existing retry/fail-closed behavior; it is not converted to a semantic pass.
+**Auth/security:** Collapse inaccessible/not-found root references to one public result; never resolve by unscoped ID; exclude draft/review artifacts; never merge runs.
 
-## 17. Persistence, API, cache, and authorization
+**Implementation steps:**
 
-### 17.1 Artifact storage
+1. Parse and compare organization, conversation, scope, and data-as-of before repository reads.
+2. Resolve the run, then report/artifact, then chart/entity/drilldown/evidence in lineage order.
+3. Implement the stale policy from Section 7.3 with per-reference issues.
+4. Derive a current validated public report only when omitted and unambiguous.
+5. Project bounded labels, IDs, statuses, and public summaries for providers.
+6. Update both frontend layouts to call the same context builder.
+7. Keep the legacy minimal-context derivation when the snapshot is absent.
 
-- Kind/key: `decision_intelligence_pack`
-- Envelope: existing `ArtifactBase`
-- Payload: `decision-intelligence-pack-v1`
-- Task owner: existing `insight` task
-- Visibility: workspace-visible like report/chart/insight, not draft/review-private
-- Inputs: Data, Comparison, Chart, Analysis, and Insight pack IDs
-- Snapshot/source refs: exact validated canonical union; never “latest”
+**Tests:** Cross-tenant non-disclosure; all coherence mismatches; stale root versus stale child; missing optionals; private artifacts; exact lineage; byte/count bounds; equivalent snapshots from both layouts.
 
-Update `expectedArtifactKey` in `src/backend/packages/domain/src/agent-workflow.ts`, recovery/load helpers in `agents/src/workflow.ts` and `draft-workflow.ts`, and repository publication expectations.
-
-### 17.2 Read API
-
-Add to the repository interface and `SqlRepository`:
-
-```ts
-decisionIntelligence(
-  userId: string,
-  orgId: string,
-  runId: string
-): Promise<DecisionIntelligenceResponse>
-```
-
-Behavior:
-
-1. Authorize membership and load the same-org run.
-2. Return validated pack with `source: 'decision_intelligence_pack'` when present.
-3. Otherwise adapt a published v1 brief with `source: 'legacy_report_brief'`, partial handoff, and unavailable new components.
-4. If neither exists, return typed `DECISION_INTELLIGENCE_NOT_AVAILABLE` while leaving report reads usable.
-5. Never recompute an old run under current versions.
-
-Add `GET /runs/:id/decision-intelligence` in `src/frontend/src/server/api.ts` and return `DecisionIntelligenceResponseSchema`. Keep `GET /runs/:id/brief` and its v1 response schema unchanged. For a new run, that legacy route returns `projectDecisionBriefV1Compatibility(pack)`; for an old run it follows today’s embedded-report path.
-
-### 17.3 Cache and authorization
-
-- Use existing `Cache-Control: private, no-store`.
-- In-memory client reuse is keyed by org/run/artifact and cleared on context change.
-- All reads go through `SqlRepository.auth`.
-- Query by `org_id + run_id + artifact_key`.
-- Resolve drill-down server-side from authorized pack identity.
-- Reauthorize when starting a scoped child run.
-- Never expose ReportDraft/ReviewResult via a decision ref.
-
-No DB migration is required: kind is text, payload is JSONB, artifact keys are already unique per run, and existing lineage/RLS/immutability applies.
-
-## 18. Report UI and drill-down
-
-### 18.1 Incremental UI
-
-Extend `src/frontend/src/components/analysis-result.tsx`:
-
-- keep `DecisionBriefView` for v1;
-- add `DecisionIntelligenceView` for v2;
-- compose KPI, changes, hotspot, VisualStory, PriorityEntities, ActionCandidates, and Watchouts;
-- keep detailed report/evidence below;
-- reuse `EvidenceDrawer` and current loading/unavailable patterns.
-
-Render:
-
-```text
-Decision Brief
-  → KPI cards
-  → Material changes
-  → Main hotspot / concentration
-  → 2–3 primary visuals
-  → Priority entities
-  → Action candidates
-  → Drill-down
-  → Detailed report
-  → Evidence / methodology
-```
-
-Extend `chart-renderer.tsx` to render takeaway, bound annotations/reference lines, highlights, role, limitations, and drill-down affordance while retaining accessible tables/fallbacks.
-
-Update `workspace.tsx` to fetch the decision endpoint first, manage selected section/chart/entity/filter state, execute in-run drill-downs locally, use existing POST analysis for explicit `start_scoped_analysis`, and fetch full artifacts only for details/evidence.
-
-No new frontend route is required initially. The existing stateful workspace fits typed artifact intent plus view state. A future shareable URL should serialize only a validated drill-down ID, never raw filter/scope JSON.
-
-### 18.2 Partial rendering
-
-- `handoff.completeness = complete`: complete hierarchy.
-- `handoff.completeness = partial`: available sections plus prominent reasons.
-- `handoff.completeness = insufficient`: detailed report/historical view remains accessible and no missing component is fabricated.
-- A missing chart/comparison/action does not hide the whole brief.
-- Missing demand/funnel/activity is “not available,” not empty performance.
-
-## 19. Agent Chat integration
-
-Modify `src/backend/packages/agents/src/chat.ts` and `tools.ts`:
-
-- use authorized decision pack as compact active-run context;
-- expose IDs, labels, support, limitations—not a second calculated summary;
-- add a typed decision-item/drill-down resolver;
-- preserve run/use-case/scope/date checks;
-- attach `decision_ref`/`drilldown_ref` message parts;
-- @Analyst loads referenced AnalysisPack/finding;
-- @Comparison loads referenced comparison/materiality;
-- @Chart loads referenced ChartSpec;
-- @Report loads referenced report/section;
-- no follow-up silently changes snapshot.
-
-Modify `agent-chat.tsx` and `message-thread.tsx`:
-
-- fetch `DecisionIntelligenceResponse` first and fall back to the unchanged v1 brief route for historical runs;
-- preserve slim-first loading;
-- render refs/actions as controls;
-- lazy-load full artifacts on inspect;
-- preserve historical `signal_ref`.
-
-Current `analyze_segment` creates a new zone-scoped run. Keep it as `start_scoped_analysis`, label it explicitly, and preserve requested date. In-run compare/inspect must not create a run.
-
-## 20. Backward compatibility and failure behavior
-
-### Historical run without a decision artifact
-
-- Final report parses/renders.
-- Decision endpoint adapts legacy brief or returns typed unavailable.
-- Current detailed result remains accessible.
-
-### Historical DecisionBrief v1
-
-- Render existing `DecisionBriefView`.
-- Mark new components unavailable instead of fabricating them.
-- Existing `signal_ref` messages work.
-
-### Partial new artifact
-
-- It remains schema-valid.
-- `handoff.completeness = 'partial'` and reasons are required.
-- Policy-required absence blocks publication; optional absence does not.
-- UI renders available portions.
-
-### Missing comparison windows
-
-- Comparison/contribution abstain.
-- No change headline/materiality/trend takeaway is emitted.
-- Current KPIs/hotspots may still produce a partial artifact with an `insufficient_evidence` situation status when no comparable change exists.
-
-### Missing demand/funnel/activity
-
-- No corresponding claim/action is emitted.
-- Missing inputs are explicit.
-- Inventory/pricing review remains evidence-gated.
-
-### Old versions
-
-- Parse historical contracts.
-- Never rebuild with current semantic/use-case policy.
-- Compatibility is a persisted-data projection only.
-
-### Invalid new pack
-
-- Insight fails before success, or publication fails closed.
-- No final report publishes from an invalid/cross-run pack.
-- Retry uses current attempts/leases.
-
-## 21. Test plan
-
-Use existing Vitest, PGlite/Postgres, React static-render, and Playwright conventions.
-
-### Contracts
-
-Update `src/backend/tests/unit/agent-workflow-contracts.test.ts`:
-
-- parse new v2 schemas/artifact union;
-- reject duplicate/dangling IDs, >3 primary visuals, malformed handoff;
-- keep v1 brief and old pack fixtures parseable;
-- keep ReportPayload without a brief parseable.
-
-Regenerate schemas through `src/backend/packages/contracts/src/export.ts`.
-
-### Policy and comparison
-
-Update `src/backend/tests/unit/semantic.test.ts`:
-
-- reproduce current thresholds through policy;
-- test watch/material boundaries;
-- preserve absolute delta and abstain relative math at zero baseline;
-- test comparable/missing snapshots;
-- test additive contribution sum/rounding;
-- reject contribution for rates/medians;
-- test stable ranking/ties and missing-window abstention.
-
-Update `src/backend/packages/agents/src/data-agent.test.ts` and `coordinator.test.ts`:
-
-- resolved policy reaches Semantic;
-- Data pack exactly projects results;
-- v2 use-case version is pinned;
-- no new query/LLM path appears.
-
-### Charts
-
-Update `src/backend/tests/unit/chart-builder.test.ts`:
-
-- policy purpose/takeaway/role/priority;
-- existing highlight targets;
-- bound annotations/reference lines;
-- unavailable unsupported context;
-- rejection of unbound numbers.
-
-Update `src/frontend/src/components/chart-renderer.test.tsx` for takeaway, annotations, reference lines, highlights, limitations, and drill-down while retaining existing chart-type tests.
-
-### Decision builder
-
-Add `src/backend/packages/domain/src/decision-intelligence.test.ts`:
-
-- complete slow-moving pack;
-- stable IDs/order;
-- KPI/headline/change/hotspot selection;
-- priority eligibility/rank/tier;
-- action allowlist/support;
-- max-three visual story;
-- immutable drill-down context;
-- partial handoff;
-- no unsupported demand/causal output;
-- policy-version mismatch rejection.
-
-### Workflow/reviewer/publication
-
-Update:
-
-- `src/backend/packages/agents/src/draft-workflow.test.ts`: both Insight outputs, Report consumption, exact projection, retry/recovery.
-- `src/backend/packages/agents/src/reviewer-agent.test.ts`: unsupported headline/action, overstatement, unqualified driver, visual mismatch, no provider override.
-- `src/backend/packages/agents/src/agent-workflow.test.ts`: artifact end-to-end, revision cap, leases, recovery, mutated-pack rejection.
-- `src/backend/packages/agents/src/artifact-visibility.test.ts`: viewer reads pack; drafts/reviews remain private.
-- `src/backend/tests/unit/pipeline.test.ts`: final linkage, v1/no-brief history, fabricated values/evidence/units/currency/cross-run rejection.
-
-### Repository/API/security
-
-Update `src/backend/packages/db/src/repository.test.ts` and `postgres-schema.test.ts`:
-
-- keyed pack idempotency;
-- no enum/migration dependency;
-- authorized same-org read;
-- cross-org/run denial;
-- publication graph rejection;
-- legacy fallback never recomputes.
-
-Update `src/backend/tests/e2e/mvp.spec.ts`:
-
-- decision endpoint for completed run;
-- `private, no-store`;
-- viewer access and cross-workspace denial;
-- same-run ref resolution;
-- historical fallback;
-- end-to-end slow-moving request to published report/UI contract.
-
-### Frontend and chat
-
-Update `src/frontend/src/components/analysis-result.test.tsx`:
-
-- decision-first order;
-- complete/partial/insufficient handoff plus v1/no-brief states;
-- priorities/actions/drill-down/limitations;
-- detailed report remains reachable.
-
-Update `src/frontend/src/components/agent-chat/agent-chat.test.tsx`, `src/backend/packages/agents/src/chat.test.ts`, and `tools.test.ts`:
-
-- slim pack first and lazy full artifacts;
-- in-run inspect/compare;
-- Analyst/Comparison/Chart/Report handoff;
-- explicit scoped analysis preserving date;
-- unauthorized/cross-run/stale-version/invalid drill-down rejection;
-- historical signal behavior.
-
-## 22. Sequential implementation phases
-
-Each phase is independently reviewable and leaves the repository in a compatible state. Do not start a later producer until every schema and validator it depends on has landed.
-
-### Phase 1 - versioned contracts and use-case lookup
-
-**Objective**
-
-Create the type boundary without changing runtime output. Preserve every v1 reader and establish version-aware policy resolution for retries.
-
-**Files and symbols**
-
-- `src/backend/packages/contracts/src/index.ts`: retain `DecisionBriefSchema`/`DecisionBrief` as v1 compatibility exports; add the v2 decision, visual-story, priority, action, drill-down, handoff, pack, response, and versioned use-case schemas described in Section 11.
-- `src/backend/packages/contracts/src/export.ts` and `src/backend/packages/contracts/schema/*`: export generated JSON schemas for every externally persisted or returned v2 contract.
-- `src/backend/packages/domain/src/use-cases.ts` (new) and `src/backend/packages/domain/src/index.ts`: own `getUseCaseDefinition(useCase, version)` and the immutable v1/v2 registry.
-- `src/backend/packages/agents/src/use-cases.ts`: become a compatibility re-export/caller so existing imports do not break.
-- `src/backend/packages/agents/src/coordinator.ts` and its input/output types: continue persisting `CoordinatorDecision.use_case_version`; resolve by both use-case and version after coordination.
-
-**Behavioral change**
-
-No published payload changes yet. A new run may be coordinated against v2 only after the v2 definition exists. A resumed run always reloads the exact version already named in `CoordinatorDecision`, never the registry's current default.
-
-**Tests**
-
-Extend `agent-workflow-contracts.test.ts` and `coordinator.test.ts` with v1/v2 parse, duplicate policy-ID rejection, missing-version failure, v1 retry pinning, and old fixture coverage. Regenerate schemas and assert they are current.
-
-**Acceptance criteria**
-
-- Existing v1 reports and `/brief` types compile and parse unchanged.
-- V2 policies and pack shapes are strict Zod contracts.
-- Registry lookup is deterministic by `(use_case, use_case_version)`.
-- No decision artifact is produced yet.
-
-**Dependencies:** none.
-
-### Phase 2 - deterministic slow-moving policy primitives
-
-**Objective**
-
-Move hard-coded materiality/priority/action semantics into the versioned slow-moving definition and add only the canonical data required to evaluate them.
-
-**Files and symbols**
-
-- `src/backend/packages/domain/src/use-cases.ts`: add `slow-moving-inventory-v2` materiality, status direction, priority, action, visualization, and audience data.
-- `src/backend/packages/semantic/src/index.ts`: parameterize `buildPeriodComparisons`/`detectChanges`; add comparability, additive segment-period comparison/contribution, stable ranking inputs, and a current-snapshot `slow_moving_units` segment breakdown.
-- `src/backend/packages/agents/src/data-agent.ts`: pass the resolved v2 definition into Semantic and project the enriched canonical result without recalculation.
-- `src/backend/packages/agents/src/comparison-agent.ts`: project materiality, comparability, rank inputs, and contribution from the Data pack; do not query data or call a provider.
-- `src/backend/packages/agents/src/agent-workflow.ts` and `draft-workflow.ts`: load the coordinator-pinned definition for downstream evaluation.
-
-**Behavioral change**
-
-V1 follows its current thresholds. V2 emits explicit comparability and materiality rule IDs. Contribution is available only for additive metrics and matched snapshots/scopes; medians/rates abstain. Priority inputs use stable canonical entity keys.
-
-**Tests**
-
-Update `semantic.test.ts`, `data-agent.test.ts`, `coordinator.test.ts`, and branch workflow tests for threshold boundaries, outcome direction/status inputs, zero baselines, missing or incompatible snapshots, additive contribution reconciliation, rate/median abstention, stable ties, and the new segment count.
-
-**Acceptance criteria**
-
-- Existing numeric and rounding behavior is unchanged for v1.
-- Every new numeric value is calculated by Semantic and has an evidence path.
-- No LLM/provider participates in materiality, contribution, ranking, or action eligibility.
-- V2 partial retries resolve the persisted v2 definition.
+**Acceptance criteria:** No provider sees raw client references or private artifacts; a stale child does not erase a valid parent; conflicts reject deterministically; old requests still work behind compatibility.
 
 **Dependencies:** Phase 1.
 
-### Phase 3 - versioned visual and branch handoffs
+**Rollback/defer:** The BFF can ignore the additive snapshot and use legacy derivation. Defer generic dashboard identity and persisted UI selection state.
 
-**Objective**
+### Phase 3 - Harden the capability registry
 
-Make chart/story inputs and artifact completeness explicit while preserving the parallel Comparison/Chart/Analyst branches.
+**Goal:** Make one closed registry the only execution gateway and preserve explicit-agent behavior.
 
-**Files and symbols**
+**Current implementation reused:** The eight current capability definitions, existing tools/repository functions, role/mode metadata, deterministic explicit-target helper, and workspace-action allowlist.
 
-- `src/backend/packages/agents/src/chart-builder.ts` and `chart-agent.ts`: produce ChartSpec v2 purpose, takeaway, story role, display priority, bound highlights/annotations/reference lines, comparison context, limitations, and typed drill-down targets from policy plus canonical inputs.
-- `src/backend/packages/agents/src/analyst-agent.ts`: retain descriptive findings; only emit an interpretive/candidate-driver finding when its support and qualification fields validate.
-- `src/backend/packages/agents/src/insight-agent.ts`: retain the current bounded synthesis and add v2 handoff completeness/reason information for the decision builder.
-- `src/backend/packages/contracts/src/index.ts`: use versioned Chart/Analysis/Insight pack schemas without widening v1 contracts.
+**Gap:** Duplicate IDs overwrite silently; output parsing is inconsistent; explicit `@Agent` parity is missing; create input and required-context checks are too permissive.
 
-**Behavioral change**
+**Files to modify/add:**
 
-Charts remain deterministic. Story metadata selects and explains existing bound values; it cannot introduce a value. Missing comparison context demotes a visual or removes its change takeaway rather than fabricating context.
+- `src/backend/packages/agents/src/capability-registry.ts`
+- `src/backend/packages/agents/src/capability-registry.test.ts`
+- `src/backend/packages/agents/src/tools.ts`
+- `src/backend/packages/agents/src/tools.test.ts`
+- `src/backend/packages/agents/src/index.ts`
+- `src/backend/packages/db/src/repository.ts` and focused tests only if a public reader is missing
 
-**Tests**
+**Contracts:** Register exactly the nine capabilities in Section 8. Inputs and outputs are strict schemas; outputs contain canonical observations and typed public refs.
 
-Update `chart-builder.test.ts`, `branch-workflow.test.ts`, pack contract tests, and `chart-renderer.test.tsx` fixtures for binding integrity, primary/supporting roles, policy ordering, unsupported reference rejection, qualified drivers, and partial handoffs.
+**Backend:** Fail startup on duplicate registration; centralize input/output parsing and role/mode/context/budget checks; add `inspect_agent_checkpoint` by adapting the legacy deterministic helper.
 
-**Acceptance criteria**
+**Frontend:** No capability IDs are selected by the browser. Preserve the existing explicit agent target field and workspace actions.
 
-- Every numeric annotation/reference line resolves through `ChartProvenanceBindingSchema`.
-- Primary visual count and order follow policy.
-- Branches still execute once, in parallel, with no loop or new queue.
-- V1 chart fixtures still parse and render.
+**Persistence:** Reuse current run/artifact/message storage; no new records.
+
+**Auth/security:** Executors accept authorized context only; reauthorize mutation; prevent planner-controlled scope/date; apply exact-ref membership to every input.
+
+**Implementation steps:**
+
+1. Replace map overwrite with an explicit duplicate-registration error.
+2. Define registry metadata and schemas for the exact inventory.
+3. Remove planner-owned scope/date references from `create_analysis`.
+4. Wrap each existing tool in a deterministic observation adapter.
+5. Add `inspect_agent_checkpoint` using current analyst/comparison/chart/report checkpoint logic.
+6. Parse every executor result centrally before returning it.
+7. Keep workspace action generation outside the registry and validate it against existing allowlists.
+
+**Tests:** Exact inventory, duplicate initialization, forged input, central output rejection, roles/modes/context, canonical observations/nulls, one-run mutation, and explicit-target parity.
+
+**Acceptance criteria:** No capability executes outside the registry in the flagged runtime; all outputs are canonical and validated; explicit targets match legacy outcomes; duplicate IDs cannot boot.
 
 **Dependencies:** Phases 1-2.
 
-### Phase 4 - deterministic decision-intelligence builder
+**Rollback/defer:** Runtime flag off retains legacy dispatch. Remove only the new checkpoint adapter if parity fails; do not change the legacy helper. Defer additional capability IDs.
 
-**Objective**
+### Phase 4 - Enforce planner and runtime semantics
 
-Assemble the five product-contract components in one domain function from already validated artifacts and the pinned policy.
+**Goal:** Guarantee bounded, preflighted, sequential execution with exact timeout and partial-result behavior.
 
-**Files and symbols**
+**Current implementation reused:** Existing planner schema/parser, `AgentRuntime`, provider abstraction, queued analysis workflow, idempotent turn handling, and normalized runtime errors.
 
-- `src/backend/packages/domain/src/decision-intelligence.ts` (new): implement `buildDecisionIntelligencePack`, `validateDecisionIntelligencePack`, deterministic template rendering, ref resolution, status derivation, ranking/action gating, and `projectDecisionBriefV1Compatibility`.
-- `src/backend/packages/domain/src/integrity.ts`: expose/reuse canonical metric/evidence/scope/date validation helpers rather than duplicating them.
-- `src/backend/packages/domain/src/index.ts`: export the builder/validator.
-- `src/backend/packages/domain/src/decision-intelligence.test.ts` (new): cover the builder as specified in Section 21.
+**Gap:** Counters and configured timeout are not consistently used; create-analysis can follow reads; duplicate calls and fallback attempts need exact enforcement; partial behavior is incomplete.
 
-**Behavioral change**
+**Files to modify/add:**
 
-Given the same five input packs and use-case version, the builder returns byte-stable component IDs/order/content. It emits complete, partial, or insufficient handoff state; it never calls a model, warehouse, repository, or clock.
+- `src/backend/packages/agents/src/planner.ts`
+- `src/backend/packages/agents/src/planner.test.ts` if absent
+- `src/backend/packages/agents/src/runtime.ts`
+- `src/backend/packages/agents/src/runtime.test.ts`
+- `src/backend/packages/agents/src/runtime-provider.ts`
+- `src/backend/packages/agents/src/runtime-provider.test.ts`
+- `src/backend/packages/agents/src/runtime-limits.ts`
+- `src/backend/packages/config/src/index.ts`
+- `.env.example`
+- `turbo.json` only if current environment passthrough requires correction
 
-**Tests**
+**Contracts:** Retain the simple no-dependency plan. Enforce the exact budgets and result policy in Section 9.
 
-Add golden and negative unit fixtures covering all components, stable IDs/order, status direction, action gates, unsupported optional inputs, cross-input refs, maximum visuals/entities, and exact v1 compatibility projection.
+**Backend:** Perform whole-plan preflight before the first call; count logical stages and provider attempts explicitly; run steps sequentially; use the validated deadline; preserve committed-run idempotency.
 
-**Acceptance criteria**
+**Frontend:** No runtime orchestration. Continue to display queued status and use existing polling/cancellation APIs.
 
-- The builder is pure and deterministic.
-- All output claims, numbers, entities, and actions trace to inputs plus a policy/template ID.
-- A cross-run/scope/version/date reference is rejected.
-- Rebuilding from identical inputs yields an identical hash.
+**Persistence:** Persist only existing turn/run/message results. Never persist plans or provider payloads.
+
+**Auth/security:** Re-check authorization-sensitive prerequisites before each call and before mutation/final persistence. Suppress partial facts on authorization changes.
+
+**Implementation steps:**
+
+1. Bound the provider projection and start one turn deadline.
+2. Invoke the primary planner, then at most one configured fallback.
+3. Preflight unique IDs, registry membership, inputs, refs, roles, modes, context, and all budgets.
+4. Enforce `create_analysis` as the only step in a queued plan.
+5. Execute accepted reads in declared order; do not add parallelism.
+6. Stop according to unavailable, technical, authorization, mutation, and deadline rules.
+7. Return a committed queued run immediately and rely on the existing worker/polling lifecycle.
+8. Increment planner/composer/capability/new-run counters in runtime code.
+9. Make `AGENT_TURN_TIMEOUT_MS` drive the deadline, capped at 45 seconds.
+10. Restore Gemini/OpenAI as the example/default provider order; leave xAI explicit and optional.
+
+**Tests:** Zero execution for invalid plans; exact attempt/call/run budgets; ordering/non-parallelism; configured timeout; each partial/failure branch; queued/canceled/failed/idempotent runs; fallback provider behavior.
+
+**Acceptance criteria:** No invalid plan causes side effects; one turn cannot create two runs or call more than three capabilities; observed timeout equals configuration; retry/replay cannot duplicate a run.
 
 **Dependencies:** Phases 1-3.
 
-### Phase 5 - workflow persistence, report, review, and publication
+**Rollback/defer:** Disable the runtime flag to restore legacy routing. Provider fallback can be disabled independently. Defer DAGs, parallelism, loops, retries of capability side effects, and long-running synchronous turns.
 
-**Objective**
+### Phase 5 - Replace free prose with canonical composition
 
-Make the pack first-class at the existing Insight boundary, then require downstream Report/Reviewer/publication to consume it.
+**Goal:** Make unsupported analytical prose structurally impossible while preserving useful grounded answers.
 
-**Files and symbols**
+**Current implementation reused:** Existing claim/evidence validation, canonical metric/reference schemas, workspace-action validation, answer composer, and typed frontend message parts.
 
-- `src/backend/packages/agents/src/draft-workflow.ts`: after the existing `insight_pack`, build/store keyed `decision_intelligence_pack` under the same Insight task and require both keys for v2 recovery.
-- `src/backend/packages/agents/src/workflow.ts` and `src/backend/packages/domain/src/agent-workflow.ts`: add the expected key/kind and graph validator without adding a task kind or DAG node.
-- `src/backend/packages/agents/src/report-agent.ts` and `report-sections.ts`: read the pack; link it in ReportDraft/ReportPayload; render its decision layer and exact v1 projection; stop independently choosing priorities/actions/story order.
-- `src/backend/packages/agents/src/reviewer-agent.ts` and `review-workflow.ts`: add bounded `DecisionReviewRequestSchema` issue output and the semantic checks in Section 16.
-- `src/backend/packages/agents/src/publication.ts`: load the exact decision pack and include it in the existing fenced, in-transaction validation immediately before final publication.
-- `src/backend/packages/domain/src/integrity.ts` and `agent-workflow.ts`: add pre/post-review and in-transaction publication validation.
+**Gap:** Current composer can attach unrelated references to arbitrary qualitative prose and does not receive deterministic canonical values from capabilities.
 
-**Behavioral change**
+**Files to modify/add:**
 
-Insight task success for v2 means both InsightPack and DecisionIntelligencePack exist. Report consumes the exact pack. Reviewer can request bounded wording/visibility changes but not mutate numeric/policy decisions. Publication fails closed on missing/invalid packs or projections. The existing two-review-attempt cap, leases, fencing, and atomic publication remain.
+- `src/backend/packages/agents/src/answer-composer.ts`
+- `src/backend/packages/agents/src/answer-composer.test.ts`
+- `src/backend/packages/agents/src/capability-registry.ts`
+- `src/backend/packages/agents/src/runtime-provider.ts`
+- `src/backend/packages/agents/src/runtime-provider.test.ts`
+- Existing provider prompt/helper file only where composition instructions currently live
+- Contract/schema files only for corrections discovered during implementation
 
-**Tests**
+**Contracts:** Use `CanonicalAgentObservationV1`, `AvailableWorkspaceActionV1`, and `GroundedResponseSelectionV1`. No free-form finding, value, ref, action, URL, or follow-up field remains.
 
-Update `draft-workflow.test.ts`, `reviewer-agent.test.ts`, `agent-workflow.test.ts`, `artifact-visibility.test.ts`, and `pipeline.test.ts` for dual-output recovery, idempotent retry, exact projection, semantic issue binding, provider failure, hash/PASS binding, revision cap, and publication-time mutation rejection.
+**Backend:** Convert deterministic tool outputs to canonical observations; let the provider select IDs; validate all selections and lineage; render message text/parts on the server; fall back deterministically.
 
-**Acceptance criteria**
+**Frontend:** Render the existing persisted message shape. Do not interpret provider JSON or construct analytical prose in the browser.
 
-- A v2 final report cannot publish without the validated pack.
-- V1 runs use their old recovery/publication graph.
-- No new agent, task, queue, worker, scheduler, or unbounded loop exists.
-- Report and Reviewer do not recalculate metrics or rankings.
+**Persistence:** Store the reconstructed existing message and exact refs/actions; discard plans, selection payloads, and observation bundles.
 
-**Dependencies:** Phase 4.
+**Auth/security:** Revalidate selected refs/actions immediately before rendering/persisting. Reject cross-run or unavailable-as-complete selection. Never include raw errors.
 
-### Phase 6 - repository and authorized read API
+**Implementation steps:**
 
-**Objective**
+1. Define deterministic observation builders for claim, metric, decision, status, and limitation.
+2. Include formatted values and exact public grounding refs in each observation.
+3. Generate a closed list of available action IDs using existing action builders.
+4. Change the composer prompt/output to ID selection only.
+5. Validate selection membership, uniqueness, status coherence, lineage, queued run, and size.
+6. Reconstruct text and typed parts from canonical observations.
+7. Implement the deterministic fallback order from Section 10.3.
+8. Remove the obsolete numeric-prose heuristic after ID-only composition is enforced and tests prove no free text path remains.
 
-Expose the persisted pack through existing repository/auth patterns while preserving the legacy brief endpoint.
+**Tests:** Exact-value rendering, qualitative-prose impossibility, null/unavailable values, limitations, forged/cross-run IDs, action allowlist, queued status, both provider attempts failing, and stable deterministic fallback.
 
-**Files and symbols**
+**Acceptance criteria:** Every displayed factual clause originates in a canonical observation; every observation has valid refs or an explicitly non-factual status/limitation kind; composer failure cannot degrade grounding.
 
-- `src/backend/packages/db/src/types.ts`: add `decisionIntelligence(userId, orgId, runId)` to `Repository`.
-- `src/backend/packages/db/src/repository.ts`: load the succeeded run and keyed pack, revalidate the publication graph, enforce membership/org/run constraints, and provide the non-persisted legacy adapter.
-- `src/frontend/src/server/api.ts`: add `GET /api/v1/runs/:id/decision-intelligence` next to the current brief handler and parse the response contract.
-- `src/frontend/src/app/api/v1/[...path]/route.ts`: continue using the existing catch-all; no route-specific auth bypass.
+**Dependencies:** Phases 1, 3, and 4.
 
-**Behavioral change**
+**Rollback/defer:** Roll back the entire flagged runtime, not to free-form composition within it. Defer stylistic rewriting, citations generated by a model, and personalized follow-up suggestions.
 
-New runs return the persisted v2 pack response. Old runs return an explicit `legacy_report_brief` adapter or typed unavailable state without recomputation. `/api/v1/runs/:id/brief` remains byte-compatible and returns the exact v1 projection for new runs. Both endpoints retain `Cache-Control: private, no-store`.
+### Phase 6 - Integrate BFF and both frontend layouts
 
-**Tests**
+**Goal:** Ship one compatible end-to-end turn flow that works without optional dashboard or streaming features.
 
-Update repository, Postgres schema, pipeline, and e2e tests for owner/viewer access, nonmember/cross-org/cross-run rejection, malformed lineage, cache headers, legacy/no-brief behavior, and absence of enum/schema migration assumptions.
+**Current implementation reused:** Existing agent-chat endpoint, legacy/runtime selection, conversation persistence, client API, Agent Chat components, message thread, workspace reducers/actions, polling, and optional Grok workspace.
 
-**Acceptance criteria**
+**Gap:** Complete context and reconstructed response need end-to-end wiring; both layouts and explicit targets need parity; SSE must be nonessential.
 
-- Server-side authorization is executed for every fetch.
-- Client org IDs or artifact IDs cannot redirect the lookup.
-- Historical reports remain readable.
-- No database migration is added; existing text kind/JSONB/key/lineage storage is sufficient.
+**Files to modify/add:**
 
-**Dependencies:** Phase 5.
+- `src/backend/apps/server/src/api/agent-chat.ts`
+- Existing BFF agent-chat integration tests
+- `src/frontend/lib/client-api.ts`
+- `src/frontend/lib/workspace-context.ts`
+- `src/frontend/components/agent-chat.tsx`
+- `src/frontend/components/agent-message-thread.tsx`
+- `src/frontend/components/workspace.tsx`
+- Grok workspace files only where necessary to consume the shared builder
+- Focused frontend tests for chat, workspace context, actions, reload, and polling
 
-### Phase 7 - decision-first report UI and typed drill-down
+**Contracts:** Send the versioned workspace snapshot and explicit target while preserving existing response/message compatibility.
 
-**Objective**
+**Backend:** Wire authorized context, runtime, canonical composer, persistence, and response through the existing endpoint. Preserve flag-off legacy behavior and normalized errors.
 
-Incrementally place the decision layer above the existing detailed report and make same-run exploration explicit.
+**Frontend:** Use one context builder, display canonical reconstructed messages, preserve actions/targets, and poll queued runs. No component consumes raw provider output.
 
-**Files and symbols**
+**Persistence:** Verify refreshed conversation history reconstructs the same text, typed refs, and actions without ephemeral runtime state.
 
-- `src/frontend/src/components/workspace.tsx`: fetch the new slim response first, keep detailed artifact loading lazy, and own selected component/drill-down view state.
-- `src/frontend/src/components/analysis-result.tsx`: add `DecisionIntelligenceView` and preserve `DecisionBriefView` for v1.
-- `src/frontend/src/components/chart-renderer.tsx`: render story metadata and typed interactions while keeping accessible data-table fallback.
-- Existing component styles only where required; do not redesign unrelated screens.
+**Auth/security:** Preserve current can-write UI/BFF enforcement. Revalidate actions when applied and keep organization/conversation routing authoritative.
 
-**Behavioral change**
+**Implementation steps:**
 
-The visible order follows the requested decision-first hierarchy. In-run drill-down resolves an artifact ID declared in the pack and only filters/navigates within the same run/scope/snapshot. `start_scoped_analysis` is visibly a new child analysis and preserves the requested date. Raw URLs or raw client filter JSON never become canonical actions.
+1. Connect the complete request parser and context builder in the existing turn route.
+2. Keep the flag decision at one server seam with an unchanged legacy branch.
+3. Persist and return reconstructed assistant messages using current repository transactions.
+4. Update the shared client call and both layout callers.
+5. Preserve explicit target and deterministic checkpoint behavior.
+6. Exercise queued-run polling and cancellation with SSE disabled.
+7. Treat SSE events, if enabled, as optional status decoration only.
+8. Verify reload/history and workspace actions from persisted messages.
 
-**Tests**
+**Tests:** Flag on/off integration; both layouts; target parity; stale selections; viewer/writer/owner; polling without SSE; action allowlist; reload; idempotent duplicate submit.
 
-Update `analysis-result.test.tsx`, `chart-renderer.test.tsx`, workspace/component tests, and `mvp.spec.ts` for hierarchy, complete/partial/insufficient rendering, fallback, accessible charts, valid/invalid filters, same-run context, and explicit new-run behavior.
+**Acceptance criteria:** A user can ask a grounded read question or queue one analysis from either layout; answers reload identically; disabling SSE/Grok dashboard/xAI does not break the flow; legacy flag-off behavior remains intact.
 
-**Acceptance criteria**
+**Dependencies:** Phases 2-5.
 
-- Decision content appears before detailed sections for v2.
-- Old/no-brief reports still render.
-- Drill-down cannot broaden scope or change date/version/snapshot.
-- Two to three primary visuals render when supported; missing visuals do not collapse the report.
+**Rollback/defer:** Disable `GROK_RUNTIME_ENABLED`. Independently disable optional Grok layout and SSE flags. Defer streaming token UI, proactive agent events, and dashboard redesign.
 
-**Dependencies:** Phase 6.
+### Phase 7 - Regression, rollout, and documentation
 
-### Phase 8 - Agent Chat reuse
+**Goal:** Prove security, grounding, compatibility, and operability, then roll out reversibly.
 
-**Objective**
+**Current implementation reused:** Existing package tests, BFF/frontend suites, feature flags, telemetry/activity plumbing, deployment configuration, and operational documentation.
 
-Use the same compact decision artifact for chat grounding and specialist handoffs instead of creating a second analytical summary.
+**Gap:** Cross-package regression evidence, rollout thresholds, telemetry privacy assertions, and final docs are incomplete.
 
-**Files and symbols**
+**Files to modify/add:**
 
-- `src/backend/packages/agents/src/chat.ts` and `provider.ts`: construct active context from authorized decision component IDs/labels/support/limitations, not raw new calculations.
-- `src/backend/packages/agents/src/tools.ts`: resolve decision/drill-down refs and load the referenced Analysis/Comparison/Chart/Report artifact only on inspect/follow-up.
-- `src/backend/packages/contracts/src/index.ts`: add backward-compatible decision/drill-down message parts and bounded actions.
-- `src/frontend/src/components/agent-chat/agent-chat.tsx` and `message-thread.tsx`: fetch/render new refs, lazy details, and legacy `signal_ref` fallback.
+- Focused tests listed in Section 18 across existing packages
+- `docs/context.md`
+- `docs/implementation_plan.md`
+- Existing runtime/operations documentation if present
+- `.env.example`
+- CI configuration only if a required existing test suite is not currently selected
 
-**Behavioral change**
+**Contracts:** Freeze P0 version-1 schemas during rollout; document additive compatibility and removal criteria.
 
-The slim decision pack is loaded first. `@Analyst`, `@Comparison`, `@Chart`, and `@Report` follow a validated pack reference. Same-run inspect/compare preserves context; scope/date changes require the existing explicit analysis creation path.
+**Backend:** Add metadata-only telemetry and verify normalized failures, fallback, timeout, and idempotency under integration tests.
 
-**Tests**
+**Frontend:** Verify accessibility, loading/queued/unavailable/partial states, legacy layout, optional layout, reload, and action navigation.
 
-Update `chat.test.ts`, `tools.test.ts`, `agent-chat.test.tsx`, and e2e chat coverage for all specialist handoffs, lazy loading, unsupported ref rejection, cross-run/tenant isolation, history, and requested-date preservation.
+**Persistence:** Confirm no migration exists and no provider/internal payload appears in stored messages or telemetry.
 
-**Acceptance criteria**
+**Auth/security:** Run tenant-boundary, role, private-artifact, forged-ref/action, and log-redaction regression cases.
 
-- Chat and report display the same IDs, values, priority order, actions, and limitations.
-- The chat provider receives no authority to calculate or invent values.
-- Historical `signal_ref` messages remain functional.
-- Full artifacts are fetched only for a selected follow-up.
+**Implementation steps:**
 
-**Dependencies:** Phases 6-7.
+1. Run focused suites phase by phase, then broader package and repository regression suites.
+2. Add telemetry assertions and inspect representative logs for prohibited content.
+3. Document flags, provider ordering, timeout/budget defaults, fallback, and rollback.
+4. Deploy to development with SSE and xAI disabled.
+5. Enable for internal organizations; monitor completion, normalized errors, timeouts, planner/composer fallback, context drops, and deterministic-renderer rates.
+6. Expand by allowlist/percentage only after thresholds are agreed and stable.
+7. Remove legacy compatibility only in a later change after adoption and parity evidence.
 
-### Phase 9 - compatibility, security, and end-to-end hardening
+**Tests:** All Section 18 tests plus existing lint/typecheck/build commands required by repository CI. Include a manual smoke test for grounded read, queued analysis, stale child, replay, cancellation, and flag rollback.
 
-**Objective**
+**Acceptance criteria:** All security/grounding gates pass; logs contain metadata only; rollout and rollback are documented and exercised; no optional feature is required; owners approve removal criteria rather than immediate legacy deletion.
 
-Close version, retry, isolation, optional-data, and historical gaps before declaring the feature complete.
+**Dependencies:** Phases 0-6.
 
-**Files and symbols**
+**Rollback/defer:** Disable the runtime flag with no database action. Defer compatibility removal, expanded capability inventory, persistence of UI selection, model-generated prose, SSE reliance, and xAI defaulting.
 
-- The contract, domain, repository, workflow, frontend, chat, and e2e test files listed in Section 21.
-- `src/backend/tests/e2e/mvp.spec.ts`: add the complete Sales Operations slow-moving scenario.
-- `src/backend/packages/contracts/schema/*`: final generated-schema consistency check.
-- Documentation only where public endpoint/contracts require it; no unrelated architecture rewrite.
+## 21. Definition of done
 
-**Behavioral change**
+P0 is complete only when all of the following are true:
 
-None beyond failures becoming explicit and fail-closed. Validate no-comparison, missing demand/funnel/activity, partial packs, old semantic/use-case versions, retries after each stage, and malicious reference substitution.
+- The client sends one versioned workspace snapshot, and the server produces one authoritative, bounded context.
+- Organization, conversation, scope, date, and every nested reference are reauthorized with exact lineage and non-disclosing errors.
+- The registry contains exactly the nine reviewed capabilities; duplicate registration and invalid outputs fail closed.
+- A complete plan is validated before execution, with one logical planner, at most three sequential calls, at most one capability invocation per ID, and at most one new run.
+- `create_analysis` is the sole step of a queued plan and remains asynchronous/idempotent.
+- Provider attempts and the 45-second maximum turn deadline are explicitly enforced.
+- Capability results are canonical observations; the composer selects IDs only; final text/actions are reconstructed and revalidated by the server.
+- Unsupported quantitative and qualitative claims are structurally impossible in the flagged runtime.
+- Null, unavailable, partial, queued, failed, canceled, timeout, and authorization-change states have tested deterministic behavior.
+- Legacy flag-off behavior, explicit agent targets, both UI layouts, JSON polling, refresh, and workspace actions pass compatibility tests.
+- No database migration or new endpoint is required.
+- Gemini/OpenAI work without xAI; JSON/polling works without SSE or the Grok dashboard.
+- Telemetry contains metadata only and supports rollout/rollback decisions.
+- Focused and regression tests pass, and the runtime flag rollback has been exercised.
 
-**Tests**
+## 22. Explicitly deferred beyond P0
 
-Run the focused suites first, then the repository's normal full test/typecheck/build checks. Include real Postgres/RLS coverage where existing CI provides it, not only the in-memory repository.
+- Planner DAGs, output chaining, parallel execution, loops, self-reflection, and autonomous retries.
+- More than three capability calls or more than one created run per turn.
+- General-purpose SQL, arbitrary code execution, external web search, or provider-defined tools.
+- Additional capabilities for report creation, cancellation, generic dashboard lookup, or duplicate analytics.
+- Provider-authored analytical prose, stylistic paraphrasing of facts, or invented follow-up prompts.
+- Persisting plans, prompts, model output, reasoning, authorized context, or observation bundles.
+- A new database schema, event store, vector store, or conversation-memory subsystem.
+- SSE as a correctness dependency, token streaming, background proactive messages, or a redesigned dashboard.
+- xAI as a required/default provider.
+- Removal of the legacy handler or compatibility request fields.
+- Generic multi-dashboard identity and persisted transient workspace selection.
 
-**Acceptance criteria**
+## 23. Principal risks and mitigations
 
-- Complete slow-moving request publishes and renders/chat-loads one canonical decision artifact.
-- Every required negative/security/backward-compatibility test passes.
-- Generated schemas and source schemas agree.
-- No unrelated refactor or production migration is present.
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Current uncommitted work is treated as finished | Security/grounding gaps reach rollout | Phase 0 ownership inventory and code-backed acceptance gates |
+| Over-authorizing stale nested context | Cross-run or misleading answers | Root-to-child lineage resolution, granular drops, exact selected-ID validation |
+| Composer still has a free-text escape hatch | Unsupported qualitative claims | ID-only schema and deterministic renderer |
+| Planner causes side effects before full validation | Wasted or duplicate analyses | Whole-plan preflight and create-only mutation rule |
+| Timeout leaves an ambiguous committed run | Duplicate replay | Existing transaction/idempotency key and committed run reference |
+| Viewer registry metadata bypasses write policy | Unauthorized stored turns | Preserve BFF turn-write gate and test all roles |
+| Optional xAI/SSE/Grok work expands P0 | Delayed or coupled release | Explicitly optional flags and acceptance with all three disabled |
+| Logging leaks business evidence | Confidentiality incident | Metadata-only event schemas and log-content regression tests |
+| A stale child erases useful parent context | Poor availability | Per-reference resolution issues and parent-preserving policy |
+| Large artifacts overflow prompts | Cost/latency/failure | Authorized projections, count limits, and 24 KiB bound |
+| Compatibility fields drift | Incorrect context | One frontend selector plus strict equality at the BFF |
+| Capability adapters duplicate analytics | Divergent answers | Reuse existing deterministic repository/tool outputs; adapters only canonicalize |
 
-**Dependencies:** Phases 1-8.
+## 24. Implementation guidance for the executing engineer
 
-## 23. Recommended commit boundaries
+Start at the trust boundary, not at provider prompts. Freeze contracts and limits, make context authorization granular, close the registry, then enforce runtime budgets, and only then cut composition to ID selection. Keep each phase as one logical commit unless an independently shippable correction is discovered. Do not reformat unrelated files or fold optional Grok/SSE/xAI work into core P0.
 
-These are implementation commits Terra should create; this review task does not create them. Keep generated schemas and tests with the behavior they verify.
-
-1. `feat: add versioned decision intelligence contracts`
-   - V2 component/pack/API schemas, generated schemas, versioned registry lookup, and compatibility tests.
-2. `feat: add slow-moving decision policies`
-   - Policy data/evaluators, canonical segment-period inputs, materiality/status direction, contribution, deterministic ranking inputs, and tests.
-3. `feat: enrich visual story and branch handoffs`
-   - Bound ChartSpec v2 metadata, Analysis/Insight handoff refinements, and chart/branch tests.
-4. `feat: build deterministic decision intelligence pack`
-   - Pure Domain builder/validator, compatibility projection, and complete unit tests.
-5. `feat: persist and review decision intelligence`
-   - Insight dual-output persistence/recovery, Report consumption, bounded semantic review, publication validation, and workflow tests.
-6. `feat: expose authorized decision intelligence API`
-   - Repository read/legacy adapter, server endpoint, cache/auth/security tests; no DB migration.
-7. `feat: render decision-first reports and drill-downs`
-   - Incremental report/chart UI, same-run navigation, historical fallback, and component/e2e tests.
-8. `feat: reuse decision intelligence in agent chat`
-   - Compact context, specialist handoffs, typed refs/actions, lazy loading, and chat tests.
-9. `test: harden decision intelligence compatibility and isolation`
-   - Cross-version, RLS, retry, optional-input, malicious-ref, and full slow-moving end-to-end coverage not naturally contained in the earlier commits.
-
-Do not split commits by backend/frontend file type, and do not combine an unrelated cleanup with any boundary above.
-
-## 24. Unresolved product questions
-
-Repository inspection resolves the technical placement and data flow. Only these external product-policy decisions remain:
-
-### 24.1 Approval of v2 policy constants and wording
-
-**Why it matters:** The repository contains current materiality thresholds, canonical age buckets, and two action patterns, but it does not establish business ownership for new result caps, tier labels, audience wording, or which context-only price signals Sales Operations wants promoted.
-
-**Default implementation assumption:** Preserve current materiality thresholds and age buckets exactly; use conservative configured caps (five units, three segments, three primary visuals); treat price as context-only; use investigative, non-prescriptive templates; retain the provisional-policy limitation.
-
-**If wrong:** Change only `slow-moving-inventory-v2` policy/template data and its fixtures. The generic builder, report, API, UI, and chat architecture should not change.
-
-### 24.2 Consumers outside this repository of `/runs/:id/brief`
-
-**Why it matters:** Repository callers can be migrated safely, but source inspection cannot prove that no external client relies on the exact v1 response.
-
-**Default implementation assumption:** Keep the endpoint and `DecisionBriefResponseSchema` byte-compatible indefinitely and add the separate decision-intelligence endpoint.
-
-**If wrong:** If all external consumers are confirmed migrated, deprecation can be scheduled later. It is not a prerequisite and should not widen this implementation.
-
-## 25. Definition of Done
-
-The change is complete only when all of the following are true:
-
-- A strict, versioned, persisted `decision_intelligence_pack` contains DecisionBrief, VisualStory, PriorityEntities, ActionCandidates, and DrillDown with same-run lineage.
-- The artifact is assembled deterministically at the existing Insight boundary; no new LLM agent, task, queue, runtime, or unbounded loop was introduced.
-- Report and Agent Chat consume the same artifact and do not independently recreate priorities, actions, visual order, or metric summaries.
-- Data Agent/Semantic remain the canonical numeric authority; no unsupported numeric generation is possible in Chart, Analyst, Insight, Report, Reviewer, UI, or chat.
-- Materiality, decision status, priority, action eligibility, visualization selection, and audience wording follow the pinned versioned policy.
-- Every numeric value, chart mark, annotation, material change, priority reason, and supported action resolves to canonical metric/evidence refs.
-- Typed drill-down preserves `run_id`, org/workspace authorization, requested/effective dates, semantic/use-case versions, scope, filters, snapshots, and lineage; a new scope/date creates an explicitly labeled new analysis.
-- Deterministic validation rejects schema, metric/evidence, scope/date/version, chart, policy, action, drill-down, cross-run, and cross-tenant violations.
-- Reviewer performs bounded decision-readiness checks for support, qualification, visual fit, visible limitations, and Sales Operations usefulness without overriding deterministic validation.
-- Existing v1 reports, no-brief reports, old semantic/use-case versions, and historical chat `signal_ref` messages continue to work without being rebuilt under current policy.
-- Missing comparisons and optional demand/funnel/activity produce typed abstention/partial states, never fabricated claims or actions.
-- The existing artifact JSONB/text-kind storage is used; no database migration is required or added.
-- The slow-moving inventory flow passes contract, policy, builder, workflow, publication, API authorization, frontend, chat/navigation, Postgres/RLS, and end-to-end tests.
-- Generated schemas are current, normal repository validation passes, and the implementation contains no unrelated refactor.
-
-## 26. Plan verification checklist
-
-- [x] Based on the inspected runtime, contracts, repository, UI, chat, tests, and persistence code rather than filenames alone.
-- [x] References real repository files and symbols.
-- [x] Preserves Data/Semantic as deterministic quantitative foundations.
-- [x] Does not make an LLM a metric, materiality, priority, or action calculator.
-- [x] Evolves the existing DecisionBrief, registry, artifact, lineage, report, and chat abstractions without a parallel platform.
-- [x] Keeps generic runtime behavior separate from slow-moving policy data.
-- [x] Defines historical, partial, optional-input, and version compatibility.
-- [x] Specifies tests, acceptance criteria, dependencies, and safe behavior-based commit boundaries.
-- [x] Is sequential and concrete enough for Terra to implement without redesigning the architecture.
+When a current implementation conflicts with this plan, prefer existing validated domain logic and repository boundaries, but prefer this plan's authorization, grounding, budget, and rollback invariants over convenience. Document any required deviation with the exact test that proves equivalent safety.

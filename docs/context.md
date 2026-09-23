@@ -1,209 +1,492 @@
-# VDaAgent — Project Context for AI coding assistant
+# VDaAgent — Technical Context
 
-> Mục đích: cung cấp một context ngắn gọn nhưng đủ để một AI coding assistant hiểu VDaAgent trước khi trả lời, review hoặc sửa code.
->
-> Snapshot của tài liệu: 2026-09-21. Khi tài liệu này khác với code/test hiện tại, **code và test hiện tại là source of truth**.
+> Snapshot: 2026-09-23. This describes the implementation present in this repository. Source code, tests, SQL schemas and migrations are evidence for behavior; product contracts and plans are labeled as such. A named “agent” is not necessarily an LLM. Unknown deployment or operational details are called out explicitly.
 
-## 1. VDaAgent là gì?
+## Product Overview
 
-VDaAgent là workspace phân tích tồn kho bất động sản theo chuỗi:
+VDaAgent is a workspace application for analyzing property inventory snapshots and presenting evidence-backed findings and reports. Its current MVP path is:
 
-```text
-Data → Analysis → Evidence → Insight → Report
-```
+~~~text
+Inventory snapshots → deterministic analysis → evidence and signals → decision brief → report
+~~~
 
-MVP cho phép thành viên workspace:
+The code and product contract describe helping inventory and Sales Operations users understand stock levels, movement, aging, price distributions, concentrations and data limitations in a selected project/zone and date scope. This is an engineering description, not a claim that provisional rules are validated business policy.
 
-- chọn project, zone tùy chọn và ngày dữ liệu;
-- chạy phân tích tồn kho định lượng từ snapshot bất động sản đã đóng băng;
-- xem metric, bảng unit, biểu đồ, evidence/lineage và report;
-- dùng Agent Chat để tạo hoặc mở lại kết quả phân tích được cấp quyền;
-- import CSV, lập lịch report và export report JSON/CSV qua private storage.
+The current seed/demo data is synthetic (Vinhomes Synthetic Demo). Import manifests and analytic artifacts are marked provisional. Snapshot-reported sales fields are not an authoritative transaction ledger. Workspace roles are owner, analyst and viewer. The intended operational audience is described in the [decision-intelligence product contract](decision_intelligence_product_contract.md); the app enforces workspace roles rather than a separate Sales Operations persona.
 
-Đây là dữ liệu synthetic/provisional cho MVP (`Vinhomes Synthetic Demo`), chưa phải business truth.
+**Inputs:** organization and project scope, optional zone, data_as_of, question/use case, imported CSV inventory snapshots, and report schedule settings. Analysis is based on snapshots, not every table in the mock warehouse mapping.
 
-## 2. Trạng thái hiện tại
+The registered use-case contract currently contains slow_moving_inventory. Agent Chat also has a fixed set of focus values (current inventory, slow moving, inventory comparison, price distribution, peer comparison and full report); these route the request through supported paths and do not create arbitrary new use cases.
 
-- Monorepo TypeScript/pnpm/Turbo, version nội bộ `0.1.0`.
-- Node.js `>=24`, pnpm `11.0.8`.
-- Next.js `16.3.5`, React `19.3.0`, TypeScript `5.9.3`.
-- Runtime duy nhất: Supabase Auth + PostgreSQL + Storage.
-- Gemini là LLM provider chính; OpenAI là fallback. Provider chỉ được dùng trong ranh giới structured output/evidence đã định nghĩa.
-- Agent Chat vertical slice đã có implementation trong code hiện tại: conversations/messages, typed decision, typed tools, idempotent turn, queue/worker/DAG, persisted assistant lifecycle và UI polling.
-- Hạ tầng ngoài phạm vi MVP: Redis/Kafka/BullMQ, vector database, MCP/plugin runtime, xAI service, multi-agent loop, SSE/WebSocket/token streaming.
-- Không có remote deployment hoặc external report delivery trong MVP; local Supabase là đường chạy được kiểm thử.
+**Outputs:** immutable run artifacts (query and calculation lineage, comparisons, chart specifications, insights and decision-intelligence packs), a published report, JSON/CSV exports, and reference-only conversation messages linking to runs/artifacts/signals. There is no application-generated PDF workflow.
 
-## 4. Cấu trúc repository
+## Repository and Runtime
 
+This is a pnpm/Turborepo workspace with a Next.js web application, shared TypeScript packages, a Node worker, and Supabase SQL/configuration. The Next.js catch-all route invokes the server API in the same application process; the worker is a separate process.
 
-### Workspace packages
-
-| Package | Trách nhiệm |
-| --- | --- |
-| `@vda/contracts` | Zod schemas cho request/response, runs, tasks, artifacts, metrics, reports, conversations, messages và Agent decisions. Đây là boundary typed giữa các layer. |
-| `@vda/config` | Parse env và kiểm tra cấu hình Supabase/provider. |
-| `@vda/db` | `SqlRepository`, auth/membership checks, transaction, idempotency, snapshot pinning, PostgreSQL queue, lease/fencing, messages/conversations, artifacts/reports. |
-| `@vda/domain` | Parser/domain helpers và integrity primitives. |
-| `@vda/semantic` | Sole authority của công thức metric, date/as-of selection, comparison, null/abstain và insight rules. |
-| `@vda/agents` | DAG executor, chart builder, provider adapters, artifact/report validation, Agent Chat orchestrator và typed tools. |
-| `@vda/worker` | Claim run, renew lease, gọi `executeLease`, scheduler tick và xử lý terminal failure. |
-| `@vda/web` | Next.js UI, server BFF/API, Supabase Auth SSR và Agent Chat/workspace panels. |
-
-## 5. Runtime architecture
-
-```text
-Browser / Workspace (Next.js client)
-        │ same-origin /api/v1, Zod response parsing, no-store
-        ▼
-Next catch-all route → server/api.ts → principal() + Repository authorization
-        │
-        ▼
-SqlRepository (Supabase PostgreSQL)
-  ├─ conversations/messages
-  ├─ runs/tasks/events
-  ├─ snapshots/imports/artifacts/validations/reports
-  └─ PostgreSQL queue with lease + fencing token
-        │
-        ▼
-Worker → claimRun() → executeLease()
-        │
-        ▼
-orchestrator → data → calculation → comparison → chart
-              → insight → validation → report
-        │
-        ├─ @vda/semantic: deterministic values
-        ├─ @vda/agents/integrity: hashes, lineage, claim grounding
-        └─ canonical artifacts + report + evidence
-```
-
-Long-running analysis không chạy trong request HTTP. API enqueue một run; worker claim run bằng `FOR UPDATE SKIP LOCKED`, renew lease và dùng fencing token để stale worker không thể ghi terminal state. Browser polling run/tasks/events khoảng mỗi 1.1 giây trong MVP.
-
-## 6. Analytics truth boundary
-
-### As-of và scope
-
-- `AnalysisRequestSchema` yêu cầu `org_id`, `scope`, `data_as_of`, `question`, và scope project.
-- `scope.project_external_id` là bắt buộc; `zone_external_id` có thể null.
-- Với mỗi unit, chọn bản snapshot mới nhất có `snapshot_date <= data_as_of`, sau đó áp dụng project/zone scope.
-- Historical comparison cũng dùng latest-at-or-before target date; không yêu cầu snapshot đúng ngày.
-- Run đóng băng snapshot membership lúc enqueue. Artifact immutable, hash và liên kết tới snapshot/import/query lineage.
-
-### Semantic versions
-
-- Semantic pack: `mvp-inventory-v0.2`.
-- Artifact schema: `1.1`.
-- Chart contract: `chart-spec-v1`.
-- Chart rules: `chart-rules-v0.2`.
-- Các assumption/formula hiện tại là provisional MVP.
-
-### Metric groups hiện được hỗ trợ
-
-- Inventory: `total_inventory`, `available_inventory`, `available_inventory_rate`.
-- Snapshot-reported sales: `sold_units_7d`, `sold_units_30d`, `sold_units_90d`. Đây **không** phải authoritative transaction-ledger measure.
-- Movement: `inventory_change_7d`, `inventory_change_30d`, `inventory_change_90d`.
-- Aging: `median_inventory_age_days`, `p75_inventory_age_days`, `slow_moving_units`, `slow_moving_rate`, `unknown_inventory_age`, `unknown_inventory_age_rate`.
-- Price: `median_price`, `median_price_per_area`, `p25_price_per_area`, `p75_price_per_area`, `price_per_area_iqr`.
-- Data quality: `missing_inventory_age_rate`, `missing_price_rate`, `missing_area_rate`, `records_with_invalid_or_unusable_values`, `snapshot_coverage`.
-
-Các rate là phần trăm 0–100. Null/abstain nghĩa là unavailable, không được đổi thành zero. Monetary/area metrics dùng decimal arithmetic và bắt buộc currency metadata nếu có giá trị. Nhiều currency hoặc zero denominator có thể làm metric/comparison abstain.
-
-### Quy tắc nghiệp vụ quan trọng
-
-- Aging buckets: `0-30`, `31-60`, `61-90`, `91-180`, `>180`, `unknown`.
-- Slow-moving threshold mặc định là 90 ngày và là assumption có thể cấu hình.
-- Breakdown hiện hỗ trợ `zone`, `unit_type`, `bedrooms`, `status` (project là enclosing scope).
-- Unit peer comparison giữ cùng org/project/zone/unit type/bedrooms/currency, area trong ±15%, loại target và cần tối thiểu 3 peers. Không được silently widen cohort.
-- Notable-change thresholds và top-N insight selection nằm trong semantic registry, không nằm ở UI/LLM.
-- Chart chỉ được tạo từ calculation/comparison artifacts đã validate. Không chart point nào do LLM tạo.
-- Mỗi claim có evidence path; validation reject invented/duplicate/missing claim IDs, path hoặc values.
-
-### Deferred/unsupported analytics
-
-Không được suy diễn các đầu ra sau từ snapshot hiện tại:
-
-- authoritative sales velocity/decline;
-- reservation conversion/cancellation;
-- price-change event analytics;
-- freshness SLA/stale rate khi chưa có SLA/cadence được phê duyệt;
-- portfolio-wide project comparison;
-- causal explanation.
-
-Muốn thêm một metric cần contract typed, query/lineage frozen, deterministic semantic implementation, artifact/chart/report support và test; không chỉ sửa prompt.
-
-## 7. Agent Chat hiện tại
-
-Agent Chat là một lớp mỏng trên pipeline analytics hiện có, không phải một analytics engine thứ hai.
-
-### Flow
-
-```text
-POST /api/v1/conversations[/:conversation_id]/messages
-  → validate body + Idempotency-Key
-  → startTurn(): persist user message + assistant placeholder
-  → server-authoritative bounded context
-  → one structured AgentDecision
-  → at most one typed tool
-       create_analysis → attach run → existing queue/worker/DAG
-       get_analysis_result → authorized existing run/artifact refs only
-       unsupported → deterministic honest response, no run
-  → worker terminal transaction finalizes assistant placeholder
-  → UI polls and hydrates canonical artifacts/report/evidence
-```
-
-Relevant files:
-
-- `src/backend/packages/agents/src/chat.ts`: bounded context (`latest 12 messages`, latest authorized run refs, bounded chars), one-decision orchestrator, deterministic unsupported/error responses.
-- `src/backend/packages/agents/src/tools.ts`: `create_analysis`, `get_analysis_result`, UI/API-only `cancelAnalysisTool`; re-authorize before mutation.
-- `src/backend/packages/agents/src/provider.ts`: separate `AgentDecisionProvider` và `NarrativeProvider`; Gemini primary/OpenAI fallback; structured output, no raw provider error to client.
-- `src/backend/packages/db/src/repository.ts` và `types.ts`: conversation/message pages, turn lifecycle, idempotency, attach/finalize, terminal state.
-- `src/frontend/src/components/agent-chat/`: conversation list, message thread, composer, progress và orchestrator UI.
-- `src/frontend/src/components/workspace.tsx`: owning shell; giữ scope/catalog và các panel analysis/reports/schedules/imports/history.
-
-### Agent contract
-
-`AgentDecisionSchema` chỉ cho phép:
-
-- `create_analysis` với focus: `current_inventory`, `slow_moving`, `inventory_comparison`, `price_distribution`, `peer_comparison`, `full_report`;
-- `get_analysis_result` với `run_id` đã nằm trong bounded authorized context;
-- `unsupported` với reason code đã enum.
-
-LLM không được tính metric, viết SQL, tạo ID/scope/permission/evidence/claim, đọc raw database rows hoặc tự loop. Provider chỉ quyết định route; analytics pipeline vẫn là nơi tính và tổng hợp.
-
-Messages có `role`, `status`, `content` và typed reference-only `parts` (`text`, `run_ref`, `report_ref`, `artifact_ref`, `error`). Không copy metric values, chart series, evidence records hoặc hidden chain-of-thought vào message payload. Trạng thái gồm `submitted`, `in_progress`, `completed`, `failed`, `cancelled`.
-
-Agent Chat dùng workspace-shared conversations theo organization membership; không phải private thread. Owner/analyst được tạo/cancel analysis; viewer read-only.
-
-## 8. Auth, tenancy và security
-
-- Supabase Auth là identity source. `src/frontend/src/server/context.ts` lấy principal từ Supabase hoặc development-only signed httpOnly role grant.
-- Development role bypass chỉ dùng local development; không được coi là production auth.
-- Mọi request được authorize theo `user_id + org_id`; client không được quyết định user, org, role hay quyền.
-- Roles: `owner`, `analyst`, `viewer`. Owner/analyst có write mutation; viewer chỉ đọc.
-- PostgreSQL RLS cho workspace membership. Authenticated client có SELECT theo membership; direct writes bị revoke; `service_role` dùng server-side.
-- Mọi lookup/write phải có `org_id`; mọi tool phải re-authorize ngay trước execution.
-- `SUPABASE_SECRET_KEY`, `SUPABASE_DB_URL`, LLM keys chỉ server/worker. Không in, commit hoặc gửi chúng vào prompt/browser/log.
-- BFF có same-origin mutation guard, body size limit, Zod parse, private `no-store` headers và problem mapping.
-- Report/source buckets là private; report download dùng short-lived BFF grant với membership revalidation.
-
-## 9. API surface chính
-
-Tất cả route nằm dưới `/api/v1` và response được parse bằng contract schema.
-
-| Nhóm | Routes chính | Ghi chú |
+| Area | Current implementation | Entry/configuration |
 | --- | --- | --- |
-| Setup/Auth | `GET /setup`, `POST /auth/login`, `POST /auth/development-role`, `POST /auth/logout`, `GET /session` | Supabase/Auth local flow |
-| Catalog | `GET /catalog?org_id=...` | projects/zones/latest snapshot |
-| Analysis | `POST /analyses`, `GET /runs`, `GET /runs/:id`, `GET /runs/:id/artifacts`, `POST /runs/:id/cancel` | Legacy/direct analysis vẫn được giữ |
-| Agent Chat | `GET /conversations`, `POST /conversations`, `GET /conversations/:id`, `GET/POST /conversations/:id/messages` | POST cần `Idempotency-Key`; body `AgentTurnRequestSchema` |
-| Legacy messages | `GET /messages?org_id=...&conversation_id=...` | Compatibility path |
-| Data | `GET/POST /imports` | CSV import có lineage/private storage |
-| Reports | `GET /reports`, `GET /reports/:id`, `POST /reports/:id/exports`, `GET /reports/:id/download` | JSON/CSV signed download |
-| Schedules | `GET/POST /report-definitions`, `PATCH/DELETE /report-definitions/:id`, `POST /report-definitions/:id/trigger`, `POST /scheduler/tick` | Scheduled runs là entrypoint riêng |
+| Runtime/package manager | Node.js >=24, pnpm 11.0.8, TypeScript 5.9.3, Turbo 2.11.2 | [package.json](../package.json), [pnpm-workspace.yaml](../pnpm-workspace.yaml), [turbo.json](../turbo.json) |
+| Web | Next.js 16.3.5, React 19.3.0, App Router | [src/frontend/package.json](../src/frontend/package.json), [src/frontend/src/app/page.tsx](../src/frontend/src/app/page.tsx) |
+| Server/API | Next.js Node route handler and in-process TypeScript packages | [catch-all route](../src/frontend/src/app/api/v1/%5B...path%5D/route.ts), [server API](../src/frontend/src/server/api.ts) |
+| Database and identity | Supabase Auth, PostgreSQL 17 configuration, Supabase Storage | [Supabase config](../src/backend/supabase/config.toml), [database driver](../src/backend/packages/db/src/driver.ts) |
+| Background execution | Node worker polling a PostgreSQL-backed queue; no separate broker | [worker](../src/backend/worker/src/index.ts), [repository](../src/backend/packages/db/src/repository.ts) |
+| Contracts/domain | Zod contracts, deterministic domain and semantic packages | [contracts](../src/backend/packages/contracts/src/index.ts), [domain](../src/backend/packages/domain/src/index.ts), [semantics](../src/backend/packages/semantic/src/index.ts) |
 
-## 10. Database model và migration
+### Workspace Packages
 
-Các record chính trong schema `src/backend/supabase/schemas/001_inventory.sql` và additive Agent Chat schema `005_agent_chat.sql`:
+| Package | Role in the current architecture |
+| --- | --- |
+| @vda/contracts | Zod request, response, run, task, artifact, workflow and report schemas; also exports JSON Schema files. |
+| @vda/config | Parses required server environment configuration and rejects unsupported provider combinations and unsafe public secret names. |
+| @vda/db | PostgreSQL repository, authorization checks, idempotency, pinned snapshots, queue leases, conversations, artifacts, reports and storage access. |
+| @vda/domain | CSV/hierarchy handling, integrity and claim validation, workflow artifact validation, report validation and deterministic decision-intelligence builder. |
+| @vda/semantic | Canonical inventory metric, as-of selection, comparison, peer cohort, abstention and insight candidate logic. |
+| @vda/agents | Legacy DAG, opt-in durable agent workflow, chart builder, provider adapters, Agent Chat decisions/tools and publication gate. |
+| @vda/worker | Claims/renews run leases, dispatches by pinned workflow version and ticks schedules. |
+| @vda/web | Next.js workspace UI, same-origin API/BFF, Supabase SSR auth and client rendering. |
 
-`organizations`, `organization_members`, `imports`, `snapshots`, `conversations`, `runs`, `run_snapshots`, `tasks`, `artifacts`, `artifact_inputs`, `artifact_snapshots`, `artifact_sources`, `validations`, `events`, `messages`, `definitions`, `occurrences`, `reports`, `report_exports`.
+## System Architecture
 
-Agent Chat migration bổ sung metadata conversation (`kind`, `title`, timestamps), message lifecycle (`run_id` nullable, `client_turn_id`, `role`, `status`, timestamps), partial/compound indexes và direct-write policy giữ nguyên. Migration thực tế là `src/backend/supabase/migrations/20260920170143_agent_chat.sql`; nếu sửa database, edit declarative schema trước, dùng Supabase CLI generate/review migration và test fresh/upgrade + pgTAP.
+~~~mermaid
+flowchart LR
+  Browser[Browser: Next.js Workspace] -->|same-origin /api/v1| Route[Next catch-all route]
+  Route --> Api[Server API + principal and role checks]
+  Api --> Repo[SqlRepository]
+  Repo --> Pg[(Supabase PostgreSQL)]
+  Api --> Store[Supabase private Storage]
+  Pg -->|queued run| Worker[Node worker: lease + fencing]
+  Worker --> Legacy[legacy-v1 DAG]
+  Worker --> V1[agent-v1 DAG, opt-in]
+  Legacy --> Semantic[@vda/semantic]
+  V1 --> Semantic
+  V1 --> Decision[Deterministic decision-intelligence builder]
+  Legacy --> Artifacts[Validated immutable artifacts]
+  Decision --> Artifacts
+  Artifacts --> Pg
+  V1 --> Providers[Gemini / OpenAI structured providers]
+  Legacy --> Providers
+  Api --> Providers
+~~~
+
+Provider use is limited: models do not query PostgreSQL or produce canonical metrics/chart values. The API uses Supabase Auth for identity, while repository operations apply organization/role checks and PostgreSQL RLS. Analyses are enqueued and processed by the worker; the HTTP request does not execute the DAG synchronously. The browser polls for run, task, conversation and workflow state. When `GROK_SSE_ENABLED` is enabled, Agent Runtime turns also use same-origin POST-over-fetch SSE for safe activity and final-state events; JSON calls and run polling remain available as fallbacks. No Redis, Kafka, BullMQ or WebSocket service is present in runtime configuration.
+
+Implementation: [request context](../src/frontend/src/server/context.ts), [server API](../src/frontend/src/server/api.ts), [repository](../src/backend/packages/db/src/repository.ts), [worker](../src/backend/worker/src/index.ts), [legacy executor](../src/backend/packages/agents/src/index.ts), [agent-v1 executor](../src/backend/packages/agents/src/agent-workflow.ts), [Agent Runtime](../src/backend/packages/agents/src/runtime.ts), and [Agent Runtime stream](../src/frontend/src/server/agent-turn-stream.ts).
+
+## User Workflows
+
+### Sign in and select a workspace
+
+The root page renders the workspace shell. The client loads /setup and /session; Supabase email/password login is available. In development only, the setup response can enable signed role-grant buttons for local owner/analyst/viewer use. A user without an organization membership sees a no-access state. Organization switching is client state and remounts the workspace; tabs are not separate URL pages.
+
+### Import inventory CSV
+
+~~~text
+Member → Imports tab → POST /api/v1/imports
+       → body/schema and hierarchy validation
+       → hash + private source upload + transactional manifest/snapshot insert
+       → import list and manifest shown in UI
+~~~
+
+The UI reads the selected file as text and posts it as JSON with a source filename; its client limit is 2 MB. The server parses CSV, validates supported columns and hierarchy, rejects duplicate unit/date rows instead of overwriting, hashes the exact input for idempotency, uploads the original to private source-imports, and inserts an immutable import manifest and snapshot rows. Bulk mock warehouse scripts are a separate import path.
+
+### Run a direct analysis
+
+~~~text
+Member → Analysis form → POST /api/v1/analyses (Idempotency-Key)
+       → authorize + pin requested snapshot membership + enqueue run
+       → worker claims lease → legacy-v1 or agent-v1 workflow
+       → poll run/tasks/artifacts → render brief and evidence
+~~~
+
+The request specifies organization, project, optional zone, data_as_of, question and use case. A run pins its workflow version at creation. The worker claims queued or expired runs using PostgreSQL row locking, renews the lease and fences writes by worker ID/token. The legacy UI polls progress and supports cancellation.
+
+### Agent Chat
+
+~~~text
+UI → POST /api/v1/conversations[/<id>/messages]
+   → persist idempotent user turn + assistant placeholder
+   → bounded authorized conversation/decision context
+   → one structured decision and at most one typed operation
+   → run/result/signal response by reference → polling and artifact hydration
+~~~
+
+A turn can create analysis, retrieve an authorized run, inspect a supported signal, or return an unsupported response. Changing scope/date can force a new analysis; causal questions are rejected by deterministic routing. The UI also offers target selection, retry with the same idempotency identity, cancellation, and bounded signal follow-ups. Cancellation is an explicit UI/API operation, not an LLM decision. Messages carry typed references; metric values, raw rows and hidden reasoning are not copied into message parts.
+
+### Reports and schedules
+
+Members can open reports, inspect canonical artifacts and decision brief, export JSON/CSV, and use browser print styling. Members can create/edit/pause/enable/delete report definitions, trigger one immediately, or invoke a scheduler tick. The worker checks due schedules on a 60-second cadence; a separate scheduler:tick command and API endpoint also exist. Each scheduled occurrence is idempotently tied to its definition and scheduled time.
+
+## Agent Architecture
+
+“Agent” in this repository usually means a typed workflow stage. The coordinator, data, comparison, chart, analyst, insight, report and reviewer stages do not form a set of autonomous LLMs. Numeric data, schemas, evidence and publication are owned by deterministic code.
+
+### Run workflows
+
+The run's workflow_version is pinned at creation. AGENT_WORKFLOW_ENABLED defaults to false; changing the flag does not divert an already queued run.
+
+~~~mermaid
+flowchart TD
+  subgraph LV1[legacy-v1]
+    O[Orchestrator] --> D[Data] --> C[Calculation] --> CP[Comparison]
+    CP --> CH[Chart] --> I[Insight] --> V[Validation] --> R[Report]
+  end
+  subgraph AV1[agent-v1, opt-in]
+    CO[Coordinator] --> DA[Data]
+    DA --> CB[Comparison branch]
+    DA --> HB[Chart branch]
+    DA --> AB[Analyst branch]
+    CB --> IN[Insight + decision pack]
+    HB --> IN
+    AB --> IN
+    IN --> DR[Report draft] --> RV[Reviewer]
+    RV -->|PASS| PUB[Publication]
+    RV -->|bounded revision| DR
+  end
+~~~
+
+### Stage responsibilities
+
+| Stage | Inputs and outputs | Model use and failure/recovery |
+| --- | --- | --- |
+| Legacy orchestrator | Run request; creates the legacy task DAG and executes data, calculation, comparison, chart, insight, validation, report. | Deterministic orchestration. Failures persist on task/run; lease recovery uses repository checkpoints. [Legacy executor](../src/backend/packages/agents/src/index.ts) |
+| Coordinator (agent-v1) | Authorized, pinned run → typed CoordinatorDecision and analysis_request; resolves registered use case, scope/date, capability and target. | Deterministic; no model, SQL or metric call. [Coordinator](../src/backend/packages/agents/src/coordinator.ts) |
+| Data | Pinned snapshot rows → query/query result, calculation, comparison calculation, compatibility comparison, DataAnalysisPack. | Reads through repository's fenced snapshot boundary; calls @vda/semantic; validates tenant, scope, values, refs and lineage. No model SQL/values. [Workflow](../src/backend/packages/agents/src/workflow.ts), [Data Agent](../src/backend/packages/agents/src/data-agent.ts) |
+| Comparison, Chart, Analyst branches | Persisted Data pack → typed comparison, chart/visual evidence and analysis packs. Branches are independent after Data. | Deterministic projections and validation; artifacts reload by stable key on recovery. [Branch workflow](../src/backend/packages/agents/src/branch-workflow.ts) |
+| Insight | Validated branch artifacts → insight and insight pack, then deterministic decision-intelligence pack. | Candidate selection, claim binding and policy are deterministic. Narrative provider can only select supplied claim IDs; see [Deterministic vs LLM Responsibilities](#deterministic-vs-llm-responsibilities). [Draft workflow](../src/backend/packages/agents/src/draft-workflow.ts), [decision builder](../src/backend/packages/domain/src/decision-intelligence.ts) |
+| Report | Validated insight/decision inputs → immutable report_draft revision. | Draft construction is deterministic and schema/evidence checked. [Report agent](../src/backend/packages/agents/src/report-agent.ts) |
+| Reviewer | Draft plus exact artifact graph → review_result PASS or bounded evidence-wording correction. | Default reviewer provider is deterministic; one revision may be requested. A second non-PASS fails the run. [Reviewer](../src/backend/packages/agents/src/reviewer-agent.ts), [review workflow](../src/backend/packages/agents/src/review-workflow.ts) |
+| Publication | PASS review plus matching immutable draft → canonical report and successful run. | Fenced repository transaction is the publication authority; generic artifact writes cannot publish an agent-v1 report. [Publication](../src/backend/packages/agents/src/publication.ts), [repository](../src/backend/packages/db/src/repository.ts) |
+| Agent Chat router | Bounded messages, role, catalog, authorized run and active decision refs → one AgentDecision. | Gemini primary/OpenAI fallback structured output. One action maximum; deterministic server tools re-authorize before access/mutation. [Chat](../src/backend/packages/agents/src/chat.ts), [tools](../src/backend/packages/agents/src/tools.ts) |
+
+Successful stages persist typed reference-only assistant stage messages and immutable artifacts. Recovery rehydrates those artifacts, verifies hashes/contracts/lineage, and checks task state instead of relying on worker memory. There is no unbounded multi-agent conversation loop.
+
+## Deterministic vs LLM Responsibilities
+
+| Concern | Owner in current code |
+| --- | --- |
+| As-of selection, metric arithmetic, aggregation, peer cohort, null/abstain, candidate rules | Deterministic @vda/semantic and domain code. decimal.js precision is 50; money/ratio arithmetic uses half-up rounding. |
+| Chart values/specification and data bindings | Deterministic chart builder from validated calculation/comparison artifacts; unsupported charts return typed unavailable reasons. |
+| Decision brief, material changes, hotspots, priority entities, action candidates and drilldowns | Deterministic buildDecisionIntelligencePack plus registered use-case policy. These are policy-bounded candidates, not authoritative instructions. |
+| Artifact identity/hash, schema, tenant and lineage checks, authorization and publication | Deterministic contracts, domain validators and repository. |
+| Agent Chat intent/action choice | LLM may select one enumerated structured action; deterministic shortcuts handle scope/date/signal constraints and the server validates/re-authorizes the operation. |
+| Narrative claim selection | LLM sees claim IDs and metric keys and returns a summary key plus claim IDs. It must return every supplied ID exactly once. Code restores canonical claims and fixed SAFE_SUMMARY; it does not accept model-authored numeric facts or prose claims. |
+
+**Numeric truth is never assigned to the LLM.** Provider instructions prohibit calculating values, issuing SQL, inventing IDs/scopes/permissions/evidence or adding claims. Narrative and decision providers use structured JSON. Gemini requests time out after 30 seconds; OpenAI is configured with a 30-second timeout and one SDK retry; a provider fallback tries the next provider and returns a generic failure if all fail. No token limit is configured in the inspected calls.
+
+## AI and Model Integration
+
+The provider boundary is in [provider.ts](../src/backend/packages/agents/src/provider.ts); prompts/instructions are constants in that source file, not separate prompt files. Configuration fixes Gemini as primary and OpenAI as fallback, and requires both credentials and model names. Gemini is called through its generateContent REST endpoint; OpenAI uses the Responses API with structured Zod output and storage disabled on narrative requests.
+
+Agent Chat context is bounded to the latest 12 messages (up to 600 characters each and 5,000 characters total), no more than five authorized run IDs, plus role, current scope/date, catalog and supported signal/decision references. The model receives user request/context to choose one action from the typed schema. Narrative selection receives claim IDs and metric keys, not raw inventory rows or numeric values. Provider output is parsed and then checked against the supplied allowed IDs. There is no token budget configured in these calls. The normal Reviewer path uses a deterministic provider; it is not another LLM review call.
+
+## End-to-End Data Flow
+
+1. **Input and normalization:** CSV text is parsed by parseInventoryCsv; hierarchy and supported fields are validated before import. The run query reads snapshot rows through SqlRepository under tenant/scope/date constraints. [Domain parser](../src/backend/packages/domain/src/index.ts), [repository](../src/backend/packages/db/src/repository.ts)
+2. **Snapshot selection:** for each unit, select the latest row with snapshot_date <= data_as_of, then apply project/zone scope. Period windows use the latest row at or before the target date (7/30/90 days), not necessarily a row on that exact day. The run pins selected snapshot membership at enqueue.
+3. **Canonical metrics:** @vda/semantic calculates inventory, availability, snapshot-reported sales counts, movement, aging, price distribution and data-quality metrics. Rates are 0–100. Unavailable values stay null with a reason; they are not zero-filled.
+4. **Comparison and signals:** deterministic peer/period/segment comparisons feed notable-change and insight candidates. Peer cohorts are not silently widened. Evidence paths bind claims to canonical values.
+5. **Visualization:** ChartBuilder produces validated ChartSpec/visual-evidence from calculation and comparison artifacts. Every numeric datum is bound to an artifact path, or represented as unavailable.
+6. **Decision and report:** the opt-in workflow derives decision brief v2, visual story, priority entities, bounded action candidates, drilldowns and completeness handoff; creates a draft; reviews it; and publishes only after PASS. The legacy workflow creates a report after its validation stage.
+7. **Presentation/export:** UI hydrates canonical artifacts and renders charts/tables/evidence. JSON/CSV export is stored privately and downloaded through a short-lived BFF grant.
+
+Metric definitions and limits: [semantic registry](../src/backend/packages/semantic/src/registry.ts), [semantic engine](../src/backend/packages/semantic/src/index.ts), and the contract declarations below.
+
+## Artifact Model
+
+An artifact is an immutable, run-scoped record with a stable logical key and schema-validated payload. ArtifactSchema defines its base metadata; **there is no artifact status field**. Run/task statuses describe lifecycle, and validation results are separate ArtifactValidation records.
+
+Base fields include artifact_id, org_id, run_id, task_id, kind, schema_version (1.1), semantic_version, provisional, data_as_of, input_refs, snapshot_refs, source_refs, limitations, typed payload and content_hash. IDs derive deterministically from the run and logical key. The database enforces tenant/run/key uniqueness; artifacts and lineage rows are immutable. Agent-v1 uses keys such as data.calculation, comparison_pack, chart.visual_evidence, report_draft:1 and review_result:1/:2.
+
+Important artifact families:
+
+- **Inputs and computation:** analysis_request, coordinator_decision, query, query_result, calculation, comparison_calculation, comparison.
+- **Stage packs:** data_analysis_pack, comparison_pack, chart_pack, analysis_pack, insight_pack, decision_intelligence_pack.
+- **Evidence and presentation:** visual_evidence, legacy chart/insight artifacts, report_draft, review_result, published report.
+- **Validity records:** schema/hash/tenant/lineage/deterministic-data checks are stored separately, not as artifact lifecycle status.
+
+artifact_inputs, artifact_snapshots and artifact_sources retain parent artifacts, snapshot IDs and import/source IDs. Stable IDs, content hashes and schemas are rechecked when recovery loads a checkpoint. Draft/review artifacts are private to owners/analysts; viewers receive published report artifacts and permitted lineage.
+
+Definitions and persistence: [contract schemas](../src/backend/packages/contracts/src/index.ts), [domain integrity](../src/backend/packages/domain/src/integrity.ts), [agent integrity](../src/backend/packages/agents/src/integrity.ts), [DB types](../src/backend/packages/db/src/types.ts), [agent workflow SQL](../src/backend/supabase/schemas/006_agent_workflow_persistence.sql).
+
+## Evidence, Provenance and Numeric Truth
+
+bindClaims binds each candidate claim to a verified calculation or period-comparison path. It checks that the claim's metric key matches the evidence path and that the value there equals the canonical value. Decision-intelligence and report validators rebuild expected output or traverse referenced paths; invented, missing, duplicate or mismatched references fail validation.
+
+The run records pinned snapshot membership. Artifacts carry input_refs, snapshot_refs, source_refs, limitations and hashes; companion lineage tables persist these relations. Charts bind points to canonical artifact paths. A report references validated calculation/comparison/visual/insight/decision artifacts. The final public report omits private draft/review artifact identifiers; publication checks the exact persisted draft/review pair and review PASS in a fenced transaction.
+
+No validator can make synthetic data or provisional thresholds authoritative. Metric policy remains provisional.
+
+## Data Contracts and Schemas
+
+The TypeScript Zod definitions in [contracts/src/index.ts](../src/backend/packages/contracts/src/index.ts) are the runtime contract source. pnpm contracts:export emits JSON schemas under packages/contracts/schema/.
+
+| Contract | Purpose / producer → consumer | Validation |
+| --- | --- | --- |
+| AnalysisRequestSchema, ImportRequestSchema, SnapshotRowSchema | API/import boundary → repository and worker | Zod parse, hierarchy/CSV validation, pinned scope checks. |
+| RunSchema, task/event/conversation/message schemas | Repository → API/UI and worker | Zod parsing at API boundaries; state and idempotency constraints in repository/SQL. |
+| ArtifactSchema and per-kind payload schemas | Workflow stage → repository, downstream stages, UI | Zod parse, stable hash, tenant/lineage checks, kind-specific deterministic validator. |
+| MetricSchema, CalculationPayloadSchema, comparison schemas | Semantic calculation → insight/chart/report stages | Semantic registry, decimal arithmetic, null/abstention reasons, cross-artifact checks. |
+| ChartSpecSchema (chart-spec-v1) and visual evidence | Chart builder → API/UI | chart-rules-v0.2; deterministic origin and evidence binding per numeric datum. |
+| DecisionBrief v1/v2 and DecisionIntelligencePackSchema | Decision builder → report/API/UI/chat context | Rebuild-and-compare deterministic validator; all evidence references resolved. |
+| AgentDecisionSchema, AgentTurnRequestSchema, typed tool inputs | LLM decision → one server-validated operation | Structured provider schema plus allowed run/signal/scope checks and authorization. |
+| ReportDefinitionSchema, report/export responses | Scheduling/report API → repository/UI | Zod contract, schedule validation, report publication/export checks. |
+
+Generated JSON schemas cover analysis requests, runs, artifacts, report drafts, review results, decision packs, chart/comparison/insight packs and related contracts in [contracts/schema](../src/backend/packages/contracts/schema/). SQL schema is defined separately in ordered declarative files under [supabase/schemas](../src/backend/supabase/schemas/).
+
+## Frontend Architecture
+
+The web app has one App Router page, /, rendering Workspace. React state selects analysis, reports, schedules, imports and history panels; these are not individual route pages. Workspace owns setup/auth, organization/catalog scope and panel composition. AgentChat, AnalysisResult, DecisionIntelligence, Evidence, ChartRenderer and resource panels own focused UI responsibilities.
+
+The client calls same-origin /api/v1 through lib/client-api.ts, uses same-origin credentials and no-store caching, and parses responses with Zod. It does not connect to PostgreSQL or Supabase Storage directly. React hooks hold view state; no shared query-cache/state library is present. Forms and chat use local component state. Run/workflow progress is polled; visible run polling is about 1.1 seconds and chat reduces polling frequency while hidden.
+
+The result UI prefers decision-intelligence output, then a decision brief, then legacy artifact hierarchy for older runs. Chart rendering uses Recharts. Evidence opens a native dialog with artifact IDs/hash, validation and lineage. Loading/error states use app boundaries plus panel-level busy/error states. Role-based disabled controls are a convenience; server authorization is authoritative.
+
+References: [workspace shell](../src/frontend/src/components/workspace.tsx), [Agent Chat UI](../src/frontend/src/components/agent-chat/agent-chat.tsx), [analysis result](../src/frontend/src/components/analysis-result.tsx), [decision-intelligence UI](../src/frontend/src/components/decision-intelligence.tsx), [evidence UI](../src/frontend/src/components/evidence.tsx), [chart renderer](../src/frontend/src/components/chart-renderer.tsx), [client API](../src/frontend/src/lib/client-api.ts), [global styles](../src/frontend/src/app/globals.css).
+
+## Reporting and Visualization
+
+Data meaning is canonical in semantic metrics/evidence; ChartSpec is a typed visual encoding; report content is a typed report/draft payload; Recharts and report CSS are presentation. The LLM does not supply numeric chart series. Chart types include KPI, bar, line, pie, donut and scatter, with explicit unavailable reasons where inputs or policy do not support a chart.
+
+Legacy runs build/validate a report in their DAG. Agent-v1 builds a private report draft, validates it with the reviewer workflow, then writes the public report. The report UI previews stored report/artifact data and supports JSON/CSV exports plus browser print styling. There is no dedicated server-side PDF/image renderer, external email delivery, or publication approval UI.
+
+References: [chart builder](../src/backend/packages/agents/src/chart-builder.ts), [chart agent](../src/backend/packages/agents/src/chart-agent.ts), [report agent](../src/backend/packages/agents/src/report-agent.ts), [publication stage](../src/backend/packages/agents/src/publication.ts), [resource panels](../src/frontend/src/components/resource-panels.tsx).
+
+## Backend Architecture
+
+The Next.js API catch-all exposes a same-origin BFF. server/api.ts handles route dispatch, principal resolution, body limits, schema validation, response schemas and problem responses. The API depends on @vda/db for authorized persistence and @vda/agents for decision/tool/workflow operations; workers invoke agents and repository interfaces directly. The database package uses parameterized PostgreSQL queries rather than an ORM. PostgreSQL queue/run records hand work from API to worker; there is no API-to-worker RPC.
+
+Important route groups under /api/v1:
+
+| Group | Routes |
+| --- | --- |
+| Setup/auth | GET /setup, GET /session, POST /auth/login, /auth/development-role, /auth/logout |
+| Catalog/imports | GET /catalog, GET/POST /imports |
+| Analysis/runs | POST /analyses, GET /runs, GET /runs/:id, /artifacts, /workflow-status, /brief, /decision-intelligence, POST /runs/:id/cancel |
+| Conversations | GET/POST /conversations, conversation detail/messages, legacy GET /messages |
+| Reports | GET /reports, report detail, POST /reports/:id/exports, GET /reports/:id/download |
+| Schedules | GET/POST /report-definitions, PATCH/DELETE /report-definitions/:id, trigger and scheduler tick |
+
+Run creation and conversation turns use Idempotency-Key; create endpoints return accepted work for the worker. Request bodies are capped at 2,100,000 bytes, mutation origin is checked when Origin is supplied, inputs and typed responses are schema-parsed, and internal 500 details are hidden. See [server API](../src/frontend/src/server/api.ts), [route](../src/frontend/src/app/api/v1/%5B...path%5D/route.ts).
+
+## Persistence and Storage
+
+@vda/db uses postgres with a small connection pool and raw parameterized SQL; no ORM, Redis cache or external queue is configured. Supabase PostgreSQL stores organizations/memberships, imports/snapshots, conversations/messages, runs and pinned snapshots, tasks/events, artifacts and lineage/validation, report definitions/occurrences, reports and export records. Payloads use JSONB alongside relational tenant/scope/key columns. IDs, uniqueness and foreign keys are tenant-scoped; immutable triggers protect important input and artifact records.
+
+Core table names include organizations, organization_members, imports, snapshots, conversations, messages, runs, run_snapshots, tasks, artifacts, artifact_inputs, artifact_snapshots, artifact_sources, validations, events, definitions, occurrences, reports and report_exports.
+
+Declarative schemas are [001_inventory.sql](../src/backend/supabase/schemas/001_inventory.sql) through [007_agent_stage_messages.sql](../src/backend/supabase/schemas/007_agent_stage_messages.sql); additive migrations are in [supabase/migrations](../src/backend/supabase/migrations/). The latest schema includes chat, durable workflow artifact keys/visibility and per-stage assistant messages. supabase/seed.sql seeds local synthetic data and local test users.
+
+Supabase Storage has private source-import and report-export objects. Imports upload the original CSV before inserting the database manifest/snapshots; a database failure after upload can leave an orphan object because no compensating delete was found in that path. Exports store a content-hash-based object and ledger record, then return a five-minute signed BFF grant. No separate filesystem/object-storage abstraction or application cache was found.
+
+## Agent Routing and Orchestration
+
+The worker writes/claims tasks in PostgreSQL and owns a 30-second run lease renewed every 10 seconds. FOR UPDATE SKIP LOCKED lets workers claim work; an incremented fencing token prevents an expired worker from committing stale task/artifact/run state. Run attempt count is bounded at three. Schedules are persisted; the worker calls tick() about once per minute and creates idempotent occurrences/runs for due definitions.
+
+The agent-v1 graph is sequential through Coordinator/Data, then fans out Comparison/Chart/Analyst branches, fans in at Insight, and continues through Report draft, Reviewer and Publication. Branch and draft/review stages resume from keyed immutable checkpoints. Review permits one correction/revision; a second non-PASS is terminal. legacy-v1 is a separate executor. Agent Chat is not the run orchestrator: it chooses at most one typed action and hands analysis to the existing run queue.
+
+getAgentTargetFollowUp uses bounded deterministic routing for supported follow-ups without a model call. There is no planner loop or arbitrary @Agent dispatch. The UI has a target selector, but accepted operations and capabilities remain limited by typed contracts and use-case policy.
+
+## Failure Handling and Recovery
+
+- Invalid bodies/contracts fail before repository mutation; route errors map schema and known validation issues to client problem responses and hide unexpected internals.
+- Import parsing, hierarchy, duplicate unit/date and schedule validation errors are rejected; source manifests and snapshots are not updated in place.
+- Provider requests use bounded timeouts/structured output. Failure falls through to the configured fallback; if both fail, the turn/run returns a stable generic failure code.
+- Worker failures mark the run failed with a sanitized code. A failed run can be retried in repository logic only below the attempt bound, but no retry API route is exposed.
+- Lease expiry allows another worker to reclaim work. Stable keys and immutable checkpoints are reloaded and revalidated. Fencing prevents stale writes after lease loss or cancellation.
+- Cancellation sets a terminal run state and fences current work. Agent-v1 publication failure, invalid evidence/artifacts, reviewer non-PASS at the revision limit, or lost lease cannot produce a published report.
+- Storage and database are separate systems; failed DB persistence after an import object upload can leave an orphan source object (no compensating cleanup observed).
+
+## Data Quality and Current Semantic Limits
+
+Semantic version is mvp-inventory-v0.2; artifact schema is 1.1; chart contract is chart-spec-v1 with rules chart-rules-v0.2. Supported metric families include inventory/availability, snapshot-reported sales counts (7/30/90 days), movement, aging/slow-moving, price distribution, missing-value rates, invalid/unusable rows and snapshot coverage.
+
+Slow-moving threshold defaults to 90 days and can be configured. Peer matching requires same organization/project/zone/unit type/bedrooms/currency, area within ±15%, excludes the target, and requires at least three peers. Multiple currencies, missing denominators, unsupported cohort coverage or missing historical snapshots can produce abstentions; null means unavailable, not zero. No silent cohort widening occurs.
+
+The snapshot-based engine does not establish authoritative transaction sales velocity, reservation conversion/cancellation, price-change event analytics, freshness SLA/stale rate without an approved cadence, portfolio-wide project comparisons, or causal explanations. Supplemental mock warehouse facts do not imply the semantic pipeline consumes them. Data-quality metrics and limitations are included in artifacts/decision output, but no separate human publication gate based on a quality score was found.
+
+## Security
+
+- Supabase Auth is the identity provider. principal() resolves the authenticated user; workspace membership and role are checked server-side. Roles are owner, analyst, viewer; viewer is read-only. Development role grants are signed, HttpOnly, SameSite-strict, expire after eight hours and are rejected in production.
+- Repository operations use organization-scoped checks; reads apply authenticated role/JWT context so RLS executes. Declarative SQL enables tenant RLS, revokes direct authenticated writes and grants needed reads. Private draft/review artifacts and companion lineage are restricted to owner/analyst.
+- Database URLs, Supabase secret, and LLM keys are server/worker-only. Config rejects unsafe NEXT_PUBLIC_* secret names. API mutation origin checks, body limits, Zod validation, no-store headers and generic internal errors are implemented.
+- SQL values are parameterized; dynamic table access uses a literal allowlist. Storage buckets are private; report downloads require a short-lived signed grant and membership revalidation.
+- Agent tools operate on bounded typed inputs and re-authorize immediately before use. Model providers cannot choose raw SQL, permission, arbitrary scope, IDs or unrestricted tool loops. No dedicated prompt-injection scanning subsystem was found; current boundaries are bounded context, structured schemas, fixed tool allowlists and server authorization.
+
+Security implementation: [request context](../src/frontend/src/server/context.ts), [repository](../src/backend/packages/db/src/repository.ts), [storage](../src/backend/packages/db/src/storage.ts), [tenant RLS test](../src/backend/supabase/tests/tenant_rls.test.sql), [security check](../src/backend/scripts/check-security.ts).
+
+## Logging and Observability
+
+The worker writes structured JSON console events for connection failure, worker failure, run start/failure and scheduler tick, with safe IDs/codes rather than provider secrets. Run events and task states are stored in PostgreSQL and shown in the UI. There is no Sentry, OpenTelemetry exporter, metrics backend or distributed tracing dependency/configuration in the repository. Provider errors normalize to stable codes; API 500 responses do not expose raw internals.
+
+## Testing
+
+| Type | Present evidence |
+| --- | --- |
+| Unit/domain/contract | Vitest suites for semantic calculations, chart building, agent contracts/workflows, provider fallback, integrity and repository behavior. |
+| Integration | Pipeline tests using PGlite and embedded PostgreSQL helpers, stored alongside unit suites. |
+| Frontend components | Tests for Agent Chat, AnalysisResult and chart rendering. |
+| Browser E2E | Playwright MVP flow, local-only setup; browser path covers role-scoped analysis/evidence/report, not a full Agent Chat interaction. |
+| Database/RLS | Supabase pgTAP SQL tests for tenant RLS; repository/schema tests also run against PGlite. |
+| CI | GitHub Actions runs format, lint, typecheck, Vitest, security/docs checks, build, Playwright and a separate local Supabase DB test job. |
+
+Commands are defined in [package.json](../package.json), [Vitest config](../src/backend/tests/vitest.config.ts), [Playwright config](../src/backend/tests/playwright.config.ts) and [CI workflow](../.github/workflows/ci.yml): pnpm test, pnpm test:e2e, pnpm test:db, pnpm typecheck, pnpm lint, pnpm format:check, pnpm build, pnpm check:security, pnpm check:docs.
+
+Tests exercise semantic invariants, chart provenance, workflow recovery/publication, provider grounding/fallback, repository/pipeline behavior, RLS and selected UI states. No coverage percentage/report is checked in. The current browser suite does not exercise the full Agent Chat workflow.
+
+## Local Development
+
+Prerequisites in README: Node.js 24+, pnpm 11.0.8, Supabase CLI and Docker Desktop or compatible container runtime. Create .env from .env.example; configuration requires Supabase URL/publishable key, server secret, PostgreSQL connection URL, Gemini API key/model and OpenAI fallback key/model. Do not copy secrets into browser code or context documentation.
+
+~~~sh
+pnpm install --frozen-lockfile
+pnpm db:start
+pnpm db:reset
+pnpm dev
+~~~
+
+pnpm dev starts web and worker through Turbo. Separate commands include pnpm dev:web, pnpm dev:worker, pnpm scheduler:tick, pnpm db:start, pnpm db:reset, and pnpm test:db. Mock warehouse scripts use WAREHOUSE_DB_URL and curated source input; they do not fall back to SUPABASE_DB_URL. See [mock-data README](../scripts/mock-data/README.md).
+
+There is no root production-start command. Package-level entrypoints are pnpm --filter @vda/web start for Next and pnpm --filter @vda/worker start for the worker after build/configuration.
+
+## Build and Deployment
+
+Turbo builds the workspace dependency graph; Next uses src/frontend/next-with-env.mjs to load root .env; the worker has independent dev, start, once and scheduler-tick scripts. Supabase CLI uses PostgreSQL major version 17 locally and applies ordered declarative schemas/seeds. GitHub Actions has offline app/Playwright and local-Supabase database jobs.
+
+No Dockerfile, app-hosting manifest, remote deployment target, migration release workflow or CD configuration was found. Production topology, secret injection, worker scaling and schedule hosting are **Unknown from current codebase**. README describes local Supabase as the tested path and says remote deployment is outside the MVP.
+
+## Dependencies and Technology Stack
+
+| Layer | Technology | Role in current architecture | Where used |
+| --- | --- | --- | --- |
+| Language/workspace | TypeScript, Node.js, pnpm, Turborepo | Shared typed packages and coordinated build/dev tasks | Root/package manifests |
+| Web/API | Next.js, React | Workspace UI plus same-origin server API/BFF | src/frontend |
+| Styling/icons/charts | Tailwind CSS 4, authored CSS, Lucide React, Recharts | UI styling/icons and rendering validated chart specs | globals.css, UI components |
+| Contracts/validation | Zod 4 | Runtime request, response, workflow, artifact and provider-output validation | packages/contracts, API, agents |
+| Database | Supabase PostgreSQL, postgres | Tenant data, artifacts, run/task queue, conversations and schedules; parameterized raw SQL | packages/db, supabase |
+| Identity/storage | Supabase Auth, @supabase/ssr, @supabase/supabase-js, Supabase Storage | Session/cookie integration and private source/export objects | frontend server, db storage |
+| Semantic arithmetic | decimal.js | Decimal arithmetic for monetary and ratio metrics | packages/semantic |
+| Model integration | Gemini REST API, OpenAI SDK/Responses API | Structured action selection and constrained claim selection with fallback | packages/agents/src/provider.ts |
+| Tests | Vitest, Playwright, PGlite, Supabase pgTAP | Unit/component/integration, browser and database/RLS checks | root and src/backend/tests |
+| Build/style checks | Turbo, TypeScript, ESLint 9, Prettier 3 | Build graph, type checks, lint and formatting | root config |
+| Deployment/monitoring | No app deployment or monitoring integration configured | Hosted runtime/observability topology is not defined in repo | CI is test/build only |
+
+## Repository Map
+
+~~~text
+.
+├── docs/                         Product contracts, plans, mapping and this context
+├── scripts/mock-data/            Curated warehouse validation/import tooling
+├── src/frontend/src/
+│   ├── app/                      Root page, error/loading, API catch-all
+│   ├── components/               Workspace, chat, results, evidence, charts, resource panels
+│   ├── lib/                      Client API and chart formatting
+│   └── server/                   API dispatch and request principal
+└── src/backend/
+    ├── packages/{agents,config,contracts,db,domain,semantic}/
+    ├── worker/src/                Queue worker and scheduler tick
+    ├── supabase/{schemas,migrations,tests}/ Declarative SQL, migrations, RLS tests and seed
+    ├── tests/{unit,e2e}/            Vitest/Playwright tests, helpers and fixtures
+    └── scripts/                   Documentation/security checks and E2E harness
+~~~
+
+vda_vinhomes_mock holds synthetic warehouse source material/configuration; large raw/curated/quarantine directories are git-ignored. Generated .next, .turbo, node_modules, test outputs and local Supabase state are not architectural source.
+
+## Important Files for a New Developer
+
+| File | Why read it |
+| --- | --- |
+| [README.md](../README.md) | MVP boundary, local prerequisites and startup sequence. |
+| [package.json](../package.json), [turbo.json](../turbo.json), [.env.example](../.env.example) | Workspace commands, task graph and required configuration names (no secret values). |
+| [workspace.tsx](../src/frontend/src/components/workspace.tsx) | UI shell, tabs, auth/setup and workspace scope. |
+| [api.ts](../src/frontend/src/server/api.ts) | API routes, validation and server-side operation flow. |
+| [contract index](../src/backend/packages/contracts/src/index.ts) | Canonical TypeScript data contracts and versions. |
+| [semantic index](../src/backend/packages/semantic/src/index.ts) | Numeric and as-of truth boundary. |
+| [repository](../src/backend/packages/db/src/repository.ts) | Persistence, authorization, queue, artifact, report and import behavior. |
+| [legacy executor](../src/backend/packages/agents/src/index.ts), [agent-v1 executor](../src/backend/packages/agents/src/agent-workflow.ts) | Run workflow implementations. |
+| [worker](../src/backend/worker/src/index.ts) | Worker lease loop, workflow dispatch and scheduler. |
+| [initial schema](../src/backend/supabase/schemas/001_inventory.sql) through 007_agent_stage_messages.sql | Database/RLS contracts and schema evolution. |
+
+## Architectural Invariants
+
+1. A run pins organization/scope/as-of snapshot membership and workflow_version; later data arrivals or flag changes do not silently change its inputs or executor.
+2. @vda/semantic and deterministic validators own numeric truth. Null/abstention is not zero; peer cohorts are not silently widened.
+3. Claims, chart data, decision output and reports must resolve to canonical artifact evidence and lineage. Artifact hashes/contracts are checked at persistence/recovery boundaries.
+4. Artifacts are immutable and run-scoped; validity and lifecycle belong to validation/task/run records, not an invented artifact status field.
+5. A viewer cannot mutate; organization membership is checked server-side and tenant-scoped reads are also protected by RLS.
+6. Only the fenced publication path may create a public agent-v1 report, requiring an exact persisted reviewer PASS.
+7. LLM output is structured and bounded. It cannot create SQL, canonical numbers, evidence, permissions, arbitrary scopes or unrestricted tool loops.
+8. Browser code calls the same-origin BFF and must not access database/service secrets directly.
+
+## Current Implementation Status
+
+The Status column uses the labels Implemented, Partial, Scaffolded, Planned and Deprecated.
+
+| Subsystem | Status | Evidence |
+| --- | --- | --- |
+| Next.js workspace, auth/session UI, scoped panels | Implemented | src/frontend/src/components/workspace.tsx; src/frontend/src/server/context.ts |
+| CSV snapshot import and private source object | Implemented | src/backend/packages/db/src/repository.ts; src/backend/packages/db/src/storage.ts |
+| Legacy inventory analytics/report DAG | Implemented | src/backend/packages/agents/src/index.ts; semantic/pipeline tests |
+| Durable agent-v1 workflow and reviewer/publication gate | Implemented | Opt-in; AGENT_WORKFLOW_ENABLED=false; workflow.ts, agent-workflow.ts and workflow tests |
+| Agent Chat decision/tool workflow | Implemented | Bounded to one action per turn; chat.ts, tools.ts and UI/tests |
+| Grok Assistant V1 runtime, xAI adapter and capability registry | Implemented | Feature-gated by GROK_RUNTIME_ENABLED; runtime.ts, runtime-provider.ts, xai-provider.ts and capability-registry.ts |
+| Grok workspace, context/evidence panel and dashboard bridge | Implemented | Feature-gated by GROK_WORKSPACE_ENABLED; grok-workspace.tsx, workspace-context.ts and grok-dashboard-surface.tsx |
+| Safe Agent Runtime SSE | Implemented | Feature-gated by GROK_SSE_ENABLED; POST-over-fetch activity/final events keep JSON and polling fallbacks |
+| Deterministic decision-intelligence pack and UI | Implemented | domain/src/decision-intelligence.ts; decision-intelligence API; frontend renderer |
+| Reports, JSON/CSV exports and scheduler | Implemented | Repository/API/report panels and worker tick |
+| Bulk mock warehouse import tooling | Implemented | Separate scripts under scripts/mock-data/ |
+| Remote application deployment/CD | Planned | README places remote deployment outside MVP; no hosting/release configuration found |
+
+## Technical Debt and Known Risks
+
+- **Documentation check is unsatisfied by the checked-in docs tree.** check-docs.ts explicitly requires docs/26_Infrastructure_And_Deployment/Local_Setup.md, docs/23_Testing/MVP_Validation.md and docs/REQUIREMENT_TRACEABILITY.md; these files are absent. README links to all three. Static inspection indicates pnpm check:docs cannot pass until those documents are added or the check/references change.
+- **Agent-v1 is not the default run path.** It is implemented and has workflow/API tests, but .env.example sets AGENT_WORKFLOW_ENABLED=false; the browser MVP E2E suite skips its legacy browser flow when E2E_AGENT_WORKFLOW=true, and no full browser Agent Chat path was found.
+- **Grok rollout needs live-environment verification.** The new runtime, xAI adapter and safe SSE path default off behind rollout flags. A configured xAI credential/ZDR response and deployed SSE proxy behavior have not been verified from this repository.
+- **Retry asymmetry:** repository logic exposes retryRun, but there is no API route/UI entry point for it. Chat retry concerns the same turn/idempotency identity, not arbitrary failed-run retry.
+- **Storage/DB compensation:** source upload precedes import DB commit; no cleanup compensates for an object left behind after DB failure.
+- **Analytics remain snapshot-based and provisional:** additional transaction/reservation/price-history warehouse facts do not mean current metric definitions consume those event tables. Do not infer authoritative sales/freshness or causal metrics.
+- **Operational production setup:** no deploy target, worker scaling strategy, production schedule host or production secrets manifest is checked in.
+- A repository search found no active source TODO/FIXME/HACK/XXX markers in src or the existing docs other than this context document; the documented risks above are supported by configuration, workflow boundaries or missing checked-in files.
+
+## Open Questions
+
+- Which hosted production topology, migration/release process, worker count and scheduler trigger will be used? **Unknown from current codebase.**
+- When should AGENT_WORKFLOW_ENABLED be enabled by default, and what rollout/rollback policy is intended? Its default-off value is explicit; future rollout criteria are not in implementation.
+- Who provisions organizations and memberships outside local seed data? No membership-administration UI/API was found.
+- Which inventory assumptions and policy thresholds have business approval? Code and README label current values provisional; approval evidence is not in the repository.
+
+## Discrepancies Between Existing Documentation and Implementation
+
+- The previous context snapshot (2026-09-21) described only the legacy run DAG. Current source also contains durable agent-v1 stages, parallel branches, persisted draft/review artifacts, a bounded revision and a fenced publication gate (default disabled).
+- The old Agent Chat summary omitted inspect_signal and active decision-intelligence context/message references supported by current contracts and tools.
+- The current contract includes decision-brief v2/decision-intelligence packs, typed action candidates, priority entities and drilldowns; these are deterministic policy outputs, not LLM recommendations.
+- Declarative SQL/migrations extend through 007_agent_stage_messages.sql; older context listed only initial inventory/chat schema.
+- README and check-docs.ts refer to three handoff/traceability documents absent from the repository. Their contents cannot be treated as implementation evidence.
+- Target architecture and agent-chat plans remain proposals for their unimplemented portions. The feature-gated Grok Assistant V1 runtime, xAI adapter, workspace and safe SSE path are now matched to source and focused tests.
+
+## Documented but Not Found in Current Implementation
+
+The target architecture and product-planning documents still describe capabilities beyond verified runtime. In particular, docs/VDaAgent_TARGET_AGENT_ARCHITECTURE_AND_SOL_REVIEW_PROMPT.md and docs/agents/agent-chat-implementation-plan.md are design/review documents, not runtime configuration. The feature-gated Agent Runtime now includes Gemini/OpenAI/xAI provider selection, bounded capabilities, the Grok workspace and safe SSE activity/final events. Server-side PDF/image rendering, external report delivery and Redis/Kafka/BullMQ runtime services are still not implemented.
+
+Related planning/reference docs: [agent-chat implementation plan](agents/agent-chat-implementation-plan.md), [target architecture review prompt](VDaAgent_TARGET_AGENT_ARCHITECTURE_AND_SOL_REVIEW_PROMPT.md), [decision-intelligence product contract](decision_intelligence_product_contract.md), [implementation plan](implementation_plan.md), [mock-data mapping](data/mock-data-supabase-mapping.md).
+
+## Glossary
+
+| Term | Meaning in this codebase |
+| --- | --- |
+| Workspace | Organization-scoped UI/catalog context with owner, analyst and viewer roles. |
+| Run | Idempotent analysis execution record with immutable request, pinned snapshots and workflow version. |
+| Task | A run stage with status/error checkpoint; agent-v1 branches are separately persisted tasks. |
+| Artifact | Immutable typed output identified by organization/run/key, with schema/hash and lineage; no lifecycle status field. |
+| Evidence | A path/reference into validated artifacts supporting a claim or chart datum. |
+| Metric | Versioned deterministic value or explicit unavailable/abstention result. |
+| Decision brief | Decision-oriented summary backed by canonical metrics and evidence. |
+| Decision-intelligence pack | Typed package containing brief, story, priority entities, bounded actions, drilldowns and completeness information. |
+| ChartSpec | Versioned chart encoding of validated numeric data with provenance bindings. |
+| Report draft | Private, revisioned candidate report in agent-v1 before reviewer PASS. |
+| Published report | Canonical report artifact/record available through authorized report APIs. |
+| Agent | A typed deterministic workflow stage or bounded Agent Chat router; not necessarily an autonomous LLM. |
+
+## Context Maintenance Guide
+
+Update this file when architecture, agent/stage responsibility, major workflows, artifact/schema or API contracts, persistence, security, technology, deployment, or major frontend/report behavior changes. Do not update it for small CSS/copy edits, local bug fixes that do not alter architectural behavior, or internal refactors preserving contracts and behavior.
