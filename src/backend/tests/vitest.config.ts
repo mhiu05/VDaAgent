@@ -23,6 +23,7 @@ export default defineConfig({
     include: [
       'src/backend/packages/**/*.test.ts',
       'src/backend/tests/unit/**/*.test.ts',
+      'src/frontend/src/**/*.test.ts',
       'src/frontend/src/**/*.test.tsx',
     ],
     testTimeout: 30_000,

@@ -32,10 +32,19 @@ import {
   SessionSchema,
   SetupSchema,
   TimestampSchema,
+  type AgentTurnAccepted,
+  type AgentTurnRequest,
 } from '@vda/contracts';
-import { RepositoryError } from '@vda/db';
+import { RepositoryError, type Repository } from '@vda/db';
 import { getConfig } from '@vda/config';
-import { AgentChatOrchestrator, exportReport } from '@vda/agents';
+import {
+  AgentChatOrchestrator,
+  AgentRuntime,
+  RuntimeContextError,
+  assertWorkspaceConversationCoherence,
+  exportReport,
+} from '@vda/agents';
+import { agentTurnStream } from './agent-turn-stream';
 import {
   DEVELOPMENT_ROLE_COOKIE,
   developmentPrincipal,
@@ -82,6 +91,44 @@ const TriggerBody = z
 const TickBody = z.object({ org_id: IdSchema, now: TimestampSchema.optional() }).strict();
 const DevelopmentRoleBody = z.object({ role: RoleSchema }).strict();
 const OkSchema = z.object({ ok: z.literal(true) });
+type AgentTurnSubmitter = {
+  submit(
+    userId: string,
+    input: AgentTurnRequest,
+    idempotencyKey: string,
+    conversationId?: string,
+    signal?: AbortSignal,
+  ): Promise<AgentTurnAccepted>;
+};
+function agentTurnSubmitter(repo: Repository): AgentTurnSubmitter {
+  if (getConfig().GROK_RUNTIME_ENABLED) return new AgentRuntime(repo);
+  return new AgentChatOrchestrator(repo);
+}
+function streamAgentTurn(
+  request: Request,
+  repo: Repository,
+  userId: string,
+  input: AgentTurnRequest,
+  idempotencyKey: string,
+  conversationId?: string,
+) {
+  const config = getConfig();
+  if (!config.GROK_RUNTIME_ENABLED || !config.GROK_SSE_ENABLED)
+    throw new RepositoryError('SSE_DISABLED', 404);
+  if (!request.headers.get('accept')?.includes('text/event-stream'))
+    throw new RepositoryError('SSE_ACCEPT_REQUIRED', 406);
+  return agentTurnStream({
+    requestSignal: request.signal,
+    execute: (activitySink, signal) =>
+      new AgentRuntime(repo, { activity_sink: activitySink }).submit(
+        userId,
+        input,
+        idempotencyKey,
+        conversationId,
+        signal,
+      ),
+  });
+}
 const agentWorkflowStages = [
   'coordinator',
   'data',
@@ -127,6 +174,9 @@ async function handle(request: Request, path: string[]): Promise<Response> {
         mode: 'supabase',
         llm_primary_provider: config.LLM_PRIMARY_PROVIDER,
         llm_fallback_provider: config.LLM_FALLBACK_PROVIDER,
+        grok_runtime_enabled: config.GROK_RUNTIME_ENABLED,
+        grok_workspace_enabled: config.GROK_WORKSPACE_ENABLED,
+        grok_sse_enabled: config.GROK_SSE_ENABLED,
         development_role_bypass: config.DEVELOPMENT_ROLE_BYPASS,
         ready: true,
         message: config.DEVELOPMENT_ROLE_BYPASS
@@ -138,6 +188,9 @@ async function handle(request: Request, path: string[]): Promise<Response> {
         mode: 'supabase',
         llm_primary_provider: process.env.LLM_PRIMARY_PROVIDER === 'openai' ? 'openai' : 'gemini',
         llm_fallback_provider: process.env.LLM_FALLBACK_PROVIDER === 'gemini' ? 'gemini' : 'openai',
+        grok_runtime_enabled: false,
+        grok_workspace_enabled: false,
+        grok_sse_enabled: false,
         development_role_bypass: false,
         ready: false,
         message: 'Thiếu cấu hình Supabase. Xem docs/LOCAL_CONFIGURATION.md.',
@@ -179,6 +232,20 @@ async function handle(request: Request, path: string[]): Promise<Response> {
   if (route === 'session' && method === 'GET')
     return json(SessionSchema, await repo.session(actor.user_id, actor.email));
   const orgFromQuery = () => IdSchema.parse(url.searchParams.get('org_id'));
+  /**
+   * The query/route tenant is authoritative for a chat turn.  The duplicate
+   * body field remains for legacy request compatibility, but it cannot select
+   * a different organization before a runtime context is built.
+   */
+  const agentTurnFromBody = async (routeConversationId?: string) => {
+    const input = AgentTurnRequestSchema.parse(await body(request));
+    if (input.org_id !== orgFromQuery()) throw new RepositoryError('NO_AUTHORIZED_RESULT', 403);
+    // Enforce the route as the conversation authority before selecting either
+    // runtime path. The legacy handler intentionally remains available during
+    // rollout, but it must not become a bypass for the versioned snapshot.
+    assertWorkspaceConversationCoherence(input, routeConversationId);
+    return input;
+  };
   const pageFromQuery = () =>
     PageRequestSchema.parse({
       limit: url.searchParams.get('limit') ?? undefined,
@@ -283,16 +350,21 @@ async function handle(request: Request, path: string[]): Promise<Response> {
       return json(
         ConversationPageSchema,
         await repo.listConversations(actor.user_id, orgFromQuery(), pageFromQuery()),
-      );
+    );
     if (method === 'POST') {
-      const input = AgentTurnRequestSchema.parse(await body(request));
+      const input = await agentTurnFromBody();
       const key = z.string().min(1).max(200).parse(request.headers.get('idempotency-key'));
       return json(
         AgentTurnAcceptedSchema,
-        await new AgentChatOrchestrator(repo).submit(actor.user_id, input, key),
+        await agentTurnSubmitter(repo).submit(actor.user_id, input, key, undefined, request.signal),
         202,
       );
     }
+  }
+  if (route === 'conversations/stream' && method === 'POST') {
+    const input = await agentTurnFromBody();
+    const key = z.string().min(1).max(200).parse(request.headers.get('idempotency-key'));
+    return streamAgentTurn(request, repo, actor.user_id, input, key);
   }
   if (path[0] === 'conversations' && path[1]) {
     const id = IdSchema.parse(path[1]);
@@ -302,17 +374,22 @@ async function handle(request: Request, path: string[]): Promise<Response> {
         await repo.getConversation(actor.user_id, orgFromQuery(), id),
       );
     if (path[2] === 'messages') {
+      if (path.length === 4 && path[3] === 'stream' && method === 'POST') {
+        const input = await agentTurnFromBody(id);
+        const key = z.string().min(1).max(200).parse(request.headers.get('idempotency-key'));
+        return streamAgentTurn(request, repo, actor.user_id, input, key, id);
+      }
       if (method === 'GET')
         return json(
           MessagePageSchema,
           await repo.listMessages(actor.user_id, orgFromQuery(), id, pageFromQuery()),
         );
       if (method === 'POST') {
-        const input = AgentTurnRequestSchema.parse(await body(request));
+        const input = await agentTurnFromBody(id);
         const key = z.string().min(1).max(200).parse(request.headers.get('idempotency-key'));
         return json(
           AgentTurnAcceptedSchema,
-          await new AgentChatOrchestrator(repo).submit(actor.user_id, input, key, id),
+        await agentTurnSubmitter(repo).submit(actor.user_id, input, key, id, request.signal),
           202,
         );
       }
@@ -465,10 +542,18 @@ export async function api(request: Request, path: string[]) {
       );
     }
     const status =
-      error instanceof RepositoryError ? error.status : error instanceof z.ZodError ? 400 : 500;
+      error instanceof RepositoryError
+        ? error.status
+        : error instanceof RuntimeContextError
+          ? 403
+          : error instanceof z.ZodError
+            ? 400
+            : 500;
     const code =
       error instanceof RepositoryError
         ? error.code
+        : error instanceof RuntimeContextError
+          ? error.code
         : error instanceof z.ZodError
           ? 'VALIDATION_FAILED'
           : 'INTERNAL_ERROR';
