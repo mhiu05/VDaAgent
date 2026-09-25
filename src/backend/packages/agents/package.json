@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./legacy-workflow/workflow": "./src/legacy-workflow/workflow.ts",
+    "./legacy-workflow/export-report": "./src/legacy-workflow/export-report.ts",
+    "./analysis-v1/workflow": "./src/analysis-v1/workflow.ts",
+    "./analysis-v1/dag": "./src/analysis-v1/dag.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

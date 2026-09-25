@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
-import { ChartBuilder, chartPayloadFingerprint } from './chart-builder';
-import { executeIndependentBranches } from './branch-workflow';
+import { ChartBuilder, chartPayloadFingerprint } from './analysis/chart-builder';
+import { executeIndependentBranches } from './analysis-v1/stages/branches';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { executeCoordinatorAndData, loadDataStageArtifacts } from './workflow';
+import {
+  executeCoordinatorAndData,
+  loadDataStageArtifacts,
+} from './analysis-v1/stages/coordinator-data';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 

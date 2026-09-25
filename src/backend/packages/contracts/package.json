@@ -4,7 +4,31 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./common/primitives": "./src/common/primitives.ts",
+    "./analysis/request": "./src/analysis/request.ts",
+    "./imports/inventory": "./src/imports/inventory.ts",
+    "./analysis/run": "./src/analysis/run.ts",
+    "./analysis/metrics": "./src/analysis/metrics.ts",
+    "./analysis/calculation": "./src/analysis/calculation.ts",
+    "./analysis/chart": "./src/analysis/chart.ts",
+    "./reports/section": "./src/reports/section.ts",
+    "./decision/intelligence": "./src/decision/intelligence.ts",
+    "./decision/brief": "./src/decision/brief.ts",
+    "./reports/report": "./src/reports/report.ts",
+    "./agents/use-case": "./src/agents/use-case.ts",
+    "./agents/workflow-packs": "./src/agents/workflow-packs.ts",
+    "./artifacts/artifact": "./src/artifacts/artifact.ts",
+    "./reports/schedule": "./src/reports/schedule.ts",
+    "./auth/session": "./src/auth/session.ts",
+    "./runtime/context": "./src/runtime/context.ts",
+    "./runtime/capabilities": "./src/runtime/capabilities.ts",
+    "./runtime/plan": "./src/runtime/plan.ts",
+    "./runtime/execution": "./src/runtime/execution.ts",
+    "./chat/message": "./src/chat/message.ts",
+    "./chat/conversation": "./src/chat/conversation.ts",
+    "./runtime/activity": "./src/runtime/activity.ts",
+    "./api/responses": "./src/api/responses.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

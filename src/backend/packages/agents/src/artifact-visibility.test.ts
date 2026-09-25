@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type AnalysisRequest } from '@vda/contracts';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { executeAgentWorkflow } from './agent-workflow';
-import { SAFE_SUMMARY } from './integrity';
-import { type NarrativeProvider } from './provider';
+import { executeAgentWorkflow } from './analysis-v1/workflow';
+import { SAFE_SUMMARY } from '@vda/domain';
+import { type NarrativeProvider } from './legacy-workflow/narrative/provider';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 

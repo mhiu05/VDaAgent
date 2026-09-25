@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactSchema, type Artifact, type ArtifactOf } from '@vda/contracts';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { executeAgentThroughDraft } from './draft-workflow';
-import { artifactHash, SAFE_SUMMARY } from './integrity';
-import { executeReportRevisionStage, executeReviewerStage } from './review-workflow';
-import { buildReviewResult, validateReviewResult, type ReviewerAgentInput } from './reviewer-agent';
+import { executeAgentThroughDraft } from './analysis-v1/stages/insight-report';
+import { artifactHash, SAFE_SUMMARY } from '@vda/domain';
+import { executeReportRevisionStage, executeReviewerStage } from './analysis-v1/stages/reviewer';
+import {
+  buildReviewResult,
+  validateReviewResult,
+  type ReviewerAgentInput,
+} from './analysis-v1/agents/reviewer-agent';
 
 // PGlite executes SQL on the test process's event loop, so the production
 // worker heartbeat cannot advance during a heavy draft/revision fixture.
@@ -89,102 +93,118 @@ async function persistedRevisionTwoInput(key: string): Promise<ReviewerAgentInpu
 }
 
 describe('Reviewer Agent', () => {
-  it('returns a deterministic PASS only for the exact validated revision-one draft', async () => {
-    const input = await draftInput('reviewer-pass');
-    const result = buildReviewResult(input);
+  it(
+    'returns a deterministic PASS only for the exact validated revision-one draft',
+    async () => {
+      const input = await draftInput('reviewer-pass');
+      const result = buildReviewResult(input);
 
-    expect(result).toMatchObject({
-      status: 'PASS',
-      issues: [],
-      draft_artifact_id: input.report_draft.artifact_id,
-      draft_id: input.report_draft.payload.draft_id,
-      draft_revision: 1,
-      draft_content_hash: input.report_draft.content_hash,
-      provider: 'deterministic',
-      input_refs: [input.report_draft.artifact_id],
-    });
-    expect(() => validateReviewResult(result, input)).not.toThrow();
-  }, PGLITE_LEASE_MS);
+      expect(result).toMatchObject({
+        status: 'PASS',
+        issues: [],
+        draft_artifact_id: input.report_draft.artifact_id,
+        draft_id: input.report_draft.payload.draft_id,
+        draft_revision: 1,
+        draft_content_hash: input.report_draft.content_hash,
+        provider: 'deterministic',
+        input_refs: [input.report_draft.artifact_id],
+      });
+      expect(() => validateReviewResult(result, input)).not.toThrow();
+    },
+    PGLITE_LEASE_MS,
+  );
 
-  it('returns a structured blocking correction only for a known evidence-bound claim', async () => {
-    const input = await draftInput('reviewer-correction');
-    const claim = input.report_draft.payload.report.claims[0];
-    const result = buildReviewResult({
-      ...input,
-      correction: { code: 'REQUIRE_EVIDENCE_BOUND_WORDING', claim_id: claim.claim_id },
-    });
-
-    expect(result).toMatchObject({
-      status: 'REVISION_REQUIRED',
-      provider: 'deterministic',
-      issues: [
-        expect.objectContaining({
-          severity: 'blocking',
-          category: 'overstatement',
-          claim_id: claim.claim_id,
-          evidence_refs: [
-            expect.objectContaining({
-              artifact_id: claim.evidence_artifact_id,
-              path: claim.evidence_path,
-            }),
-          ],
-        }),
-      ],
-    });
-    expect(() =>
-      validateReviewResult(result, {
+  it(
+    'returns a structured blocking correction only for a known evidence-bound claim',
+    async () => {
+      const input = await draftInput('reviewer-correction');
+      const claim = input.report_draft.payload.report.claims[0];
+      const result = buildReviewResult({
         ...input,
         correction: { code: 'REQUIRE_EVIDENCE_BOUND_WORDING', claim_id: claim.claim_id },
-      }),
-    ).not.toThrow();
-  }, PGLITE_LEASE_MS);
+      });
 
-  it('accepts a bounded revision-two draft only when it names the prior blocking review', async () => {
-    const revisionTwo = await persistedRevisionTwoInput('reviewer-revision-two');
-    const result = buildReviewResult(revisionTwo);
-
-    expect(result).toMatchObject({
-      status: 'PASS',
-      draft_revision: 2,
-      draft_artifact_id: revisionTwo.report_draft.artifact_id,
-    });
-    expect(() => validateReviewResult(result, revisionTwo)).not.toThrow();
-  }, PGLITE_LEASE_MS);
-
-  it('fails closed on a cross-tenant graph and requires revision for a hash-valid altered draft', async () => {
-    const input = await draftInput('reviewer-invalid-draft');
-    const changedDraft = withChangedTitle(input.report_draft);
-    const alteredInput = {
-      ...input,
-      report_draft: changedDraft,
-      artifacts: input.artifacts.map((artifact) =>
-        artifact.artifact_id === changedDraft.artifact_id ? changedDraft : artifact,
-      ),
-    };
-    const result = buildReviewResult(alteredInput);
-
-    expect(result).toMatchObject({
-      status: 'REVISION_REQUIRED',
-      issues: [
-        expect.objectContaining({
-          severity: 'blocking',
-          category: 'evidence',
-          required_correction: expect.stringContaining('Rebuild this draft'),
+      expect(result).toMatchObject({
+        status: 'REVISION_REQUIRED',
+        provider: 'deterministic',
+        issues: [
+          expect.objectContaining({
+            severity: 'blocking',
+            category: 'overstatement',
+            claim_id: claim.claim_id,
+            evidence_refs: [
+              expect.objectContaining({
+                artifact_id: claim.evidence_artifact_id,
+                path: claim.evidence_path,
+              }),
+            ],
+          }),
+        ],
+      });
+      expect(() =>
+        validateReviewResult(result, {
+          ...input,
+          correction: { code: 'REQUIRE_EVIDENCE_BOUND_WORDING', claim_id: claim.claim_id },
         }),
-      ],
-    });
+      ).not.toThrow();
+    },
+    PGLITE_LEASE_MS,
+  );
 
-    const foreign = { ...input.artifacts[0], org_id: TEST_ORGS.beta } as Artifact;
-    const { content_hash: _hash, ...foreignBody } = foreign;
-    const foreignArtifact = ArtifactSchema.parse({
-      ...foreignBody,
-      content_hash: artifactHash(foreignBody as Omit<Artifact, 'content_hash'>),
-    }) as Artifact;
-    expect(() =>
-      buildReviewResult({
+  it(
+    'accepts a bounded revision-two draft only when it names the prior blocking review',
+    async () => {
+      const revisionTwo = await persistedRevisionTwoInput('reviewer-revision-two');
+      const result = buildReviewResult(revisionTwo);
+
+      expect(result).toMatchObject({
+        status: 'PASS',
+        draft_revision: 2,
+        draft_artifact_id: revisionTwo.report_draft.artifact_id,
+      });
+      expect(() => validateReviewResult(result, revisionTwo)).not.toThrow();
+    },
+    PGLITE_LEASE_MS,
+  );
+
+  it(
+    'fails closed on a cross-tenant graph and requires revision for a hash-valid altered draft',
+    async () => {
+      const input = await draftInput('reviewer-invalid-draft');
+      const changedDraft = withChangedTitle(input.report_draft);
+      const alteredInput = {
         ...input,
-        artifacts: [foreignArtifact, ...input.artifacts.slice(1)],
-      }),
-    ).toThrow('REVIEWER_AGENT_INPUT_INVALID');
-  }, PGLITE_LEASE_MS);
+        report_draft: changedDraft,
+        artifacts: input.artifacts.map((artifact) =>
+          artifact.artifact_id === changedDraft.artifact_id ? changedDraft : artifact,
+        ),
+      };
+      const result = buildReviewResult(alteredInput);
+
+      expect(result).toMatchObject({
+        status: 'REVISION_REQUIRED',
+        issues: [
+          expect.objectContaining({
+            severity: 'blocking',
+            category: 'evidence',
+            required_correction: expect.stringContaining('Rebuild this draft'),
+          }),
+        ],
+      });
+
+      const foreign = { ...input.artifacts[0], org_id: TEST_ORGS.beta } as Artifact;
+      const { content_hash: _hash, ...foreignBody } = foreign;
+      const foreignArtifact = ArtifactSchema.parse({
+        ...foreignBody,
+        content_hash: artifactHash(foreignBody as Omit<Artifact, 'content_hash'>),
+      }) as Artifact;
+      expect(() =>
+        buildReviewResult({
+          ...input,
+          artifacts: [foreignArtifact, ...input.artifacts.slice(1)],
+        }),
+      ).toThrow('REVIEWER_AGENT_INPUT_INVALID');
+    },
+    PGLITE_LEASE_MS,
+  );
 });

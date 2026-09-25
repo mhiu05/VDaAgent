@@ -11,7 +11,7 @@ import {
   buildDataAnalysisPack,
   calculateDataAgentOutput,
   validateDataAnalysisPack,
-} from './data-agent';
+} from './analysis-v1/agents/data-agent';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];

@@ -1,34 +1,35 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
+import { AnalysisRequestSchema } from './analysis/request';
 import {
-  AnalysisRequestSchema,
   AnalysisPackSchema,
-  AgentActivityEventV1Schema,
-  AgentPlanV1Schema,
-  AgentTurnRequestSchema,
-  AgentTurnStreamEventV1Schema,
-  AgentWorkflowStatusSchema,
-  AvailableWorkspaceActionV1Schema,
-  ArtifactSchema,
-  CapabilityResultV1Schema,
-  CanonicalAgentObservationV1Schema,
   ChartPackSchema,
   ComparisonPackSchema,
-  ContextResolutionIssueV1Schema,
   CoordinatorDecisionSchema,
   DataAnalysisPackSchema,
   DecisionIntelligencePackSchema,
-  DecisionIntelligenceResponseSchema,
-  GroundedResponseSelectionV1Schema,
   InsightPackSchema,
   ReportDraftSchema,
-  ReportDefinitionSchema,
   ReviewResultSchema,
-  RunSchema,
-  SnapshotRowSchema,
+} from './agents/workflow-packs';
+import { AgentActivityEventV1Schema, AgentTurnStreamEventV1Schema } from './runtime/activity';
+import { AgentPlanV1Schema, GroundedResponseSelectionV1Schema } from './runtime/plan';
+import { AgentTurnRequestSchema } from './chat/message';
+import { AgentWorkflowStatusSchema, DecisionIntelligenceResponseSchema } from './api/responses';
+import {
+  AvailableWorkspaceActionV1Schema,
+  CapabilityResultV1Schema,
+  CanonicalAgentObservationV1Schema,
+} from './runtime/capabilities';
+import { ArtifactSchema } from './artifacts/artifact';
+import {
+  ContextResolutionIssueV1Schema,
   WorkspaceActionV1Schema,
   WorkspaceContextV1Schema,
-} from './index';
+} from './runtime/context';
+import { ReportDefinitionSchema } from './reports/schedule';
+import { RunSchema } from './analysis/run';
+import { SnapshotRowSchema } from './imports/inventory';
 await mkdir('src/backend/packages/contracts/schema', { recursive: true });
 for (const [name, schema] of Object.entries({
   AnalysisRequest: AnalysisRequestSchema,

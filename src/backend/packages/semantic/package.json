@@ -4,7 +4,14 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./analyze": "./src/analyze.ts",
+    "./calculate": "./src/calculate.ts",
+    "./pack": "./src/pack.ts",
+    "./selection/latest-snapshot": "./src/selection/latest-snapshot.ts",
+    "./metrics/registry": "./src/metrics/registry.ts",
+    "./comparisons/peer-cohort": "./src/comparisons/peer-cohort.ts",
+    "./decisions/build-decision-brief": "./src/decisions/build-decision-brief.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

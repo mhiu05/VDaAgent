@@ -3,7 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./imports/parse-inventory-csv": "./src/imports/parse-inventory-csv.ts",
+    "./imports/hierarchy": "./src/imports/hierarchy.ts",
+    "./scheduling/daily-schedule": "./src/scheduling/daily-schedule.ts",
+    "./artifacts/integrity": "./src/artifacts/integrity.ts",
+    "./analysis/claim-binding": "./src/analysis/claim-binding.ts",
+    "./reports/report-sections": "./src/reports/report-sections.ts",
+    "./reports/report-validation": "./src/reports/report-validation.ts",
+    "./decision-intelligence/build-pack": "./src/decision-intelligence/build-pack.ts",
+    "./decision-intelligence/validate-pack": "./src/decision-intelligence/validate-pack.ts",
+    "./workflow-validation/publication": "./src/workflow-validation/publication.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"

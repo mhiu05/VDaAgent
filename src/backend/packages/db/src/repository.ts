@@ -1,24 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  AnalysisRequestSchema,
-  AgentKeySchema,
-  AgentTurnRequestSchema,
-  ArtifactSchema,
-  ArtifactValidationSchema,
-  ConversationSchema,
-  MessagePartSchema,
-  MessageSchema,
-  PageRequestSchema,
-  ReportDefinitionInputSchema,
-  RunTaskSchema,
-  RunSchema,
   WorkflowVersionSchema,
   type AnalysisRequest,
   type AnalysisRun,
   type AgentKey,
   type AgentTurnRequest,
+  type AgentExecutionStatus,
   type Artifact,
-  type ArtifactOf,
   type ArtifactValidation,
   type Catalog,
   type Conversation,
@@ -36,31 +24,74 @@ import {
   type ReportOccurrence,
   type ReportRecord,
   type Role,
-  type RunEvent,
   type RunTask,
   type Session,
   type UnitSnapshot,
   type WorkflowVersion,
 } from '@vda/contracts';
+import { postgresDriver, type Driver } from './driver';
+import { authorizeInTransaction, readSession } from './authorization/authorization-repository';
+import { fail } from './errors';
+import { buildRun as buildRunTransaction } from './transactions/create-run';
+import { publishLegacyReport } from './transactions/publish-legacy-report';
+import { publishReviewedDraft } from './transactions/publish-reviewed-draft';
+import { failRun } from './workflow/fail-run';
+import { LEGACY_WORKFLOW_VERSION } from './mapping/run';
+import { readCatalog } from './repositories/catalog-repository';
 import {
-  localDate,
-  nextScheduledAt,
-  scheduledOnDate,
-  parseInventoryCsv,
-  validateAgentPublication,
-  validateHierarchy,
-  verifyArtifact,
-  stableId,
-  validateDecisionBrief,
-  validateReport,
-} from '@vda/domain';
-import { postgresDriver, type Driver, type Row } from './driver';
+  storeArtifact,
+  validateArtifact,
+  setTask,
+  addEvent,
+  findRunAssistant,
+  upsertStageMessage,
+  finishRunAssistant,
+} from './workflow/checkpoint-repository';
+import {
+  claimNextRun,
+  fenceRun,
+  assertRunLease,
+  renewRunLease,
+  readMetricConfig,
+  readPinnedSnapshots,
+} from './workflow/lease-repository';
+import {
+  updateRun as updateRunRecord,
+  cancelRun as cancelRunLifecycle,
+  retryRun as retryRunLifecycle,
+  selectLatest as selectLatestSnapshots,
+} from './repositories/run-repository';
+import { ConversationRepository } from './repositories/conversation-repository';
+import { AgentExecutionRepository } from './repositories/agent-execution-repository';
+import { ScheduleRepository } from './repositories/schedule-repository';
+import {
+  artifacts,
+  artifactByKey,
+  publicArtifactById,
+  publicArtifactsByIds,
+  decisionBrief,
+  decisionIntelligence,
+} from './repositories/artifact-repository';
 import { TEST_ORGS, TEST_USERS, syntheticRows } from './seed';
-import { StorageError, supabaseStorage, type StorageUploader } from './storage';
+import { type StorageUploader } from './storage';
 import {
-  logicalArtifactKey,
-  normalizeArtifactKey,
+  importCsv as importInventoryCsv,
+  insertSnapshot as writeSnapshot,
+  listImports as readImports,
+} from './repositories/import-repository';
+import {
+  getReport as readReport,
+  listReports as readReports,
+  storeReportExport as writeReportExport,
+} from './repositories/report-repository';
+import {
+  getRun as readRunWithEvents,
+  listRuns as readRuns,
+  readRun,
+} from './repositories/run-repository';
+import {
   type AgentTurn,
+  type AgentJobLease,
   type AgentStageMessageInput,
   type ArtifactStoreOptions,
   type Lease,
@@ -70,250 +101,9 @@ import {
   type TurnContext,
 } from './types';
 
-export class RepositoryError extends Error {
-  constructor(
-    public code: string,
-    public status = 400,
-  ) {
-    super(code);
-  }
-}
-function fail(code: string, status = 400): never {
-  throw new RepositoryError(code, status);
-}
+export { RepositoryError } from './errors';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-const json = (row: Row) => {
-  if (typeof row.payload === 'string') return JSON.parse(row.payload);
-  if (Array.isArray(row.payload))
-    return row.payload.reduce<Record<string, unknown>>(
-      (value, item) => ({ ...value, ...(typeof item === 'string' ? JSON.parse(item) : item) }),
-      {},
-    );
-  return row.payload;
-};
 const now = () => new Date().toISOString();
-// Preserve the existing persisted completion text exactly for legacy chat clients.
-const LEGACY_COMPLETION_TEXT = String.fromCharCode(
-  80,
-  104,
-  195,
-  162,
-  110,
-  32,
-  116,
-  195,
-  173,
-  99,
-  104,
-  32,
-  196,
-  8216,
-  195,
-  163,
-  32,
-  104,
-  111,
-  195,
-  160,
-  110,
-  32,
-  116,
-  104,
-  195,
-  160,
-  110,
-  104,
-  46,
-  32,
-  77,
-  225,
-  187,
-  376,
-  32,
-  68,
-  101,
-  99,
-  105,
-  115,
-  105,
-  111,
-  110,
-  32,
-  66,
-  114,
-  105,
-  101,
-  102,
-  105,
-  110,
-  103,
-  32,
-  196,
-  8216,
-  225,
-  187,
-  402,
-  32,
-  120,
-  101,
-  109,
-  32,
-  99,
-  195,
-  161,
-  99,
-  32,
-  116,
-  195,
-  173,
-  110,
-  32,
-  104,
-  105,
-  225,
-  187,
-  8225,
-  117,
-  32,
-  118,
-  195,
-  160,
-  32,
-  98,
-  225,
-  186,
-  177,
-  110,
-  103,
-  32,
-  99,
-  104,
-  225,
-  187,
-  169,
-  110,
-  103,
-  32,
-  196,
-  8216,
-  195,
-  163,
-  32,
-  120,
-  195,
-  161,
-  99,
-  32,
-  116,
-  104,
-  225,
-  187,
-  177,
-  99,
-  46,
-);
-const asTimestamp = (value: unknown, fallback = now()): string => {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) return fallback;
-  return new Date(value).toISOString();
-};
-const textPart = (content: string): MessagePart[] =>
-  content.trim().length ? [{ type: 'text', text: content.trim() }] : [];
-const LEGACY_WORKFLOW_VERSION: WorkflowVersion = 'legacy-v1';
-function normalizeRun(row: Row): AnalysisRun {
-  const run = RunSchema.parse(json(row));
-  return { ...run, workflow_version: run.workflow_version ?? LEGACY_WORKFLOW_VERSION };
-}
-function normalizeMessage(row: Row): Message {
-  const payload = json(row) as Record<string, unknown>;
-  const content = typeof payload.content === 'string' ? payload.content : '';
-  const parts = Array.isArray(payload.parts)
-    ? payload.parts.flatMap((part) => {
-        const parsed = MessagePartSchema.safeParse(part);
-        return parsed.success ? [parsed.data] : [];
-      })
-    : [];
-  return MessageSchema.parse({
-    message_id: row.id ?? payload.message_id,
-    org_id: row.org_id ?? payload.org_id,
-    conversation_id: row.conversation_id ?? payload.conversation_id,
-    run_id: row.run_id ?? payload.run_id ?? null,
-    client_turn_id: row.client_turn_id ?? payload.client_turn_id ?? null,
-    role: row.role ?? payload.role ?? 'user',
-    sender_agent: row.sender_agent ?? payload.sender_agent ?? null,
-    status: row.status ?? payload.status ?? 'completed',
-    content,
-    parts: parts.length ? parts : textPart(content),
-    created_at: asTimestamp(row.created_at ?? payload.created_at),
-    updated_at: asTimestamp(
-      row.updated_at ?? payload.updated_at ?? row.created_at ?? payload.created_at,
-    ),
-  });
-}
-function messagePayload(message: Message, payloadExtra: Record<string, unknown> = {}) {
-  const { sender_agent: _senderAgent, ...payload } = message;
-  const { sender_agent: _extraSenderAgent, ...extra } = payloadExtra;
-  return { ...payload, ...extra };
-}
-function conversationFromRow(row: Row): Conversation {
-  return ConversationSchema.parse({
-    conversation_id: row.id,
-    org_id: row.org_id,
-    created_by: row.created_by,
-    kind: row.kind,
-    title: row.title,
-    created_at: asTimestamp(row.created_at),
-    updated_at: asTimestamp(row.updated_at),
-  });
-}
-type Cursor = { timestamp: string; id: string };
-function encodeCursor(value: Cursor): string {
-  return Buffer.from(JSON.stringify(value)).toString('base64url');
-}
-function decodeCursor(value: string | null): Cursor | null {
-  if (value === null) return null;
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
-    if (
-      !parsed ||
-      typeof parsed !== 'object' ||
-      typeof (parsed as Cursor).timestamp !== 'string' ||
-      typeof (parsed as Cursor).id !== 'string' ||
-      !(parsed as Cursor).id ||
-      Number.isNaN(Date.parse((parsed as Cursor).timestamp))
-    )
-      fail('INVALID_CURSOR');
-    return {
-      timestamp: new Date((parsed as Cursor).timestamp).toISOString(),
-      id: (parsed as Cursor).id,
-    };
-  } catch (error) {
-    if (error instanceof RepositoryError) throw error;
-    fail('INVALID_CURSOR');
-  }
-}
-const titleFrom = (text: string) => text.trim().replace(/\s+/g, ' ').slice(0, 80) || 'New analysis';
-async function insertBatches(
-  tx: Driver,
-  prefix: string,
-  rows: unknown[][],
-  batchSize = 500,
-): Promise<void> {
-  for (let offset = 0; offset < rows.length; offset += batchSize) {
-    const batch = rows.slice(offset, offset + batchSize);
-    const width = batch[0]?.length ?? 0;
-    const values = batch
-      .map(
-        (_, rowIndex) =>
-          `(${Array.from(
-            { length: width },
-            (_unused, columnIndex) => `$${rowIndex * width + columnIndex + 1}`,
-          ).join(',')})`,
-      )
-      .join(',');
-    await tx.query(`${prefix} VALUES ${values}`, batch.flat());
-  }
-}
 export interface RepositoryOptions {
   databaseUrl?: string;
   storageUrl?: string;
@@ -344,19 +134,24 @@ class SqlRepository implements Repository {
   close() {
     return this.db.close();
   }
-  async auth(tx: Driver, user: string, org: string, write = false): Promise<Role> {
-    const rows = await tx.query(
-      'SELECT role FROM organization_members WHERE org_id=$1 AND user_id=$2 FOR SHARE',
-      [org, user],
+  async hasAgentExecutionSchema() {
+    const rows = await this.db.query("SELECT to_regclass('public.agent_turn_jobs') AS table_name");
+    return rows[0]?.table_name != null;
+  }
+  private conversation() {
+    return new ConversationRepository(this.db);
+  }
+  private agentExecution() {
+    return new AgentExecutionRepository(this.db, (tx,user,request,key,turn) =>
+      this.buildRun(tx,user,request,key,{entrypoint:'interactive',turn,workflowVersion:'agent-v1'}));
+  }
+  private schedule() {
+    return new ScheduleRepository(this.db, (tx, user, input, key, options) =>
+      this.buildRun(tx, user, input, key, options),
     );
-    const role = rows[0]?.role as Role | undefined;
-    if (!role) fail('WORKSPACE_FORBIDDEN', 403);
-    if (write && role === 'viewer') fail('VIEWER_READ_ONLY', 403);
-    if (!write) {
-      await tx.query("SELECT set_config('request.jwt.claim.sub',$1,true)", [user]);
-      await tx.query('SET LOCAL ROLE authenticated');
-    }
-    return role;
+  }
+  async auth(tx: Driver, user: string, org: string, write = false): Promise<Role> {
+    return authorizeInTransaction(tx, user, org, write);
   }
   authorize(user: string, org: string, write = false) {
     return this.db.transaction((tx) => this.auth(tx, user, org, write));
@@ -412,151 +207,22 @@ class SqlRepository implements Repository {
     });
   }
   async session(user: string, email: string): Promise<Session> {
-    return this.db.transaction(async (tx) => {
-      await tx.query("SELECT set_config('request.jwt.claim.sub',$1,true)", [user]);
-      await tx.query('SET LOCAL ROLE authenticated');
-      const rows = await tx.query(
-        'SELECT m.org_id,m.role,o.name FROM organization_members m JOIN organizations o ON o.org_id=m.org_id WHERE m.user_id=$1',
-        [user],
-      );
-      if (!rows.length) fail('NO_WORKSPACE', 403);
-      return {
-        user_id: user,
-        email,
-        mode: 'supabase',
-        organizations: rows as Session['organizations'],
-      };
-    });
+    return readSession(this.db, user, email);
   }
   async catalog(user: string, org: string): Promise<Catalog> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const rows = (await tx.query('SELECT payload FROM snapshots WHERE org_id=$1', [org])).map(
-        json,
-      ) as UnitSnapshot[];
-      const projects = new Map<string, Catalog['projects'][number]>();
-      for (const row of rows) {
-        let p = projects.get(row.project_external_id);
-        if (!p) {
-          p = {
-            project_external_id: row.project_external_id,
-            project_name: row.project_name,
-            zones: [],
-          };
-          projects.set(p.project_external_id, p);
-        }
-        if (!p.zones.some((z) => z.zone_external_id === row.zone_external_id))
-          p.zones.push({ zone_external_id: row.zone_external_id, zone_name: row.zone_name });
-      }
-      return {
-        projects: [...projects.values()],
-        latest_snapshot_date:
-          rows
-            .map((r) => r.snapshot_date)
-            .sort()
-            .at(-1) ?? null,
-      };
-    });
+    return readCatalog(this.db, user, org);
   }
   async insertSnapshot(tx: Driver, row: UnitSnapshot) {
-    await tx.query(
-      'INSERT INTO snapshots(org_id,id,import_id,unit_external_id,snapshot_date,project_external_id,zone_external_id,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [
-        row.org_id,
-        row.snapshot_id,
-        row.import_id,
-        row.unit_external_id,
-        row.snapshot_date,
-        row.project_external_id,
-        row.zone_external_id,
-        JSON.stringify(row),
-      ],
-    );
-  }
-  private storage(): StorageUploader {
-    if (this.options.storage) return this.options.storage;
-    const url = this.options.storageUrl ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = this.options.storageKey ?? process.env.SUPABASE_SECRET_KEY;
-    if (!url || !key) fail('STORAGE_CONFIG_REQUIRED', 503);
-    return supabaseStorage(url, key);
+    return writeSnapshot(tx, row);
   }
   async importCsv(
     user: string,
     input: { org_id: string; source_name: string; csv: string },
   ): Promise<ImportManifest> {
-    const rows = parseInventoryCsv(input.csv);
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, input.org_id, true);
-      await tx.query('SELECT org_id FROM organizations WHERE org_id=$1 FOR UPDATE', [input.org_id]);
-      const fileHash = hash(input.csv);
-      const prior = await tx.query('SELECT payload FROM imports WHERE org_id=$1 AND file_hash=$2', [
-        input.org_id,
-        fileHash,
-      ]);
-      if (prior[0]) return json(prior[0]) as ImportManifest;
-      const existing = (
-        await tx.query('SELECT payload FROM snapshots WHERE org_id=$1', [input.org_id])
-      ).map(json) as UnitSnapshot[];
-      validateHierarchy(rows, existing);
-      const keys = new Set(existing.map((r) => `${r.unit_external_id}|${r.snapshot_date}`));
-      if (rows.some((r) => keys.has(`${r.unit_external_id}|${r.snapshot_date}`)))
-        fail('IMMUTABLE_SNAPSHOT_CONFLICT', 409);
-      const id = randomUUID();
-      const storagePath = `${input.org_id}/${id}/source.csv`;
-      try {
-        await this.storage().upload({
-          bucket: 'source-imports',
-          path: storagePath,
-          body: input.csv,
-          contentType: 'text/csv',
-        });
-      } catch (error) {
-        if (error instanceof StorageError)
-          fail(error.code, error.code === 'STORAGE_CONFIG_REQUIRED' ? 503 : 502);
-        throw error;
-      }
-      const manifest: ImportManifest = {
-        import_id: id,
-        org_id: input.org_id,
-        created_by: user,
-        created_at: now(),
-        source_name: input.source_name,
-        file_hash: fileHash,
-        row_count: rows.length,
-        storage_path: storagePath,
-        schema_version: 'csv-v1',
-        provisional: true,
-      };
-      await tx.query('INSERT INTO imports(org_id,id,file_hash,payload) VALUES($1,$2,$3,$4)', [
-        input.org_id,
-        id,
-        fileHash,
-        JSON.stringify(manifest),
-      ]);
-      for (const row of rows)
-        await this.insertSnapshot(tx, {
-          ...row,
-          org_id: input.org_id,
-          import_id: id,
-          snapshot_id: randomUUID(),
-        });
-      return manifest;
-    });
+    return importInventoryCsv(this.db, this.options, user, input);
   }
   async listImports(user: string, org: string): Promise<ImportManifest[]> {
-    return this.readList(user, org, 'imports');
-  }
-  private async readList<T>(
-    user: string,
-    org: string,
-    table: 'imports' | 'runs' | 'reports' | 'definitions',
-  ): Promise<T[]> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const rows = await tx.query(`SELECT payload FROM ${table} WHERE org_id=$1`, [org]);
-      if (table === 'runs') return rows.map(normalizeRun) as T[];
-      return rows.map(json) as T[];
-    });
+    return readImports(this.db, user, org);
   }
   private async createConversation(
     tx: Driver,
@@ -565,167 +231,29 @@ class SqlRepository implements Repository {
     kind: Conversation['kind'],
     title: string,
   ): Promise<Conversation> {
-    const date = now();
-    const conversation: Conversation = {
-      conversation_id: randomUUID(),
-      org_id: org,
-      created_by: user,
-      kind,
-      title,
-      created_at: date,
-      updated_at: date,
-    };
-    await tx.query(
-      'INSERT INTO conversations(org_id,id,created_by,kind,title,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      [
-        conversation.org_id,
-        conversation.conversation_id,
-        conversation.created_by,
-        conversation.kind,
-        conversation.title,
-        conversation.created_at,
-        conversation.updated_at,
-      ],
-    );
-    return conversation;
+    return this.conversation().createConversation(tx, user, org, kind, title);
   }
   private async touchConversation(tx: Driver, org: string, id: string, date = now()) {
-    await tx.query('UPDATE conversations SET updated_at=$1 WHERE org_id=$2 AND id=$3', [
-      date,
-      org,
-      id,
-    ]);
+    return this.conversation().touchConversation(tx, org, id, date);
   }
   private async insertMessage(
     tx: Driver,
     message: Message,
     payloadExtra: Record<string, unknown> = {},
   ) {
-    if (
-      message.sender_agent !== undefined &&
-      message.sender_agent !== null &&
-      message.role !== 'assistant'
-    )
-      fail('INVALID_MESSAGE_SENDER', 422);
-    await tx.query(
-      "INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,($11::jsonb #>> '{}')::jsonb)",
-      [
-        message.org_id,
-        message.message_id,
-        message.conversation_id,
-        message.run_id,
-        message.client_turn_id,
-        message.role,
-        message.sender_agent ?? null,
-        message.status,
-        message.created_at,
-        message.updated_at,
-        JSON.stringify(messagePayload(message, payloadExtra)),
-      ],
-    );
+    return this.conversation().insertMessage(tx, message, payloadExtra);
   }
   private async updateMessage(tx: Driver, message: Message) {
-    if (
-      message.sender_agent !== undefined &&
-      message.sender_agent !== null &&
-      message.role !== 'assistant'
-    )
-      fail('INVALID_MESSAGE_SENDER', 422);
-    await tx.query(
-      `UPDATE messages
-       SET run_id=$1,client_turn_id=$2,role=$3,sender_agent=$4,status=$5,created_at=$6,updated_at=$7,
-           payload=(CASE jsonb_typeof(payload)
-             WHEN 'string' THEN (payload #>> '{}')::jsonb
-             ELSE payload
-           END) || (($8::jsonb #>> '{}')::jsonb)
-       WHERE org_id=$9 AND id=$10`,
-      [
-        message.run_id,
-        message.client_turn_id,
-        message.role,
-        message.sender_agent ?? null,
-        message.status,
-        message.created_at,
-        message.updated_at,
-        JSON.stringify(messagePayload(message)),
-        message.org_id,
-        message.message_id,
-      ],
-    );
+    return this.conversation().updateMessage(tx, message);
   }
   private async message(tx: Driver, org: string, id: string, lock = false): Promise<Message> {
-    const rows = await tx.query(
-      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload FROM messages WHERE org_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`,
-      [org, id],
-    );
-    if (!rows[0]) fail('MESSAGE_NOT_FOUND', 404);
-    return normalizeMessage(rows[0]);
+    return this.conversation().message(tx, org, id, lock);
   }
   private async attachRunMessages(tx: Driver, run: AnalysisRun, context: TurnContext) {
-    const userMessage = await this.message(tx, run.org_id, context.user_message_id, true);
-    const assistantMessage = await this.message(tx, run.org_id, context.assistant_message_id, true);
-    if (
-      userMessage.conversation_id !== context.conversation_id ||
-      assistantMessage.conversation_id !== context.conversation_id ||
-      userMessage.client_turn_id !== context.client_turn_id ||
-      assistantMessage.client_turn_id !== context.client_turn_id ||
-      userMessage.role !== 'user' ||
-      assistantMessage.role !== 'assistant'
-    )
-      fail('TURN_MISMATCH', 409);
-    if (userMessage.run_id && userMessage.run_id !== run.run_id) fail('TURN_ALREADY_ATTACHED', 409);
-    if (assistantMessage.status !== 'in_progress') fail('TURN_TERMINAL', 409);
-    const date = now();
-    userMessage.run_id = run.run_id;
-    userMessage.status = 'completed';
-    userMessage.updated_at = date;
-    assistantMessage.run_id = run.run_id;
-    assistantMessage.status = 'in_progress';
-    assistantMessage.content = 'Đang chuẩn bị phân tích.';
-    assistantMessage.parts = [
-      { type: 'text', text: assistantMessage.content },
-      { type: 'run_ref', run_id: run.run_id, status: 'queued' },
-    ];
-    assistantMessage.updated_at = date;
-    await this.updateMessage(tx, userMessage);
-    await this.updateMessage(tx, assistantMessage);
-    await this.touchConversation(tx, run.org_id, context.conversation_id, date);
+    return this.conversation().attachRunMessages(tx, run, context);
   }
   private async createRunMessages(tx: Driver, run: AnalysisRun) {
-    const date = now();
-    const assistantDate = new Date(Date.parse(date) + 1).toISOString();
-    const userMessage: Message = {
-      message_id: randomUUID(),
-      org_id: run.org_id,
-      conversation_id: run.request.conversation_id!,
-      run_id: run.run_id,
-      client_turn_id: null,
-      role: 'user',
-      status: 'completed',
-      content: run.request.question,
-      parts: textPart(run.request.question),
-      created_at: date,
-      updated_at: date,
-    };
-    const assistantMessage: Message = {
-      message_id: randomUUID(),
-      org_id: run.org_id,
-      conversation_id: run.request.conversation_id!,
-      run_id: run.run_id,
-      client_turn_id: null,
-      role: 'assistant',
-      status: 'in_progress',
-      content: 'Đang chuẩn bị phân tích.',
-      parts: [
-        { type: 'text', text: 'Đang chuẩn bị phân tích.' },
-        { type: 'run_ref', run_id: run.run_id, status: 'queued' },
-      ],
-      created_at: assistantDate,
-      updated_at: assistantDate,
-    };
-    await this.insertMessage(tx, userMessage);
-    await this.insertMessage(tx, assistantMessage);
-    await this.touchConversation(tx, run.org_id, run.request.conversation_id!, assistantDate);
+    return this.conversation().createRunMessages(tx, run);
   }
   async buildRun(
     tx: Driver,
@@ -736,102 +264,24 @@ class SqlRepository implements Repository {
       entrypoint?: 'interactive' | 'scheduled';
       occurrence_id?: string;
       turn?: TurnContext;
+      workflowVersion?: WorkflowVersion;
     } = {},
   ): Promise<AnalysisRun> {
-    const request = AnalysisRequestSchema.parse(input);
-    await this.auth(tx, user, request.org_id, true);
-    await tx.query('SELECT org_id FROM organizations WHERE org_id=$1 FOR UPDATE', [request.org_id]);
-    if (!key || key.length > 200) fail('INVALID_IDEMPOTENCY_KEY');
-    const requestHash = hash(JSON.stringify(request));
-    const prior = await tx.query(
-      'SELECT payload FROM runs WHERE org_id=$1 AND created_by=$2 AND idempotency_key=$3',
-      [request.org_id, user, key],
-    );
-    if (prior[0]) {
-      const run = normalizeRun(prior[0]);
-      if (run.request_hash !== requestHash) fail('IDEMPOTENCY_CONFLICT', 409);
-      return run;
-    }
-    const scopeRows = await tx.query(
-      'SELECT id FROM snapshots WHERE org_id=$1 AND project_external_id=$2 AND (CAST($3 AS text) IS NULL OR zone_external_id=$4) LIMIT 1',
-      [
-        request.org_id,
-        request.scope.project_external_id,
-        request.scope.zone_external_id,
-        request.scope.zone_external_id,
-      ],
-    );
-    if (!scopeRows.length) fail('SCOPE_NOT_FOUND', 404);
-    if (request.conversation_id) {
-      if (
-        !(
-          await tx.query('SELECT id FROM conversations WHERE org_id=$1 AND id=$2', [
-            request.org_id,
-            request.conversation_id,
-          ])
-        ).length
-      )
-        fail('CONVERSATION_NOT_FOUND', 404);
-    } else {
-      const conversation = await this.createConversation(
-        tx,
-        user,
-        request.org_id,
-        options.entrypoint === 'scheduled' ? 'scheduled' : 'interactive',
-        titleFrom(request.question),
-      );
-      request.conversation_id = conversation.conversation_id;
-    }
-    const metricConfig = await tx.query(
-      'SELECT slow_moving_threshold_days FROM organizations WHERE org_id=$1',
-      [request.org_id],
-    );
-    const date = now();
-    const run: AnalysisRun = {
-      run_id: randomUUID(),
-      org_id: request.org_id,
-      created_by: user,
-      request,
-      status: 'queued',
-      created_at: date,
-      updated_at: date,
-      idempotency_key: key,
-      request_hash: requestHash,
-      entrypoint: options.entrypoint ?? 'interactive',
-      occurrence_id: options.occurrence_id ?? null,
-      attempt: 0,
-      fencing_token: 0,
-      lease_until: null,
-      error_code: null,
-      report_artifact_id: null,
-      cancel_requested: false,
-      workflow_version: this.options.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
-    };
-    await tx.query(
-      'INSERT INTO runs(org_id,id,created_by,idempotency_key,request_hash,status,fencing_token,created_at,payload,slow_moving_threshold_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [
-        run.org_id,
-        run.run_id,
-        user,
-        key,
-        requestHash,
-        run.status,
-        0,
-        date,
-        JSON.stringify(run),
-        metricConfig[0].slow_moving_threshold_days,
-      ],
-    );
-    // Snapshot membership is frozen at enqueue so retries cannot observe later imports.
-    const selected = await this.selectLatest(tx, request);
-    await insertBatches(
+    return buildRunTransaction(
       tx,
-      'INSERT INTO run_snapshots(org_id,run_id,snapshot_id)',
-      selected.rows.map((row) => [run.org_id, run.run_id, row.snapshot_id]),
+      user,
+      input,
+      key,
+      {
+        workflowVersion: options.workflowVersion ?? this.options.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
+        createConversation: (tx, actor, org, kind, title) =>
+          this.createConversation(tx, actor, org, kind, title),
+        selectLatest: (tx, request) => this.selectLatest(tx, request),
+        attachRunMessages: (tx, run, context) => this.attachRunMessages(tx, run, context),
+        createRunMessages: (tx, run) => this.createRunMessages(tx, run),
+      },
+      options,
     );
-    if (options.turn) await this.attachRunMessages(tx, run, options.turn);
-    else await this.createRunMessages(tx, run);
-    return run;
   }
   createRun(
     user: string,
@@ -842,142 +292,47 @@ class SqlRepository implements Repository {
     return this.db.transaction((tx) => this.buildRun(tx, user, request, key, options));
   }
   async listRuns(user: string, org: string): Promise<AnalysisRun[]> {
-    return (await this.readList<AnalysisRun>(user, org, 'runs')).sort((a, b) =>
-      b.created_at.localeCompare(a.created_at),
-    );
+    return readRuns(this.db, user, org);
   }
   async getRun(user: string, org: string, id: string) {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const run = await this.run(tx, org, id);
-      const tasks = (
-        await tx.query('SELECT payload FROM tasks WHERE org_id=$1 AND run_id=$2', [org, id])
-      ).map(json) as RunTask[];
-      const events = (
-        await tx.query('SELECT payload FROM events WHERE org_id=$1 AND run_id=$2', [org, id])
-      ).map(json) as RunEvent[];
-      return { run, tasks, events };
-    });
+    return readRunWithEvents(this.db, user, org, id);
   }
   private async run(tx: Driver, org: string, id: string, lock = false): Promise<AnalysisRun> {
-    const rows = await tx.query(
-      `SELECT payload FROM runs WHERE org_id=$1 AND id=$2${lock ? ' FOR UPDATE' : ''}`,
-      [org, id],
-    );
-    if (!rows[0]) fail('RUN_NOT_FOUND', 404);
-    return normalizeRun(rows[0]);
+    return readRun(tx, org, id, lock);
   }
   private async updateRun(tx: Driver, run: AnalysisRun, worker: string | null = null) {
-    run.updated_at = now();
-    await tx.query(
-      'UPDATE runs SET status=$1,lease_until=$2,fencing_token=$3,worker_id=$4,payload=$5 WHERE org_id=$6 AND id=$7',
-      [
-        run.status,
-        run.lease_until,
-        run.fencing_token,
-        worker,
-        JSON.stringify(run),
-        run.org_id,
-        run.run_id,
-      ],
-    );
+    return updateRunRecord(tx, run, worker);
   }
   async cancelRun(user: string, org: string, id: string) {
-    await this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org, true);
-      const run = await this.run(tx, org, id, true);
-      if (run.status === 'succeeded' || run.status === 'failed') fail('RUN_TERMINAL', 409);
-      run.cancel_requested = true;
-      run.status = 'cancelled';
-      run.lease_until = null;
-      run.fencing_token++;
-      await this.updateRun(tx, run);
-      await this.finalizeRunAssistant(tx, run, {
-        status: 'cancelled',
-        content: 'Lượt phân tích đã bị hủy.',
-        parts: [
-          { type: 'text', text: 'Lượt phân tích đã bị hủy.' },
-          { type: 'run_ref', run_id: run.run_id, status: 'cancelled' },
-          { type: 'error', code: 'RUN_CANCELLED', retryable: false },
-        ],
-      });
-    });
+    return cancelRunLifecycle(
+      this.db,
+      (tx, run, result) => this.finalizeRunAssistant(tx, run, result),
+      user,
+      org,
+      id,
+    );
   }
   async retryRun(user: string, org: string, id: string) {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org, true);
-      const run = await this.run(tx, org, id, true);
-      if (run.status !== 'failed') fail('RUN_NOT_RETRYABLE', 409);
-      if (run.attempt >= 3) fail('RUN_MAX_ATTEMPTS', 409);
-      await this.auth(tx, run.created_by, org, true);
-      run.status = 'queued';
-      run.error_code = null;
-      await this.updateRun(tx, run);
-      await this.finalizeRunAssistant(tx, run, {
-        status: 'in_progress',
-        content: 'Đang chuẩn bị chạy lại phân tích.',
-        parts: [
-          { type: 'text', text: 'Đang chuẩn bị chạy lại phân tích.' },
-          { type: 'run_ref', run_id: run.run_id, status: 'queued' },
-        ],
-      });
-      return run;
-    });
+    return retryRunLifecycle(
+      this.db,
+      (tx, run, result) => this.finalizeRunAssistant(tx, run, result),
+      user,
+      org,
+      id,
+    );
   }
   async messages(user: string, org: string, id: string): Promise<Message[]> {
-    const page = await this.listMessages(user, org, id, { limit: 100, cursor: null });
-    return page.messages;
+    return this.conversation().messages(user, org, id);
   }
   async getConversation(user: string, org: string, id: string): Promise<Conversation> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const rows = await tx.query(
-        'SELECT org_id,id,created_by,kind,title,created_at,updated_at FROM conversations WHERE org_id=$1 AND id=$2',
-        [org, id],
-      );
-      if (!rows[0]) fail('CONVERSATION_NOT_FOUND', 404);
-      return conversationFromRow(rows[0]);
-    });
+    return this.conversation().getConversation(user, org, id);
   }
   async listConversations(
     user: string,
     org: string,
     pageInput: PageRequest,
   ): Promise<ConversationPage> {
-    const page = PageRequestSchema.parse(pageInput);
-    const cursor = decodeCursor(page.cursor);
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const rows = await tx.query(
-        `SELECT c.org_id,c.id,c.created_by,c.kind,c.title,c.created_at,c.updated_at,
-          (SELECT m.status FROM messages m WHERE m.org_id=c.org_id AND m.conversation_id=c.id ORDER BY m.created_at DESC,m.id DESC LIMIT 1) AS latest_status
-         FROM conversations c
-         WHERE c.org_id=$1 AND c.kind='interactive'
-           AND ($2::timestamptz IS NULL OR (c.updated_at,c.id) < ($2::timestamptz,$3))
-         ORDER BY c.updated_at DESC,c.id DESC
-         LIMIT $4`,
-        [org, cursor?.timestamp ?? null, cursor?.id ?? '', page.limit + 1],
-      );
-      const hasMore = rows.length > page.limit;
-      const items = rows.slice(0, page.limit);
-      const last = items.at(-1);
-      return {
-        conversations: items.map((row) => ({
-          ...conversationFromRow(row),
-          latest_status:
-            typeof row.latest_status === 'string' &&
-            ['submitted', 'in_progress', 'completed', 'failed', 'cancelled'].includes(
-              row.latest_status,
-            )
-              ? (row.latest_status as MessageStatus)
-              : null,
-        })),
-        next_cursor:
-          hasMore && last
-            ? encodeCursor({ timestamp: asTimestamp(last.updated_at), id: String(last.id) })
-            : null,
-      };
-    });
+    return this.conversation().listConversations(user, org, pageInput);
   }
   async listMessages(
     user: string,
@@ -985,172 +340,55 @@ class SqlRepository implements Repository {
     conversationId: string,
     pageInput: PageRequest,
   ): Promise<MessagePage> {
-    const page = PageRequestSchema.parse(pageInput);
-    const cursor = decodeCursor(page.cursor);
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const conversation = await tx.query(
-        'SELECT id FROM conversations WHERE org_id=$1 AND id=$2',
-        [org, conversationId],
-      );
-      if (!conversation[0]) fail('CONVERSATION_NOT_FOUND', 404);
-      const rows = await tx.query(
-        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
-         FROM messages
-         WHERE org_id=$1 AND conversation_id=$2
-           AND ($3::timestamptz IS NULL OR (created_at,id) < ($3::timestamptz,$4))
-         ORDER BY created_at DESC,id DESC
-         LIMIT $5`,
-        [org, conversationId, cursor?.timestamp ?? null, cursor?.id ?? '', page.limit + 1],
-      );
-      const hasMore = rows.length > page.limit;
-      const pageRows = rows.slice(0, page.limit);
-      const last = pageRows.at(-1);
-      return {
-        messages: pageRows.map(normalizeMessage).reverse(),
-        next_cursor:
-          hasMore && last
-            ? encodeCursor({ timestamp: asTimestamp(last.created_at), id: String(last.id) })
-            : null,
-      };
-    });
+    return this.conversation().listMessages(user, org, conversationId, pageInput);
   }
-  private async turnFromUserMessage(tx: Driver, userMessage: Message): Promise<AgentTurn> {
-    const conversationRows = await tx.query(
-      'SELECT org_id,id,created_by,kind,title,created_at,updated_at FROM conversations WHERE org_id=$1 AND id=$2',
-      [userMessage.org_id, userMessage.conversation_id],
-    );
-    const assistantRows = await tx.query(
-      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
-       FROM messages WHERE org_id=$1 AND conversation_id=$2 AND client_turn_id=$3 AND role='assistant'`,
-      [userMessage.org_id, userMessage.conversation_id, userMessage.client_turn_id],
-    );
-    if (!conversationRows[0] || !assistantRows[0]) fail('TURN_INCOMPLETE', 409);
-    const assistantMessage = normalizeMessage(assistantRows[0]);
-    const referencedRunId = assistantMessage.parts.find(
-      (part): part is Extract<MessagePart, { type: 'run_ref' }> => part.type === 'run_ref',
-    )?.run_id;
-    return {
-      conversation: conversationFromRow(conversationRows[0]),
-      user_message: userMessage,
-      assistant_message:
-        assistantMessage.run_id === null && referencedRunId
-          ? { ...assistantMessage, run_id: referencedRunId }
-          : assistantMessage,
-      idempotent_replay: true,
-    };
-  }
+
   async startTurn(
     user: string,
     inputValue: AgentTurnRequest,
     idempotencyKey: string,
     requestedConversationId?: string,
   ): Promise<AgentTurn> {
-    const input = AgentTurnRequestSchema.parse(inputValue);
-    if (!idempotencyKey || idempotencyKey.length > 200) fail('INVALID_IDEMPOTENCY_KEY');
-    const requestHash = hash(JSON.stringify(input));
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, input.org_id, true);
-      await tx.query('SELECT org_id FROM organizations WHERE org_id=$1 FOR UPDATE', [input.org_id]);
-      const priorRows = await tx.query(
-        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
-         FROM messages
-         WHERE org_id=$1 AND role='user'
-           AND (client_turn_id=$2 OR payload #>> '{agent_turn,idempotency_key}'=$3)
-         ORDER BY created_at ASC,id ASC
-         LIMIT 1 FOR UPDATE`,
-        [input.org_id, input.client_turn_id, idempotencyKey],
-      );
-      if (priorRows[0]) {
-        const prior = normalizeMessage(priorRows[0]);
-        const payload = json(priorRows[0]) as Record<string, unknown>;
-        const stored = payload.agent_turn as Record<string, unknown> | undefined;
-        if (
-          !stored ||
-          stored.actor_id !== user ||
-          stored.request_hash !== requestHash ||
-          stored.idempotency_key !== idempotencyKey ||
-          (requestedConversationId !== undefined &&
-            prior.conversation_id !== requestedConversationId)
-        )
-          fail('IDEMPOTENCY_CONFLICT', 409);
-        return this.turnFromUserMessage(tx, prior);
-      }
-      let conversation: Conversation;
-      if (requestedConversationId) {
-        const rows = await tx.query(
-          'SELECT org_id,id,created_by,kind,title,created_at,updated_at FROM conversations WHERE org_id=$1 AND id=$2 FOR UPDATE',
-          [input.org_id, requestedConversationId],
-        );
-        if (!rows[0]) fail('CONVERSATION_NOT_FOUND', 404);
-        conversation = conversationFromRow(rows[0]);
-        if (conversation.kind !== 'interactive') fail('CONVERSATION_NOT_INTERACTIVE', 409);
-      } else {
-        conversation = await this.createConversation(
-          tx,
-          user,
-          input.org_id,
-          'interactive',
-          titleFrom(input.text),
-        );
-      }
-      const date = now();
-      const assistantDate = new Date(Date.parse(date) + 1).toISOString();
-      const userMessage: Message = {
-        message_id: randomUUID(),
-        org_id: input.org_id,
-        conversation_id: conversation.conversation_id,
-        run_id: null,
-        client_turn_id: input.client_turn_id,
-        role: 'user',
-        status: 'submitted',
-        content: input.text,
-        parts: [
-          ...textPart(input.text),
-          ...(input.signal_ref
-            ? [
-                {
-                  type: 'signal_ref' as const,
-                  run_id: input.signal_ref.run_id,
-                  signal_id: input.signal_ref.signal_id,
-                },
-              ]
-            : []),
-        ],
-        created_at: date,
-        updated_at: date,
-      };
-      const assistantMessage: Message = {
-        message_id: randomUUID(),
-        org_id: input.org_id,
-        conversation_id: conversation.conversation_id,
-        run_id: null,
-        client_turn_id: input.client_turn_id,
-        role: 'assistant',
-        status: 'in_progress',
-        content: 'Đang chuẩn bị phân tích.',
-        parts: textPart('Đang chuẩn bị phân tích.'),
-        created_at: assistantDate,
-        updated_at: assistantDate,
-      };
-      const agentTurn = {
-        agent_turn: {
-          actor_id: user,
-          idempotency_key: idempotencyKey,
-          request_hash: requestHash,
-          request: input,
-        },
-      };
-      await this.insertMessage(tx, userMessage, agentTurn);
-      await this.insertMessage(tx, assistantMessage, agentTurn);
-      await this.touchConversation(tx, input.org_id, conversation.conversation_id, assistantDate);
-      return {
-        conversation,
-        user_message: userMessage,
-        assistant_message: assistantMessage,
-        idempotent_replay: false,
-      };
-    });
+    return this.conversation().startTurn(user, inputValue, idempotencyKey, requestedConversationId);
+  }
+  enqueueAgentTurn(user: string, input: AgentTurnRequest, key: string, conversationId?: string) {
+    return this.agentExecution().enqueue(user,input,key,conversationId);
+  }
+  getAgentTurnJob(user: string, org: string, id: string, after = 0) {
+    return this.agentExecution().get(user,org,id,after);
+  }
+  getLatestAgentTurnJob(user: string, org: string, conversationId: string) {
+    return this.agentExecution().getLatestForConversation(user,org,conversationId);
+  }
+  cancelAgentTurnJob(user: string, org: string, id: string) {
+    return this.agentExecution().cancel(user,org,id);
+  }
+  claimAgentTurnJob(worker: string, date?: Date, leaseMs?: number) {
+    return this.agentExecution().claim(worker,date,leaseMs);
+  }
+  renewAgentTurnLease(lease: AgentJobLease, leaseMs?: number) {
+    return this.agentExecution().renew(lease,leaseMs);
+  }
+  startAgentAnalysis(lease: AgentJobLease) {
+    return this.agentExecution().startAnalysis(lease);
+  }
+  resumeAgentAnalysis(lease: AgentJobLease) {
+    return this.agentExecution().resumeAnalysis(lease);
+  }
+  failAgentTurnJob(lease: AgentJobLease, code: string) {
+    return this.agentExecution().fail(lease,code);
+  }
+  completeAgentTurnJob(lease: AgentJobLease, content: string) {
+    return this.agentExecution().complete(lease,content);
+  }
+  waitAgentTurnForRun(lease: AgentJobLease, runId: string) {
+    return this.agentExecution().waitForRun(lease,runId);
+  }
+  createAgentInvocation(lease: AgentJobLease, parentId: string, stepKey: string, agentKey: string) {
+    return this.agentExecution().createInvocation(lease,parentId,stepKey,agentKey);
+  }
+  setAgentInvocationStatus(lease: AgentJobLease, invocationId: string, status: AgentExecutionStatus) {
+    return this.agentExecution().setInvocationStatus(lease,invocationId,status);
   }
   async attachRunToTurn(
     user: string,
@@ -1174,98 +412,13 @@ class SqlRepository implements Repository {
       sender_agent?: AgentKey | null;
     },
   ): Promise<Message> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, context.org_id, true);
-      const assistant = await this.message(tx, context.org_id, context.assistant_message_id, true);
-      if (
-        assistant.conversation_id !== context.conversation_id ||
-        assistant.client_turn_id !== context.client_turn_id ||
-        assistant.role !== 'assistant'
-      )
-        fail('TURN_MISMATCH', 409);
-      if (assistant.run_id !== null) fail('TURN_HAS_RUN', 409);
-      if (assistant.status !== 'in_progress') fail('TURN_TERMINAL', 409);
-      const senderAgent =
-        result.sender_agent === undefined || result.sender_agent === null
-          ? null
-          : (AgentKeySchema.parse(result.sender_agent) as AgentKey);
-      assistant.status = result.status;
-      assistant.sender_agent = senderAgent;
-      assistant.content = result.content;
-      assistant.parts = result.parts;
-      assistant.updated_at = now();
-      await this.updateMessage(tx, assistant);
-      const userMessage = await this.message(tx, context.org_id, context.user_message_id, true);
-      if (userMessage.status === 'submitted') {
-        userMessage.status = 'completed';
-        userMessage.updated_at = assistant.updated_at;
-        await this.updateMessage(tx, userMessage);
-      }
-      await this.touchConversation(
-        tx,
-        context.org_id,
-        context.conversation_id,
-        assistant.updated_at,
-      );
-      return assistant;
-    });
+    return this.conversation().finalizeTurn(user, context, result);
   }
   async artifacts(user: string, org: string, id: string) {
-    return this.db.transaction(async (tx) => {
-      const role = await this.auth(tx, user, org);
-      await this.run(tx, org, id);
-      const allArtifacts = (
-        await tx.query('SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2', [org, id])
-      ).map(json) as Artifact[];
-      const artifacts =
-        role === 'viewer'
-          ? allArtifacts.filter(
-              (artifact) => artifact.kind !== 'report_draft' && artifact.kind !== 'review_result',
-            )
-          : allArtifacts;
-      const visibleArtifactIds = new Set(artifacts.map((artifact) => artifact.artifact_id));
-      const validations = (
-        await tx.query('SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2', [org, id])
-      ).map(json) as ArtifactValidation[];
-      const sourceIds = new Set(artifacts.flatMap((a) => a.source_refs));
-      const sources = (
-        (await tx.query('SELECT payload FROM imports WHERE org_id=$1', [org])).map(
-          json,
-        ) as ImportManifest[]
-      ).filter((x) => sourceIds.has(x.import_id));
-      return {
-        artifacts,
-        validations: validations.filter((validation) =>
-          visibleArtifactIds.has(validation.artifact_id),
-        ),
-        sources,
-      };
-    });
+    return artifacts(this.db, user, org, id);
   }
   async artifactByKey(user: string, org: string, runId: string, key: string): Promise<Artifact> {
-    let artifactKey: string;
-    try {
-      artifactKey = normalizeArtifactKey(key);
-    } catch {
-      fail('INVALID_ARTIFACT_KEY');
-    }
-    return this.db.transaction(async (tx) => {
-      const role = await this.auth(tx, user, org);
-      await this.run(tx, org, runId);
-      const rows = await tx.query(
-        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
-        [org, runId, artifactKey],
-      );
-      if (!rows[0]) fail('ARTIFACT_NOT_FOUND', 404);
-      const artifact = ArtifactSchema.parse(json(rows[0]));
-      if (
-        role === 'viewer' &&
-        (artifact.kind === 'report_draft' || artifact.kind === 'review_result')
-      )
-        fail('ARTIFACT_NOT_FOUND', 404);
-      verifyArtifact(artifact);
-      return artifact;
-    });
+    return artifactByKey(this.db, user, org, runId, key);
   }
   async publicArtifactById(
     user: string,
@@ -1273,47 +426,7 @@ class SqlRepository implements Repository {
     runId: string,
     artifactId: string,
   ): Promise<Artifact> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      await this.run(tx, org, runId);
-      const rows = await tx.query(
-        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3',
-        [org, runId, artifactId],
-      );
-      if (!rows[0]) fail('ARTIFACT_NOT_FOUND', 404);
-      const artifact = ArtifactSchema.parse(json(rows[0]));
-      verifyArtifact(artifact);
-      if (
-        artifact.org_id !== org ||
-        artifact.run_id !== runId ||
-        artifact.artifact_id !== artifactId
-      )
-        fail('ARTIFACT_NOT_FOUND', 404);
-      // Draft and reviewer artifacts are never conversational context, even
-      // when the caller has a role that can inspect the workflow internally.
-      if (artifact.kind === 'report_draft' || artifact.kind === 'review_result')
-        fail('ARTIFACT_NOT_FOUND', 404);
-      const validations = (
-        await tx.query(
-          'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND id=$3',
-          [org, runId, artifact.artifact_id],
-        )
-      ).flatMap((row) => {
-        const parsed = ArtifactValidationSchema.safeParse(json(row));
-        return parsed.success ? [parsed.data] : [];
-      });
-      if (
-        !validations.some(
-          (validation) =>
-            validation.valid &&
-            validation.artifact_id === artifact.artifact_id &&
-            validation.org_id === org &&
-            validation.run_id === runId,
-        )
-      )
-        fail('PUBLIC_ARTIFACT_VALIDATION_REQUIRED', 409);
-      return artifact;
-    });
+    return publicArtifactById(this.db, user, org, runId, artifactId);
   }
   async publicArtifactsByIds(
     user: string,
@@ -1321,522 +434,64 @@ class SqlRepository implements Repository {
     runId: string,
     artifactIds: readonly string[],
   ): Promise<Artifact[]> {
-    const ids = [...new Set(artifactIds)].slice(0, 100);
-    if (!ids.length) return [];
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      await this.run(tx, org, runId);
-      const rows = await tx.query(
-        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id = ANY($3::text[])',
-        [org, runId, ids],
-      );
-      const candidates = rows.flatMap((row) => {
-        const parsed = ArtifactSchema.safeParse(json(row));
-        if (!parsed.success) return [];
-        const artifact = parsed.data;
-        try {
-          verifyArtifact(artifact);
-        } catch {
-          return [];
-        }
-        if (
-          artifact.org_id !== org ||
-          artifact.run_id !== runId ||
-          !ids.includes(artifact.artifact_id) ||
-          artifact.kind === 'report_draft' ||
-          artifact.kind === 'review_result'
-        )
-          return [];
-        return [artifact];
-      });
-      if (!candidates.length) return [];
-      const validations = (
-        await tx.query(
-          'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND id = ANY($3::text[])',
-          [org, runId, candidates.map((artifact) => artifact.artifact_id)],
-        )
-      ).flatMap((row) => {
-        const parsed = ArtifactValidationSchema.safeParse(json(row));
-        return parsed.success ? [parsed.data] : [];
-      });
-      const validIds = new Set(
-        validations
-          .filter(
-            (validation) =>
-              validation.valid &&
-              validation.org_id === org &&
-              validation.run_id === runId &&
-              candidates.some((artifact) => artifact.artifact_id === validation.artifact_id),
-          )
-          .map((validation) => validation.artifact_id),
-      );
-      return candidates.filter((artifact) => validIds.has(artifact.artifact_id));
-    });
+    return publicArtifactsByIds(this.db, user, org, runId, artifactIds);
   }
   async decisionBrief(user: string, org: string, id: string): Promise<DecisionBriefResponse> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const run = await this.run(tx, org, id);
-      if (run.status !== 'succeeded' || run.report_artifact_id === null)
-        fail('BRIEF_NOT_AVAILABLE', 404);
-      const reportRows = await tx.query(
-        "SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3 AND kind='report'",
-        [org, id, run.report_artifact_id],
-      );
-      if (!reportRows[0]) fail('BRIEF_NOT_AVAILABLE', 404);
-      const report = ArtifactSchema.parse(json(reportRows[0]));
-      if (report.kind !== 'report' || report.payload.decision_brief === undefined)
-        fail('BRIEF_NOT_AVAILABLE', 404);
-      const calculationRows = await tx.query(
-        "SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3 AND kind='calculation'",
-        [org, id, report.payload.calculation_artifact_id],
-      );
-      if (!calculationRows[0]) fail('INVALID_BRIEF_LINEAGE', 409);
-      const calculation = ArtifactSchema.parse(json(calculationRows[0]));
-      if (calculation.kind !== 'calculation') fail('INVALID_BRIEF_LINEAGE', 409);
-      const validations = (
-        await tx.query(
-          'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND (id=$3 OR id=$4)',
-          [org, id, report.artifact_id, calculation.artifact_id],
-        )
-      ).map(json) as ArtifactValidation[];
-      if (
-        ![report.artifact_id, calculation.artifact_id].every((artifactId) =>
-          validations.some(
-            (validation) => validation.artifact_id === artifactId && validation.valid,
-          ),
-        )
-      )
-        fail('UNVALIDATED_BRIEF', 409);
-      verifyArtifact(report);
-      verifyArtifact(calculation);
-      validateDecisionBrief(
-        report.payload.decision_brief,
-        calculation,
-        org,
-        id,
-        run.request.scope,
-        run.request.data_as_of,
-      );
-      return {
-        run_id: run.run_id,
-        org_id: run.org_id,
-        scope: run.request.scope,
-        requested_data_as_of: run.request.data_as_of,
-        effective_snapshot_date: report.payload.decision_brief.effective_snapshot_date,
-        decision_brief: report.payload.decision_brief,
-        report_artifact_id: report.artifact_id,
-        calculation_artifact_id: calculation.artifact_id,
-        evidence_artifact_ids: [calculation.artifact_id],
-        validations,
-      };
-    });
+    return decisionBrief(this.db, user, org, id);
   }
   async decisionIntelligence(
     user: string,
     org: string,
     id: string,
   ): Promise<DecisionIntelligenceResponse> {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const run = await this.run(tx, org, id);
-      // Decision reads are scoped to the already-authorized run.
-      if (run.status !== 'succeeded' || run.report_artifact_id === null)
-        return {
-          status: 'unavailable',
-          run_id: run.run_id,
-          org_id: run.org_id,
-          reason: 'RUN_NOT_SUCCEEDED',
-        };
-      const placeholder = '$';
-      const reportRows = await tx.query(
-        `SELECT payload FROM artifacts WHERE org_id=${placeholder}1 AND run_id=${placeholder}2 AND id=${placeholder}3 AND kind='report'`,
-        [org, id, run.report_artifact_id],
-      );
-      if (!reportRows[0])
-        return { status: 'unavailable', run_id: run.run_id, org_id: run.org_id, reason: 'DECISION_ARTIFACT_NOT_AVAILABLE' };
-      const report = ArtifactSchema.parse(json(reportRows[0]));
-      if (report.kind !== 'report') fail('INVALID_DECISION_REPORT_LINEAGE', 409);
-      verifyArtifact(report);
-      const decisionId = report.payload.decision_intelligence_artifact_id;
-      if (!decisionId) {
-        if (report.payload.decision_brief === undefined)
-          return {
-            status: 'unavailable',
-            run_id: run.run_id,
-            org_id: run.org_id,
-            reason: 'DECISION_ARTIFACT_NOT_AVAILABLE',
-          };
-        return {
-          status: 'legacy_report_brief',
-          run_id: run.run_id,
-          org_id: run.org_id,
-          decision_brief: report.payload.decision_brief,
-          report_artifact_id: report.artifact_id,
-        };
-      }
-      const decisionRows = await tx.query(
-        `SELECT payload FROM artifacts WHERE org_id=${placeholder}1 AND run_id=${placeholder}2 AND id=${placeholder}3 AND kind='decision_intelligence_pack'`,
-        [org, id, decisionId],
-      );
-      if (!decisionRows[0]) fail('INVALID_DECISION_PACK_LINEAGE', 409);
-      const decision = ArtifactSchema.parse(json(decisionRows[0]));
-      if (
-        decision.kind !== 'decision_intelligence_pack' ||
-        decision.org_id !== org ||
-        decision.run_id !== id ||
-        decision.payload.run_id !== id ||
-        decision.payload.org_id !== org ||
-        decision.payload.requested_data_as_of !== run.request.data_as_of ||
-        JSON.stringify(decision.payload.scope) !== JSON.stringify(run.request.scope) ||
-        !report.input_refs.includes(decision.artifact_id)
-      )
-        fail('INVALID_DECISION_PACK_LINEAGE', 409);
-      verifyArtifact(decision);
-      const validations = (
-        await tx.query(
-          `SELECT payload FROM validations WHERE org_id=${placeholder}1 AND run_id=${placeholder}2 AND (id=${placeholder}3 OR id=${placeholder}4)`,
-          [org, id, report.artifact_id, decision.artifact_id],
-        )
-      ).map(json) as ArtifactValidation[];
-      if (
-        ![report.artifact_id, decision.artifact_id].every((artifactId) =>
-          validations.some(
-            (validation) => validation.artifact_id === artifactId && validation.valid,
-          ),
-        )
-      )
-        fail('UNVALIDATED_DECISION_INTELLIGENCE', 409);
-      return {
-        status: 'available',
-        run_id: run.run_id,
-        org_id: run.org_id,
-        report_artifact_id: report.artifact_id,
-        decision_intelligence_artifact_id: decision.artifact_id,
-        decision_intelligence: decision.payload,
-        validations,
-      };
-    });
+    return decisionIntelligence(this.db, user, org, id);
   }
   async claimRun(worker: string, date = new Date(), leaseMs = 30000): Promise<Lease | null> {
-    return this.db.transaction(async (tx) => {
-      const candidates = await tx.query(
-        "SELECT payload FROM runs WHERE status='queued' OR (status='running' AND lease_until<$1) ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED",
-        [date.toISOString()],
-      );
-      if (!candidates[0]) return null;
-      const run = normalizeRun(candidates[0]);
-      if (run.attempt >= 3) {
-        run.status = 'failed';
-        run.error_code = 'MAX_ATTEMPTS';
-        run.lease_until = null;
-        await this.updateRun(tx, run);
-        return null;
-      }
-      try {
-        await this.auth(tx, run.created_by, run.org_id, true);
-      } catch {
-        run.status = 'failed';
-        run.error_code = 'MEMBERSHIP_REVOKED';
-        await this.updateRun(tx, run);
-        return null;
-      }
-      run.status = 'running';
-      run.attempt++;
-      run.fencing_token++;
-      run.lease_until = new Date(date.getTime() + leaseMs).toISOString();
-      await this.updateRun(tx, run, worker);
-      return { run, worker_id: worker, fencing_token: run.fencing_token };
-    });
+    return claimNextRun(this.db, worker, date, leaseMs);
   }
   private async fenced(tx: Driver, lease: Lease): Promise<AnalysisRun> {
-    const run = await this.run(tx, lease.run.org_id, lease.run.run_id, true);
-    await this.auth(tx, run.created_by, run.org_id, true);
-    const owner = await tx.query('SELECT worker_id FROM runs WHERE org_id=$1 AND id=$2', [
-      run.org_id,
-      run.run_id,
-    ]);
-    if (
-      run.status !== 'running' ||
-      run.fencing_token !== lease.fencing_token ||
-      run.lease_until! <= now() ||
-      owner[0]?.worker_id !== lease.worker_id
-    )
-      fail('LEASE_LOST', 409);
-    return run;
+    return fenceRun(tx, lease);
   }
   async assertLease(lease: Lease) {
-    await this.db.transaction(async (tx) => {
-      await this.fenced(tx, lease);
-    });
+    return assertRunLease(this.db, lease);
   }
   async renewLease(lease: Lease, ms = 30000) {
-    await this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      run.lease_until = new Date(Date.now() + ms).toISOString();
-      await this.updateRun(tx, run, lease.worker_id);
-    });
+    return renewRunLease(this.db, lease, ms);
   }
-  private querySpec(request: AnalysisRequest) {
-    return {
-      sql: 'WITH targets(target_date) AS (VALUES (CAST($2 AS date)),(CAST($2 AS date)-7),(CAST($2 AS date)-30),(CAST($2 AS date)-90)), ranked AS (SELECT DISTINCT ON (t.target_date,s.unit_external_id) s.payload,s.snapshot_date,s.unit_external_id FROM targets t JOIN snapshots s ON s.org_id=$1 AND s.project_external_id=$3 AND s.snapshot_date<=t.target_date ORDER BY t.target_date,s.unit_external_id,s.snapshot_date DESC) SELECT DISTINCT payload,snapshot_date,unit_external_id FROM ranked ORDER BY snapshot_date,unit_external_id LIMIT 20001',
-      parameters: [request.org_id, request.data_as_of, request.scope.project_external_id],
-      row_limit: 20000,
-      timeout_ms: 5000,
-    };
-  }
+
   private async selectLatest(tx: Driver, request: AnalysisRequest): Promise<QueryResult> {
-    const spec = this.querySpec(request);
-    await tx.query("SET LOCAL statement_timeout = '5s'");
-    const rows = (await tx.query(spec.sql, spec.parameters)).map(json) as UnitSnapshot[];
-    if (rows.length > spec.row_limit) fail('QUERY_ROW_LIMIT_EXCEEDED', 422);
-    return { ...spec, rows };
+    return selectLatestSnapshots(tx, request);
   }
   async getMetricConfig(lease: Lease) {
-    return this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      const rows = await tx.query(
-        'SELECT slow_moving_threshold_days FROM runs WHERE org_id=$1 AND id=$2',
-        [run.org_id, run.run_id],
-      );
-      return { slow_moving_threshold_days: Number(rows[0].slow_moving_threshold_days) };
-    });
+    return readMetricConfig(this.db, lease);
   }
   async deleteDefinition(user: string, org: string, id: string) {
-    await this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org, true);
-      const def = await this.definition(tx, org, id);
-      def.enabled = false;
-      def.definition_version++;
-      await this.saveDefinition(tx, def);
-    });
+    return this.schedule().deleteDefinition(user, org, id);
   }
   async readSnapshots(lease: Lease): Promise<QueryResult> {
-    return this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      const sql =
-        'SELECT s.payload FROM snapshots s JOIN run_snapshots r ON r.org_id=s.org_id AND r.snapshot_id=s.id WHERE r.org_id=$1 AND r.run_id=$2 ORDER BY s.snapshot_date,s.unit_external_id LIMIT 20001';
-      await tx.query("SET LOCAL statement_timeout = '5s'");
-      const parameters = [run.org_id, run.run_id];
-      const rows = (await tx.query(sql, parameters)).map(json) as UnitSnapshot[];
-      if (rows.length > 20000) fail('QUERY_ROW_LIMIT_EXCEEDED', 422);
-      return { sql, parameters, rows, row_limit: 20000, timeout_ms: 5000 };
-    });
+    return readPinnedSnapshots(this.db, lease);
   }
   async storeArtifact(
     lease: Lease,
     input: Artifact,
     options: ArtifactStoreOptions = {},
   ): Promise<Artifact> {
-    const artifact = ArtifactSchema.parse(input);
-    verifyArtifact(artifact);
-    let artifactKey: string;
-    try {
-      artifactKey = logicalArtifactKey(artifact, options);
-    } catch {
-      fail('INVALID_ARTIFACT_KEY');
-    }
-    return this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      if (artifact.org_id !== run.org_id || artifact.run_id !== run.run_id)
-        fail('ARTIFACT_SCOPE_MISMATCH', 403);
-      // `publishReviewedDraft` is deliberately the only report writer for an
-      // opted-in run. Keeping this guard here prevents a future caller from
-      // bypassing Reviewer PASS through the otherwise generic artifact API.
-      if (run.workflow_version === 'agent-v1' && artifact.kind === 'report')
-        fail('AGENT_PUBLICATION_REQUIRED', 409);
-      const prior = await tx.query(
-        'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
-        [run.org_id, run.run_id, artifactKey],
-      );
-      if (prior[0]) {
-        const old = ArtifactSchema.parse(json(prior[0]));
-        if (old.content_hash !== artifact.content_hash) fail('IMMUTABLE_ARTIFACT_CONFLICT', 409);
-        return old;
-      }
-      await tx.query(
-        'INSERT INTO artifacts(org_id,id,run_id,task_id,kind,artifact_key,payload) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        [
-          artifact.org_id,
-          artifact.artifact_id,
-          artifact.run_id,
-          artifact.task_id,
-          artifact.kind,
-          artifactKey,
-          JSON.stringify(artifact),
-        ],
-      );
-      await insertBatches(
-        tx,
-        'INSERT INTO artifact_inputs(org_id,run_id,artifact_id,input_id)',
-        artifact.input_refs.map((id) => [run.org_id, run.run_id, artifact.artifact_id, id]),
-      );
-      await insertBatches(
-        tx,
-        'INSERT INTO artifact_snapshots(org_id,run_id,artifact_id,snapshot_id)',
-        artifact.snapshot_refs.map((id) => [run.org_id, run.run_id, artifact.artifact_id, id]),
-      );
-      await insertBatches(
-        tx,
-        'INSERT INTO artifact_sources(org_id,artifact_id,import_id)',
-        artifact.source_refs.map((id) => [run.org_id, artifact.artifact_id, id]),
-      );
-      return artifact;
-    });
+    return storeArtifact(this.db, lease, input, options);
   }
   async validateArtifact(lease: Lease, validation: ArtifactValidation) {
-    await this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      if (validation.org_id !== run.org_id || validation.run_id !== run.run_id)
-        fail('VALIDATION_SCOPE_MISMATCH', 403);
-      await tx.query(
-        'INSERT INTO validations(org_id,id,run_id,payload) VALUES($1,$2,$3,$4) ON CONFLICT(org_id,id) DO UPDATE SET payload=excluded.payload',
-        [run.org_id, validation.artifact_id, run.run_id, JSON.stringify(validation)],
-      );
-    });
+    return validateArtifact(this.db, lease, validation);
   }
   async setTask(lease: Lease, task: RunTask) {
-    await this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      if (task.org_id !== run.org_id || task.run_id !== run.run_id)
-        fail('TASK_SCOPE_MISMATCH', 403);
-      await tx.query(
-        'INSERT INTO tasks(org_id,id,run_id,payload) VALUES($1,$2,$3,$4) ON CONFLICT(org_id,id) DO UPDATE SET payload=excluded.payload',
-        [run.org_id, task.task_id, run.run_id, JSON.stringify(task)],
-      );
-    });
+    return setTask(this.db, lease, task);
   }
   async addEvent(lease: Lease, message: string, taskId?: string) {
-    await this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      const event: RunEvent = {
-        event_id: randomUUID(),
-        run_id: run.run_id,
-        org_id: run.org_id,
-        created_at: now(),
-        task_id: taskId ?? null,
-        message,
-      };
-      await tx.query('INSERT INTO events(org_id,id,run_id,payload) VALUES($1,$2,$3,$4)', [
-        run.org_id,
-        event.event_id,
-        run.run_id,
-        JSON.stringify(event),
-      ]);
-    });
+    return addEvent(this.db, lease, message, taskId);
   }
   private async assistantForRun(tx: Driver, run: AnalysisRun): Promise<Message> {
-    const rows = await tx.query(
-      `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
-       FROM messages
-       WHERE org_id=$1 AND run_id=$2 AND role='assistant' AND sender_agent IS NULL
-       FOR UPDATE`,
-      [run.org_id, run.run_id],
-    );
-    if (rows[0]) return normalizeMessage(rows[0]);
-    if (!run.request.conversation_id) fail('RUN_CONVERSATION_REQUIRED', 409);
-    const date = now();
-    const assistant: Message = {
-      message_id: randomUUID(),
-      org_id: run.org_id,
-      conversation_id: run.request.conversation_id,
-      run_id: run.run_id,
-      client_turn_id: null,
-      role: 'assistant',
-      status: 'in_progress',
-      content: 'Đang chuẩn bị phân tích.',
-      parts: [
-        { type: 'text', text: 'Đang chuẩn bị phân tích.' },
-        { type: 'run_ref', run_id: run.run_id, status: run.status },
-      ],
-      created_at: date,
-      updated_at: date,
-    };
-    await this.insertMessage(tx, assistant);
-    return assistant;
+    return findRunAssistant(tx, run);
   }
   async upsertStageMessage(lease: Lease, input: AgentStageMessageInput): Promise<Message> {
-    const senderAgent = AgentKeySchema.parse(input.sender_agent) as AgentKey;
-    const content = input.content.trim();
-    if (!content || content.length > 5_000) fail('INVALID_STAGE_MESSAGE', 422);
-    return this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      if (!run.request.conversation_id) fail('RUN_CONVERSATION_REQUIRED', 409);
-      const parts: MessagePart[] = [
-        { type: 'text', text: content },
-        { type: 'run_ref', run_id: run.run_id, status: run.status },
-      ];
-      if (input.artifact) {
-        const rows = await tx.query(
-          'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND id=$3',
-          [run.org_id, run.run_id, input.artifact.artifact_id],
-        );
-        if (!rows[0]) fail('STAGE_ARTIFACT_NOT_FOUND', 409);
-        const artifact = ArtifactSchema.parse(json(rows[0]));
-        verifyArtifact(artifact);
-        if (
-          artifact.content_hash !== input.artifact.content_hash ||
-          artifact.kind !== input.artifact.kind ||
-          artifact.kind === 'report_draft' ||
-          artifact.kind === 'review_result'
-        )
-          fail('STAGE_ARTIFACT_REFERENCE_FORBIDDEN', 422);
-        const validations = (
-          await tx.query(
-            'SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2 AND id=$3',
-            [run.org_id, run.run_id, artifact.artifact_id],
-          )
-        ).flatMap((row) => {
-          const parsed = ArtifactValidationSchema.safeParse(json(row));
-          return parsed.success ? [parsed.data] : [];
-        });
-        if (!validations.some((validation) => validation.valid))
-          fail('STAGE_ARTIFACT_VALIDATION_REQUIRED', 409);
-        parts.push({
-          type: 'artifact_ref',
-          run_id: run.run_id,
-          artifact_id: artifact.artifact_id,
-          kind: artifact.kind,
-        });
-      }
-      const messageId = stableId(`${run.run_id}:stage-message:${senderAgent}`);
-      const existingRows = await tx.query(
-        'SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload FROM messages WHERE org_id=$1 AND id=$2 FOR UPDATE',
-        [run.org_id, messageId],
-      );
-      const date = now();
-      const message = MessageSchema.parse({
-        message_id: messageId,
-        org_id: run.org_id,
-        conversation_id: run.request.conversation_id,
-        run_id: run.run_id,
-        client_turn_id: null,
-        role: 'assistant',
-        sender_agent: senderAgent,
-        status: 'completed',
-        content,
-        parts,
-        created_at: existingRows[0] ? normalizeMessage(existingRows[0]).created_at : date,
-        updated_at: date,
-      });
-      if (existingRows[0]) {
-        const existing = normalizeMessage(existingRows[0]);
-        if (
-          existing.org_id !== run.org_id ||
-          existing.run_id !== run.run_id ||
-          existing.conversation_id !== run.request.conversation_id ||
-          existing.client_turn_id !== null ||
-          existing.role !== 'assistant' ||
-          existing.sender_agent !== senderAgent
-        )
-          fail('STAGE_MESSAGE_ID_CONFLICT', 409);
-        await this.updateMessage(tx, message);
-      } else {
-        await this.insertMessage(tx, message);
-      }
-      await this.touchConversation(tx, run.org_id, message.conversation_id, date);
-      return message;
-    });
+    return upsertStageMessage(this.db, lease, input);
   }
   private async finalizeRunAssistant(
     tx: Driver,
@@ -1847,96 +502,10 @@ class SqlRepository implements Repository {
       parts: MessagePart[];
     },
   ) {
-    const assistant = await this.assistantForRun(tx, run);
-    const useLegacyCompletedPayload =
-      run.workflow_version === 'agent-v1' &&
-      result.status === 'completed' &&
-      run.report_artifact_id !== null;
-    assistant.status = result.status;
-    assistant.content = useLegacyCompletedPayload ? LEGACY_COMPLETION_TEXT : result.content;
-    assistant.parts = useLegacyCompletedPayload
-      ? result.parts.map((part, index) =>
-          index === 0 && part.type === 'text' ? { ...part, text: LEGACY_COMPLETION_TEXT } : part,
-        )
-      : result.parts;
-    assistant.updated_at = now();
-    await this.updateMessage(tx, assistant);
-    await this.touchConversation(tx, run.org_id, assistant.conversation_id, assistant.updated_at);
+    return finishRunAssistant(tx, run, result);
   }
   async completeRun(lease: Lease, id: string) {
-    await this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      if (run.workflow_version === 'agent-v1') fail('AGENT_PUBLICATION_REQUIRED', 409);
-      const rows = await tx.query(
-        'SELECT a.payload,v.payload AS validation FROM artifacts a JOIN validations v ON v.org_id=a.org_id AND v.id=a.id WHERE a.org_id=$1 AND a.run_id=$2 AND a.id=$3 AND a.kind=$4',
-        [run.org_id, run.run_id, id, 'report'],
-      );
-      if (
-        !rows[0] ||
-        !(
-          typeof rows[0].validation === 'string'
-            ? JSON.parse(rows[0].validation)
-            : rows[0].validation
-        ).valid
-      )
-        fail('PUBLICATION_VALIDATION_REQUIRED', 422);
-      const artifact = json(rows[0]) as Artifact;
-      if (artifact.kind !== 'report') fail('INVALID_REPORT', 422);
-      const allArtifacts = (
-        await tx.query('SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2', [
-          run.org_id,
-          run.run_id,
-        ])
-      ).map(json) as Artifact[];
-      const allValidations = (
-        await tx.query('SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2', [
-          run.org_id,
-          run.run_id,
-        ])
-      ).map(json) as ArtifactValidation[];
-      if (
-        allArtifacts.some(
-          (a) => !allValidations.some((v) => v.artifact_id === a.artifact_id && v.valid),
-        )
-      )
-        fail('PUBLICATION_VALIDATION_REQUIRED', 422);
-      validateReport(artifact.payload, allArtifacts, run.org_id, run.run_id);
-      run.status = 'succeeded';
-      run.report_artifact_id = id;
-      run.lease_until = null;
-      await this.updateRun(tx, run);
-      const report: ReportRecord = {
-        report_id: randomUUID(),
-        org_id: run.org_id,
-        run_id: run.run_id,
-        artifact_id: id,
-        created_at: now(),
-        occurrence_id: run.occurrence_id,
-      };
-      await tx.query(
-        'INSERT INTO reports(org_id,id,run_id,artifact_id,payload) VALUES($1,$2,$3,$4,$5)',
-        [run.org_id, report.report_id, run.run_id, id, JSON.stringify(report)],
-      );
-      await this.finalizeRunAssistant(tx, run, {
-        status: 'completed',
-        content:
-          'Phân tích đã hoàn thành. Mở Decision Briefing để xem các tín hiệu và bằng chứng đã xác thực.',
-        parts: [
-          {
-            type: 'text',
-            text: 'Phân tích đã hoàn thành. Mở Decision Briefing để xem các tín hiệu và bằng chứng đã xác thực.',
-          },
-          { type: 'run_ref', run_id: run.run_id, status: 'succeeded' },
-          { type: 'report_ref', run_id: run.run_id, report_id: report.report_id },
-          ...allArtifacts.map((item) => ({
-            type: 'artifact_ref' as const,
-            run_id: run.run_id,
-            artifact_id: item.artifact_id,
-            kind: item.kind,
-          })),
-        ],
-      });
-    });
+    return publishLegacyReport(this.db, lease, id);
   }
   /**
    * The agent workflow publishes only through this short, fenced transaction.
@@ -1944,324 +513,19 @@ class SqlRepository implements Repository {
    * final legacy-compatible report marker and terminal assistant message.
    */
   async publishReviewedDraft(lease: Lease, input: ReviewedDraftPublication): Promise<ReportRecord> {
-    const report = ArtifactSchema.parse(input.report);
-    const publicationTask = RunTaskSchema.parse(input.publication_task);
-    if (report.kind !== 'report') fail('INVALID_REPORT', 422);
-    return this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      if (run.workflow_version !== 'agent-v1') fail('AGENT_PUBLICATION_NOT_SELECTED', 409);
-      if (run.report_artifact_id !== null) fail('DUPLICATE_PUBLICATION', 409);
-      if (
-        publicationTask.org_id !== run.org_id ||
-        publicationTask.run_id !== run.run_id ||
-        publicationTask.task_id !== stableId(`${run.run_id}:task:publication`) ||
-        publicationTask.kind !== 'publication' ||
-        publicationTask.status !== 'running' ||
-        publicationTask.attempt !== run.attempt ||
-        publicationTask.dependencies.length !== 1 ||
-        publicationTask.dependencies[0] !== 'reviewer'
-      ) {
-        fail('INVALID_PUBLICATION_TASK', 422);
-      }
-      const persistedTaskRows = await tx.query(
-        'SELECT payload FROM tasks WHERE org_id=$1 AND run_id=$2 AND id=$3 FOR UPDATE',
-        [run.org_id, run.run_id, publicationTask.task_id],
-      );
-      const persistedTask = RunTaskSchema.safeParse(json(persistedTaskRows[0] ?? {}));
-      if (
-        !persistedTask.success ||
-        persistedTask.data.org_id !== run.org_id ||
-        persistedTask.data.run_id !== run.run_id ||
-        persistedTask.data.task_id !== stableId(`${run.run_id}:task:publication`) ||
-        persistedTask.data.kind !== 'publication' ||
-        persistedTask.data.status !== 'running' ||
-        persistedTask.data.attempt !== run.attempt ||
-        persistedTask.data.dependencies.length !== 1 ||
-        persistedTask.data.dependencies[0] !== 'reviewer'
-      )
-        fail('INVALID_PUBLICATION_TASK', 422);
-
-      // Recheck both predecessors while holding the run fence. The caller's
-      // in-memory stage context is advisory only: publication is authorized
-      // by these persisted, successful Report and Reviewer checkpoints.
-      const predecessorRequirements = [
-        { kind: 'report', dependencies: ['insight'] },
-        { kind: 'reviewer', dependencies: ['report'] },
-      ] as const;
-      for (const requirement of predecessorRequirements) {
-        const taskId = stableId(`${run.run_id}:task:${requirement.kind}`);
-        const rows = await tx.query(
-          'SELECT payload FROM tasks WHERE org_id=$1 AND run_id=$2 AND id=$3 FOR UPDATE',
-          [run.org_id, run.run_id, taskId],
-        );
-        const task = RunTaskSchema.safeParse(json(rows[0] ?? {}));
-        if (
-          !task.success ||
-          task.data.task_id !== taskId ||
-          task.data.org_id !== run.org_id ||
-          task.data.run_id !== run.run_id ||
-          task.data.kind !== requirement.kind ||
-          task.data.status !== 'succeeded' ||
-          task.data.attempt !== run.attempt ||
-          task.data.error_code !== null ||
-          task.data.dependencies.length !== requirement.dependencies.length ||
-          task.data.dependencies.some(
-            (dependency, index) => dependency !== requirement.dependencies[index],
-          )
-        )
-          fail('INVALID_PUBLICATION_PREDECESSOR', 422);
-      }
-
-      const existingReportArtifact = await tx.query(
-        'SELECT id FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
-        [run.org_id, run.run_id, 'report'],
-      );
-      const existingRecord = await tx.query(
-        'SELECT id FROM reports WHERE org_id=$1 AND run_id=$2',
-        [run.org_id, run.run_id],
-      );
-      if (existingReportArtifact[0] || existingRecord[0]) fail('DUPLICATE_PUBLICATION', 409);
-
-      const artifactRows = await tx.query(
-        'SELECT id,artifact_key,payload FROM artifacts WHERE org_id=$1 AND run_id=$2',
-        [run.org_id, run.run_id],
-      );
-      const artifacts = artifactRows.map((row) => ArtifactSchema.parse(json(row))) as Artifact[];
-      const artifactKeys = new Map(
-        artifactRows.map((row) => [String(row.id), String(row.artifact_key)]),
-      );
-      const validations = (
-        await tx.query('SELECT payload FROM validations WHERE org_id=$1 AND run_id=$2', [
-          run.org_id,
-          run.run_id,
-        ])
-      ).map((row) => ArtifactValidationSchema.safeParse(json(row)));
-      if (
-        artifacts.some(
-          (artifact) =>
-            !validations.some(
-              (validation) =>
-                validation.success &&
-                validation.data.artifact_id === artifact.artifact_id &&
-                validation.data.org_id === run.org_id &&
-                validation.data.run_id === run.run_id &&
-                validation.data.valid === true,
-            ),
-        )
-      )
-        fail('PUBLICATION_VALIDATION_REQUIRED', 422);
-      const draft = artifacts.find((artifact) => artifact.artifact_id === input.draft_artifact_id);
-      const review = artifacts.find(
-        (artifact) => artifact.artifact_id === input.review_artifact_id,
-      );
-      if (draft?.kind !== 'report_draft' || review?.kind !== 'review_result')
-        fail('PUBLICATION_DRAFT_REVIEW_REQUIRED', 422);
-      const sourceIds = new Set(artifacts.flatMap((artifact) => artifact.source_refs));
-      const imports = await tx.query('SELECT id FROM imports WHERE org_id=$1', [run.org_id]);
-      const importIds = new Set(imports.map((row) => String(row.id)));
-      if ([...sourceIds].some((sourceId) => !importIds.has(sourceId)))
-        fail('MISSING_IMPORT_MANIFEST', 422);
-      if (report.task_id !== publicationTask.task_id) fail('INVALID_PUBLICATION_TASK', 422);
-      try {
-        validateAgentPublication(
-          draft as ArtifactOf<'report_draft'>,
-          review as ArtifactOf<'review_result'>,
-          report as ArtifactOf<'report'>,
-          artifacts,
-          run,
-          artifactKeys,
-        );
-      } catch (error) {
-        if (error instanceof Error && /^[A-Z_]{1,80}$/.test(error.message))
-          fail(error.message, 422);
-        throw error;
-      }
-
-      await tx.query(
-        'INSERT INTO artifacts(org_id,id,run_id,task_id,kind,artifact_key,payload) VALUES($1,$2,$3,$4,$5,$6,$7)',
-        [
-          report.org_id,
-          report.artifact_id,
-          report.run_id,
-          report.task_id,
-          report.kind,
-          'report',
-          JSON.stringify(report),
-        ],
-      );
-      await insertBatches(
-        tx,
-        'INSERT INTO artifact_inputs(org_id,run_id,artifact_id,input_id)',
-        report.input_refs.map((artifactId) => [
-          run.org_id,
-          run.run_id,
-          report.artifact_id,
-          artifactId,
-        ]),
-      );
-      await insertBatches(
-        tx,
-        'INSERT INTO artifact_snapshots(org_id,run_id,artifact_id,snapshot_id)',
-        report.snapshot_refs.map((snapshotId) => [
-          run.org_id,
-          run.run_id,
-          report.artifact_id,
-          snapshotId,
-        ]),
-      );
-      await insertBatches(
-        tx,
-        'INSERT INTO artifact_sources(org_id,artifact_id,import_id)',
-        report.source_refs.map((sourceId) => [run.org_id, report.artifact_id, sourceId]),
-      );
-      const validation: ArtifactValidation = {
-        artifact_id: report.artifact_id,
-        org_id: run.org_id,
-        run_id: run.run_id,
-        validated_at: now(),
-        validator_version: 'mvp-validator-v1',
-        valid: true,
-        checks: ['schema', 'hash', 'tenant', 'lineage', 'review-pass', 'publication-gate'],
-      };
-      await tx.query('INSERT INTO validations(org_id,id,run_id,payload) VALUES($1,$2,$3,$4)', [
-        run.org_id,
-        validation.artifact_id,
-        run.run_id,
-        JSON.stringify(validation),
-      ]);
-      const completedTask: RunTask = {
-        ...persistedTask.data,
-        status: 'succeeded',
-        error_code: null,
-      };
-      await tx.query('UPDATE tasks SET payload=$4 WHERE org_id=$1 AND run_id=$2 AND id=$3', [
-        run.org_id,
-        run.run_id,
-        completedTask.task_id,
-        JSON.stringify(completedTask),
-      ]);
-      const publicationEvent: RunEvent = {
-        event_id: randomUUID(),
-        run_id: run.run_id,
-        org_id: run.org_id,
-        created_at: now(),
-        task_id: completedTask.task_id,
-        message: 'publication: succeeded',
-      };
-      await tx.query('INSERT INTO events(org_id,id,run_id,payload) VALUES($1,$2,$3,$4)', [
-        run.org_id,
-        publicationEvent.event_id,
-        run.run_id,
-        JSON.stringify(publicationEvent),
-      ]);
-      run.status = 'succeeded';
-      run.report_artifact_id = report.artifact_id;
-      run.lease_until = null;
-      await this.updateRun(tx, run);
-      const record: ReportRecord = {
-        report_id: randomUUID(),
-        org_id: run.org_id,
-        run_id: run.run_id,
-        artifact_id: report.artifact_id,
-        created_at: now(),
-        occurrence_id: run.occurrence_id,
-      };
-      await tx.query(
-        'INSERT INTO reports(org_id,id,run_id,artifact_id,payload) VALUES($1,$2,$3,$4,$5)',
-        [run.org_id, record.report_id, run.run_id, report.artifact_id, JSON.stringify(record)],
-      );
-      // Draft and review records are intentionally owner/analyst-only. The
-      // shared completion message carries public artifact references only;
-      // authorized clients hydrate private workflow records separately.
-      const referencedArtifacts = [...artifacts, report].filter(
-        (artifact) => artifact.kind !== 'report_draft' && artifact.kind !== 'review_result',
-      );
-      await this.finalizeRunAssistant(tx, run, {
-        status: 'completed',
-        content:
-          'PhÃ¢n tÃ­ch Ä‘Ã£ hoÃ n thÃ nh. Má»Ÿ Decision Briefing Ä‘á»ƒ xem cÃ¡c tÃ­n hiá»‡u vÃ  báº±ng chá»©ng Ä‘Ã£ xÃ¡c thá»±c.',
-        parts: [
-          {
-            type: 'text',
-            text: 'PhÃ¢n tÃ­ch Ä‘Ã£ hoÃ n thÃ nh. Má»Ÿ Decision Briefing Ä‘á»ƒ xem cÃ¡c tÃ­n hiá»‡u vÃ  báº±ng chá»©ng Ä‘Ã£ xÃ¡c thá»±c.',
-          },
-          { type: 'run_ref', run_id: run.run_id, status: 'succeeded' },
-          { type: 'report_ref', run_id: run.run_id, report_id: record.report_id },
-          ...referencedArtifacts.map((artifact) => ({
-            type: 'artifact_ref' as const,
-            run_id: run.run_id,
-            artifact_id: artifact.artifact_id,
-            kind: artifact.kind,
-          })),
-        ],
-      });
-      return record;
-    });
+    return publishReviewedDraft(this.db, lease, input);
   }
   async failRun(lease: Lease, code: string) {
-    await this.db.transaction(async (tx) => {
-      const run = await this.fenced(tx, lease);
-      run.status = 'failed';
-      run.error_code = code;
-      run.lease_until = null;
-      await this.updateRun(tx, run);
-      await this.finalizeRunAssistant(tx, run, {
-        status: 'failed',
-        content: 'Lượt phân tích không thể hoàn tất.',
-        parts: [
-          { type: 'text', text: 'Lượt phân tích không thể hoàn tất.' },
-          { type: 'run_ref', run_id: run.run_id, status: 'failed' },
-          { type: 'error', code, retryable: true },
-        ],
-      });
-    });
+    return failRun(this.db, lease, code);
   }
   async listReports(user: string, org: string): Promise<ReportRecord[]> {
-    return (await this.readList<ReportRecord>(user, org, 'reports')).sort((a, b) =>
-      b.created_at.localeCompare(a.created_at),
-    );
+    return readReports(this.db, user, org);
   }
   async getReport(user: string, org: string, id: string) {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org);
-      const rows = await tx.query('SELECT payload FROM reports WHERE org_id=$1 AND id=$2', [
-        org,
-        id,
-      ]);
-      if (!rows[0]) fail('REPORT_NOT_FOUND', 404);
-      const report = json(rows[0]) as ReportRecord;
-      const artifacts = await tx.query('SELECT payload FROM artifacts WHERE org_id=$1 AND id=$2', [
-        org,
-        report.artifact_id,
-      ]);
-      return { report, artifact: json(artifacts[0]) as Artifact };
-    });
+    return readReport(this.db, user, org, id);
   }
   async createDefinition(user: string, input: ReportDefinitionInput, date = new Date()) {
-    return this.db.transaction(async (tx) => {
-      const parsed = ReportDefinitionInputSchema.parse(input);
-      await this.auth(tx, user, parsed.org_id, true);
-      const def: ReportDefinition = {
-        ...parsed,
-        report_definition_id: randomUUID(),
-        definition_version: 1,
-        created_by: user,
-        created_at: now(),
-        next_run_at: nextScheduledAt(parsed, date),
-      };
-      await tx.query(
-        'INSERT INTO definitions(org_id,id,created_by,next_run_at,enabled,payload) VALUES($1,$2,$3,$4,$5,$6)',
-        [
-          def.org_id,
-          def.report_definition_id,
-          user,
-          def.next_run_at,
-          Number(def.enabled),
-          JSON.stringify(def),
-        ],
-      );
-      return def;
-    });
+    return this.schedule().createDefinition(user, input, date);
   }
   async storeReportExport(
     user: string,
@@ -2272,44 +536,17 @@ class SqlRepository implements Repository {
     body: string,
     contentType: string,
   ): Promise<{ storage_path: string }> {
-    const storagePath = `${org}/${reportId}/${contentHash}.${format}`;
-    await this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org, false);
-      const record = await tx.query('SELECT payload FROM reports WHERE org_id=$1 AND id=$2', [
-        org,
-        reportId,
-      ]);
-      if (!record[0]) fail('REPORT_NOT_FOUND', 404);
-    });
-    try {
-      await this.storage().upload({
-        bucket: 'report-exports',
-        path: storagePath,
-        body,
-        contentType,
-        allowExisting: true,
-      });
-    } catch (error) {
-      if (error instanceof StorageError)
-        fail(error.code, error.code === 'STORAGE_CONFIG_REQUIRED' ? 503 : 502);
-      throw error;
-    }
-    await this.db.transaction(async (tx) => {
-      // Export is a read entitlement; the ledger is a server-owned projection.
-      await this.auth(tx, user, org, false);
-      const record = await tx.query('SELECT payload FROM reports WHERE org_id=$1 AND id=$2', [
-        org,
-        reportId,
-      ]);
-      if (!record[0]) fail('REPORT_NOT_FOUND', 404);
-      if (!storagePath.startsWith(`${org}/${reportId}/`)) fail('EXPORT_PATH_MISMATCH', 403);
-      await tx.query('RESET ROLE');
-      await tx.query(
-        'INSERT INTO report_exports(org_id,report_id,format,storage_path,content_hash,created_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(org_id,report_id,format) DO NOTHING',
-        [org, reportId, format, storagePath, contentHash, now()],
-      );
-    });
-    return { storage_path: storagePath };
+    return writeReportExport(
+      this.db,
+      this.options,
+      user,
+      org,
+      reportId,
+      format,
+      contentHash,
+      body,
+      contentType,
+    );
   }
   async updateDefinition(
     user: string,
@@ -2318,124 +555,19 @@ class SqlRepository implements Repository {
     input: ReportDefinitionInput,
     date = new Date(),
   ) {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org, true);
-      const old = await this.definition(tx, org, id);
-      const parsed = ReportDefinitionInputSchema.parse(input);
-      if (parsed.org_id !== org) fail('DEFINITION_SCOPE_MISMATCH', 403);
-      const def = {
-        ...old,
-        ...parsed,
-        definition_version: old.definition_version + 1,
-        next_run_at: nextScheduledAt(parsed, date),
-      };
-      await this.saveDefinition(tx, def);
-      return def;
-    });
+    return this.schedule().updateDefinition(user, org, id, input, date);
   }
   async listDefinitions(user: string, org: string): Promise<ReportDefinition[]> {
-    return this.readList(user, org, 'definitions');
+    return this.schedule().listDefinitions(user, org);
   }
-  private async definition(tx: Driver, org: string, id: string): Promise<ReportDefinition> {
-    const rows = await tx.query(
-      'SELECT payload FROM definitions WHERE org_id=$1 AND id=$2 FOR UPDATE',
-      [org, id],
-    );
-    if (!rows[0]) fail('DEFINITION_NOT_FOUND', 404);
-    return json(rows[0]) as ReportDefinition;
-  }
-  private async saveDefinition(tx: Driver, def: ReportDefinition) {
-    await tx.query(
-      'UPDATE definitions SET next_run_at=$1,enabled=$2,payload=$3 WHERE org_id=$4 AND id=$5',
-      [
-        def.next_run_at,
-        Number(def.enabled),
-        JSON.stringify(def),
-        def.org_id,
-        def.report_definition_id,
-      ],
-    );
-  }
-  private async occurrence(
-    tx: Driver,
-    def: ReportDefinition,
-    scheduled: string,
-  ): Promise<ReportOccurrence> {
-    await this.auth(tx, def.created_by, def.org_id, true);
-    const existing = await tx.query(
-      'SELECT payload FROM occurrences WHERE org_id=$1 AND definition_id=$2 AND scheduled_for=$3',
-      [def.org_id, def.report_definition_id, scheduled],
-    );
-    if (existing[0]) return json(existing[0]) as ReportOccurrence;
-    let asOf = localDate(new Date(scheduled), def.timezone);
-    if (def.data_as_of_policy === 'previous_day')
-      asOf = new Date(new Date(`${asOf}T00:00:00Z`).getTime() - 86400000)
-        .toISOString()
-        .slice(0, 10);
-    const id = randomUUID();
-    const run = await this.buildRun(
-      tx,
-      def.created_by,
-      {
-        org_id: def.org_id,
-        scope: def.scope,
-        data_as_of: asOf,
-        question: `Báo cáo hằng ngày: ${def.name}`,
-        conversation_id: null,
-      },
-      `schedule:${def.report_definition_id}:${scheduled}`,
-      { entrypoint: 'scheduled', occurrence_id: id },
-    );
-    const occurrence: ReportOccurrence = {
-      occurrence_id: id,
-      org_id: def.org_id,
-      report_definition_id: def.report_definition_id,
-      definition_version: def.definition_version,
-      definition_snapshot: def,
-      scheduled_for: scheduled,
-      run_id: run.run_id,
-      created_at: now(),
-    };
-    await tx.query(
-      'INSERT INTO occurrences(org_id,id,definition_id,scheduled_for,run_id,payload) VALUES($1,$2,$3,$4,$5,$6)',
-      [def.org_id, id, def.report_definition_id, scheduled, run.run_id, JSON.stringify(occurrence)],
-    );
-    return occurrence;
-  }
+
   async triggerDefinition(user: string, org: string, id: string, date = new Date()) {
-    return this.db.transaction(async (tx) => {
-      await this.auth(tx, user, org, true);
-      const def = await this.definition(tx, org, id);
-      const day = localDate(date, def.timezone);
-      const scheduled = scheduledOnDate(def, day);
-      return this.occurrence(tx, def, scheduled);
-    });
+    return this.schedule().triggerDefinition(user, org, id, date);
   }
   async tick(
     date = new Date(),
     scope?: { userId: string; orgId: string },
   ): Promise<ReportOccurrence[]> {
-    return this.db.transaction(async (tx) => {
-      if (scope) await this.auth(tx, scope.userId, scope.orgId, true);
-      const rows = await tx.query(
-        `SELECT payload FROM definitions WHERE enabled=1 AND next_run_at<=$1${scope ? ' AND org_id=$2' : ''} FOR UPDATE SKIP LOCKED`,
-        scope ? [date.toISOString(), scope.orgId] : [date.toISOString()],
-      );
-      const result: ReportOccurrence[] = [];
-      for (const row of rows) {
-        const def = json(row) as ReportDefinition;
-        try {
-          await this.auth(tx, def.created_by, def.org_id, true);
-        } catch {
-          def.enabled = false;
-          await this.saveDefinition(tx, def);
-          continue;
-        }
-        result.push(await this.occurrence(tx, def, def.next_run_at));
-        def.next_run_at = nextScheduledAt(def, date);
-        await this.saveDefinition(tx, def);
-      }
-      return result;
-    });
+    return this.schedule().tick(date, scope);
   }
 }

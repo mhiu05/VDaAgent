@@ -6,11 +6,12 @@ import type {
   MessageStatus,
 } from '@vda/contracts';
 import type { AgentTurn, Repository } from '@vda/db';
-import { AgentRuntime } from './runtime';
-import type { CapabilityRegistry } from './capability-registry';
-import { AgentRuntimeProviderError, type AgentRuntimeProvider } from './runtime-provider';
-import type { RuntimeContextBuilder } from './runtime-context';
-import { runtimeLimits } from './runtime-limits';
+import { AgentRuntime } from './runtime/runtime';
+import type { CapabilityRegistry } from './runtime/capabilities/registry';
+import { AgentRuntimeProviderError } from './runtime/providers/errors';
+import { type AgentRuntimeProvider } from './runtime/providers/contracts';
+import { type RuntimeContextBuilder } from './runtime/context/builder';
+import { runtimeLimits } from './runtime/limits';
 
 const ORG = '10000000-0000-4000-8000-000000000001';
 const CONVERSATION = '20000000-0000-4000-8000-000000000001';
@@ -363,25 +364,22 @@ describe('AgentRuntime', () => {
       activity_label: 'inspecting_context',
       max_calls_per_turn: 1,
     };
-    const runtime = new AgentRuntime(
-      { startTurn, finalizeTurn } as unknown as Repository,
-      {
-        provider: {
-          provider: 'gemini',
-          model: 'fixture',
-          plan,
-          compose: vi.fn(),
-        } as unknown as AgentRuntimeProvider,
-        context_builder: { build: async () => context() } as unknown as RuntimeContextBuilder,
-        registry: {
-          available: () => ['get_analysis_result'],
-          descriptor: () => descriptor,
-          preflight: () => ({ descriptor }),
-          execute,
-        } as unknown as CapabilityRegistry,
-        limits: { ...runtimeLimits(), turn_timeout_ms: 10 },
-      },
-    );
+    const runtime = new AgentRuntime({ startTurn, finalizeTurn } as unknown as Repository, {
+      provider: {
+        provider: 'gemini',
+        model: 'fixture',
+        plan,
+        compose: vi.fn(),
+      } as unknown as AgentRuntimeProvider,
+      context_builder: { build: async () => context() } as unknown as RuntimeContextBuilder,
+      registry: {
+        available: () => ['get_analysis_result'],
+        descriptor: () => descriptor,
+        preflight: () => ({ descriptor }),
+        execute,
+      } as unknown as CapabilityRegistry,
+      limits: { ...runtimeLimits(), turn_timeout_ms: 10 },
+    });
 
     const result = await runtime.submit(
       '70000000-0000-4000-8000-000000000001',

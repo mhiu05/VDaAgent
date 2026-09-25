@@ -24,7 +24,7 @@
     "scheduler:tick": "pnpm --filter @vda/worker scheduler:tick",
     "contracts:export": "tsx src/backend/packages/contracts/src/export.ts",
     "check:docs": "tsx src/backend/scripts/check-docs.ts",
-    "check:security": "tsx src/backend/scripts/check-security.ts",
+    "check:security": "tsx src/backend/scripts/check-security.ts && tsx src/backend/scripts/check-architecture.ts",
     "mock-data:validate-source": "tsx scripts/mock-data/validate-source.ts",
     "mock-data:import": "tsx scripts/mock-data/import-mock-data.ts --import",
     "mock-data:validate-import": "tsx scripts/mock-data/validate-import.ts"

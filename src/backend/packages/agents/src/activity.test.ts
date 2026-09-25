@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AgentActivityEmitter } from './activity';
+import { AgentActivityEmitter } from './runtime/activity';
 
 describe('AgentActivityEmitter', () => {
   it('emits strictly bounded public activity in monotonic order', () => {

@@ -43,6 +43,7 @@ const required = (...names) => {
 };
 const { LLM_MODE: _legacyLlmMode, ...inheritedEnv } = process.env;
 const agentWorkflowEnabled = process.env.E2E_AGENT_WORKFLOW === 'true';
+const durableAgentExecutionEnabled = process.env.E2E_DURABLE_AGENT_EXECUTION === 'true';
 const env = {
   ...inheritedEnv,
   APP_MODE: 'supabase',
@@ -64,6 +65,7 @@ const env = {
   // E2E_AGENT_WORKFLOW=true so the rollout flag is exercised without changing
   // legacy regression expectations.
   AGENT_WORKFLOW_ENABLED: agentWorkflowEnabled ? 'true' : 'false',
+  DURABLE_AGENT_EXECUTION_ENABLED: durableAgentExecutionEnabled ? 'true' : 'false',
 };
 const children = [
   spawn(

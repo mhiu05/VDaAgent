@@ -3,9 +3,12 @@ import type { AgentTurnRequest, AnalysisRequest } from '@vda/contracts';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 import { executeLease, SAFE_SUMMARY } from './index';
-import { executeAgentWorkflow } from './agent-workflow';
-import { type NarrativeProvider } from './provider';
-import { assertWorkspaceConversationCoherence, RuntimeContextBuilder } from './runtime-context';
+import { executeAgentWorkflow } from './analysis-v1/workflow';
+import { type NarrativeProvider } from './legacy-workflow/narrative/provider';
+import {
+  assertWorkspaceConversationCoherence,
+  RuntimeContextBuilder,
+} from './runtime/context/builder';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 
@@ -147,7 +150,10 @@ describe('RuntimeContextBuilder', () => {
       active_run: { run_id: run.run_id, status: 'succeeded' },
       active_report: { run_id: run.run_id, report_id: report.report_id },
       active_chart: { run_id: run.run_id, chart_id: visual.chart_id },
-      active_priority_entity: { run_id: run.run_id, priority_entity_id: priority.priority_entity_id },
+      active_priority_entity: {
+        run_id: run.run_id,
+        priority_entity_id: priority.priority_entity_id,
+      },
       drilldown: { run_id: run.run_id, drilldown_id: drilldown.drilldown_id },
       evidence: {
         run_id: run.run_id,
@@ -195,9 +201,7 @@ describe('RuntimeContextBuilder', () => {
       active_chart: null,
       policy: { requires_fresh_analysis: true },
     });
-    expect(
-      (context.provider_context.active as { run: unknown }).run,
-    ).toBeNull();
+    expect((context.provider_context.active as { run: unknown }).run).toBeNull();
     expect(context.resolution_issues).toContainEqual({
       ref_kind: 'run',
       code: 'STALE_CONTEXT',

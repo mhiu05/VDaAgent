@@ -79,6 +79,12 @@ export async function createTestDatabase() {
       'utf8',
     ),
   );
+  await pg.exec(
+    await readFile(
+      'src/backend/supabase/migrations/20260924120000_durable_agent_execution.sql',
+      'utf8',
+    ),
+  );
   return pg;
 }
 

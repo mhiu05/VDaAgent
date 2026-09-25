@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 const org = '10000000-0000-4000-8000-000000000001';
 const beta = '10000000-0000-4000-8000-000000000002';
 const agentWorkflow = process.env.E2E_AGENT_WORKFLOW === 'true';
+const durableExecution = process.env.E2E_DURABLE_AGENT_EXECUTION === 'true';
 const requestBody = {
   org_id: org,
   scope: { project_external_id: 'P-ALPHA', zone_external_id: null },
@@ -32,7 +33,7 @@ async function completed(api: APIRequestContext, id: string) {
 test('API: import, idempotency, report lineage, private export, scheduler and authorization', async ({
   request,
 }) => {
-  test.skip(agentWorkflow, 'Legacy regression is exercised with the default workflow flag.');
+  test.skip(agentWorkflow || durableExecution, 'Legacy regression is exercised with the default workflow flags.');
   expect((await request.get('/api/v1/session')).status()).toBe(401);
   await login(request);
   const key = crypto.randomUUID();
@@ -219,7 +220,7 @@ test('API: import, idempotency, report lineage, private export, scheduler and au
 test('Agent-v1 API: persisted identities, private checkpoints and guarded follow-up', async ({
   request,
 }) => {
-  test.skip(!agentWorkflow, 'Run with E2E_AGENT_WORKFLOW=true to exercise the opt-in workflow.');
+  test.skip(!agentWorkflow || durableExecution, 'Run with E2E_AGENT_WORKFLOW=true to exercise the opt-in workflow.');
   await login(request);
   const turn = await request.post('/api/v1/conversations', {
     data: {
@@ -311,8 +312,30 @@ test('Agent-v1 API: persisted identities, private checkpoints and guarded follow
     403,
   );
 });
+test('Durable multi-agent projection persists through reload and exposes published report only after completion', async ({page}) => {
+  test.skip(process.env.E2E_DURABLE_AGENT_EXECUTION !== 'true','Run with E2E_DURABLE_AGENT_EXECUTION=true to exercise durable persona projection.');
+  await page.goto('/');
+  await page.getByLabel('Email').fill(accounts.owner);
+  await page.getByLabel('Mật khẩu').fill('local-test-only');
+  await page.getByRole('button',{name:'Đăng nhập'}).click();
+  await page.getByLabel('Ngày dữ liệu',{exact:true}).fill('2026-09-19');
+  await page.getByLabel('Câu hỏi phân tích').fill('Analyze slow-moving inventory.');
+  await page.getByRole('button',{name:'Gửi yêu cầu',exact:true}).click();
+  await expect(page.getByRole('button',{name:/Data Completed/})).toBeVisible({timeout:45_000});
+  await expect(page.getByRole('button',{name:/Compare Completed/})).toBeVisible({timeout:45_000});
+  await expect(page.getByRole('button',{name:/Insight Completed/})).toBeVisible({timeout:45_000});
+  await expect(page.getByRole('button',{name:/Report Completed/})).toBeVisible({timeout:45_000});
+  await page.getByRole('button',{name:/Data Completed/}).click();
+  await expect(page.getByLabel('Agent execution inspector')).toContainText('Internal stages');
+  await page.reload();
+  await expect(page.getByRole('button',{name:/Orchestrator Completed/})).toBeVisible({timeout:20_000});
+  await page.getByRole('button',{name:/Report Completed/}).click();
+  await expect(page.getByRole('button',{name:'Open published report'})).toBeVisible();
+  const selectedConversation = await page.locator('[aria-current="page"].agent-conversation-item').getAttribute('aria-current');
+  expect(selectedConversation).toBe('page');
+});
 test('Owner UI: Project → evidence → report; analyst Zone; viewer read-only', async ({ page }) => {
-  test.skip(agentWorkflow, 'Legacy UI regression is exercised with the default workflow flag.');
+  test.skip(agentWorkflow || durableExecution, 'Legacy UI regression is exercised with the default workflow flags.');
   await page.goto('/');
   await page.getByLabel('Email').fill(accounts.owner);
   await page.getByLabel('Mật khẩu').fill('local-test-only');

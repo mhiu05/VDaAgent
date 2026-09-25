@@ -2,12 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentTurnRequest, AnalysisRequest } from '@vda/contracts';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { executeAgentWorkflow } from './agent-workflow';
-import { CapabilityRegistry, createCapabilityExecutionBudget } from './capability-registry';
-import { deterministicGroundedAnswer } from './answer-composer';
-import { SAFE_SUMMARY } from './integrity';
-import { type NarrativeProvider } from './provider';
-import { RuntimeContextBuilder } from './runtime-context';
+import { executeAgentWorkflow } from './analysis-v1/workflow';
+import {
+  CapabilityRegistry,
+  createCapabilityExecutionBudget,
+} from './runtime/capabilities/registry';
+import { deterministicGroundedAnswer } from './runtime/composition/answer-composer';
+import { SAFE_SUMMARY } from '@vda/domain';
+import { type NarrativeProvider } from './legacy-workflow/narrative/provider';
+import { RuntimeContextBuilder } from './runtime/context/builder';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 
@@ -164,7 +167,10 @@ describe('CapabilityRegistry', () => {
           kind: 'decision',
           availability: 'available',
           grounding_refs: expect.arrayContaining([
-            expect.objectContaining({ type: 'run', ref: { run_id: run.run_id, status: 'succeeded' } }),
+            expect.objectContaining({
+              type: 'run',
+              ref: { run_id: run.run_id, status: 'succeeded' },
+            }),
           ]),
         }),
       ]),
@@ -191,7 +197,9 @@ describe('CapabilityRegistry', () => {
       status: 'available',
     });
     expect(visualResult.observations).toEqual(
-      expect.arrayContaining([expect.objectContaining({ kind: 'metric', availability: 'available' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'metric', availability: 'available' }),
+      ]),
     );
     expect(objectKeys(visualResult)).not.toEqual(
       expect.arrayContaining(['data', 'value', 'rows', 'payload']),
@@ -299,7 +307,7 @@ describe('CapabilityRegistry', () => {
         descriptor.id === 'get_analysis_result'
           ? {
               ...descriptor,
-              execute: async () => ({ version: 'not-a-capability-result' } as never),
+              execute: async () => ({ version: 'not-a-capability-result' }) as never,
             }
           : descriptor,
       ),

@@ -2,8 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { type AnalysisRequest, type DataAnalysisPack } from '@vda/contracts';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { calculateDataAgentOutput, validateDataAnalysisPack } from './data-agent';
-import { executeCoordinatorAndData } from './workflow';
+import {
+  calculateDataAgentOutput,
+  validateDataAnalysisPack,
+} from './analysis-v1/agents/data-agent';
+import { executeCoordinatorAndData } from './analysis-v1/stages/coordinator-data';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 

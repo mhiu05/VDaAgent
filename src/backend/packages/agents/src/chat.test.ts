@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from './index';
-import { executeAgentWorkflow } from './agent-workflow';
-import { AgentChatOrchestrator, ConversationContextBuilder } from './chat';
-import type { AgentDecisionProvider } from './provider';
+import { executeAgentWorkflow } from './analysis-v1/workflow';
+import { AgentChatOrchestrator } from './chat/legacy/orchestrator';
+import { ConversationContextBuilder } from './chat/legacy/context-builder';
+import { type AgentDecisionProvider } from './chat/legacy/provider';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 

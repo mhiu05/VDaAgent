@@ -3,6 +3,10 @@ import type {
   AnalysisRun,
   AgentKey,
   AgentTurnRequest,
+  AgentTurnJob,
+  AgentInvocation,
+  AgentExecutionEvent,
+  AgentExecutionStatus,
   Artifact,
   ArtifactOf,
   ArtifactValidation,
@@ -38,6 +42,7 @@ export interface AgentTurn {
   assistant_message: Message;
   idempotent_replay: boolean;
 }
+export interface AgentJobLease { job: AgentTurnJob; worker_id: string; fencing_token: number }
 export interface TurnContext {
   org_id: string;
   conversation_id: string;
@@ -97,6 +102,7 @@ export function logicalArtifactKey(
 
 export interface Repository {
   close(): Promise<void>;
+  hasAgentExecutionSchema(): Promise<boolean>;
   session(userId: string, email?: string): Promise<Session>;
   authorize(userId: string, orgId: string, write?: boolean): Promise<Role>;
   catalog(userId: string, orgId: string): Promise<Catalog>;
@@ -134,6 +140,19 @@ export interface Repository {
     idempotencyKey: string,
     conversationId?: string,
   ): Promise<AgentTurn>;
+  enqueueAgentTurn(userId: string, input: AgentTurnRequest, idempotencyKey: string, conversationId?: string): Promise<AgentTurn & { job: AgentTurnJob }>;
+  getAgentTurnJob(userId: string, orgId: string, jobId: string, after?: number): Promise<{ job: AgentTurnJob; invocations: AgentInvocation[]; events: AgentExecutionEvent[] }>;
+  getLatestAgentTurnJob(userId: string, orgId: string, conversationId: string): Promise<{ job: AgentTurnJob; invocations: AgentInvocation[]; events: AgentExecutionEvent[] } | null>;
+  cancelAgentTurnJob(userId: string, orgId: string, jobId: string): Promise<AgentTurnJob>;
+  claimAgentTurnJob(workerId: string, now?: Date, leaseMs?: number): Promise<AgentJobLease | null>;
+  renewAgentTurnLease(lease: AgentJobLease, leaseMs?: number): Promise<void>;
+  startAgentAnalysis(lease: AgentJobLease): Promise<AnalysisRun>;
+  resumeAgentAnalysis(lease: AgentJobLease): Promise<{ status: 'completed' | 'failed' | 'cancelled'; run_id: string; artifact_id: string | null }>;
+  failAgentTurnJob(lease: AgentJobLease, errorCode: string): Promise<void>;
+  completeAgentTurnJob(lease: AgentJobLease, content: string): Promise<Message>;
+  waitAgentTurnForRun(lease: AgentJobLease, runId: string): Promise<void>;
+  createAgentInvocation(lease: AgentJobLease, parentId: string, stepKey: string, agentKey: string): Promise<AgentInvocation>;
+  setAgentInvocationStatus(lease: AgentJobLease, invocationId: string, status: AgentExecutionStatus): Promise<AgentInvocation>;
   attachRunToTurn(
     userId: string,
     context: TurnContext,

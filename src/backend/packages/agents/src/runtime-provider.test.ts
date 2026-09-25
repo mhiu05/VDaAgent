@@ -1,16 +1,16 @@
 import OpenAI from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentPlanV1, GroundedResponseSelectionV1 } from '@vda/contracts';
+import { AgentRuntimeProviderError } from './runtime/providers/errors';
+import { GeminiAgentRuntimeProvider } from './runtime/providers/gemini-provider';
+import { OpenAIAgentRuntimeProvider } from './runtime/providers/openai-provider';
+import { OrderedFallbackAgentRuntimeProvider } from './runtime/providers/fallback';
 import {
-  AgentRuntimeProviderError,
-  GeminiAgentRuntimeProvider,
-  OpenAIAgentRuntimeProvider,
-  OrderedFallbackAgentRuntimeProvider,
   type AgentRuntimeComposerInput,
   type AgentRuntimePlannerInput,
   type AgentRuntimeProvider,
-} from './runtime-provider';
-import { XaiAgentRuntimeProvider } from './xai-provider';
+} from './runtime/providers/contracts';
+import { XaiAgentRuntimeProvider } from './runtime/providers/xai-provider';
 
 const runId = '50000000-0000-4000-8000-000000000001';
 const plan: AgentPlanV1 = {

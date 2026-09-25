@@ -7,12 +7,10 @@ const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 export default defineConfig({
   root: repositoryRoot,
   resolve: {
-    alias: Object.fromEntries(
-      ['contracts', 'config', 'semantic', 'agents', 'db', 'domain'].map((name) => [
-        `@vda/${name}`,
-        resolve(repositoryRoot, `src/backend/packages/${name}/src/index.ts`),
-      ]),
-    ),
+    alias: ['contracts', 'config', 'semantic', 'agents', 'db', 'domain'].map((name) => ({
+      find: new RegExp(`^@vda/${name}$`),
+      replacement: resolve(repositoryRoot, `src/backend/packages/${name}/src/index.ts`),
+    })),
   },
   test: {
     // PGlite starts an in-process PostgreSQL instance for each file. Running
@@ -22,6 +20,8 @@ export default defineConfig({
     fileParallelism: false,
     include: [
       'src/backend/packages/**/*.test.ts',
+      'src/backend/worker/src/**/*.test.ts',
+      'scripts/mock-data/lib/**/*.test.ts',
       'src/backend/tests/unit/**/*.test.ts',
       'src/frontend/src/**/*.test.ts',
       'src/frontend/src/**/*.test.tsx',

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentPlanV1 } from '@vda/contracts';
-import type { CapabilityRegistry } from './capability-registry';
-import { validateAgentPlan } from './planner';
-import type { AuthorizedAgentContextV1 } from './runtime-context';
+import type { CapabilityRegistry } from './runtime/capabilities/registry';
+import { validateAgentPlan } from './runtime/planning/planner';
+import { type AuthorizedAgentContextV1 } from './runtime/context/types';
 
 const RUN_A = '50000000-0000-4000-8000-000000000001';
 const RUN_B = '50000000-0000-4000-8000-000000000002';

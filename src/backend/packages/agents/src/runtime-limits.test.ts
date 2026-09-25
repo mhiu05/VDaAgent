@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AGENT_RUNTIME_LIMITS, runtimeLimits } from './runtime-limits';
+import { AGENT_RUNTIME_LIMITS, runtimeLimits } from './runtime/limits';
 
 describe('runtimeLimits', () => {
   it('uses the P0 defaults and accepts a smaller validated turn deadline', () => {

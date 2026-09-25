@@ -7,15 +7,15 @@ import {
 } from '@vda/contracts';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { executeIndependentBranches } from './branch-workflow';
+import { executeIndependentBranches } from './analysis-v1/stages/branches';
 import {
   executeAgentThroughDraft,
   executeInsightStage,
   executeReportDraftStage,
-} from './draft-workflow';
+} from './analysis-v1/stages/insight-report';
 import { exportReport } from './index';
-import { artifactHash, SAFE_SUMMARY, stableId, validateReport } from './integrity';
-import { executeCoordinatorAndData } from './workflow';
+import { artifactHash, SAFE_SUMMARY, stableId, validateReport } from '@vda/domain';
+import { executeCoordinatorAndData } from './analysis-v1/stages/coordinator-data';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 

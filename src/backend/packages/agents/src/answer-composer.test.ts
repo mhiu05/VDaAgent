@@ -12,9 +12,12 @@ import {
 } from '@vda/contracts';
 import { analyze } from '@vda/semantic';
 import type { Repository } from '@vda/db';
-import { artifactHash } from './integrity';
-import { GroundingValidationError, validateAndRenderGroundedResponse } from './answer-composer';
-import type { AuthorizedAgentContextV1 } from './runtime-context';
+import { artifactHash } from '@vda/domain';
+import {
+  GroundingValidationError,
+  validateAndRenderGroundedResponse,
+} from './runtime/composition/answer-composer';
+import { type AuthorizedAgentContextV1 } from './runtime/context/types';
 
 const ORG = '10000000-0000-4000-8000-000000000001';
 const RUN = '50000000-0000-4000-8000-000000000001';
@@ -201,14 +204,18 @@ describe('grounded answer composer', () => {
     const forgedId = structuredClone(base);
     forgedId.blocks[0]!.observation_ids = ['not-supplied-by-server'];
     await expect(
-      validateAndRenderGroundedResponse(forgedId, { ...values, observations: observations(metric.key) }),
+      validateAndRenderGroundedResponse(forgedId, {
+        ...values,
+        observations: observations(metric.key),
+      }),
     ).rejects.toBeInstanceOf(GroundingValidationError);
 
     const forgedPath = observations(metric.key);
     const metricReference = forgedPath[0]!.grounding_refs.find(
       (reference) => reference.type === 'metric',
     );
-    if (!metricReference || metricReference.type !== 'metric') throw new Error('METRIC_REFERENCE_REQUIRED');
+    if (!metricReference || metricReference.type !== 'metric')
+      throw new Error('METRIC_REFERENCE_REQUIRED');
     metricReference.ref.evidence_path = 'payload.metrics[99].value';
     await expect(
       validateAndRenderGroundedResponse(base, { ...values, observations: forgedPath }),

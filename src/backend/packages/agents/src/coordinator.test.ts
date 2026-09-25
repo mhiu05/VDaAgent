@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { CoordinatorError, coordinateRun } from './coordinator';
+import { CoordinatorError, coordinateRun } from './analysis-v1/agents/coordinator-agent';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 async function setup() {

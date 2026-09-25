@@ -6,7 +6,7 @@ import {
   inspectSignalTool,
   modelToolNames,
   resolveAgentTargetFollowUpAction,
-} from './tools';
+} from './chat/operations';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 

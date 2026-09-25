@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { Claim } from '@vda/contracts';
 import {
   FallbackAgentDecisionProvider,
-  FallbackNarrativeProvider,
   GeminiAgentDecisionProvider,
-  GeminiProvider,
   type AgentDecisionProvider,
+} from './chat/legacy/provider';
+import {
+  FallbackNarrativeProvider,
+  GeminiProvider,
   type NarrativeProvider,
-} from './provider';
+} from './legacy-workflow/narrative/provider';
 
 const claims: Claim[] = [
   {
