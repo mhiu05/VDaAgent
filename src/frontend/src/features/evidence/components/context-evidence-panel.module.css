@@ -1,0 +1,374 @@
+.panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.header {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.header h2 {
+  font-size: 18px;
+  margin: 3px 0 0;
+}
+
+.notice {
+  align-items: center;
+  background: var(--color-warning-soft);
+  border: 1px solid var(--color-warning-border);
+  border-radius: 10px;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 9px 10px;
+}
+
+.notice p {
+  margin: 0;
+}
+
+.tabs {
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  gap: 5px;
+  justify-content: center;
+  margin-bottom: -1px;
+  min-height: 35px;
+  padding: 7px 3px;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  color: var(--color-signal);
+}
+
+.tab[data-active='true'] {
+  border-bottom-color: var(--color-signal);
+  color: var(--color-signal-hover);
+  font-weight: 700;
+}
+
+.tabPanel {
+  min-height: 180px;
+}
+
+.detailList {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.detailRow {
+  align-items: baseline;
+  border-bottom: 1px solid var(--color-surface-muted);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(82px, 0.72fr) minmax(0, 1.28fr);
+  padding: 9px 0;
+}
+
+.detailRow:first-child {
+  padding-top: 0;
+}
+
+.detailRow dt {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.detailRow dd {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.detailRow code,
+.selectedArtifact code {
+  display: block;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.empty {
+  align-items: flex-start;
+  color: var(--color-muted);
+  display: flex;
+  gap: 9px;
+  padding: 20px 4px 4px;
+}
+
+.empty > svg {
+  color: var(--color-signal);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.empty h3 {
+  color: var(--color-ink);
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+.empty p {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.sectionLabel {
+  color: var(--color-muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.selectedArtifact,
+.runStatus {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-signal-border);
+  border-radius: 10px;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+}
+
+.selectedArtifact strong,
+.runStatus strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.validation {
+  color: var(--color-warning);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.validation[data-valid='true'] {
+  color: var(--color-success);
+}
+
+.artifactList,
+.fileList,
+.taskList,
+.events ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.artifactList,
+.fileList,
+.taskList {
+  border-top: 1px solid var(--color-surface-muted);
+}
+
+.artifactList li,
+.fileList li {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-surface-muted);
+  color: var(--color-signal);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 10px 0;
+}
+
+.artifactList li[data-selected='true'] {
+  background: linear-gradient(90deg, var(--color-signal-soft), transparent);
+}
+
+.artifactList strong,
+.fileList strong {
+  color: var(--color-ink);
+  display: block;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.artifactList span,
+.fileList span,
+.runStatus span:last-child {
+  color: var(--color-muted);
+  display: block;
+  font-size: 10px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.artifactList time {
+  color: var(--color-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.fileList li {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.runStatus strong[data-status='succeeded'] {
+  color: var(--color-success);
+}
+
+.runStatus strong[data-status='failed'] {
+  color: var(--color-danger);
+}
+
+.runStatus strong[data-status='cancelled'] {
+  color: var(--color-muted);
+}
+
+.runStatus strong[data-status='running'] {
+  color: var(--color-info);
+}
+
+.taskList li {
+  align-items: center;
+  border-bottom: 1px solid var(--color-surface-muted);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 9px 0;
+}
+
+.taskList li > span {
+  background: var(--color-muted);
+  border-radius: 999px;
+  height: 7px;
+  width: 7px;
+}
+
+.taskList li[data-status='succeeded'] > span {
+  background: var(--color-success);
+}
+
+.taskList li[data-status='running'] > span {
+  background: var(--color-info);
+}
+
+.taskList li[data-status='failed'] > span {
+  background: var(--color-danger);
+}
+
+.taskList strong {
+  color: var(--color-ink);
+  display: block;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.taskList small {
+  color: var(--color-muted);
+  display: block;
+  font-size: 10px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.taskList em {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+  text-transform: capitalize;
+}
+
+.events {
+  border-top: 1px solid var(--color-border);
+  padding-top: 11px;
+}
+
+.events ul {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.events li {
+  color: var(--color-ink-soft);
+  display: grid;
+  font-size: 11px;
+  gap: 3px;
+}
+
+.events time {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.qualityNote {
+  align-items: flex-start;
+  border-top: 1px solid var(--line);
+  color: var(--color-muted);
+  display: flex;
+  font-size: 10px;
+  gap: 6px;
+  line-height: 1.45;
+  margin: 0;
+  padding-top: 11px;
+}
+
+.qualityNote svg {
+  color: var(--color-signal);
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+@media (max-width: 420px) {
+  .tab {
+    font-size: 10px;
+    gap: 3px;
+  }
+
+  .detailRow {
+    gap: 3px;
+    grid-template-columns: 1fr;
+  }
+
+  .detailRow dd {
+    text-align: left;
+  }
+
+  .artifactList li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .artifactList time {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none;
+  }
+}

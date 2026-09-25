@@ -7,7 +7,8 @@ import {
   type AgentActivityEventV1,
   type AgentTurnRequest,
 } from '@vda/contracts';
-import { ApiError, scoped, type TurnRequestIdentity } from './client-api';
+import { ApiError, scoped } from './http/api-client';
+import { type TurnRequestIdentity } from './http/turn-identity';
 
 const MAX_SSE_BUFFER_SIZE = 64_000;
 type AgentTurnStreamTerminal = Extract<

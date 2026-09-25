@@ -6,24 +6,27 @@
     "dev": "node ./next-with-env.mjs dev --hostname 127.0.0.1",
     "build": "node ./next-with-env.mjs build",
     "start": "node ./next-with-env.mjs start --hostname 127.0.0.1",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:design-tokens": "node ./scripts/check-design-tokens.mjs"
   },
   "dependencies": {
-    "@vda/contracts": "workspace:*",
-    "@vda/config": "workspace:*",
-    "@vda/db": "workspace:*",
-    "@vda/agents": "workspace:*",
+    "@gsap/react": "^2.1.2",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.116.0",
+    "@vda/agents": "workspace:*",
+    "@vda/config": "workspace:*",
+    "@vda/contracts": "workspace:*",
+    "@vda/db": "workspace:*",
+    "gsap": "^3.15.0",
+    "lucide-react": "1.47.0",
     "next": "16.3.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "recharts": "3.10.1",
-    "lucide-react": "1.47.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "tailwindcss": "4.3.3",
-    "@tailwindcss/postcss": "4.3.3"
+    "@tailwindcss/postcss": "4.3.3",
+    "tailwindcss": "4.3.3"
   }
 }

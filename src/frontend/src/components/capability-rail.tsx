@@ -17,11 +17,11 @@ export const capabilityModes: Array<{
   icon: LucideIcon;
 }> = [
   { mode: 'grok', label: 'Grok', icon: Bot },
-  { mode: 'data', label: 'Data', icon: Table2 },
-  { mode: 'insight', label: 'Insights', icon: Lightbulb },
-  { mode: 'compare', label: 'Compare', icon: GitCompareArrows },
-  { mode: 'chart', label: 'Charts', icon: BarChart3 },
-  { mode: 'report', label: 'Reports', icon: FileText },
+  { mode: 'data', label: 'Dữ liệu', icon: Table2 },
+  { mode: 'insight', label: 'Nhận định', icon: Lightbulb },
+  { mode: 'compare', label: 'So sánh', icon: GitCompareArrows },
+  { mode: 'chart', label: 'Biểu đồ', icon: BarChart3 },
+  { mode: 'report', label: 'Báo cáo', icon: FileText },
 ];
 
 export function capabilityLabel(mode: CapabilityMode) {
@@ -36,8 +36,8 @@ export function CapabilityRail({
   onMode: (mode: CapabilityMode) => void;
 }) {
   return (
-    <nav className="capability-rail" aria-label="Assistant capabilities">
-      <p className="nav-caption">CAPABILITIES</p>
+    <nav className="capability-rail" aria-label="Chế độ trợ lý">
+      <p className="nav-caption">CHẾ ĐỘ TRỢ LÝ</p>
       {capabilityModes.map((item) => (
         <button
           className={'nav-item ' + (mode === item.mode ? 'active' : '')}

@@ -1,0 +1,107 @@
+:root,
+[data-theme='sakura-signal'] {
+  color-scheme: light;
+
+  --color-midnight: #25243a;
+  --color-midnight-raised: #302e49;
+  --color-paper: #fbf7f1;
+  --color-surface: #fffdf9;
+  --color-surface-muted: #f4efe9;
+  --color-surface-strong: #ece5df;
+  --color-ink: #29283e;
+  --color-ink-soft: #4d4d63;
+  --color-muted: #6e6d80;
+  --color-border: #e3dce0;
+  --color-border-strong: #cfc3ca;
+  --color-accent: #b94763;
+  --color-accent-hover: #96354f;
+  --color-accent-soft: #f7e7eb;
+  --color-accent-border: #e8c4ce;
+  --color-signal: #28756f;
+  --color-signal-soft: #e4f1ee;
+  --color-signal-border: #bddbd5;
+  --color-signal-hover: #1e5d58;
+  --color-signal-glaze: color-mix(in srgb, var(--color-signal) 28%, transparent);
+  --color-success: #246e52;
+  --color-success-soft: #e8f3ec;
+  --color-warning: #8d5c1d;
+  --color-warning-soft: #f8efdf;
+  --color-warning-border: color-mix(in srgb, var(--color-warning) 26%, var(--color-border));
+  --color-danger: #a13d49;
+  --color-danger-soft: #f8e9e9;
+  --color-danger-border: color-mix(in srgb, var(--color-danger) 25%, var(--color-border));
+  --color-info: #496581;
+  --color-info-soft: #eaf0f5;
+  --color-info-glaze: color-mix(in srgb, var(--color-info) 28%, transparent);
+  --color-focus: #315e9f;
+  --color-on-accent: #fffaf5;
+  --color-on-accent-muted: #c7c2d0;
+  --color-on-accent-soft: #d8d3df;
+  --color-on-accent-subtle: #c0bdcc;
+  --color-on-accent-faint: color-mix(in srgb, var(--color-on-accent) 14%, transparent);
+  --color-accent-glaze: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  --color-overlay: rgb(25 24 43 / 52%);
+  --color-print-ink: #25243a;
+  --color-print-paper: #fffdf9;
+
+  --chart-series-1: #b94763;
+  --chart-series-2: #28756f;
+  --chart-series-3: #a36a24;
+  --chart-series-4: #555486;
+  --chart-series-5: #3d7193;
+  --chart-series-6: #8a526f;
+  --chart-grid: #e7e0e1;
+  --chart-axis: #706f80;
+
+  --font-ui: var(--font-be-vietnam-pro), sans-serif;
+  --font-story: var(--font-bricolage-grotesque), var(--font-be-vietnam-pro), sans-serif;
+  --font-code: var(--font-ibm-plex-mono), ui-monospace, monospace;
+
+  --text-xs: 0.72rem;
+  --text-sm: 0.84rem;
+  --text-md: 0.94rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.42rem;
+  --text-display: clamp(2rem, 3vw, 2.8rem);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --radius-sm: 0.38rem;
+  --radius-md: 0.72rem;
+  --radius-lg: 1.15rem;
+  --radius-pill: 999px;
+
+  --shadow-raised: 0 18px 44px color-mix(in srgb, var(--color-midnight) 13%, transparent);
+  --shadow-floating: 0 24px 72px color-mix(in srgb, var(--color-midnight) 22%, transparent);
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--color-focus) 24%, transparent);
+
+  --z-sticky: 20;
+  --z-sidebar: 30;
+  --z-dialog: 80;
+  --z-toast: 100;
+
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 140ms;
+  --duration-normal: 220ms;
+
+  --sidebar: 264px;
+
+  /* Temporary aliases keep the existing component contracts on the shared tokens. */
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --green: var(--color-signal);
+  --green-dark: var(--color-accent-hover);
+  --line: var(--color-border);
+  --canvas: var(--color-paper);
+  --warm: var(--color-warning);
+  --font-sans: var(--font-ui);
+}

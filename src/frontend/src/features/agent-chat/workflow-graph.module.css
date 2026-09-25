@@ -1,0 +1,112 @@
+.graph {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.agent {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+.agent .coordinator {
+  grid-column: 1;
+  grid-row: 1;
+}
+.agent .data {
+  grid-column: 2;
+  grid-row: 1;
+}
+.agent .comparison {
+  grid-column: 1;
+  grid-row: 2;
+}
+.agent .chart {
+  grid-column: 2;
+  grid-row: 2;
+}
+.agent .analyst {
+  grid-column: 3;
+  grid-row: 2;
+}
+.agent .insight {
+  grid-column: 2;
+  grid-row: 3;
+}
+.agent .report {
+  grid-column: 1;
+  grid-row: 4;
+}
+.agent .reviewer {
+  grid-column: 2;
+  grid-row: 4;
+}
+.agent .publication {
+  grid-column: 3;
+  grid-row: 4;
+}
+.agent .comparison, .agent .chart, .agent .analyst { border-top: 3px solid var(--color-signal); }
+
+.graph article {
+  position: relative;
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  color: var(--color-ink-soft);
+  display: flex;
+  gap: 8px;
+  min-height: 48px;
+  padding: 9px 10px;
+}
+
+.graph article > span:first-child {
+  align-items: center;
+  background: var(--color-surface-muted);
+  border-radius: 50%;
+  color: var(--color-muted);
+  display: inline-flex;
+  height: 25px;
+  justify-content: center;
+  width: 25px;
+  flex: 0 0 25px;
+}
+
+.graph strong {
+  font-size: 13px;
+}
+.node em { font-size: 12px; font-style: normal; color: var(--color-ink-soft); }
+.node > span:last-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.node small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.succeeded > span:first-child {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+.running > span:first-child {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.failed > span:first-child {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.cancelled > span:first-child { background: var(--color-warning-soft); color: var(--color-warning); }
+.generic { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.legacy { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+@media (max-width: 720px) {
+  .agent, .legacy, .generic { grid-template-columns: minmax(0,1fr); overflow: visible; }
+  .agent .coordinator, .agent .data, .agent .comparison, .agent .chart,
+  .agent .analyst, .agent .insight, .agent .report, .agent .reviewer,
+  .agent .publication { grid-column: 1; grid-row: auto; }
+  .agent .comparison, .agent .chart, .agent .analyst { margin-left: 20px; border-left: 3px solid var(--color-signal); }
+  .agent .data::after, .agent .comparison::after, .agent .chart::after, .agent .analyst::after { display: none; }
+}

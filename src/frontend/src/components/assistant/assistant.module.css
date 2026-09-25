@@ -1,0 +1,143 @@
+.avatar,
+.presence {
+  --assistant-state-color: var(--color-signal);
+  --assistant-state-surface: var(--color-signal-soft);
+  --assistant-state-border: var(--color-signal-border);
+}
+
+.avatar[data-assistant-state='thinking'],
+.presence[data-assistant-state='thinking'],
+.avatar[data-assistant-state='analyzing'],
+.presence[data-assistant-state='analyzing'] {
+  --assistant-state-color: var(--color-info);
+  --assistant-state-surface: var(--color-info-soft);
+  --assistant-state-border: var(--color-border-strong);
+}
+
+.avatar[data-assistant-state='happy'],
+.presence[data-assistant-state='happy'],
+.avatar[data-assistant-state='warning'],
+.presence[data-assistant-state='warning'] {
+  --assistant-state-color: var(--color-warning);
+  --assistant-state-surface: var(--color-warning-soft);
+  --assistant-state-border: color-mix(in srgb, var(--color-warning) 26%, var(--color-border));
+}
+
+.avatar[data-assistant-state='success'],
+.presence[data-assistant-state='success'] {
+  --assistant-state-color: var(--color-success);
+  --assistant-state-surface: var(--color-success-soft);
+  --assistant-state-border: var(--color-signal-border);
+}
+
+.avatar[data-assistant-state='error'],
+.presence[data-assistant-state='error'] {
+  --assistant-state-color: var(--color-danger);
+  --assistant-state-surface: var(--color-danger-soft);
+  --assistant-state-border: color-mix(in srgb, var(--color-danger) 26%, var(--color-border));
+}
+
+.avatar[data-assistant-state='waiting'],
+.presence[data-assistant-state='waiting'] {
+  --assistant-state-color: var(--color-muted);
+  --assistant-state-surface: var(--color-surface-muted);
+  --assistant-state-border: var(--color-border);
+}
+
+.avatar[data-assistant-state='report-ready'],
+.presence[data-assistant-state='report-ready'] {
+  --assistant-state-color: var(--color-accent);
+  --assistant-state-surface: var(--color-accent-soft);
+  --assistant-state-border: var(--color-accent-border);
+}
+
+.avatar {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 auto;
+  overflow: hidden;
+  place-items: center;
+  background: var(--assistant-state-surface);
+  border: 1px solid var(--assistant-state-border);
+  border-radius: 50%;
+  isolation: isolate;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 16%;
+}
+
+.fallback {
+  display: inline-grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: var(--assistant-state-color);
+  background: var(--assistant-state-surface);
+}
+
+.stateMarker {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  display: inline-grid;
+  width: 38%;
+  min-width: 14px;
+  height: 38%;
+  min-height: 14px;
+  place-items: center;
+  color: var(--color-on-accent);
+  background: var(--assistant-state-color);
+  border: 2px solid var(--color-surface);
+  border-radius: 50%;
+}
+
+.presence {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  color: var(--color-ink);
+  background: var(--assistant-state-surface);
+  border: 1px solid var(--assistant-state-border);
+  border-radius: var(--radius-md);
+}
+
+.presenceCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.presenceCopy strong {
+  color: var(--assistant-state-color);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.presenceCopy span {
+  color: var(--color-ink-soft);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.presenceAction {
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .avatar[data-assistant-state='thinking'] .stateMarker,
+  .avatar[data-assistant-state='analyzing'] .stateMarker {
+    animation: mascot-signal 1.6s var(--ease-standard) infinite;
+  }
+}
+
+@keyframes mascot-signal {
+  50% {
+    transform: scale(0.86);
+  }
+}

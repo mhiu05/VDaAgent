@@ -1,0 +1,83 @@
+.message {
+  border-left: 3px solid transparent;
+  box-shadow: none;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.message:has(.structuredMeta) {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: 12px;
+  margin: 10px 0;
+  padding: 14px 15px;
+}
+
+.structuredMeta {
+  align-items: center;
+  color: var(--color-muted);
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+  line-height: 1.35;
+  margin: 5px 0 9px;
+}
+
+.structuredMeta > span:nth-child(2) {
+  min-width: 0;
+}
+
+.cardKind {
+  background: var(--color-surface-muted);
+  border-radius: 999px;
+  color: var(--color-ink-soft);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  padding: 3px 6px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.user {
+  border-left-color: var(--color-accent);
+}
+.coordinator {
+  border-left-color: var(--color-midnight-raised);
+}
+.data {
+  border-left-color: var(--color-signal);
+}
+.comparison {
+  border-left-color: var(--color-warning);
+}
+.chart {
+  border-left-color: var(--chart-series-4);
+}
+.analyst {
+  border-left-color: var(--color-info);
+}
+.insight {
+  border-left-color: var(--chart-series-6);
+}
+.report {
+  border-left-color: var(--chart-series-4);
+}
+.reviewer {
+  border-left-color: var(--color-danger);
+}
+
+@media (max-width: 540px) {
+  .message:has(.structuredMeta) {
+    padding: 12px;
+  }
+  .structuredMeta {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .cardKind {
+    margin-left: 22px;
+  }
+}

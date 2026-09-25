@@ -1,0 +1,20 @@
+.output { display: grid; gap: 14px; min-width: 0; border-top: 1px solid var(--color-border); padding-top: 16px; }
+.output > h2 { font-size: var(--text-md); }
+.block { min-width: 0; border-left: 3px solid var(--color-signal); padding: 4px 0 10px 14px; border-bottom: 1px solid var(--color-border); }
+.block header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.block h3 { font-size: var(--text-md); }
+.block button { min-height: 44px; padding: 6px; border: 0; color: var(--color-accent); background: none; text-decoration: underline; }
+.block p, .block li, .block dd { overflow-wrap: anywhere; }
+.block ul, .block ol { margin: 8px 0; padding-left: 20px; }
+.block li + li { margin-top: 8px; }
+.block small { display: block; color: var(--color-muted); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 8px; margin: 12px 0; }
+.metrics > div { border-top: 1px solid var(--color-border); padding-top: 8px; }
+.metrics dt, .comparisons dt { color: var(--color-muted); font-size: var(--text-xs); }
+.metrics dd { margin: 2px 0 0; font-size: var(--text-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
+.comparisons { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; }
+.comparisons dl { margin: 0; border-top: 1px solid var(--color-border); padding-top: 8px; }
+.comparisons dd { margin: 4px 0 0; font-size: var(--text-sm); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 12px; min-width: 0; }
+.charts > * { min-width: 0; }
+@media (max-width: 720px) { .charts { grid-template-columns: minmax(0,1fr); } .metrics { grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); } }
