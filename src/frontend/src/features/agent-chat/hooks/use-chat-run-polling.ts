@@ -35,6 +35,7 @@ export function useChatRunPolling({
   loadConversations,
   loadMessages,
   setSelectedConversationId,
+  onAccessRevoked,
   setRunDetail,
   setWorkflowStatus,
   setBundle,
@@ -54,6 +55,7 @@ export function useChatRunPolling({
   loadConversations: ReturnType<typeof useConversations>['loadConversations'];
   loadMessages: ReturnType<typeof useMessages>['loadMessages'];
   setSelectedConversationId: Dispatch<SetStateAction<string | null>>;
+  onAccessRevoked: () => void;
   setRunDetail: Dispatch<SetStateAction<RunDetail | null>>;
   setWorkflowStatus: Dispatch<SetStateAction<AgentWorkflowStatus | null>>;
   setBundle: Dispatch<SetStateAction<ArtifactList>>;
@@ -79,29 +81,27 @@ export function useChatRunPolling({
     setReadState('loading');
     let obsolete = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let reportTimer: ReturnType<typeof setTimeout> | undefined;
     let lastTaskSignature = '';
     let failures = 0;
     let reads = 0;
-    let reportAttempts = 0;
+    let finalAttempts = 0;
+    let workflowLoaded = false;
+    let artifactsLoaded = false;
+    let reportLoaded = false;
+    let decisionLoaded = false;
+    let messagesLoaded = false;
     async function pollPublishedReport() {
-      try {
-        const { reports } = await listReports(orgId);
-        if (obsolete) return;
-        const matched = reports.find((report) => report.org_id === orgId && report.run_id === pollingRunId);
-        if (matched) {
-          const report = await getReportDetail(orgId, matched.report_id);
-          if (obsolete) return;
-          if (report.report.run_id === pollingRunId) {
-            setReportDetail(report);
-            return;
-          }
-        }
-      } catch (cause) {
-        if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) return;
+      const { reports } = await listReports(orgId);
+      if (obsolete) return false;
+      const matched = reports.find((report) => report.org_id === orgId && report.run_id === pollingRunId);
+      if (!matched) return false;
+      const report = await getReportDetail(orgId, matched.report_id);
+      if (obsolete) return false;
+      if (report.report.run_id === pollingRunId) {
+        setReportDetail(report);
+        return true;
       }
-      if (!obsolete && reportAttempts++ < 12)
-        reportTimer = setTimeout(() => void pollPublishedReport(), Math.min(30_000, reportAttempts * 2_000));
+      return false;
     }
     async function poll() {
       try {
@@ -114,18 +114,18 @@ export function useChatRunPolling({
         const signature = detail.tasks.map((task) => `${task.task_id}:${task.status}:${task.attempt}`).join('|');
         const tasksChanged = signature !== lastTaskSignature;
         lastTaskSignature = signature;
-        if (canWrite && detail.run.workflow_version === 'agent-v1' && tasksChanged) {
+        if (canWrite && detail.run.workflow_version === 'agent-v1' && (tasksChanged || !workflowLoaded)) {
           try {
             const status = await getAgentWorkflowStatus(orgId, pollingRunId);
-            if (!obsolete) setWorkflowStatus(status);
-          } catch {
-            // A checkpoint status failure must never block the durable run view.
+            if (!obsolete) { setWorkflowStatus(status); workflowLoaded = true; }
+          } catch (cause) {
+            if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) throw cause;
           }
         }
-        if (tasksChanged || terminalStatuses.has(detail.run.status)) {
+        if (tasksChanged || !artifactsLoaded || terminalStatuses.has(detail.run.status)) {
           try {
             const artifacts = await getRunArtifacts(orgId, pollingRunId);
-            if (!obsolete) setBundle(artifacts);
+            if (!obsolete) { setBundle(artifacts); artifactsLoaded = true; }
           } catch (cause) {
             if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) throw cause;
           }
@@ -135,32 +135,54 @@ export function useChatRunPolling({
           if (selectedConversationId !== conversationId) setSelectedConversationId(conversationId);
           if (selectedConversationId !== conversationId) void loadMessages(conversationId, null, false);
         }
-        if (detail.run.status === 'succeeded') {
-          void pollPublishedReport();
+        if (detail.run.status === 'succeeded' && !decisionLoaded) {
           if (!obsolete) setBriefStatus('loading');
           try {
             const nextDecision = await getRunDecision(orgId, pollingRunId);
             if (!obsolete) setDecision(nextDecision);
-            if (nextDecision.status === 'available') {
-              if (!obsolete) setBriefStatus('available');
+            if (nextDecision.status === 'available' || nextDecision.status === 'legacy_report_brief') {
+              if (!obsolete) { setBriefStatus('available'); decisionLoaded = true; }
             } else {
-              const nextBrief = await getRunBrief(orgId, pollingRunId);
-              if (!obsolete) {
-                setBrief(nextBrief);
-                setBriefStatus('available');
+              try {
+                const nextBrief = await getRunBrief(orgId, pollingRunId);
+                if (!obsolete) { setBrief(nextBrief); setBriefStatus('available'); decisionLoaded = true; }
+              } catch (cause) {
+                if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
+                if (!obsolete) { setBriefStatus('unavailable'); decisionLoaded = true; }
               }
             }
           } catch (cause) {
-            if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
-            if (!obsolete) setBriefStatus('unavailable');
+            if (cause instanceof ApiError && cause.status === 404) {
+              if (!obsolete) { setBriefStatus('unavailable'); decisionLoaded = true; }
+            } else if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) throw cause;
           }
-          if (!obsolete) {
-            void loadConversations(null, false);
-            if (selectedConversationId) void loadMessages(selectedConversationId, null, false);
+        }
+        if (terminalStatuses.has(detail.run.status)) {
+          if (detail.run.status === 'succeeded' && !reportLoaded) {
+            try { reportLoaded = await pollPublishedReport() || !detail.run.report_artifact_id; }
+            catch (cause) {
+              if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) throw cause;
+            }
           }
-        } else if (terminalStatuses.has(detail.run.status)) {
-          if (!obsolete) setBriefStatus('unavailable');
-          if (selectedConversationId) void loadMessages(selectedConversationId, null, false);
+          if (detail.run.status !== 'succeeded' && !obsolete) setBriefStatus('unavailable');
+          if (!messagesLoaded && selectedConversationId) {
+            const result = await loadMessages(selectedConversationId, null, false);
+            if (result === 'unauthorized') throw new ApiError('WORKSPACE_FORBIDDEN', 403);
+            messagesLoaded = result === 'ok' || result === 'stale';
+          } else if (!selectedConversationId) messagesLoaded = true;
+          if (!obsolete) void loadConversations(null, false);
+          const ready = artifactsLoaded && messagesLoaded &&
+            (!canWrite || detail.run.workflow_version !== 'agent-v1' || workflowLoaded) &&
+            (detail.run.status !== 'succeeded' || decisionLoaded) &&
+            (detail.run.status !== 'succeeded' || reportLoaded);
+          if (!ready && !obsolete) {
+            finalAttempts++;
+            if (finalAttempts < 6) timer = setTimeout(() => void poll(), Math.min(10_000, finalAttempts * 2_000));
+            else {
+              setReadState('stale');
+              onError('Chưa tải đủ kết quả cuối. Tải lại trang để thử lại.');
+            }
+          }
         } else if (!obsolete) {
           reads += 1;
           if (selectedConversationId && (tasksChanged || reads % 3 === 0))
@@ -173,20 +195,32 @@ export function useChatRunPolling({
           setRunDetail(null);
           setBundle({ artifacts: [], validations: [], sources: [] });
           setWorkflowStatus(null);
+          setBrief(null);
+          setDecision(null);
+          setReportDetail(null);
+          setReadState('unavailable');
+          onAccessRevoked();
+          onError(errorMessage(cause));
+          return;
+        }
+        if (cause instanceof ApiError && cause.status === 404) {
+          setRunDetail(null);
+          setBundle({ artifacts: [], validations: [], sources: [] });
+          setReportDetail(null);
           setReadState('unavailable');
           onError(errorMessage(cause));
           return;
         }
         failures += 1;
         setReadState((state) => state === 'ready' || state === 'stale' ? 'stale' : 'error');
-        timer = setTimeout(() => void poll(), Math.min(10_000, failures === 1 ? 2_000 : 5_000));
+        if (failures < 6) timer = setTimeout(() => void poll(), Math.min(10_000, failures === 1 ? 2_000 : 5_000));
+        else onError('Không thể tải lượt chạy đã chọn. Tải lại trang để thử lại.');
       }
     }
     void poll();
     return () => {
       obsolete = true;
       if (timer) clearTimeout(timer);
-      if (reportTimer) clearTimeout(reportTimer);
     };
   }, [
     canWrite,
@@ -198,6 +232,7 @@ export function useChatRunPolling({
     visibleRunId,
     workspaceControlled,
     setSelectedConversationId,
+    onAccessRevoked,
     setRunDetail,
     setWorkflowStatus,
     setBundle,

@@ -217,6 +217,24 @@ export class ConversationRepository {
     return page.messages;
   }
 
+  async getMessage(
+    user: string,
+    org: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<Message> {
+    return this.db.transaction(async (tx) => {
+      await this.auth(tx, user, org);
+      const rows = await tx.query(
+        `SELECT org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload
+         FROM messages WHERE org_id=$1 AND conversation_id=$2 AND id=$3`,
+        [org, conversationId, messageId],
+      );
+      if (!rows[0]) fail('MESSAGE_NOT_FOUND', 404);
+      return normalizeMessage(rows[0]);
+    });
+  }
+
   async getConversation(user: string, org: string, id: string): Promise<Conversation> {
     return this.db.transaction(async (tx) => {
       await this.auth(tx, user, org);

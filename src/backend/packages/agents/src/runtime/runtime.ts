@@ -37,6 +37,7 @@ import { RuntimeContextBuilder, assertWorkspaceConversationCoherence } from './c
 import { RuntimeContextError, type AuthorizedAgentContextV1 } from './context/types';
 import { runtimeLimits, type AgentRuntimeLimits } from './limits';
 import { isCausalQuestion } from '../chat/operations';
+import { enqueueEligibleDurableTurn } from './admission';
 
 const safeCopy: Record<AgentRuntimeErrorCode, string> = {
   UNSUPPORTED_REQUEST: 'This request is not supported by the authorized analysis workspace.',
@@ -65,6 +66,7 @@ type RuntimeOptions = {
   registry?: CapabilityRegistry;
   activity_sink?: AgentActivitySink;
   limits?: AgentRuntimeLimits;
+  durable_admission?: boolean;
 };
 
 type DeterministicOutcome =
@@ -90,6 +92,7 @@ function accepted(
   context: TurnContext,
   runId: string | null,
   assistantStatus: MessageStatus,
+  jobId?: string,
 ): AgentTurnAccepted {
   return AgentTurnAcceptedSchema.parse({
     conversation_id: context.conversation_id,
@@ -97,6 +100,7 @@ function accepted(
     assistant_message_id: context.assistant_message_id,
     run_id: runId,
     assistant_status: assistantStatus,
+    ...(jobId ? { agent_turn_job_id: jobId } : {}),
   });
 }
 
@@ -221,6 +225,7 @@ export class AgentRuntime {
   private readonly registry: CapabilityRegistry;
   private readonly activitySink: AgentActivitySink | undefined;
   private readonly limits: AgentRuntimeLimits;
+  private readonly durableAdmission: boolean;
 
   constructor(
     private readonly repository: Repository,
@@ -231,6 +236,7 @@ export class AgentRuntime {
     this.registry = options.registry ?? new CapabilityRegistry(repository);
     this.activitySink = options.activity_sink;
     this.limits = configuredLimits(options);
+    this.durableAdmission = options.durable_admission ?? false;
   }
 
   private isBoundedProviderProjection(value: unknown) {
@@ -282,10 +288,23 @@ export class AgentRuntime {
     input: ResolvedAgentTurnRequest,
     idempotencyKey: string,
     conversationId?: string,
+    existingTurn?: AgentTurn,
   ) {
-    const replay = await this.repository.startTurn(userId, input, idempotencyKey, conversationId);
+    const replay =
+      existingTurn ??
+      (await this.repository.startTurn(userId, input, idempotencyKey, conversationId));
     const context = turnContext(replay, input);
-    return accepted(context, replay.assistant_message.run_id, replay.assistant_message.status);
+    const job = await this.repository.getAgentTurnJobForMessage(
+      userId,
+      input.org_id,
+      replay.user_message.message_id,
+    );
+    return accepted(
+      context,
+      replay.assistant_message.run_id,
+      replay.assistant_message.status,
+      job?.job_id,
+    );
   }
 
   private async plan(
@@ -373,6 +392,21 @@ export class AgentRuntime {
     // assistant message is persisted. Repository startTurn still owns the
     // transactional idempotency and write authorization checks below.
     assertWorkspaceConversationCoherence(input, conversationId);
+    const durable = await enqueueEligibleDurableTurn(
+      this.repository,
+      this.durableAdmission,
+      userId,
+      input,
+      idempotencyKey,
+      conversationId,
+    );
+    if (durable)
+      return accepted(
+        turnContext(durable, input),
+        durable.assistant_message.run_id,
+        durable.assistant_message.status,
+        durable.job.job_id,
+      );
     const turn = await this.repository.startTurn(userId, input, idempotencyKey, conversationId);
     const context = turnContext(turn, input);
     // `startTurn` serializes idempotency-key lookup, but it deliberately
@@ -383,7 +417,7 @@ export class AgentRuntime {
     // A committed run is already attached transactionally and is therefore
     // returned here without a duplicate create request.
     if (turn.idempotent_replay)
-      return accepted(context, turn.assistant_message.run_id, turn.assistant_message.status);
+      return this.replayAccepted(userId, input, idempotencyKey, conversationId, turn);
 
     const deadline = AbortSignal.timeout(this.limits.turn_timeout_ms);
     const signal = requestSignal ? AbortSignal.any([requestSignal, deadline]) : deadline;

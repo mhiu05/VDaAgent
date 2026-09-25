@@ -96,12 +96,15 @@ export async function conversationRoutes(
         await repo.getConversation(actor.user_id, orgFromQuery(), id),
       );
     if (path[2] === 'messages') {
+      if (path.length === 4 && method === 'GET')
+        return json(MessageSchema,
+          await repo.getMessage(actor.user_id, orgFromQuery(), id, IdSchema.parse(path[3])));
       if (path.length === 4 && path[3] === 'stream' && method === 'POST') {
         const input = await agentTurnFromBody(id);
         const key = z.string().min(1).max(200).parse(request.headers.get('idempotency-key'));
         return streamAgentTurn(request, repo, actor.user_id, input, key, id);
       }
-      if (method === 'GET')
+      if (path.length === 3 && method === 'GET')
         return json(
           MessagePageSchema,
           await repo.listMessages(actor.user_id, orgFromQuery(), id, pageFromQuery()),

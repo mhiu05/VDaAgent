@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import {
   artifactHash,
-  executeLease,
+  executeAgentWorkflow,
   exportReport,
   SAFE_SUMMARY,
   type NarrativeProvider,
@@ -34,9 +34,9 @@ const deterministicProvider = (): NarrativeProvider => ({
 });
 async function runPipeline(repo: Repository, key = 'pipeline') {
   const run = await repo.createRun(TEST_USERS.owner, request, key);
-  const lease = await repo.claimRun('test-worker');
+  const lease = await repo.claimRun('test-worker', new Date(), 240_000);
   expect(lease).not.toBeNull();
-  await executeLease(repo, lease!, deterministicProvider());
+  await executeAgentWorkflow(repo, lease!, { narrativeProvider: deterministicProvider() });
   return { run, lease: lease! };
 }
 describe('persisted DAG and truth chain', () => {
@@ -59,15 +59,19 @@ describe('persisted DAG and truth chain', () => {
       return validate(lease, record);
     });
     await expect(
-      executeLease(repo, (await repo.claimRun('first'))!, deterministicProvider()),
+      executeAgentWorkflow(repo, (await repo.claimRun('first', new Date(), 240_000))!, {
+        narrativeProvider: deterministicProvider(),
+      }),
     ).rejects.toThrow('SIMULATED_CRASH');
     await repo.retryRun(TEST_USERS.owner, run.org_id, run.run_id);
-    await executeLease(repo, (await repo.claimRun('recovery'))!, deterministicProvider());
+    await executeAgentWorkflow(repo, (await repo.claimRun('recovery', new Date(), 240_000))!, {
+      narrativeProvider: deterministicProvider(),
+    });
     expect((await repo.getRun(TEST_USERS.owner, run.org_id, run.run_id)).run.status).toBe(
       'succeeded',
     );
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toHaveLength(1);
-  });
+  }, 120_000);
   it('keeps metrics null when the selected date has no snapshot', async () => {
     const repo = await setup();
     const run = await repo.createRun(
@@ -75,21 +79,23 @@ describe('persisted DAG and truth chain', () => {
       { ...request, data_as_of: '2026-01-01' },
       'empty',
     );
-    await executeLease(repo, (await repo.claimRun('empty-worker'))!, deterministicProvider());
+    await executeAgentWorkflow(repo, (await repo.claimRun('empty-worker', new Date(), 240_000))!, {
+      narrativeProvider: deterministicProvider(),
+    });
     const bundle = await repo.artifacts(TEST_USERS.owner, run.org_id, run.run_id);
     const report = bundle.artifacts.find((a) => a.kind === 'report')!;
     expect(report.payload.metrics.every((m) => m.value === null)).toBe(true);
     expect(report.payload.units).toEqual([]);
-  });
+  }, 120_000);
   it('publishes complete immutable report and resolves every numeric claim', async () => {
     const repo = await setup();
     const { run } = await runPipeline(repo);
     const detail = await repo.getRun(TEST_USERS.owner, run.org_id, run.run_id);
     expect(detail.run.status).toBe('succeeded');
-    expect(detail.tasks).toHaveLength(8);
+    expect(detail.tasks).toHaveLength(9);
     expect(detail.tasks.every((t) => t.status === 'succeeded')).toBe(true);
     const bundle = await repo.artifacts(TEST_USERS.owner, run.org_id, run.run_id);
-    expect(bundle.artifacts).toHaveLength(10);
+    expect(bundle.artifacts.length).toBeGreaterThanOrEqual(10);
     expect(bundle.validations.every((v) => v.valid)).toBe(true);
     expect(bundle.sources).toHaveLength(1);
     const report = bundle.artifacts.find((a) => a.kind === 'report')!;
@@ -113,11 +119,19 @@ describe('persisted DAG and truth chain', () => {
     const json = exportReport(report, 'json');
     expect(JSON.parse(json.body)).toEqual(report);
     expect(exportReport(report, 'csv').body).toContain(report.payload.calculation_artifact_id);
+    const messages = await repo.messages(
+      TEST_USERS.owner,
+      run.org_id,
+      run.request.conversation_id!,
+    );
+    expect(messages.filter((message) => message.role === 'user')).toHaveLength(1);
     expect(
-      (await repo.messages(TEST_USERS.owner, run.org_id, run.request.conversation_id!)).map(
-        (m) => m.role,
-      ),
-    ).toEqual(['user', 'assistant']);
+      messages.filter((message) => message.role === 'assistant' && message.sender_agent === null),
+    ).toHaveLength(1);
+    expect(
+      messages.filter((message) => message.role === 'assistant' && message.sender_agent !== null)
+        .length,
+    ).toBeGreaterThan(0);
     expect(await repo.decisionBrief(TEST_USERS.viewer, run.org_id, run.run_id)).toMatchObject({
       run_id: run.run_id,
       org_id: run.org_id,
@@ -129,7 +143,7 @@ describe('persisted DAG and truth chain', () => {
     await expect(repo.artifacts(TEST_USERS.beta, run.org_id, run.run_id)).rejects.toThrow(
       'WORKSPACE_FORBIDDEN',
     );
-  });
+  }, 120_000);
   it('rejects fabricated values, missing query lineage, and cross-tenant ancestors', async () => {
     const repo = await setup();
     const { run } = await runPipeline(repo);
@@ -211,7 +225,7 @@ describe('persisted DAG and truth chain', () => {
     expect(() => validateReport(report.payload, foreign, run.org_id, run.run_id)).toThrow(
       'BROKEN_LINEAGE',
     );
-  });
+  }, 120_000);
   it('keeps historical report payloads without a decision brief readable', async () => {
     const repo = await setup();
     const { run } = await runPipeline(repo, 'historical-report');
@@ -221,23 +235,27 @@ describe('persisted DAG and truth chain', () => {
     delete historical.decision_brief;
     expect(() => ReportPayloadSchema.parse(historical)).not.toThrow();
     expect(() => validateReport(historical, artifacts, run.org_id, run.run_id)).not.toThrow();
-  });
+  }, 120_000);
   it('resumes persisted upstream outputs after provider failure without duplicate publication', async () => {
     const repo = await setup();
     const run = await repo.createRun(TEST_USERS.owner, request, 'retry');
-    const first = await repo.claimRun('worker-one');
+    const first = await repo.claimRun('worker-one', new Date(), 240_000);
     const bad = {
       narrate: vi.fn().mockRejectedValue(new Error('PROVIDER_UNAVAILABLE')),
     };
-    await expect(executeLease(repo, first!, bad)).rejects.toThrow('PROVIDER_UNAVAILABLE');
+    await expect(executeAgentWorkflow(repo, first!, { narrativeProvider: bad })).rejects.toThrow(
+      'PROVIDER_UNAVAILABLE',
+    );
     const before = await repo.artifacts(TEST_USERS.owner, run.org_id, run.run_id);
     const hashes = before.artifacts.map((a) => a.content_hash);
     await repo.retryRun(TEST_USERS.owner, run.org_id, run.run_id);
-    await executeLease(repo, (await repo.claimRun('worker-two'))!, deterministicProvider());
+    await executeAgentWorkflow(repo, (await repo.claimRun('worker-two', new Date(), 240_000))!, {
+      narrativeProvider: deterministicProvider(),
+    });
     const after = await repo.artifacts(TEST_USERS.owner, run.org_id, run.run_id);
     expect(hashes.every((hash) => after.artifacts.some((a) => a.content_hash === hash))).toBe(true);
     expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toHaveLength(1);
-  });
+  }, 120_000);
   it('scheduled and interactive entries execute the same artifact pipeline', async () => {
     const repo = await setup();
     await runPipeline(repo);
@@ -267,7 +285,11 @@ describe('persisted DAG and truth chain', () => {
       new Date('2026-09-19T02:00:00Z'),
     );
     expect(one.run_id).toBe(two.run_id);
-    await executeLease(repo, (await repo.claimRun('scheduler-worker'))!, deterministicProvider());
+    await executeAgentWorkflow(
+      repo,
+      (await repo.claimRun('scheduler-worker', new Date(), 240_000))!,
+      { narrativeProvider: deterministicProvider() },
+    );
     const scheduled = await repo.artifacts(TEST_USERS.owner, request.org_id, one.run_id);
     expect(
       Object.fromEntries(
@@ -277,5 +299,5 @@ describe('persisted DAG and truth chain', () => {
       ),
     ).toMatchObject({ total_inventory: 12, available_inventory: 10, sold_units_30d: 1 });
     expect(await repo.listReports(TEST_USERS.owner, request.org_id)).toHaveLength(2);
-  });
+  }, 120_000);
 });

@@ -38,13 +38,10 @@ export async function dispatchWorkflow(
     });
   }, 10000);
   try {
-    // A run pins its execution path when it is created. The flag only
-    // selects defaults for new runs; it cannot divert queued legacy work
-    // into the Reviewer gate mid-flight.
-    await (lease.run.workflow_version === 'agent-v1' ? agentWorkflow : legacyWorkflow)(
-      repository,
-      lease,
-    );
+    // Release A keeps the legacy executor solely to drain existing runs.
+    if (lease.run.workflow_version === 'agent-v1') await agentWorkflow(repository, lease);
+    else if (lease.run.workflow_version === 'legacy-v1') await legacyWorkflow(repository, lease);
+    else throw new Error('UNKNOWN_WORKFLOW_VERSION');
   } catch (cause) {
     const code =
       cause instanceof Error && /^[A-Z_]{1,80}$/.test(cause.message)

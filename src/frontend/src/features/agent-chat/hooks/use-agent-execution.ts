@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { errorMessage } from '../../../lib/http/api-client';
+import { ApiError, errorMessage } from '../../../lib/http/api-client';
 import { getAgentTurnJob, getConversationAgentTurnJob, type AgentTurnJobSnapshot } from '../api/conversations';
 
 const active = new Set(['queued','running','waiting']);
@@ -26,14 +26,18 @@ export function useAgentExecution(orgId: string, conversationId: string | null, 
           setError(null);
           if (active.has(next.job.status)) timer = setTimeout(() => void poll(), document.hidden ? 5000 : 1000);
         } else if (acceptedJobId) {
-          timer = setTimeout(() => void poll(), 2000);
+          setSnapshot(null);
+          setError('Không tìm thấy tác vụ đã nhận. Tải lại trang để kiểm tra.');
         } else {
           setSnapshot(null);
         }
       } catch (cause) {
         if (!disposed) {
           setError(errorMessage(cause));
-          timer = setTimeout(() => void poll(), 5000);
+          if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403 || cause.status === 404))
+            setSnapshot(null);
+          else
+            timer = setTimeout(() => void poll(), 5000);
         }
       } finally {
         if (!disposed) setLoading(false);

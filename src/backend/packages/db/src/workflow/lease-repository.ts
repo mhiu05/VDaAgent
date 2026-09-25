@@ -1,4 +1,4 @@
-import type { AnalysisRun, UnitSnapshot } from '@vda/contracts';
+import { RunSchema, type AnalysisRun, type UnitSnapshot } from '@vda/contracts';
 import { authorizeInTransaction } from '../authorization/authorization-repository';
 import type { Driver } from '../driver';
 import { fail } from '../errors';
@@ -6,6 +6,7 @@ import { normalizeRun } from '../mapping/run';
 import { json } from '../mapping/rows';
 import { readRun, updateRun } from '../repositories/run-repository';
 import type { Lease, QueryResult } from '../types';
+import { terminalizeRun } from './terminal-run';
 
 const now = () => new Date().toISOString();
 
@@ -16,17 +17,47 @@ export async function claimNextRun(
   leaseMs = 30000,
 ): Promise<Lease | null> {
   return db.transaction(async (tx) => {
-    const candidates = await tx.query(
-      "SELECT payload FROM runs WHERE status='queued' OR (status='running' AND lease_until<$1) ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED",
-      [date.toISOString()],
-    );
-    if (!candidates[0]) return null;
-    const run = normalizeRun(candidates[0]);
+    let cursorDate: string | null = null;
+    let cursorId = '';
+    let run: AnalysisRun | null = null;
+    while (!run) {
+      const candidates = await tx.query(
+        `SELECT id,org_id,status,created_at,payload FROM runs
+         WHERE (status='queued' OR (status='running' AND lease_until<$1))
+           AND jsonb_typeof(payload)='object'
+           AND (NOT (payload ? 'workflow_version') OR
+             (jsonb_typeof(payload->'workflow_version')='string' AND
+              payload->>'workflow_version' IN ('agent-v1','legacy-v1')))
+           AND ($2::timestamptz IS NULL OR (created_at,id)>($2::timestamptz,$3))
+         ORDER BY created_at,id LIMIT 100 FOR UPDATE SKIP LOCKED`,
+        [date.toISOString(), cursorDate, cursorId],
+      );
+      if (!candidates.length) return null;
+      for (const candidate of candidates) {
+        const parsed = RunSchema.safeParse(json(candidate));
+        if (
+          parsed.success &&
+          parsed.data.run_id === candidate.id &&
+          parsed.data.org_id === candidate.org_id &&
+          parsed.data.status === candidate.status
+        ) {
+          run = normalizeRun(candidate);
+          break;
+        }
+      }
+      if (!run) {
+        const last = candidates.at(-1)!;
+        cursorDate = new Date(String(last.created_at)).toISOString();
+        cursorId = String(last.id);
+      }
+    }
     if (run.attempt >= 3) {
       run.status = 'failed';
       run.error_code = 'MAX_ATTEMPTS';
       run.lease_until = null;
+      run.fencing_token++;
       await updateRun(tx, run);
+      await terminalizeRun(tx, run, 'failed', 'MAX_ATTEMPTS');
       return null;
     }
     try {
@@ -34,7 +65,10 @@ export async function claimNextRun(
     } catch {
       run.status = 'failed';
       run.error_code = 'MEMBERSHIP_REVOKED';
+      run.lease_until = null;
+      run.fencing_token++;
       await updateRun(tx, run);
+      await terminalizeRun(tx, run, 'failed', 'MEMBERSHIP_REVOKED');
       return null;
     }
     run.status = 'running';

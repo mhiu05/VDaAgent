@@ -3,6 +3,63 @@ import { readFile } from 'node:fs/promises';
 import { describe, it, expect } from 'vitest';
 import { createLegacyTestDatabase } from '../../../tests/helpers/postgres.js';
 describe('PostgreSQL schema and RLS (PGlite, without Supabase services)', () => {
+  it('guards new run versions while preserving historical lifecycle updates', async () => {
+    const db = await createLegacyTestDatabase();
+    const org = '10000000-0000-4000-8000-000000000001';
+    const actor = '20000000-0000-4000-8000-000000000001';
+    const insert = (id: string, payload: Record<string, unknown>) =>
+      db.query(
+        `INSERT INTO runs(org_id,id,created_by,idempotency_key,request_hash,status,created_at,payload)
+       VALUES($1,$2,$3,$4,'hash','queued',now(),$5)`,
+        [org, id, actor, id, JSON.stringify(payload)],
+      );
+    try {
+      await db.query('INSERT INTO organizations(org_id,name) VALUES($1,$2)', [org, 'Alpha']);
+      const historicalId = '60000000-0000-4000-8000-000000000001';
+      await insert(historicalId, { run_id: historicalId, status: 'queued' });
+      await db.exec(
+        await readFile(
+          'src/backend/supabase/migrations/20260925082316_guard_run_workflow_version.sql',
+          'utf8',
+        ),
+      );
+      await db.query("UPDATE runs SET status='failed',payload=$1 WHERE id=$2", [
+        JSON.stringify({ run_id: historicalId, status: 'failed' }),
+        historicalId,
+      ]);
+      const old = (await db.query('SELECT payload FROM runs WHERE id=$1', [historicalId]))
+        .rows[0] as { payload: Record<string, unknown> };
+      expect(old.payload).toMatchObject({ run_id: historicalId, status: 'failed' });
+      expect(old.payload).not.toHaveProperty('workflow_version');
+      const versions = [undefined, null, 'legacy-v1', 'unknown-v1'];
+      for (const [index, version] of versions.entries()) {
+        const id = `60000000-0000-4000-8000-00000000000${index + 2}`;
+        await expect(
+          insert(id, {
+            run_id: id,
+            ...(version === undefined ? {} : { workflow_version: version }),
+          }),
+        ).rejects.toThrow('NEW_RUN_REQUIRES_AGENT_V1');
+      }
+      const agentId = '60000000-0000-4000-8000-000000000006';
+      await insert(agentId, { run_id: agentId, workflow_version: 'agent-v1' });
+      await expect(
+        db.query('UPDATE runs SET payload=$1 WHERE id=$2', [
+          JSON.stringify({ run_id: agentId, workflow_version: 'legacy-v1' }),
+          agentId,
+        ]),
+      ).rejects.toThrow('RUN_WORKFLOW_VERSION_IMMUTABLE');
+      await expect(
+        db.query('UPDATE runs SET payload=$1 WHERE id=$2', [
+          JSON.stringify({ run_id: historicalId, workflow_version: 'agent-v1' }),
+          historicalId,
+        ]),
+      ).rejects.toThrow('RUN_WORKFLOW_VERSION_IMMUTABLE');
+    } finally {
+      await db.close();
+    }
+  });
+
   it('applies canonical DDL and enforces real Postgres tenant reads and least privilege', async () => {
     const db = new PGlite();
     try {

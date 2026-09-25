@@ -34,7 +34,6 @@ export function repository(): Promise<Repository> {
     databaseUrl: config.SUPABASE_DB_URL,
     storageUrl: config.NEXT_PUBLIC_SUPABASE_URL,
     storageKey: config.SUPABASE_SECRET_KEY,
-    workflowVersion: config.AGENT_WORKFLOW_ENABLED ? 'agent-v1' : 'legacy-v1',
   });
   return globalState.vdaRepository;
 }

@@ -7,20 +7,15 @@ import type { AnalysisRun, Conversation } from '@vda/contracts';
  */
 export function isReadOnlyRunView(
   externalRunId: string | null | undefined,
-  run: Pick<AnalysisRun, 'run_id' | 'entrypoint'> | null,
+  run:
+    | (Pick<AnalysisRun, 'run_id' | 'entrypoint'> & Partial<Pick<AnalysisRun, 'workflow_version'>>)
+    | null,
   conversationKind: Conversation['kind'] | undefined,
 ): boolean {
   return (
     Boolean(externalRunId && (!run || run.run_id !== externalRunId)) ||
+    (run && (run.workflow_version ?? 'legacy-v1') === 'legacy-v1') ||
     run?.entrypoint === 'scheduled' ||
     conversationKind === 'scheduled'
   );
-}
-
-/** Keep unresolved external runs in AgentChat; legacy UI is opt-in by version. */
-export function shouldRenderAgentChat(
-  runId: string | null,
-  workflowVersion: AnalysisRun['workflow_version'] | undefined,
-): boolean {
-  return !runId || workflowVersion !== 'legacy-v1';
 }

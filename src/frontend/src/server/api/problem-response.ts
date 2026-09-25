@@ -4,6 +4,24 @@ import { RepositoryError } from '@vda/db';
 import { RuntimeContextError } from '@vda/agents';
 import { json } from './middleware/response';
 
+export function logInternalError(error: unknown, method: string, route: string) {
+  if (error instanceof RepositoryError && error.status < 500) return;
+  if (error instanceof RuntimeContextError || error instanceof z.ZodError) return;
+  const cause = error as { name?: unknown; code?: unknown; message?: unknown; table?: unknown; column?: unknown; constraint?: unknown } | null;
+  const diagnostic: Record<string, string> = { method, route };
+  if (typeof cause?.name === 'string') diagnostic.name = cause.name;
+  if (typeof cause?.code === 'string' && /^[A-Z0-9_]{2,64}$/.test(cause.code)) diagnostic.code = cause.code;
+  for (const field of ['table', 'column', 'constraint'] as const) {
+    const value = cause?.[field];
+    if (typeof value === 'string' && /^[a-zA-Z_][a-zA-Z0-9_]{0,127}$/.test(value)) diagnostic[field] = value;
+  }
+  if (diagnostic.code === '42703' && typeof cause?.message === 'string') {
+    const missingColumn = /^column "([a-zA-Z_][a-zA-Z0-9_]*)" does not exist$/.exec(cause.message);
+    if (missingColumn) diagnostic.column = missingColumn[1];
+  }
+  console.error(`API request failed ${JSON.stringify(diagnostic)}`);
+}
+
 export function problemResponse(error: unknown) {
   if (
     error instanceof Error &&

@@ -18,4 +18,13 @@ describe('mergeMessages', () => {
     expect(mergeMessages([later], [message('earlier', '2026-09-24T09:59:00Z'), later])
       .map((item) => item.message_id)).toEqual(['earlier', 'later']);
   });
+  it('does not let an older response replace a completed message', () => {
+    const started = { ...message('reply', '2026-09-24T10:00:00Z'),
+      status: 'in_progress' as const, content: 'Working' };
+    const completed = { ...started, status: 'completed' as const,
+      content: 'Ready', updated_at: '2026-09-24T10:01:00Z' };
+    expect(mergeMessages([completed], [started])).toEqual([completed]);
+    expect(mergeMessages([completed], [{ ...started, updated_at: completed.updated_at }]))
+      .toEqual([completed]);
+  });
 });

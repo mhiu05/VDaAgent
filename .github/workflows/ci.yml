@@ -22,6 +22,12 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
       - run: pnpm test:e2e
+      - run: pnpm test:e2e
+        env:
+          E2E_DURABLE_AGENT_EXECUTION: 'true'
+      - run: pnpm test:e2e
+        env:
+          E2E_GROK_SSE: 'true'
   supabase:
     runs-on: ubuntu-latest
     steps:

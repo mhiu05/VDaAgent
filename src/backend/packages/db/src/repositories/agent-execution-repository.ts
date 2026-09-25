@@ -6,6 +6,7 @@ import {
   AgentTurnRequestSchema, isApprovedDurableAnalysisTurn,
   ArtifactSchema, ArtifactValidationSchema, RunTaskSchema,
   ReportRecordSchema,
+  AGENT_V1_PERSONA_STAGES,
   RunStatusSchema,
   type AgentExecutionEvent, type AgentExecutionStatus, type AgentInvocation,
   type AgentTurnJob, type AgentTurnRequest, type AnalysisRequest, type AnalysisRun,
@@ -18,6 +19,7 @@ import { json } from '../mapping/rows';
 import { verifyArtifact } from '@vda/domain';
 import { readRun } from './run-repository';
 import { ConversationRepository } from './conversation-repository';
+import { syncAgentInvocationsFromRun } from '../workflow/agent-projection';
 import type { AgentJobLease, AgentTurn, TurnContext } from '../types';
 const maxAttempts = 3;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -142,6 +144,17 @@ export class AgentExecutionRepository {
       const invocations = (await tx.query('SELECT * FROM agent_invocations WHERE org_id=$1 AND job_id=$2 ORDER BY created_at,id LIMIT 100', [org,id])).map(invocation);
       const events = (await tx.query('SELECT * FROM agent_execution_events WHERE org_id=$1 AND job_id=$2 AND sequence>$3 ORDER BY sequence LIMIT 100', [org,id,after])).map(event);
       return { job: current, invocations, events };
+    });
+  }
+
+  async getForUserMessage(user: string, org: string, userMessageId: string): Promise<AgentTurnJob | null> {
+    return this.db.transaction(async tx => {
+      await authorizeInTransaction(tx,user,org);
+      const rows = await tx.query(
+        'SELECT * FROM agent_turn_jobs WHERE org_id=$1 AND user_message_id=$2',
+        [org,userMessageId],
+      );
+      return rows[0] ? job(rows[0]) : null;
     });
   }
 
@@ -359,6 +372,31 @@ export class AgentExecutionRepository {
       const child = childRows[0];
       if (!child || child.run_id !== run.run_id || !['waiting','completed'].includes(String(child.status)))
         fail('DATA_INVOCATION_MISMATCH',409);
+      const requiredStages = new Set(['coordinator',...Object.values(AGENT_V1_PERSONA_STAGES).flat()]);
+      const stageRows = await tx.query('SELECT payload FROM tasks WHERE org_id=$1 AND run_id=$2',
+        [current.org_id,run.run_id]);
+      const stageStatus = new Map<string,string>(stageRows.map(row => {
+        const stage = RunTaskSchema.parse(json(row));
+        return [stage.kind,stage.status] as const;
+      }));
+      if ([...requiredStages].some(kind => stageStatus.get(kind) !== 'succeeded'))
+        fail('AGENT_STAGES_INCOMPLETE',409);
+      if (!run.report_artifact_id) fail('PUBLISHED_REPORT_REQUIRED',409);
+      const published = await tx.query(
+        'SELECT payload FROM reports WHERE org_id=$1 AND run_id=$2 AND artifact_id=$3',
+        [current.org_id,run.run_id,run.report_artifact_id],
+      );
+      const report = published[0] ? ReportRecordSchema.safeParse(json(published[0])) : null;
+      if (!report?.success || report.data.org_id !== current.org_id ||
+          report.data.run_id !== run.run_id || report.data.artifact_id !== run.report_artifact_id)
+        fail('PUBLISHED_REPORT_REQUIRED',409);
+      await syncAgentInvocationsFromRun(tx,current.org_id,run.run_id);
+      const personas = await tx.query(
+        "SELECT step_key,status FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND step_key IN ('data','compare','insight','report')",
+        [current.org_id,current.job_id],
+      );
+      if (personas.length !== 4 || personas.some(persona => persona.status !== 'completed'))
+        fail('PERSONA_STAGES_INCOMPLETE',409);
       const content = `Đã hoàn tất phân tích tồn kho cho ${pack.payload.dataset.row_count} bản ghi. Kết quả dữ liệu đã được xác thực và liên kết với lượt phân tích.`;
       const conversation = new ConversationRepository(tx);
       const assistant = await conversation.message(tx,current.org_id,current.assistant_message_id,true);
@@ -371,16 +409,9 @@ export class AgentExecutionRepository {
         {type:'run_ref',run_id:run.run_id,status:'succeeded'},
         {type:'artifact_ref',run_id:run.run_id,artifact_id:pack.artifact_id,kind:'data_analysis_pack'},
       ];
-      const published = run.report_artifact_id ? await tx.query(
-        'SELECT payload FROM reports WHERE org_id=$1 AND run_id=$2 AND artifact_id=$3',
-        [current.org_id,run.run_id,run.report_artifact_id],
-      ) : [];
-      const report = published[0] ? ReportRecordSchema.safeParse(json(published[0])) : null;
-      if (report?.success && report.data.org_id === current.org_id && report.data.run_id === run.run_id && report.data.artifact_id === run.report_artifact_id) {
-        assistant.content = `${content} Báo cáo đã được xuất bản.`;
-        assistant.parts[0] = {type:'text',text:assistant.content};
-        assistant.parts.push({type:'report_ref',run_id:run.run_id,report_id:report.data.report_id});
-      }
+      assistant.content = `${content} Báo cáo đã được xuất bản.`;
+      assistant.parts[0] = {type:'text',text:assistant.content};
+      assistant.parts.push({type:'report_ref',run_id:run.run_id,report_id:report.data.report_id});
       assistant.updated_at = new Date().toISOString();
       await conversation.updateMessage(tx,assistant);
       const userMessage = await conversation.message(tx,current.org_id,current.user_message_id,true);
@@ -390,10 +421,10 @@ export class AgentExecutionRepository {
         await conversation.updateMessage(tx,userMessage);
       }
       const activeInvocations = await tx.query(
-        "SELECT id,step_key,status FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND step_key IN ('root','data','compare','insight','report') AND status NOT IN ('completed','failed','cancelled') FOR UPDATE",
+        "SELECT id,step_key,status FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND step_key='root' AND status NOT IN ('completed','failed','cancelled') FOR UPDATE",
         [current.org_id,current.job_id],
       );
-      await tx.query("UPDATE agent_invocations SET status='completed',updated_at=now() WHERE org_id=$1 AND job_id=$2 AND step_key IN ('root','data','compare','insight','report') AND status NOT IN ('completed','failed','cancelled')",
+      await tx.query("UPDATE agent_invocations SET status='completed',updated_at=now() WHERE org_id=$1 AND job_id=$2 AND step_key='root' AND status NOT IN ('completed','failed','cancelled')",
         [current.org_id,current.job_id]);
       await tx.query("UPDATE agent_turn_jobs SET status='completed',worker_id=NULL,lease_until=NULL,updated_at=now() WHERE org_id=$1 AND id=$2",
         [current.org_id,current.job_id]);
@@ -518,6 +549,7 @@ export class AgentExecutionRepository {
       await authorizeInTransaction(tx,user,org,true);
       const current = await lockedJob(tx,org,id);
       if (current.status === 'cancelled') return current;
+      if (current.run_id) fail('AGENT_JOB_HAS_RUN', 409);
       if (!canTransitionAgentExecution(current.status,'cancelled')) fail('AGENT_JOB_TERMINAL',409);
       const updated = await tx.query("UPDATE agent_turn_jobs SET status='cancelled',worker_id=NULL,lease_until=NULL,fencing_token=fencing_token+1,error_code='CANCELLED',updated_at=now() WHERE org_id=$1 AND id=$2 RETURNING *",[org,id]);
       await tx.query("UPDATE agent_invocations SET status='cancelled',updated_at=now() WHERE org_id=$1 AND job_id=$2 AND status IN ('queued','running','waiting')",[org,id]);

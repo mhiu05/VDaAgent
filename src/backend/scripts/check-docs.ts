@@ -28,13 +28,14 @@ for (const file of (await files('docs')).filter((f) => f.endsWith('.md'))) {
   }
 }
 for (const file of [
-  'docs/26_Infrastructure_And_Deployment/Local_Setup.md',
-  'docs/23_Testing/MVP_Validation.md',
-  'docs/REQUIREMENT_TRACEABILITY.md',
+  'docs/context.md',
+  'docs/PRODUCT.md',
+  'docs/plan.md',
+  'docs/agent-v1-rollout.md',
 ]) {
   try {
     const text = await readFile(file, 'utf8');
-    if (!/MVP|mvp/.test(text)) failures.push(`${file}: missing MVP traceability`);
+    if (!/agent-v1/i.test(text)) failures.push(`${file}: missing agent-v1 traceability`);
   } catch {
     failures.push(`${file}: required handoff document missing`);
   }
@@ -42,4 +43,4 @@ for (const file of [
 if (failures.length) {
   console.error(failures.join('\n'));
   process.exitCode = 1;
-} else console.log(`Documentation links and MVP traceability passed (${count} local links).`);
+} else console.log(`Documentation links and agent-v1 traceability passed (${count} local links).`);

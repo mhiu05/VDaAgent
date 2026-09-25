@@ -13,6 +13,7 @@ import { fail } from '../errors';
 import { normalizeRun } from '../mapping/run';
 import { json } from '../mapping/rows';
 import type { QueryResult } from '../types';
+import { terminalizeRun } from '../workflow/terminal-run';
 
 export function listRuns(db: Driver, user: string, org: string): Promise<AnalysisRun[]> {
   return db.transaction(async (tx) => {
@@ -55,7 +56,9 @@ const now = () => new Date().toISOString();
 export async function updateRun(tx: Driver, run: AnalysisRun, worker: string | null = null) {
   run.updated_at = now();
   await tx.query(
-    'UPDATE runs SET status=$1,lease_until=$2,fencing_token=$3,worker_id=$4,payload=$5 WHERE org_id=$6 AND id=$7',
+    `UPDATE runs SET status=$1,lease_until=$2,fencing_token=$3,worker_id=$4,
+     payload=CASE WHEN payload ? 'workflow_version' THEN $5::jsonb
+       ELSE $5::jsonb - 'workflow_version' END WHERE org_id=$6 AND id=$7`,
     [
       run.status,
       run.lease_until,
@@ -78,31 +81,18 @@ type FinalizeAssistant = (
   },
 ) => Promise<void>;
 
-export async function cancelRun(
-  db: Driver,
-  finalizeAssistant: FinalizeAssistant,
-  user: string,
-  org: string,
-  id: string,
-) {
+export async function cancelRun(db: Driver, user: string, org: string, id: string) {
   await db.transaction(async (tx) => {
     await authorizeInTransaction(tx, user, org, true);
     const run = await readRun(tx, org, id, true);
+    if (run.workflow_version !== 'agent-v1') fail('HISTORICAL_RUN_READ_ONLY', 409);
     if (run.status === 'succeeded' || run.status === 'failed') fail('RUN_TERMINAL', 409);
     run.cancel_requested = true;
     run.status = 'cancelled';
     run.lease_until = null;
     run.fencing_token++;
     await updateRun(tx, run);
-    await finalizeAssistant(tx, run, {
-      status: 'cancelled',
-      content: 'Lượt phân tích đã bị hủy.',
-      parts: [
-        { type: 'text', text: 'Lượt phân tích đã bị hủy.' },
-        { type: 'run_ref', run_id: run.run_id, status: 'cancelled' },
-        { type: 'error', code: 'RUN_CANCELLED', retryable: false },
-      ],
-    });
+    await terminalizeRun(tx, run, 'cancelled', 'RUN_CANCELLED');
   });
 }
 
@@ -117,6 +107,12 @@ export async function retryRun(
     await authorizeInTransaction(tx, user, org, true);
     const run = await readRun(tx, org, id, true);
     if (run.status !== 'failed') fail('RUN_NOT_RETRYABLE', 409);
+    if (run.workflow_version !== 'agent-v1') fail('HISTORICAL_RUN_READ_ONLY', 409);
+    const linkedJob = await tx.query(
+      'SELECT id FROM agent_turn_jobs WHERE org_id=$1 AND run_id=$2 LIMIT 1',
+      [org, id],
+    );
+    if (linkedJob[0]) fail('DURABLE_RUN_RETRY_REQUIRES_NEW_TURN', 409);
     if (run.attempt >= 3) fail('RUN_MAX_ATTEMPTS', 409);
     await authorizeInTransaction(tx, run.created_by, org, true);
     run.status = 'queued';

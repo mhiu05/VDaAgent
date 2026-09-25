@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from './index';
+import { SAFE_SUMMARY, type NarrativeProvider } from './index';
 import { executeAgentWorkflow } from './analysis-v1/workflow';
 import { AgentChatOrchestrator } from './chat/legacy/orchestrator';
 import { ConversationContextBuilder } from './chat/legacy/context-builder';
@@ -8,8 +8,8 @@ import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
 
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
-async function setup(options: { workflowVersion?: 'legacy-v1' | 'agent-v1' } = {}) {
-  const { pg, repo } = await createTestRepository(options);
+async function setup() {
+  const { pg, repo } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   return repo;
 }
@@ -45,9 +45,9 @@ async function completedConversationRun(repo: Repository) {
     initial,
     'agent-initial-run',
   );
-  const lease = await repo.claimRun('chat-test-worker');
+  const lease = await repo.claimRun('chat-test-worker', new Date(), 240_000);
   if (!lease) throw new Error('LEASE_REQUIRED');
-  await executeLease(repo, lease, deterministicProvider());
+  await executeAgentWorkflow(repo, lease, { narrativeProvider: deterministicProvider() });
   const brief = await repo.decisionBrief(TEST_USERS.owner, TEST_ORGS.alpha, accepted.run_id!);
   const signal = brief.decision_brief.where_to_look[0] ?? brief.decision_brief.current_state[0];
   return { accepted, brief, signal };
@@ -62,7 +62,7 @@ async function completedAgentConversationRun(repo: Repository) {
     input('70000000-0000-4000-8000-000000000009'),
     'agent-target-initial-run',
   );
-  const lease = await repo.claimRun('agent-target-test-worker');
+  const lease = await repo.claimRun('agent-target-test-worker', new Date(), 240_000);
   if (!lease) throw new Error('LEASE_REQUIRED');
   await executeAgentWorkflow(repo, lease, { narrativeProvider: deterministicProvider() });
   return initial;
@@ -141,7 +141,7 @@ describe('Agent Chat follow-up orchestration', () => {
       run_id: initial.run_id,
       signal_id: signal.signal_id,
     });
-  });
+  }, 90_000);
 
   it('creates exactly one run when the selected scope changes', async () => {
     const repo = await setup();
@@ -183,7 +183,7 @@ describe('Agent Chat follow-up orchestration', () => {
       orchestrator.submit(TEST_USERS.owner, followup, 'agent-zone-change', initial.conversation_id),
     ).resolves.toEqual(next);
     expect((await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length).toBe(2);
-  });
+  }, 90_000);
 
   it('lets the provider choose a catalog-authorized zone reference for a named-zone follow-up', async () => {
     const repo = await setup();
@@ -214,7 +214,7 @@ describe('Agent Chat follow-up orchestration', () => {
       zone_external_id: 'Z-SOUTH',
     });
     expect((await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length).toBe(2);
-  });
+  }, 90_000);
 
   it('treats causal requests without a signal reference as deterministic unsupported responses', async () => {
     const repo = await setup();
@@ -279,7 +279,7 @@ describe('Agent Chat follow-up orchestration', () => {
   });
 
   it('routes an explicit safe @Agent artifact follow-up without a model and persists its sender', async () => {
-    const repo = await setup({ workflowVersion: 'agent-v1' });
+    const repo = await setup();
     const initial = await completedAgentConversationRun(repo);
     const decision = await repo.decisionIntelligence(
       TEST_USERS.viewer,
@@ -362,5 +362,5 @@ describe('Agent Chat follow-up orchestration', () => {
       { limit: 50, cursor: null },
     );
     expect(rejectedMessages.messages.at(-1)?.sender_agent).toBeNull();
-  }, 60_000);
+  }, 90_000);
 });

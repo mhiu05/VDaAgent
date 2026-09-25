@@ -7,6 +7,7 @@ import {
   ConversationPageSchema,
   ConversationSchema,
   MessagePageSchema,
+  MessageSchema,
   type AgentTurnRequest,
   type PageRequest,
 } from '@vda/contracts';
@@ -60,6 +61,10 @@ export function listConversationMessages(
     scoped(`/conversations/${conversationId}/messages${pageQuery(page)}`, orgId),
     MessagePageSchema,
   );
+}
+
+export function getConversationMessage(orgId: string, conversationId: string, messageId: string) {
+  return api(scoped(`/conversations/${conversationId}/messages/${messageId}`, orgId), MessageSchema);
 }
 
 export function sendTurn(

@@ -93,8 +93,9 @@ export function useAgentChatController({
     setSelectedConversationId,
     loadingConversations,
     loadConversations,
+    clearConversations,
   } = useConversations(orgId, setError);
-  const { messages, setMessages, messageCursor, setMessageCursor, loadingMessages, loadMessages, activateConversation } =
+  const { messages, setMessages, messageCursor, setMessageCursor, loadingMessages, loadMessages, refreshMessage, activateConversation } =
     useMessages(orgId, setError);
   const project = controlledProject ?? localProject;
   const zone = controlledZone ?? localZone;
@@ -155,6 +156,42 @@ export function useAgentChatController({
   const { snapshot: agentExecution, setSnapshot: setAgentExecution, error: executionError } = useAgentExecution(orgId, selectedConversationId, acceptedJobId);
   const agentRunId = agentExecution?.job.run_id;
   const agentAssistantMessageId = agentExecution?.job.assistant_message_id;
+  const agentJobId = agentExecution?.job.job_id;
+  const agentJobStatus = agentExecution?.job.status;
+  const agentConversationId = agentExecution?.job.conversation_id;
+  const agentAssistantTerminal = messages.some((message) =>
+    message.message_id === agentAssistantMessageId &&
+    ['completed', 'failed', 'cancelled'].includes(message.status));
+  const onAccessRevoked = useCallback(() => {
+    clearConversations();
+    activateConversation(null);
+    setMessages([]);
+    setMessageCursor(null);
+    setAgentExecution(null);
+  }, [clearConversations, activateConversation, setMessages, setMessageCursor, setAgentExecution]);
+  useEffect(() => {
+    if (!agentJobId || !agentAssistantMessageId || agentConversationId !== selectedConversationId ||
+      !agentJobStatus || !['completed', 'failed', 'cancelled'].includes(agentJobStatus) ||
+      agentAssistantTerminal) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const refresh = async () => {
+      const [messageResult] = await Promise.all([
+        refreshMessage(agentConversationId, agentAssistantMessageId),
+        loadConversations(null, false),
+      ]);
+      if (!disposed && messageResult === 'unauthorized') onAccessRevoked();
+      if (!disposed && messageResult !== 'terminal' && messageResult !== 'stale' &&
+          messageResult !== 'missing' && messageResult !== 'unauthorized' && ++attempts < 5)
+        timer = setTimeout(() => void refresh(), Math.min(5000, attempts * 1000));
+      else if (!disposed && (messageResult === 'error' || messageResult === 'pending') && attempts >= 5)
+        setError('Không thể đồng bộ tin nhắn cuối. Tải lại trang để thử lại.');
+    };
+    void refresh();
+    return () => { disposed = true; if (timer) clearTimeout(timer); };
+  }, [agentAssistantMessageId, agentAssistantTerminal, agentConversationId, agentJobId,
+      agentJobStatus, loadConversations, onAccessRevoked, refreshMessage, selectedConversationId]);
   useEffect(() => {
     if (!agentRunId || externalRunId || runSelectionIntent.current !== 'automatic' || selectedRunId ||
       agentExecution?.job.conversation_id !== selectedConversationId ||
@@ -192,6 +229,7 @@ export function useAgentChatController({
     loadConversations,
     loadMessages,
     setSelectedConversationId,
+    onAccessRevoked,
     onError: setError,
   });
   const scheduledReadOnly = isReadOnlyRunView(
@@ -296,7 +334,7 @@ export function useAgentChatController({
     setBriefStatus,
   ]);
 
-  useSelectedMessages(orgId, selectedConversationId, setMessages, setMessageCursor, setError, activateConversation);
+  useSelectedMessages(selectedConversationId, loadMessages, activateConversation);
   useEffect(() => {
     if (!selectedConversationId) return;
     setRunDetail(null);

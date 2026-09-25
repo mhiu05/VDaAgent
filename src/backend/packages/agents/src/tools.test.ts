@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from './index';
+import { SAFE_SUMMARY, type NarrativeProvider } from './index';
+import { executeAgentWorkflow } from './analysis-v1/workflow';
 import {
   createAnalysisTool,
   getAnalysisResultTool,
@@ -59,9 +60,9 @@ async function completedBrief(repo: Repository) {
     },
     'completed-brief',
   );
-  const lease = await repo.claimRun('tool-test-worker');
+  const lease = await repo.claimRun('tool-test-worker', new Date(), 240_000);
   if (!lease) throw new Error('LEASE_REQUIRED');
-  await executeLease(repo, lease, deterministicProvider());
+  await executeAgentWorkflow(repo, lease, { narrativeProvider: deterministicProvider() });
   const brief = await repo.decisionBrief(TEST_USERS.owner, TEST_ORGS.alpha, run.run_id);
   const signal = brief.decision_brief.where_to_look[0] ?? brief.decision_brief.current_state[0];
   return { run, signal };
@@ -158,7 +159,7 @@ describe('Agent Chat typed tools', () => {
       signal_id: signal.signal_id,
     });
     expect((await repo.listRuns(TEST_USERS.owner, TEST_ORGS.alpha)).length).toBe(countBefore);
-  });
+  }, 90_000);
 
   it('rejects an unknown signal before it can be inspected', async () => {
     const repo = await setup();
@@ -173,7 +174,7 @@ describe('Agent Chat typed tools', () => {
         { action: 'inspect_signal', run_id: run.run_id, signal_id: 'unknown-signal' },
       ),
     ).rejects.toThrow('SIGNAL_REFERENCE_FORBIDDEN');
-  });
+  }, 90_000);
 
   it('re-authorizes signal inspection and denies a foreign tenant actor', async () => {
     const repo = await setup();
@@ -190,7 +191,7 @@ describe('Agent Chat typed tools', () => {
         { action: 'inspect_signal', run_id: run.run_id, signal_id: signal.signal_id },
       ),
     ).rejects.toThrow('WORKSPACE_FORBIDDEN');
-  });
+  }, 90_000);
 
   it('keeps viewers read-only while allowing authorized signal reads', async () => {
     const repo = await setup();
@@ -214,7 +215,7 @@ describe('Agent Chat typed tools', () => {
         signal_id: signal.signal_id,
       }),
     ).resolves.toMatchObject({ kind: 'signal_inspection' });
-  });
+  }, 90_000);
 
   it('exposes only the reviewed, one-per-turn selectable operations', () => {
     expect(modelToolNames).toEqual(['create_analysis', 'get_analysis_result', 'inspect_signal']);

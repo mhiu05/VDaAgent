@@ -17,6 +17,7 @@ import { insertBatches } from '../internal/insert-batches';
 import { json } from '../mapping/rows';
 import { updateRun } from '../repositories/run-repository';
 import { finishRunAssistant } from '../workflow/checkpoint-repository';
+import { syncAgentInvocationsFromRun } from '../workflow/agent-projection';
 import { fenceRun } from '../workflow/lease-repository';
 import type { Lease, ReviewedDraftPublication } from '../types';
 
@@ -220,6 +221,7 @@ export async function publishReviewedDraft(
       completedTask.task_id,
       JSON.stringify(completedTask),
     ]);
+    await syncAgentInvocationsFromRun(tx, run.org_id, run.run_id);
     const publicationEvent: RunEvent = {
       event_id: randomUUID(),
       run_id: run.run_id,

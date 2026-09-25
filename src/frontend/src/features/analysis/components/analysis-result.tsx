@@ -381,7 +381,7 @@ export function AnalysisResult({
     if (briefStatus === 'unavailable')
       return (
         <section className="card decision-brief-state">
-          Lượt chạy này chưa có tóm tắt quyết định. Đang tải giao diện kết quả lưu trữ…
+          Lượt chạy này chưa có tóm tắt quyết định. Có thể xem báo cáo và bằng chứng đã lưu bên dưới.
         </section>
       );
     return null;

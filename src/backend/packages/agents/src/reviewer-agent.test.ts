@@ -42,7 +42,7 @@ const provider = {
 };
 
 async function draftInput(key: string): Promise<ReviewerAgentInput> {
-  const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+  const { pg, repo } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, key);
   const lease = await repo.claimRun(`${key}-worker`, new Date(), PGLITE_LEASE_MS);
@@ -72,7 +72,7 @@ function withChangedTitle(draft: ArtifactOf<'report_draft'>): ArtifactOf<'report
 }
 
 async function persistedRevisionTwoInput(key: string): Promise<ReviewerAgentInput> {
-  const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+  const { pg, repo } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, key);
   const lease = await repo.claimRun(`${key}-worker`, new Date(), PGLITE_LEASE_MS);

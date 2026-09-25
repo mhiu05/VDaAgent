@@ -67,6 +67,11 @@ export async function createLegacyTestDatabase() {
 
 export async function createTestDatabase() {
   const pg = await createLegacyTestDatabase();
+  await upgradeTestDatabase(pg);
+  return pg;
+}
+
+export async function upgradeTestDatabase(pg: PGlite) {
   await pg.exec(
     await readFile(
       'src/backend/supabase/migrations/20260921101524_agent_workflow_persistence.sql',
@@ -85,12 +90,15 @@ export async function createTestDatabase() {
       'utf8',
     ),
   );
-  return pg;
+  await pg.exec(
+    await readFile(
+      'src/backend/supabase/migrations/20260925082316_guard_run_workflow_version.sql',
+      'utf8',
+    ),
+  );
 }
 
-export async function createTestRepository(
-  options: { workflowVersion?: 'legacy-v1' | 'agent-v1' } = {},
-): Promise<{
+export async function createTestRepository(): Promise<{
   pg: PGlite;
   repo: Repository;
   uploads: StoredObject[];
@@ -102,7 +110,6 @@ export async function createTestRepository(
     driver: pgliteDriver(pg),
     storage,
     seedTestData: true,
-    workflowVersion: options.workflowVersion,
   });
   return { pg, repo, uploads };
 }

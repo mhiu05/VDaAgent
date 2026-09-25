@@ -65,6 +65,11 @@ export function WorkspaceConversation({
     />
     <div className={styles.timeline} ref={timelineElement} onScroll={onScroll}>
       {chat.readState === 'stale' && <p className={styles.stale} role="status">Kết nối tạm gián đoạn. Đang thử cập nhật lượt chạy đã chọn.</p>}
+      {chat.scheduledReadOnly && chat.currentRunDetail && <p className={styles.stale} role="status">
+        {chat.currentRunDetail.run.entrypoint === 'scheduled'
+          ? 'Lượt chạy theo lịch: chỉ xem kết quả đã lưu.'
+          : 'Lượt chạy lịch sử: chỉ xem kết quả đã lưu.'}
+      </p>}
       {chat.error && <div className="error-box" role="alert"><CircleAlert size={18} /><span>{chat.error}</span>
         {chat.retryTurn ? <button type="button" className="text-button" disabled={chat.busy} onClick={() => void chat.submit()}><RefreshCw size={14} /> Thử lại yêu cầu gốc</button>
           : <button type="button" className="text-button" onClick={() => chat.setError('')}>Đóng</button>}

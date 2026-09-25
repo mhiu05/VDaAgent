@@ -19,7 +19,11 @@ import {
 type RunDetail = z.infer<typeof RunDetailSchema>;
 type ArtifactList = z.infer<typeof ArtifactListSchema>;
 
-export function useAnalysisRun(orgId: string, onError: (message: string) => void) {
+export function useAnalysisRun(
+  orgId: string,
+  onError: (message: string) => void,
+  pollEnabled = true,
+) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<z.infer<typeof MessageSchema>[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
@@ -37,7 +41,7 @@ export function useAnalysisRun(orgId: string, onError: (message: string) => void
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [pollEpoch, setPollEpoch] = useState(0);
   useEffect(() => {
-    if (!runId) return;
+    if (!pollEnabled || !runId) return;
     const pollingRunId = runId;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -91,7 +95,7 @@ export function useAnalysisRun(orgId: string, onError: (message: string) => void
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [runId, orgId, pollEpoch, onError]);
+  }, [runId, orgId, pollEpoch, onError, pollEnabled]);
   async function loadRunArtifacts() {
     if (!runId || bundle.artifacts.length || detailsLoading) return;
     setDetailsLoading(true);

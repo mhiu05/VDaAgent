@@ -153,20 +153,17 @@ describe('shared contracts and configuration', () => {
     expect(getConfig({ ...supabase, ...providers, NODE_ENV: 'test' }).DEVELOPMENT_ROLE_BYPASS).toBe(
       false,
     );
-    expect(
-      getConfig({ ...supabase, ...providers, AGENT_WORKFLOW_ENABLED: 'true' })
-        .AGENT_WORKFLOW_ENABLED,
-    ).toBe(true);
-    expect(getConfig({ ...supabase, ...providers }).AGENT_WORKFLOW_ENABLED).toBe(false);
-    const runtimeDisabled = getConfig({ ...supabase, ...providers });
-    expect(runtimeDisabled.GROK_RUNTIME_ENABLED).toBe(false);
-    expect(runtimeDisabled.GROK_WORKSPACE_ENABLED).toBe(false);
-    expect(runtimeDisabled.GROK_SSE_ENABLED).toBe(false);
-    expect(runtimeDisabled.AGENT_LLM_PRIMARY_PROVIDER).toBe('gemini');
-    expect(runtimeDisabled.AGENT_LLM_FALLBACK_PROVIDER).toBe('openai');
-    expect(runtimeDisabled.AGENT_PROVIDER_TIMEOUT_MS).toBe(12_000);
-    expect(runtimeDisabled.AGENT_TURN_TIMEOUT_MS).toBe(45_000);
-    expect(runtimeDisabled.XAI_REQUIRE_ZDR).toBe(false);
+    const defaults = getConfig({ ...supabase, ...providers, AGENT_WORKFLOW_ENABLED: 'false' });
+    expect('AGENT_WORKFLOW_ENABLED' in defaults).toBe(false);
+    expect(defaults.GROK_RUNTIME_ENABLED).toBe(true);
+    expect(defaults.GROK_WORKSPACE_ENABLED).toBe(true);
+    expect(defaults.DURABLE_AGENT_EXECUTION_ENABLED).toBe(true);
+    expect(defaults.GROK_SSE_ENABLED).toBe(false);
+    expect(defaults.AGENT_LLM_PRIMARY_PROVIDER).toBe('gemini');
+    expect(defaults.AGENT_LLM_FALLBACK_PROVIDER).toBe('openai');
+    expect(defaults.AGENT_PROVIDER_TIMEOUT_MS).toBe(12_000);
+    expect(defaults.AGENT_TURN_TIMEOUT_MS).toBe(45_000);
+    expect(defaults.XAI_REQUIRE_ZDR).toBe(false);
     expect(
       getConfig({
         ...supabase,

@@ -33,3 +33,5 @@ Thumbs.db
 vda_vinhomes_mock/curated/
 vda_vinhomes_mock/raw/
 vda_vinhomes_mock/quarantine/
+
+.playwright-mcp/

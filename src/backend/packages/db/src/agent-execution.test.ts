@@ -31,6 +31,46 @@ const input = {
 };
 
 describe('durable agent execution', () => {
+  it('terminalizes a linked job, messages and pending personas when run membership is revoked', async () => {
+    const {pg,repo} = await setup();
+    const turn = await repo.enqueueAgentTurn(TEST_USERS.owner,input,'revoked-run-claim');
+    const orchestrator = (await repo.claimAgentTurnJob('turn-worker'))!;
+    const run = await repo.startAgentAnalysis(orchestrator);
+    const old = (await repo.claimRun('run-worker'))!;
+    const succeeded = {task_id:crypto.randomUUID(),org_id:run.org_id,run_id:run.run_id,
+      kind:'data' as const,dependencies:[],status:'succeeded' as const,attempt:1,error_code:null};
+    const pending = {task_id:crypto.randomUUID(),org_id:run.org_id,run_id:run.run_id,
+      kind:'comparison' as const,dependencies:[],status:'running' as const,attempt:1,error_code:null};
+    await repo.setTask(old,succeeded);
+    await repo.setTask(old,pending);
+    await pg.query('DELETE FROM organization_members WHERE org_id=$1 AND user_id=$2',
+      [TEST_ORGS.alpha,TEST_USERS.owner]);
+    expect(await repo.claimRun('new-worker',new Date(Date.now()+60_000))).toBeNull();
+    const state = (await pg.query('SELECT status,worker_id,lease_until,fencing_token,payload FROM runs WHERE id=$1',
+      [run.run_id])).rows[0] as {status:string;worker_id:string|null;lease_until:Date|null;fencing_token:number;payload:{error_code:string}};
+    expect(state).toMatchObject({status:'failed',worker_id:null,lease_until:null,
+      fencing_token:old.fencing_token+1,payload:{error_code:'MEMBERSHIP_REVOKED'}});
+    const taskRows = (await pg.query('SELECT payload FROM tasks WHERE run_id=$1',[run.run_id])).rows as Array<
+      {payload:{task_id:string;status:string;error_code:string|null}}
+    >;
+    const tasks = taskRows.map(row => row.payload);
+    expect(tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({task_id:succeeded.task_id,status:'succeeded',error_code:null}),
+      expect.objectContaining({task_id:pending.task_id,status:'failed',error_code:'MEMBERSHIP_REVOKED'}),
+    ]));
+    expect((await pg.query('SELECT status,error_code,worker_id,lease_until FROM agent_turn_jobs WHERE id=$1',
+      [turn.job.job_id])).rows[0]).toMatchObject({status:'failed',error_code:'MEMBERSHIP_REVOKED',
+        worker_id:null,lease_until:null});
+    expect(((await pg.query('SELECT status FROM agent_invocations WHERE job_id=$1',
+      [turn.job.job_id])).rows as Array<{status:string}>).every(row =>
+        row.status !== 'running' && row.status !== 'waiting' && row.status !== 'queued')).toBe(true);
+    expect((await pg.query('SELECT role,status FROM messages WHERE run_id=$1 AND role IN (\'assistant\',\'user\')',
+      [run.run_id])).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({role:'assistant',status:'failed'}),
+      expect.objectContaining({role:'user',status:'completed'}),
+    ]));
+    await expect(repo.setTask(old,{...pending,status:'succeeded'})).rejects.toThrow();
+  });
   it('atomically links one agent-v1 run and releases the worker without duplicate chat placeholders', async () => {
     const {pg,repo} = await setup();
     const turn = await repo.enqueueAgentTurn(TEST_USERS.owner,input,'analysis-1');
@@ -214,6 +254,8 @@ describe('durable agent execution', () => {
     expect(replay.job.job_id).toBe(first.job.job_id);
     const state = await repo.getAgentTurnJob(TEST_USERS.owner,TEST_ORGS.alpha,first.job.job_id);
     expect(state.job.status).toBe('queued');
+    expect((await repo.getAgentTurnJobForMessage(TEST_USERS.owner,TEST_ORGS.alpha,
+      first.user_message.message_id))?.job_id).toBe(first.job.job_id);
     expect(state.invocations).toMatchObject([{agent_key:'orchestrator',step_key:'root',depth:0}]);
     expect(state.events.map(e => [e.sequence,e.type])).toEqual([[1,'turn_queued']]);
     expect((await pg.query('SELECT id FROM messages WHERE org_id=$1 AND conversation_id=$2',[TEST_ORGS.alpha,first.conversation.conversation_id])).rows).toHaveLength(2);
@@ -243,6 +285,18 @@ describe('durable agent execution', () => {
     expect(state.events.at(-1)?.type).toBe('turn_cancelled');
     const messages = await repo.messages(TEST_USERS.owner,TEST_ORGS.alpha,turn.conversation.conversation_id);
     expect(messages.find(m => m.message_id === turn.assistant_message.message_id)?.status).toBe('cancelled');
+  });
+
+  it('requires the run lifecycle after durable linkage and forbids same-run retry', async () => {
+    const {pg,repo} = await setup();
+    const turn = await repo.enqueueAgentTurn(TEST_USERS.owner,input,'linked-lifecycle');
+    const lease = (await repo.claimAgentTurnJob('linked-worker'))!;
+    const run = await repo.startAgentAnalysis(lease);
+    await expect(repo.cancelAgentTurnJob(TEST_USERS.owner,TEST_ORGS.alpha,turn.job.job_id))
+      .rejects.toThrow('AGENT_JOB_HAS_RUN');
+    await setRunStatus(pg,run.run_id,'failed');
+    await expect(repo.retryRun(TEST_USERS.owner,TEST_ORGS.alpha,run.run_id))
+      .rejects.toThrow('DURABLE_RUN_RETRY_REQUIRES_NEW_TURN');
   });
 
   it('keeps invocation steps idempotent and rejects cross-job parents', async () => {

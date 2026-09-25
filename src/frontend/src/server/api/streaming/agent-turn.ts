@@ -1,5 +1,5 @@
 import { getConfig } from '@vda/config';
-import { AgentChatOrchestrator, AgentRuntime } from '@vda/agents';
+import { AgentChatOrchestrator, AgentRuntime, enqueueEligibleDurableTurn } from '@vda/agents';
 import { isApprovedDurableAnalysisTurn, type AgentTurnAccepted, type AgentTurnRequest } from '@vda/contracts';
 import { RepositoryError, type Repository } from '@vda/db';
 import { agentTurnStream } from '../../agent-turn-stream';
@@ -16,13 +16,14 @@ type AgentTurnSubmitter = {
 
 export function agentTurnSubmitter(repo: Repository): AgentTurnSubmitter {
   const config = getConfig();
-  const fallback = config.GROK_RUNTIME_ENABLED ? new AgentRuntime(repo) : new AgentChatOrchestrator(repo);
-  if (config.DURABLE_AGENT_EXECUTION_ENABLED) return {
-    submit: async (userId, input, idempotencyKey, conversationId, signal) => {
-      if (!isApprovedDurableAnalysisTurn(input))
-        return fallback.submit(userId,input,idempotencyKey,conversationId,signal);
-      const turn = await repo.enqueueAgentTurn(userId,input,idempotencyKey,conversationId);
-      return {
+  if (config.GROK_RUNTIME_ENABLED)
+    return new AgentRuntime(repo, { durable_admission: config.DURABLE_AGENT_EXECUTION_ENABLED });
+  const fallback = new AgentChatOrchestrator(repo);
+  return {
+    submit: async (userId, input, idempotencyKey, conversationId) => {
+      const turn = await enqueueEligibleDurableTurn(repo,config.DURABLE_AGENT_EXECUTION_ENABLED,
+        userId,input,idempotencyKey,conversationId);
+      if (turn) return {
         conversation_id: turn.conversation.conversation_id,
         user_message_id: turn.user_message.message_id,
         assistant_message_id: turn.assistant_message.message_id,
@@ -30,9 +31,11 @@ export function agentTurnSubmitter(repo: Repository): AgentTurnSubmitter {
         assistant_status: turn.assistant_message.status,
         agent_turn_job_id: turn.job.job_id,
       };
+      const result = await fallback.submit(userId,input,idempotencyKey,conversationId);
+      const job = await repo.getAgentTurnJobForMessage(userId,input.org_id,result.user_message_id);
+      return job ? { ...result, agent_turn_job_id: job.job_id } : result;
     },
   };
-  return fallback;
 }
 
 export function streamAgentTurn(

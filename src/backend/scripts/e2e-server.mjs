@@ -41,8 +41,11 @@ const required = (...names) => {
   }
   throw new Error(`Local Supabase did not provide ${names.join(' or ')}.`);
 };
-const { LLM_MODE: _legacyLlmMode, ...inheritedEnv } = process.env;
-const agentWorkflowEnabled = process.env.E2E_AGENT_WORKFLOW === 'true';
+const {
+  LLM_MODE: _legacyLlmMode,
+  AGENT_WORKFLOW_ENABLED: _obsoleteWorkflowFlag,
+  ...inheritedEnv
+} = process.env;
 const durableAgentExecutionEnabled = process.env.E2E_DURABLE_AGENT_EXECUTION === 'true';
 const env = {
   ...inheritedEnv,
@@ -61,10 +64,10 @@ const env = {
   NEXT_DIST_DIR: '.next-e2e',
   NEXT_TELEMETRY_DISABLED: '1',
   TURBO_TELEMETRY_DISABLED: '1',
-  // Keep the default suite on legacy-v1. A separate explicit invocation uses
-  // E2E_AGENT_WORKFLOW=true so the rollout flag is exercised without changing
-  // legacy regression expectations.
-  AGENT_WORKFLOW_ENABLED: agentWorkflowEnabled ? 'true' : 'false',
+  GROK_RUNTIME_ENABLED: 'true',
+  GROK_WORKSPACE_ENABLED: 'true',
+  GROK_SSE_ENABLED: process.env.E2E_GROK_SSE === 'true' ? 'true' : 'false',
+  // Default E2E exercises Runtime over JSON; a separate variant enables jobs.
   DURABLE_AGENT_EXECUTION_ENABLED: durableAgentExecutionEnabled ? 'true' : 'false',
 };
 const children = [

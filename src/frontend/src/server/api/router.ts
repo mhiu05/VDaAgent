@@ -1,7 +1,7 @@
 import { RepositoryError } from '@vda/db';
 import { checkOrigin } from './middleware/origin';
 import { authenticatedContext } from './middleware/authenticated-context';
-import { problemResponse } from './problem-response';
+import { logInternalError, problemResponse } from './problem-response';
 import { authRoute, sessionRoute } from './routes/auth';
 import { catalogRoute } from './routes/catalog';
 import { analysisRoutes } from './routes/analyses-runs';
@@ -50,6 +50,7 @@ export async function api(request: Request, path: string[]) {
   try {
     return await handle(request, path);
   } catch (error) {
+    logInternalError(error, request.method, path.join('/'));
     return problemResponse(error);
   }
 }

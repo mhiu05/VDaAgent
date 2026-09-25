@@ -29,6 +29,7 @@ export function useWorkspaceRunResource({
   loadConversations,
   loadMessages,
   setSelectedConversationId,
+  onAccessRevoked,
   onError,
 }: {
   orgId: string;
@@ -40,6 +41,7 @@ export function useWorkspaceRunResource({
   loadConversations: ReturnType<typeof useConversations>['loadConversations'];
   loadMessages: ReturnType<typeof useMessages>['loadMessages'];
   setSelectedConversationId: ReturnType<typeof useConversations>['setSelectedConversationId'];
+  onAccessRevoked: () => void;
   onError: (message: string) => void;
 }) {
   const [runDetail, setRunDetail] = useState<RunDetail | null>(null);
@@ -84,6 +86,7 @@ export function useWorkspaceRunResource({
     loadConversations,
     loadMessages,
     setSelectedConversationId,
+    onAccessRevoked,
     setRunDetail,
     setWorkflowStatus,
     setBundle,

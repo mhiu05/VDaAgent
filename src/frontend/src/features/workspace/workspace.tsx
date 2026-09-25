@@ -10,9 +10,7 @@ import { MascotAvatar } from '../../components/assistant';
 import { organizationFromSession, useSessionBootstrap } from '../auth/hooks/use-session-bootstrap';
 import { logout } from '../auth/api/session';
 import { Login } from '../auth/components/login';
-import { LegacyAnalysisWorkspace } from '../analysis/components/legacy-analysis-workspace';
 import { AgentChat } from '../agent-chat/agent-chat';
-import { shouldRenderAgentChat } from '../agent-chat/run-view';
 import { EvidenceDrawer } from '../evidence/components/evidence';
 import { useEvidenceSelection } from '../evidence/hooks/use-evidence-selection';
 import { GrokWorkspace } from '../grok-workspace/components/grok-workspace';
@@ -134,16 +132,14 @@ function WorkspaceShell({
     initialWorkspaceContextState,
   );
   const [zone, setZone] = useState('');
-  const [question, setQuestion] = useState('Phân tích tồn kho và các sản phẩm chậm luân chuyển.');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const analysis = useAnalysisRun(orgId, setError);
+  const analysis = useAnalysisRun(orgId, setError, false);
   const {
     setConversationId,
     setMessages,
     runId,
     setRunId,
-    runDetail,
     setRunDetail,
     bundle,
     setBundle,
@@ -154,7 +150,7 @@ function WorkspaceShell({
     setDetailsLoading,
     setPollEpoch,
   } = analysis;
-  const { report, setReport, openReport, openRunReport, exportReport } = useWorkspaceReport(
+  const { report, setReport, openReport, exportReport } = useWorkspaceReport(
     orgId,
     runId,
     setBundle,
@@ -163,7 +159,7 @@ function WorkspaceShell({
     setBusy,
     setError,
   );
-  const { evidenceId, setEvidenceId, selectedArtifact, openEvidence } = useEvidenceSelection(
+  const { evidenceId, setEvidenceId, selectedArtifact } = useEvidenceSelection(
     orgId,
     runId,
     bundle,
@@ -244,7 +240,6 @@ function WorkspaceShell({
     selectRun,
     openReport,
   );
-  const renderAgentChat = shouldRenderAgentChat(runId, runDetail?.run.workflow_version);
   const statusText = setup
     ? `Mô hình: ${setup.llm_primary_provider === 'gemini' ? 'Gemini' : 'OpenAI'} · Dự phòng: ${setup.llm_fallback_provider === 'openai' ? 'OpenAI' : 'Gemini'}`
     : 'Đang kiểm tra cấu hình mô hình';
@@ -380,29 +375,7 @@ function WorkspaceShell({
                 onClearStaleNotice={() => dispatchWorkspaceContext({ type: 'clear_stale_notice' })}
               />
             )}
-            {tab === 'analysis' && !grokWorkspaceEnabled && runId && !renderAgentChat && (
-              <LegacyAnalysisWorkspace
-                orgId={orgId}
-                catalog={catalog}
-                canWrite={canWrite}
-                project={project}
-                zone={zone}
-                dataAsOf={dataAsOf}
-                question={question}
-                setProject={setProject}
-                setZone={setZone}
-                setDataAsOf={setDataAsOf}
-                setQuestion={setQuestion}
-                analysis={analysis}
-                runId={runId}
-                reportBusy={busy}
-                onError={setError}
-                onSelectRun={selectRun}
-                onOpenRunReport={() => void openRunReport()}
-                onOpenEvidence={(id) => void openEvidence(id)}
-              />
-            )}
-            {tab === 'analysis' && !grokWorkspaceEnabled && renderAgentChat && (
+            {tab === 'analysis' && !grokWorkspaceEnabled && (
               <AgentChat
                 orgId={orgId}
                 catalog={catalog}

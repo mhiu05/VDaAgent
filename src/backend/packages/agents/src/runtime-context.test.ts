@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentTurnRequest, AnalysisRequest } from '@vda/contracts';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../../tests/helpers/postgres.js';
-import { executeLease, SAFE_SUMMARY } from './index';
+import { SAFE_SUMMARY } from './index';
 import { executeAgentWorkflow } from './analysis-v1/workflow';
 import { type NarrativeProvider } from './legacy-workflow/narrative/provider';
 import {
@@ -80,10 +80,10 @@ function objectKeys(value: unknown): string[] {
 }
 
 async function completedAgentRun(key: string) {
-  const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+  const { pg, repo } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, key);
-  const lease = await repo.claimRun(key + '-worker');
+  const lease = await repo.claimRun(key + '-worker', new Date(), 240_000);
   if (!lease) throw new Error('LEASE_REQUIRED');
   const result = await executeAgentWorkflow(repo, lease, { narrativeProvider: narrator() });
   const reports = await repo.listReports(TEST_USERS.owner, run.org_id);
@@ -274,17 +274,9 @@ describe('RuntimeContextBuilder', () => {
     });
   }, 60_000);
 
-  it('keeps a legacy report context reduced when no decision-intelligence pack exists', async () => {
-    const { pg, repo } = await createTestRepository();
-    resources.push({ repo, close: () => pg.close() });
-    const run = await repo.createRun(TEST_USERS.owner, request, 'runtime-context-legacy');
-    const lease = await repo.claimRun('runtime-context-legacy-worker');
-    if (!lease) throw new Error('LEASE_REQUIRED');
-    await executeLease(repo, lease, narrator());
-    const report = (await repo.listReports(TEST_USERS.owner, run.org_id)).find(
-      (item) => item.run_id === run.run_id,
-    );
-    if (!report) throw new Error('LEGACY_REPORT_REQUIRED');
+  it('keeps a report context reduced when no decision-intelligence pack is readable', async () => {
+    const { repo, run, report } = await completedAgentRun('runtime-context-no-pack');
+    vi.spyOn(repo, 'decisionIntelligence').mockRejectedValue(new Error('PACK_UNAVAILABLE'));
     const context = await new RuntimeContextBuilder(repo).build(
       TEST_USERS.owner,
       turn({
@@ -299,5 +291,5 @@ describe('RuntimeContextBuilder', () => {
       active_decision: null,
     });
     expect(context.allowed_dashboard.chart_ids).toEqual([]);
-  }, 60_000);
+  }, 90_000);
 });

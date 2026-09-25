@@ -2,6 +2,12 @@
 
 > Snapshot: 2026-09-23. This describes the implementation present in this repository. Source code, tests, SQL schemas and migrations are evidence for behavior; product contracts and plans are labeled as such. A named “agent” is not necessarily an LLM. Unknown deployment or operational details are called out explicitly.
 
+> Migration update (2026-09-25): The default run writer now pins `agent-v1`,
+> and Runtime and Grok Workspace default on. The sections below are the
+> pre-cutover architecture snapshot and still describe old defaults. Use
+> [the migration plan](plan.md) and [rollout runbook](agent-v1-rollout.md) for
+> current implementation status and deployment gates.
+
 ## Product Overview
 
 VDaAgent is a workspace application for analyzing property inventory snapshots and presenting evidence-backed findings and reports. Its current MVP path is:
@@ -12,7 +18,7 @@ Inventory snapshots → deterministic analysis → evidence and signals → deci
 
 The code and product contract describe helping inventory and Sales Operations users understand stock levels, movement, aging, price distributions, concentrations and data limitations in a selected project/zone and date scope. This is an engineering description, not a claim that provisional rules are validated business policy.
 
-The current seed/demo data is synthetic (Vinhomes Synthetic Demo). Import manifests and analytic artifacts are marked provisional. Snapshot-reported sales fields are not an authoritative transaction ledger. Workspace roles are owner, analyst and viewer. The intended operational audience is described in the [decision-intelligence product contract](decision_intelligence_product_contract.md); the app enforces workspace roles rather than a separate Sales Operations persona.
+The current seed/demo data is synthetic (Vinhomes Synthetic Demo). Import manifests and analytic artifacts are marked provisional. Snapshot-reported sales fields are not an authoritative transaction ledger. Workspace roles are owner, analyst and viewer. The intended operational audience is described in the [product contract](PRODUCT.md); the app enforces workspace roles rather than a separate Sales Operations persona.
 
 **Inputs:** organization and project scope, optional zone, data_as_of, question/use case, imported CSV inventory snapshots, and report schedule settings. Analysis is based on snapshots, not every table in the mock warehouse mapping.
 
@@ -504,9 +510,9 @@ The Status column uses the labels Implemented, Partial, Scaffolded, Planned and 
 
 ## Documented but Not Found in Current Implementation
 
-The target architecture and product-planning documents still describe capabilities beyond verified runtime. In particular, docs/VDaAgent_TARGET_AGENT_ARCHITECTURE_AND_SOL_REVIEW_PROMPT.md and docs/agents/agent-chat-implementation-plan.md are design/review documents, not runtime configuration. The feature-gated Agent Runtime includes Gemini/OpenAI selection, optional xAI, a closed capability registry, server-rendered grounded responses, the optional Grok workspace and safe SSE activity/final events. Server-side PDF/image rendering, external report delivery and Redis/Kafka/BullMQ runtime services are still not implemented.
+The [agent-v1 migration plan](plan.md) separates source changes from deployment evidence. Agent Runtime includes Gemini/OpenAI selection, optional xAI, a closed capability registry, server-rendered grounded responses, Grok Workspace and optional SSE activity/final events. Server-side PDF/image rendering, external report delivery and Redis/Kafka/BullMQ runtime services are still not implemented.
 
-Related planning/reference docs: [agent-chat implementation plan](agents/agent-chat-implementation-plan.md), [target architecture review prompt](VDaAgent_TARGET_AGENT_ARCHITECTURE_AND_SOL_REVIEW_PROMPT.md), [decision-intelligence product contract](decision_intelligence_product_contract.md), [implementation plan](implementation_plan.md), [mock-data mapping](data/mock-data-supabase-mapping.md).
+Related references: [agent-v1 plan](plan.md), [rollout runbook](agent-v1-rollout.md), [product contract](PRODUCT.md), [mock-data mapping](data/mock-data-supabase-mapping.md).
 
 ## Glossary
 

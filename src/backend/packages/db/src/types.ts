@@ -103,6 +103,7 @@ export function logicalArtifactKey(
 export interface Repository {
   close(): Promise<void>;
   hasAgentExecutionSchema(): Promise<boolean>;
+  activeUnknownWorkflowVersions(): Promise<Array<{ workflow_version: string; count: number }>>;
   session(userId: string, email?: string): Promise<Session>;
   authorize(userId: string, orgId: string, write?: boolean): Promise<Role>;
   catalog(userId: string, orgId: string): Promise<Catalog>;
@@ -126,6 +127,7 @@ export interface Repository {
   cancelRun(userId: string, orgId: string, runId: string): Promise<void>;
   retryRun(userId: string, orgId: string, runId: string): Promise<AnalysisRun>;
   messages(userId: string, orgId: string, conversationId: string): Promise<Message[]>;
+  getMessage(userId: string, orgId: string, conversationId: string, messageId: string): Promise<Message>;
   listConversations(userId: string, orgId: string, page: PageRequest): Promise<ConversationPage>;
   getConversation(userId: string, orgId: string, conversationId: string): Promise<Conversation>;
   listMessages(
@@ -142,6 +144,7 @@ export interface Repository {
   ): Promise<AgentTurn>;
   enqueueAgentTurn(userId: string, input: AgentTurnRequest, idempotencyKey: string, conversationId?: string): Promise<AgentTurn & { job: AgentTurnJob }>;
   getAgentTurnJob(userId: string, orgId: string, jobId: string, after?: number): Promise<{ job: AgentTurnJob; invocations: AgentInvocation[]; events: AgentExecutionEvent[] }>;
+  getAgentTurnJobForMessage(userId: string, orgId: string, userMessageId: string): Promise<AgentTurnJob | null>;
   getLatestAgentTurnJob(userId: string, orgId: string, conversationId: string): Promise<{ job: AgentTurnJob; invocations: AgentInvocation[]; events: AgentExecutionEvent[] } | null>;
   cancelAgentTurnJob(userId: string, orgId: string, jobId: string): Promise<AgentTurnJob>;
   claimAgentTurnJob(workerId: string, now?: Date, leaseMs?: number): Promise<AgentJobLease | null>;

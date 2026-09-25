@@ -6,7 +6,7 @@ import {
   type ArtifactOf,
   type DataAnalysisPack,
 } from '@vda/contracts';
-import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from './index';
+import { executeCoordinatorAndData } from './analysis-v1/stages/coordinator-data';
 import {
   buildDataAnalysisPack,
   calculateDataAgentOutput,
@@ -34,10 +34,6 @@ const request: AnalysisRequest = {
   question: 'Inventory',
   conversation_id: null,
 };
-const deterministicProvider = (): NarrativeProvider => ({
-  narrate: async (claims) => ({ summary: SAFE_SUMMARY, claims, provider: 'gemini' }),
-});
-
 function artifact<K extends Artifact['kind']>(artifacts: Artifact[], kind: K): ArtifactOf<K> {
   const found = artifacts.find((candidate) => candidate.kind === kind);
   if (!found) throw new Error(`MISSING_${kind.toUpperCase()}`);
@@ -48,7 +44,7 @@ async function runAndBuild(repo: Repository, key: string): Promise<DataAnalysisP
   const created = await repo.createRun(TEST_USERS.owner, request, key);
   const lease = await repo.claimRun(`${key}-worker`);
   if (!lease) throw new Error('LEASE_REQUIRED');
-  await executeLease(repo, lease, deterministicProvider());
+  await executeCoordinatorAndData(repo, lease);
   const [{ run }, { artifacts }] = await Promise.all([
     repo.getRun(TEST_USERS.owner, created.org_id, created.run_id),
     repo.artifacts(TEST_USERS.owner, created.org_id, created.run_id),

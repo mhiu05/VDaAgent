@@ -5,7 +5,7 @@ import type {
   CapabilityResultV1,
   MessageStatus,
 } from '@vda/contracts';
-import type { AgentTurn, Repository } from '@vda/db';
+import { RepositoryError, type AgentTurn, type Repository } from '@vda/db';
 import { AgentRuntime } from './runtime/runtime';
 import type { CapabilityRegistry } from './runtime/capabilities/registry';
 import { AgentRuntimeProviderError } from './runtime/providers/errors';
@@ -175,6 +175,100 @@ function availableReadResult(): CapabilityResultV1 {
 }
 
 describe('AgentRuntime', () => {
+  it('admits an eligible durable turn without starting a second message pair', async () => {
+    const enqueueAgentTurn = vi.fn().mockResolvedValue({
+      ...turn(),
+      job: {
+        job_id: '80000000-0000-4000-8000-000000000001',
+      },
+    });
+    const startTurn = vi.fn();
+    const plan = vi.fn();
+    const runtime = new AgentRuntime({ enqueueAgentTurn, startTurn } as unknown as Repository, {
+      durable_admission: true,
+      provider: {
+        provider: 'gemini',
+        model: 'fixture',
+        plan,
+        compose: vi.fn(),
+      } as AgentRuntimeProvider,
+    });
+    const result = await runtime.submit(
+      '70000000-0000-4000-8000-000000000001',
+      { ...input(), text: 'Analyze inventory' },
+      'durable-runtime',
+    );
+    expect(result).toMatchObject({
+      user_message_id: USER_MESSAGE,
+      assistant_message_id: ASSISTANT_MESSAGE,
+      agent_turn_job_id: '80000000-0000-4000-8000-000000000001',
+    });
+    expect(enqueueAgentTurn).toHaveBeenCalledTimes(1);
+    expect(startTurn).not.toHaveBeenCalled();
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it('preserves the accepted job identity when durable admission is disabled on replay', async () => {
+    const startTurn = vi.fn().mockResolvedValue(turn(true));
+    const getAgentTurnJobForMessage = vi.fn().mockResolvedValue({
+      job_id: '80000000-0000-4000-8000-000000000001',
+    });
+    const runtime = new AgentRuntime(
+      { startTurn, getAgentTurnJobForMessage } as unknown as Repository,
+      {
+        durable_admission: false,
+        provider: {
+          provider: 'gemini',
+          model: 'fixture',
+          plan: vi.fn(),
+          compose: vi.fn(),
+        } as AgentRuntimeProvider,
+      },
+    );
+    const result = await runtime.submit(
+      '70000000-0000-4000-8000-000000000001',
+      { ...input(), text: 'Analyze inventory' },
+      'existing-durable',
+    );
+    expect(result.agent_turn_job_id).toBe('80000000-0000-4000-8000-000000000001');
+    expect(startTurn).toHaveBeenCalledOnce();
+  });
+
+  it('replays a non-durable turn when durable admission was enabled later', async () => {
+    const enqueueAgentTurn = vi
+      .fn()
+      .mockRejectedValue(new RepositoryError('TURN_NOT_DURABLE', 409));
+    const startTurn = vi.fn().mockResolvedValue(turn(true));
+    const runtime = new AgentRuntime(
+      {
+        enqueueAgentTurn,
+        startTurn,
+        getAgentTurnJobForMessage: vi.fn().mockResolvedValue(null),
+      } as unknown as Repository,
+      {
+        durable_admission: true,
+        provider: {
+          provider: 'gemini',
+          model: 'fixture',
+          plan: vi.fn(),
+          compose: vi.fn(),
+        } as AgentRuntimeProvider,
+      },
+    );
+    const result = await runtime.submit(
+      '70000000-0000-4000-8000-000000000001',
+      { ...input(), text: 'Analyze inventory' },
+      'existing-http',
+    );
+    expect(result).toMatchObject({
+      user_message_id: USER_MESSAGE,
+      assistant_message_id: ASSISTANT_MESSAGE,
+    });
+    expect(result.agent_turn_job_id).toBeUndefined();
+    expect(enqueueAgentTurn).toHaveBeenCalledOnce();
+    expect(startTurn).toHaveBeenCalledOnce();
+  });
+
   it('plans once, creates one queued run, and replays without a second mutation', async () => {
     const startTurn = vi
       .fn()
@@ -183,6 +277,7 @@ describe('AgentRuntime', () => {
     const repository = {
       startTurn,
       finalizeTurn: vi.fn(),
+      getAgentTurnJobForMessage: vi.fn().mockResolvedValue(null),
     } as unknown as Repository;
     const plan = vi.fn(async (_input, _signal, validate) => {
       await validate?.(queuedPlan);
@@ -242,6 +337,7 @@ describe('AgentRuntime', () => {
     const repository = {
       startTurn,
       finalizeTurn,
+      getAgentTurnJobForMessage: vi.fn().mockResolvedValue(null),
     } as unknown as Repository;
     const plan = vi.fn(async (_input, _signal, validate) => {
       await validate?.(queuedPlan);

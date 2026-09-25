@@ -13,7 +13,6 @@ export async function main() {
       databaseUrl: config.SUPABASE_DB_URL,
       storageUrl: config.NEXT_PUBLIC_SUPABASE_URL,
       storageKey: config.SUPABASE_SECRET_KEY,
-      workflowVersion: config.AGENT_WORKFLOW_ENABLED ? 'agent-v1' : 'legacy-v1',
     });
   } catch (error) {
     const hostname = (() => {
@@ -36,6 +35,8 @@ export async function main() {
     const durableSchemaAvailable = await repository.hasAgentExecutionSchema();
     if (config.DURABLE_AGENT_EXECUTION_ENABLED && !durableSchemaAvailable)
       throw new Error('AGENT_EXECUTION_SCHEMA_REQUIRED');
+    for (const item of await repository.activeUnknownWorkflowVersions())
+      console.error(JSON.stringify({event:'unknown_active_workflow_version',...item}));
     if (process.argv.includes('--scheduler-once')) await runSchedulerOnce(repository);
     else await runLoop(repository, workerId, shouldStop, process.argv.includes('--once'), {
       durableAgentExecution: durableSchemaAvailable,

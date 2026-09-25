@@ -36,7 +36,7 @@ function narrativeProvider(): NarrativeProvider {
 
 describe('agent workflow artifact visibility', () => {
   it('keeps workflow-private artifacts out of public, validated artifact reads', async () => {
-    const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+    const { pg, repo } = await createTestRepository();
     resources.push({ repo, close: () => pg.close() });
     const run = await repo.createRun(TEST_USERS.owner, request, 'agent-artifact-visibility');
     const lease = await repo.claimRun('agent-artifact-visibility-worker');

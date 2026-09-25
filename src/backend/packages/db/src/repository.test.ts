@@ -11,10 +11,11 @@ import {
   type Artifact,
   type ArtifactValidation,
 } from '@vda/contracts';
-import { createTestRepository } from '../../../tests/helpers/postgres.js';
+import { createLegacyTestDatabase, createTestDatabase, createTestRepository, pgliteDriver } from '../../../tests/helpers/postgres.js';
+import { createRepository } from './repository';
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
-async function setup(options: { workflowVersion?: 'legacy-v1' | 'agent-v1' } = {}) {
-  const { pg, repo, uploads } = await createTestRepository(options);
+async function setup() {
+  const { pg, repo, uploads } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   return { pg, repo, uploads };
 }
@@ -87,6 +88,86 @@ function payloadOf(value: unknown) {
   return typeof value === 'string' ? JSON.parse(value) : value;
 }
 describe('durable tenant repository', () => {
+  it('closes a non-durable turn and preserves successful tasks after run retries are exhausted', async () => {
+    const {pg,repo} = await setup();
+    const input = {org_id:TEST_ORGS.alpha,client_turn_id:crypto.randomUUID(),
+      text:'Analyze inventory',scope:request.scope,data_as_of:request.data_as_of};
+    const turn = await repo.startTurn(TEST_USERS.owner,input,'exhausted-turn');
+    const run = await repo.attachRunToTurn(TEST_USERS.owner,{
+      org_id:TEST_ORGS.alpha,conversation_id:turn.conversation.conversation_id,
+      user_message_id:turn.user_message.message_id,
+      assistant_message_id:turn.assistant_message.message_id,
+      client_turn_id:input.client_turn_id,
+    },{...request,conversation_id:turn.conversation.conversation_id},'exhausted-run');
+    const old = (await repo.claimRun('old-worker'))!;
+    const task = {task_id:crypto.randomUUID(),org_id:run.org_id,run_id:run.run_id,
+      kind:'data' as const,dependencies:[],status:'succeeded' as const,attempt:1,error_code:null};
+    await repo.setTask(old,task);
+    const pending = {...task,task_id:crypto.randomUUID(),kind:'report' as const,
+      status:'pending' as const};
+    await repo.setTask(old,pending);
+    const storedRow = (await pg.query('SELECT payload FROM runs WHERE id=$1',[run.run_id])).rows[0] as {payload:AnalysisRun};
+    const stored = storedRow.payload;
+    await pg.query('UPDATE runs SET payload=$2 WHERE id=$1',
+      [run.run_id,JSON.stringify({...stored,attempt:3})]);
+    expect(await repo.claimRun('new-worker',new Date(Date.now()+60_000))).toBeNull();
+    const closed = (await pg.query('SELECT status,worker_id,lease_until,fencing_token FROM runs WHERE id=$1',
+      [run.run_id])).rows[0];
+    expect(closed).toMatchObject({status:'failed',worker_id:null,lease_until:null,
+      fencing_token:old.fencing_token+1});
+    const messages = await repo.listMessages(TEST_USERS.owner,TEST_ORGS.alpha,
+      turn.conversation.conversation_id,{limit:30,cursor:null});
+    expect(messages.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({message_id:turn.user_message.message_id,status:'completed'}),
+      expect.objectContaining({message_id:turn.assistant_message.message_id,status:'failed'}),
+    ]));
+    const taskRows = (await pg.query('SELECT payload FROM tasks WHERE run_id=$1',[run.run_id])).rows as Array<{payload:unknown}>;
+    const tasks = taskRows.map(row => row.payload);
+    expect(tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({task_id:task.task_id,status:'succeeded',error_code:null}),
+      expect.objectContaining({task_id:pending.task_id,status:'failed',error_code:'MAX_ATTEMPTS'}),
+    ]));
+    await expect(repo.setTask(old,{...task,status:'running'})).rejects.toThrow('LEASE_LOST');
+  });
+  it('refuses startup before the agent schema and new-write guard are present', async () => {
+    const pg = await createLegacyTestDatabase();
+    try {
+      await expect(createRepository({ driver: pgliteDriver(pg) }))
+        .rejects.toThrow('AGENT_EXECUTION_SCHEMA_REQUIRED');
+    } finally {
+      await pg.close();
+    }
+  });
+  it('refuses startup when a durable identity index is missing', async () => {
+    const pg = await createTestDatabase();
+    try {
+      await pg.exec('DROP INDEX public.agent_invocations_one_root');
+      await expect(createRepository({ driver: pgliteDriver(pg) }))
+        .rejects.toThrow('AGENT_EXECUTION_SCHEMA_REQUIRED');
+    } finally {
+      await pg.close();
+    }
+  });
+  it('refuses startup when the new-run write guard is disabled', async () => {
+    const pg = await createTestDatabase();
+    try {
+      await pg.exec('ALTER TABLE public.runs DISABLE TRIGGER runs_guard_workflow_version');
+      await expect(createRepository({ driver: pgliteDriver(pg) }))
+        .rejects.toThrow('AGENT_EXECUTION_SCHEMA_REQUIRED');
+    } finally {
+      await pg.close();
+    }
+  });
+  it('refuses startup when a durable read policy is missing', async () => {
+    const pg = await createTestDatabase();
+    try {
+      await pg.exec('DROP POLICY workspace_read ON public.agent_turn_jobs');
+      await expect(createRepository({ driver: pgliteDriver(pg) }))
+        .rejects.toThrow('AGENT_EXECUTION_SCHEMA_REQUIRED');
+    } finally {
+      await pg.close();
+    }
+  });
   it('denies viewer writes and foreign tenant reads', async () => {
     const { repo } = await setup();
     await expect(repo.createRun(TEST_USERS.viewer, request, 'one')).rejects.toThrow(
@@ -105,8 +186,8 @@ describe('durable tenant repository', () => {
       repo.createRun(TEST_USERS.owner, { ...request, question: 'other' }, 'one'),
     ).rejects.toThrow('IDEMPOTENCY_CONFLICT');
   });
-  it('pins the server-selected workflow version for interactive and scheduled runs', async () => {
-    const { pg, repo } = await setup({ workflowVersion: 'agent-v1' });
+  it('pins agent-v1 for interactive and scheduled runs and forbids relabeling', async () => {
+    const { pg, repo } = await setup();
     const interactive = await repo.createRun(TEST_USERS.owner, request, 'agent-workflow-version');
     expect(interactive.workflow_version).toBe('agent-v1');
     expect(
@@ -154,15 +235,15 @@ describe('durable tenant repository', () => {
     const storedRows = stored.rows as Array<{ payload: unknown }>;
     const historical = payloadOf(storedRows[0]?.payload) as Record<string, unknown>;
     delete historical.workflow_version;
-    await pg.query('UPDATE runs SET payload=$1 WHERE org_id=$2 AND id=$3', [
+    await expect(pg.query('UPDATE runs SET payload=$1 WHERE org_id=$2 AND id=$3', [
       JSON.stringify(historical),
       interactive.org_id,
       interactive.run_id,
-    ]);
+    ])).rejects.toThrow('RUN_WORKFLOW_VERSION_IMMUTABLE');
     expect(
       (await repo.getRun(TEST_USERS.owner, interactive.org_id, interactive.run_id)).run,
     ).toMatchObject({
-      workflow_version: 'legacy-v1',
+      workflow_version: 'agent-v1',
     });
   });
   it('persists, pages, attaches and terminally finalizes an interactive turn', async () => {
@@ -240,6 +321,12 @@ describe('durable tenant repository', () => {
     expect(page.messages).toHaveLength(2);
     expect(page.messages.map((message) => message.run_id)).toEqual([run.run_id, run.run_id]);
     expect(page.messages.at(-1)).toMatchObject({ sender_agent: 'coordinator' });
+    expect(await repo.getMessage(TEST_USERS.owner, TEST_ORGS.alpha,
+      turn.conversation.conversation_id, turn.assistant_message.message_id))
+      .toMatchObject({message_id:turn.assistant_message.message_id});
+    await expect(repo.getMessage(TEST_USERS.beta, TEST_ORGS.beta,
+      turn.conversation.conversation_id, turn.assistant_message.message_id))
+      .rejects.toThrow('MESSAGE_NOT_FOUND');
     const updated = await pg.query(
       'SELECT sender_agent,payload FROM messages WHERE org_id=$1 AND id=$2',
       [TEST_ORGS.alpha, turn.assistant_message.message_id],

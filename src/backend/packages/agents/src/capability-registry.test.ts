@@ -61,7 +61,7 @@ function objectKeys(value: unknown): string[] {
 }
 
 async function setup() {
-  const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+  const { pg, repo } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   const run = await repo.createRun(TEST_USERS.owner, request, 'capability-registry');
   const lease = await repo.claimRun('capability-registry-worker');
@@ -339,7 +339,7 @@ describe('CapabilityRegistry', () => {
   });
 
   it('queues one analysis from the server-authorized scope and date', async () => {
-    const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+    const { pg, repo } = await createTestRepository();
     resources.push({ repo, close: () => pg.close() });
     const initialInput = turn({
       version: 1,

@@ -1,6 +1,6 @@
 # Code ownership after the structural refactor
 
-This guide points to the implementation owners. [The refactor plan](../refactor-code-plan.md) records the migration rationale and validation gates.
+This guide points to the implementation owners. [The agent-v1 plan](../plan.md) records the migration rationale and validation gates.
 
 | Concern | Owner |
 | --- | --- |
@@ -8,10 +8,10 @@ This guide points to the implementation owners. [The refactor plan](../refactor-
 | As-of selection, metrics, peer comparison, insights, decision brief | [semantic modules](../../src/backend/packages/semantic/src/index.ts) |
 | Import parsing, artifact integrity, claim binding, report and workflow validation | [domain modules](../../src/backend/packages/domain/src/index.ts) |
 | Tenant authorization, persistence, leases, reports and publication | [Repository facade](../../src/backend/packages/db/src/repository.ts) and its `authorization/`, `repositories/`, `workflow/`, `transactions/`, `mapping/`, and `storage/` modules |
-| Legacy run workflow | [legacy executor](../../src/backend/packages/agents/src/legacy-workflow/workflow.ts) |
-| Versioned agent workflow | [agent-v1 executor](../../src/backend/packages/agents/src/analysis-v1/workflow.ts), with stages, checkpoint helpers and specialist agents nearby |
-| Default conversation turn | [legacy chat orchestrator](../../src/backend/packages/agents/src/chat/legacy/orchestrator.ts) |
-| Feature-gated Agent Runtime | [runtime](../../src/backend/packages/agents/src/runtime/runtime.ts), [capability registry](../../src/backend/packages/agents/src/runtime/capabilities/registry.ts), and [provider factory](../../src/backend/packages/agents/src/runtime/providers/factory.ts) |
+| Transition legacy backlog drain | [legacy executor](../../src/backend/packages/agents/src/legacy-workflow/workflow.ts) until the release B gate |
+| Default agent-v1 analysis | [agent-v1 executor](../../src/backend/packages/agents/src/analysis-v1/workflow.ts), with stages, checkpoint helpers and specialist agents nearby |
+| Default conversation turn | [Agent Runtime](../../src/backend/packages/agents/src/runtime/runtime.ts), [capability registry](../../src/backend/packages/agents/src/runtime/capabilities/registry.ts), and [provider factory](../../src/backend/packages/agents/src/runtime/providers/factory.ts) |
+| Explicit chat rollback | [legacy chat orchestrator](../../src/backend/packages/agents/src/chat/legacy/orchestrator.ts); it uses the same agent-v1 run writer |
 | Worker process | [main](../../src/backend/worker/src/main.ts), [run loop](../../src/backend/worker/src/run-loop.ts), [dispatcher](../../src/backend/worker/src/workflow-dispatcher.ts), [scheduler](../../src/backend/worker/src/scheduler.ts), and [signal lifecycle](../../src/backend/worker/src/lifecycle.ts) |
 | Same-origin API | [router](../../src/frontend/src/server/api/router.ts), resource routes under `server/api/routes/`, and the [catch-all route](../../src/frontend/src/app/api/v1/%5B...path%5D/route.ts) |
 | Browser workspace | [Workspace composition](../../src/frontend/src/features/workspace/workspace.tsx), feature hooks and APIs under `features/`, and [common HTTP transport](../../src/frontend/src/lib/http/api-client.ts) |
@@ -23,7 +23,7 @@ This guide points to the implementation owners. [The refactor plan](../refactor-
 - Contracts define wire formats. Semantic and domain code own deterministic numeric results, evidence, validation and lineage. Providers may select bounded identifiers but cannot author those values.
 - The public `Repository` facade keeps tenant and role checks, PostgreSQL RLS and transaction boundaries. `createRun` pins snapshots atomically. `publishReviewedDraft` remains one fenced transaction; generic artifact storage cannot publish an agent-v1 report.
 - Worker dispatch reads the run's pinned `workflow_version`. Signal handling stops after the current iteration, lease renewal remains on the claimed run, and repository closure stays in the process `finally` block.
-- The legacy workflow, agent-v1 workflow, default chat and Agent Runtime are distinct execution paths. Their package root exports remain explicit compatibility symbols; new internal imports should use the owning module.
+- New run writes are pinned to agent-v1 in the repository transaction and guarded by PostgreSQL. Agent Runtime owns chat admission; the legacy analysis executor remains only for an inventoried backlog until its drain gate passes.
 
 ## Validation
 

@@ -7,6 +7,7 @@ export type AgentRuntimeProvider = z.infer<typeof AgentRuntimeProviderSchema>;
 
 const BooleanFlagSchema = z.enum(['true', 'false']);
 const RuntimeTimeoutSchema = z.coerce.number().int().min(1_000).max(45_000);
+let obsoleteWorkflowFlagLogged = false;
 
 const ConfigSchema = z.object({
   APP_MODE: z.literal('supabase').default('supabase'),
@@ -22,10 +23,9 @@ const ConfigSchema = z.object({
   SUPABASE_DB_URL: z.url(),
   NEXT_PUBLIC_APP_URL: z.url().default('http://localhost:3000'),
   DEVELOPMENT_ROLE_BYPASS: z.enum(['true', 'false']).optional(),
-  AGENT_WORKFLOW_ENABLED: BooleanFlagSchema.default('false'),
-  DURABLE_AGENT_EXECUTION_ENABLED: BooleanFlagSchema.default('false'),
-  GROK_RUNTIME_ENABLED: BooleanFlagSchema.default('false'),
-  GROK_WORKSPACE_ENABLED: BooleanFlagSchema.default('false'),
+  DURABLE_AGENT_EXECUTION_ENABLED: BooleanFlagSchema.default('true'),
+  GROK_RUNTIME_ENABLED: BooleanFlagSchema.default('true'),
+  GROK_WORKSPACE_ENABLED: BooleanFlagSchema.default('true'),
   GROK_SSE_ENABLED: BooleanFlagSchema.default('false'),
   // The runtime follows the established provider ordering. xAI remains an
   // opt-in adapter and is never required for the P0 control plane.
@@ -58,6 +58,10 @@ function validateXaiBaseUrl(baseUrl: string) {
     throw new Error('XAI_BASE_URL must use an approved xAI HTTPS /v1 endpoint in production.');
 }
 export function getConfig(env: NodeJS.ProcessEnv = process.env) {
+  if (env.AGENT_WORKFLOW_ENABLED !== undefined && !obsoleteWorkflowFlagLogged) {
+    obsoleteWorkflowFlagLogged = true;
+    console.warn('AGENT_WORKFLOW_ENABLED is obsolete; new runs always use agent-v1.');
+  }
   const normalized = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
   const value = ConfigSchema.parse(normalized);
   const developmentRoleBypass =
@@ -114,7 +118,6 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env) {
   return {
     ...value,
     DEVELOPMENT_ROLE_BYPASS: developmentRoleBypass,
-    AGENT_WORKFLOW_ENABLED: value.AGENT_WORKFLOW_ENABLED === 'true',
     DURABLE_AGENT_EXECUTION_ENABLED: value.DURABLE_AGENT_EXECUTION_ENABLED === 'true',
     GROK_RUNTIME_ENABLED: runtimeEnabled,
     GROK_WORKSPACE_ENABLED: value.GROK_WORKSPACE_ENABLED === 'true',

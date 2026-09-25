@@ -229,6 +229,7 @@ export type {
   PublishedAgentWorkflowResult,
 } from './analysis-v1/stages/publication';
 export { executeAgentWorkflow } from './analysis-v1/workflow';
+export { enqueueEligibleDurableTurn } from './runtime/admission';
 export type { AgentWorkflowOptions } from './analysis-v1/workflow';
 export {
   isCausalQuestion,

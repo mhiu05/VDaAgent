@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { executeLease, SAFE_SUMMARY, type NarrativeProvider } from '@vda/agents';
+import { executeAgentWorkflow, SAFE_SUMMARY, type NarrativeProvider } from '@vda/agents';
 import { createTestRepository, TEST_ORGS, TEST_USERS } from '../helpers/postgres.js';
 
 const deterministicProvider = (): NarrativeProvider => ({
@@ -20,7 +20,9 @@ it('executes the production PostgreSQL repository, RLS reads, pipeline and expor
       },
       'pg-once',
     );
-    await executeLease(repo, (await repo.claimRun('pg-worker'))!, deterministicProvider());
+    await executeAgentWorkflow(repo, (await repo.claimRun('pg-worker', new Date(), 240_000))!, {
+      narrativeProvider: deterministicProvider(),
+    });
     expect((await repo.getRun(TEST_USERS.viewer, TEST_ORGS.alpha, run.run_id)).run.status).toBe(
       'succeeded',
     );
@@ -39,6 +41,26 @@ it('executes the production PostgreSQL repository, RLS reads, pipeline and expor
     expect(uploads).toContainEqual(
       expect.objectContaining({ bucket: 'report-exports', contentType: 'application/json' }),
     );
+    const publishedHash = (
+      await repo.getReport(TEST_USERS.viewer, TEST_ORGS.alpha, reports[0].report_id)
+    ).artifact.content_hash;
+    // Simulate a pre-upgrade row whose workflow identity was historically absent.
+    await pg.exec('ALTER TABLE runs DISABLE TRIGGER runs_guard_workflow_version');
+    await pg.query("UPDATE runs SET payload=payload-'workflow_version' WHERE org_id=$1 AND id=$2", [
+      TEST_ORGS.alpha,
+      run.run_id,
+    ]);
+    await pg.exec('ALTER TABLE runs ENABLE TRIGGER runs_guard_workflow_version');
+    expect(
+      (await repo.getRun(TEST_USERS.viewer, TEST_ORGS.alpha, run.run_id)).run.workflow_version,
+    ).toBe('legacy-v1');
+    expect(
+      (await repo.getReport(TEST_USERS.viewer, TEST_ORGS.alpha, reports[0].report_id)).artifact
+        .content_hash,
+    ).toBe(publishedHash);
+    await expect(
+      repo.getReport(TEST_USERS.beta, TEST_ORGS.beta, reports[0].report_id),
+    ).rejects.toThrow('REPORT_NOT_FOUND');
     await expect(repo.getRun(TEST_USERS.beta, TEST_ORGS.alpha, run.run_id)).rejects.toThrow(
       'WORKSPACE_FORBIDDEN',
     );
@@ -70,4 +92,4 @@ it('executes the production PostgreSQL repository, RLS reads, pipeline and expor
     await repo.close();
     await pg.close();
   }
-}, 30000);
+}, 120000);

@@ -11,7 +11,7 @@ import { executeCoordinatorAndData } from './analysis-v1/stages/coordinator-data
 const resources: { repo: Repository; close: () => Promise<void> }[] = [];
 
 async function setup() {
-  const { pg, repo } = await createTestRepository({ workflowVersion: 'agent-v1' });
+  const { pg, repo } = await createTestRepository();
   resources.push({ repo, close: () => pg.close() });
   return repo;
 }

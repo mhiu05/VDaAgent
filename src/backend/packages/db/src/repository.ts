@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  WorkflowVersionSchema,
+  RunSchema,
   type AnalysisRequest,
   type AnalysisRun,
   type AgentKey,
@@ -27,7 +27,6 @@ import {
   type RunTask,
   type Session,
   type UnitSnapshot,
-  type WorkflowVersion,
 } from '@vda/contracts';
 import { postgresDriver, type Driver } from './driver';
 import { authorizeInTransaction, readSession } from './authorization/authorization-repository';
@@ -36,7 +35,6 @@ import { buildRun as buildRunTransaction } from './transactions/create-run';
 import { publishLegacyReport } from './transactions/publish-legacy-report';
 import { publishReviewedDraft } from './transactions/publish-reviewed-draft';
 import { failRun } from './workflow/fail-run';
-import { LEGACY_WORKFLOW_VERSION } from './mapping/run';
 import { readCatalog } from './repositories/catalog-repository';
 import {
   storeArtifact,
@@ -111,18 +109,17 @@ export interface RepositoryOptions {
   storage?: StorageUploader;
   /** Test-only fixture seeding. Production startup never calls this. */
   seedTestData?: boolean;
-  /** Server-owned selection for newly created runs; existing runs retain their stored version. */
-  workflowVersion?: WorkflowVersion;
   driver?: Driver;
 }
 export async function createRepository(options: RepositoryOptions = {}): Promise<Repository> {
   const url = options.databaseUrl ?? process.env.SUPABASE_DB_URL;
   if (!url && !options.driver) fail('SUPABASE_DB_URL_REQUIRED', 503);
   const db = options.driver ?? postgresDriver(url!);
-  const workflowVersion = WorkflowVersionSchema.parse(
-    options.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
-  );
-  const repo = new SqlRepository(db, { ...options, workflowVersion });
+  const repo = new SqlRepository(db, options);
+  if (!(await repo.hasAgentExecutionSchema())) {
+    await db.close();
+    fail('AGENT_EXECUTION_SCHEMA_REQUIRED', 503);
+  }
   if (options.seedTestData) await repo.seedTestData();
   return repo;
 }
@@ -135,15 +132,107 @@ class SqlRepository implements Repository {
     return this.db.close();
   }
   async hasAgentExecutionSchema() {
-    const rows = await this.db.query("SELECT to_regclass('public.agent_turn_jobs') AS table_name");
-    return rows[0]?.table_name != null;
+    const rows = await this.db.query(`SELECT
+      to_regclass('public.agent_turn_jobs') IS NOT NULL AS jobs,
+      to_regclass('public.agent_invocations') IS NOT NULL AS invocations,
+      to_regclass('public.agent_execution_events') IS NOT NULL AS events,
+      NOT EXISTS (
+        SELECT 1 FROM (VALUES
+          ('artifacts','artifact_key'), ('messages','sender_agent'),
+          ('agent_turn_jobs','user_message_id'), ('agent_turn_jobs','assistant_message_id'),
+          ('agent_turn_jobs','run_id'), ('agent_turn_jobs','fencing_token'),
+          ('agent_turn_jobs','event_sequence'), ('agent_invocations','analysis_stage_id'),
+          ('agent_invocations','parent_id'), ('agent_execution_events','invocation_id'),
+          ('agent_execution_events','sequence')
+        ) AS required(table_name,column_name)
+        LEFT JOIN information_schema.columns c ON c.table_schema='public'
+          AND c.table_name=required.table_name AND c.column_name=required.column_name
+        WHERE c.column_name IS NULL
+      ) AS required_columns,
+      NOT EXISTS (
+        SELECT 1 FROM (VALUES
+          ('messages_org_conversation_id_unique'),
+          ('artifacts_org_run_artifact_key_unique')
+        ) AS required(name)
+        LEFT JOIN pg_constraint c ON c.conname=required.name
+        WHERE c.oid IS NULL
+      ) AS required_constraints,
+      (SELECT COUNT(*) FROM pg_constraint WHERE conrelid=to_regclass('public.agent_turn_jobs')
+        AND contype='f') >= 5 AS job_foreign_keys,
+      (SELECT COUNT(*) FROM pg_constraint WHERE conrelid=to_regclass('public.agent_invocations')
+        AND contype='f') >= 4 AS invocation_foreign_keys,
+      (SELECT COUNT(*) FROM pg_constraint WHERE conrelid=to_regclass('public.agent_execution_events')
+        AND contype='f') >= 2 AS event_foreign_keys,
+      NOT EXISTS (
+        SELECT 1 FROM (VALUES
+          ('messages_initiating_assistant_run_unique'),
+          ('messages_run_sender_agent_unique'),
+          ('agent_turn_jobs_claim'), ('agent_invocations_one_root'),
+          ('agent_execution_events_invocation')
+        ) AS required(name)
+        WHERE to_regclass('public.' || required.name) IS NULL
+      ) AS required_indexes,
+      EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='runs_guard_workflow_version'
+        AND tgrelid=to_regclass('public.runs') AND NOT tgisinternal AND tgenabled <> 'D') AS write_guard,
+      EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='immutable_agent_execution_events'
+        AND tgrelid=to_regclass('public.agent_execution_events') AND NOT tgisinternal
+        AND tgenabled <> 'D') AS event_guard,
+      NOT EXISTS (
+        SELECT 1 FROM (VALUES
+          ('public.agent_turn_jobs'), ('public.agent_invocations'),
+          ('public.agent_execution_events')
+        ) AS required(name)
+        LEFT JOIN pg_class c ON c.oid=to_regclass(required.name)
+        WHERE c.oid IS NULL OR NOT c.relrowsecurity
+      ) AS durable_rls,
+      NOT EXISTS (
+        SELECT 1 FROM (VALUES
+          ('public.agent_turn_jobs'), ('public.agent_invocations'),
+          ('public.agent_execution_events')
+        ) AS required(name)
+        LEFT JOIN pg_policy p ON p.polrelid=to_regclass(required.name)
+          AND p.polname='workspace_read'
+        WHERE p.oid IS NULL
+      ) AS durable_read_policies`);
+    const state = rows[0];
+    return Boolean(state?.jobs && state?.invocations && state?.events && state?.required_columns &&
+      state?.required_constraints && state?.job_foreign_keys && state?.invocation_foreign_keys &&
+      state?.event_foreign_keys && state?.required_indexes && state?.write_guard &&
+      state?.event_guard && state?.durable_rls && state?.durable_read_policies);
+  }
+  async activeUnknownWorkflowVersions() {
+    const rows = await this.db.query("SELECT id,org_id,status,payload FROM runs WHERE status IN ('queued','running')");
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const payload = row.payload;
+      let value: unknown = payload;
+      if (typeof payload === 'string') {
+        try { value = JSON.parse(payload) as unknown; }
+        catch { value = payload; }
+      }
+      const record = value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown> : null;
+      const version = record?.workflow_version;
+      const label = !record ? '[invalid-payload]'
+        : !Object.prototype.hasOwnProperty.call(record, 'workflow_version') ?
+          (RunSchema.safeParse(record).success && record.run_id === row.id &&
+           record.org_id === row.org_id && record.status === row.status ? null : '[malformed-run]')
+        : version === null ? '[null-version]'
+        : typeof version !== 'string' ? '[invalid-version-type]'
+        : version !== 'agent-v1' && version !== 'legacy-v1' ? version
+        : RunSchema.safeParse(record).success && record.run_id === row.id &&
+          record.org_id === row.org_id && record.status === row.status ? null : '[malformed-run]';
+      if (label) counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts].sort(([a], [b]) => a.localeCompare(b))
+      .map(([workflow_version, count]) => ({ workflow_version, count }));
   }
   private conversation() {
     return new ConversationRepository(this.db);
   }
   private agentExecution() {
     return new AgentExecutionRepository(this.db, (tx,user,request,key,turn) =>
-      this.buildRun(tx,user,request,key,{entrypoint:'interactive',turn,workflowVersion:'agent-v1'}));
+      this.buildRun(tx,user,request,key,{entrypoint:'interactive',turn}));
   }
   private schedule() {
     return new ScheduleRepository(this.db, (tx, user, input, key, options) =>
@@ -264,7 +353,6 @@ class SqlRepository implements Repository {
       entrypoint?: 'interactive' | 'scheduled';
       occurrence_id?: string;
       turn?: TurnContext;
-      workflowVersion?: WorkflowVersion;
     } = {},
   ): Promise<AnalysisRun> {
     return buildRunTransaction(
@@ -273,7 +361,6 @@ class SqlRepository implements Repository {
       input,
       key,
       {
-        workflowVersion: options.workflowVersion ?? this.options.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
         createConversation: (tx, actor, org, kind, title) =>
           this.createConversation(tx, actor, org, kind, title),
         selectLatest: (tx, request) => this.selectLatest(tx, request),
@@ -306,7 +393,6 @@ class SqlRepository implements Repository {
   async cancelRun(user: string, org: string, id: string) {
     return cancelRunLifecycle(
       this.db,
-      (tx, run, result) => this.finalizeRunAssistant(tx, run, result),
       user,
       org,
       id,
@@ -323,6 +409,9 @@ class SqlRepository implements Repository {
   }
   async messages(user: string, org: string, id: string): Promise<Message[]> {
     return this.conversation().messages(user, org, id);
+  }
+  async getMessage(user: string, org: string, conversationId: string, messageId: string): Promise<Message> {
+    return this.conversation().getMessage(user, org, conversationId, messageId);
   }
   async getConversation(user: string, org: string, id: string): Promise<Conversation> {
     return this.conversation().getConversation(user, org, id);
@@ -356,6 +445,9 @@ class SqlRepository implements Repository {
   }
   getAgentTurnJob(user: string, org: string, id: string, after = 0) {
     return this.agentExecution().get(user,org,id,after);
+  }
+  getAgentTurnJobForMessage(user: string, org: string, userMessageId: string) {
+    return this.agentExecution().getForUserMessage(user,org,userMessageId);
   }
   getLatestAgentTurnJob(user: string, org: string, conversationId: string) {
     return this.agentExecution().getLatestForConversation(user,org,conversationId);

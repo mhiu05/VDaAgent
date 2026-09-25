@@ -4,13 +4,12 @@ import {
   type AnalysisRequest,
   type AnalysisRun,
   type Conversation,
-  type WorkflowVersion,
 } from '@vda/contracts';
 import { authorizeInTransaction } from '../authorization/authorization-repository';
 import type { Driver } from '../driver';
 import { fail } from '../errors';
 import { insertBatches } from '../internal/insert-batches';
-import { LEGACY_WORKFLOW_VERSION, normalizeRun } from '../mapping/run';
+import { normalizeRun } from '../mapping/run';
 import type { QueryResult, TurnContext } from '../types';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -18,7 +17,6 @@ const now = () => new Date().toISOString();
 const titleFrom = (text: string) => text.trim().replace(/\s+/g, ' ').slice(0, 80) || 'New analysis';
 
 export interface BuildRunDependencies {
-  workflowVersion: WorkflowVersion;
   createConversation: (
     tx: Driver,
     user: string,
@@ -110,7 +108,7 @@ export async function buildRun(
     error_code: null,
     report_artifact_id: null,
     cancel_requested: false,
-    workflow_version: helpers.workflowVersion ?? LEGACY_WORKFLOW_VERSION,
+    workflow_version: 'agent-v1',
   };
   await tx.query(
     'INSERT INTO runs(org_id,id,created_by,idempotency_key,request_hash,status,fencing_token,created_at,payload,slow_moving_threshold_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',

@@ -30,12 +30,27 @@ vi.mock('@vda/agents', () => {
   }
   class AgentRuntime {
     private readonly sink: ((event: unknown) => void) | undefined;
+    private readonly durable: boolean;
+    private readonly repo: { enqueueAgentTurn?: (...args: unknown[]) => Promise<{ conversation: { conversation_id: string }; user_message: { message_id: string }; assistant_message: { message_id: string; run_id: string | null; status: string }; job: { job_id: string } }> };
 
-    constructor(_repo: unknown, options: { activity_sink?: (event: unknown) => void } = {}) {
+    constructor(repo: unknown, options: { activity_sink?: (event: unknown) => void; durable_admission?: boolean } = {}) {
+      this.repo = repo as typeof this.repo;
       this.sink = options.activity_sink;
+      this.durable = options.durable_admission === true;
     }
 
-    async submit() {
+    async submit(userId: string, input: {text:string}, key: string, conversationId?: string) {
+      if (this.durable && input.text === 'Analyze the inventory' && this.repo.enqueueAgentTurn) {
+        const turn = await this.repo.enqueueAgentTurn(userId,input,key,conversationId);
+        return {
+          conversation_id: turn.conversation.conversation_id,
+          user_message_id: turn.user_message.message_id,
+          assistant_message_id: turn.assistant_message.message_id,
+          run_id: turn.assistant_message.run_id,
+          assistant_status: turn.assistant_message.status,
+          agent_turn_job_id: turn.job.job_id,
+        };
+      }
       this.sink?.({
         version: 'agent-activity-v1',
         sequence: 0,
@@ -367,6 +382,7 @@ describe('GET resource route parity', () => {
     { path: ['conversations'], method: 'listConversations' },
     { path: ['conversations', id], method: 'getConversation' },
     { path: ['conversations', id, 'messages'], method: 'listMessages' },
+    { path: ['conversations', id, 'messages', id], method: 'getMessage' },
     { path: ['imports'], method: 'listImports' },
     { path: ['report-definitions'], method: 'listDefinitions' },
     { path: ['reports'], method: 'listReports' },

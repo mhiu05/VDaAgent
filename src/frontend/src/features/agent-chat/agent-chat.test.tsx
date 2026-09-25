@@ -2,12 +2,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentWorkflowStatus, Message } from '@vda/contracts';
 import { MessageThread, senderLabel } from './message-thread';
-import { isReadOnlyRunView, shouldRenderAgentChat } from './run-view';
+import { isReadOnlyRunView } from './run-view';
 import { taskLabel } from './run-progress';
 import { WorkflowCheckpointStatus } from './workflow-checkpoint-status';
 import { ActivityTimeline } from './activity-timeline';
 import { ConversationList } from './conversation-list';
 import { AgentExecutionInspector } from './agent-execution-inspector';
+import { ReportArtifactRow } from '../reports/components/report-artifact-row';
 
 const executionSnapshot = {
   job: {
@@ -61,6 +62,24 @@ const checkpointStatus: AgentWorkflowStatus = {
 };
 
 describe('Agent Chat message presentation', () => {
+  it('shows a historical published report even without agent packs or a decision brief', () => {
+    const runId = '82000000-0000-4000-8000-000000000001';
+    const reportId = '84000000-0000-4000-8000-000000000001';
+    const artifactId = '84000000-0000-4000-8000-000000000002';
+    const detail = {
+      report:{org_id:message.org_id,run_id:runId,report_id:reportId,artifact_id:artifactId,
+        created_at:'2026-09-20T00:00:00.000Z'},
+      artifact:{org_id:message.org_id,run_id:runId,artifact_id:artifactId,kind:'report',
+        payload:{title:'Historical inventory report'}},
+    } as unknown as Parameters<typeof ReportArtifactRow>[0]['detail'];
+    const output = renderToStaticMarkup(<ReportArtifactRow orgId={message.org_id} runId={runId}
+      detail={detail} onOpen={() => undefined}/>);
+    expect(output).toContain('Historical inventory report');
+    expect(output).toContain('Mở báo cáo và in');
+    expect(output).toContain('JSON');
+    expect(output).toContain('CSV');
+    expect(output).not.toContain('report_draft');
+  });
   it('shows persisted persona statuses and a historical trace fallback', () => {
     const output = renderToStaticMarkup(<ConversationList conversations={[]} selectedId={null} loading={false} hasMore={false}
       onNew={() => undefined} onSelect={() => undefined} onLoadMore={() => undefined} execution={executionSnapshot}
@@ -198,16 +217,15 @@ describe('Agent Chat message presentation', () => {
 
   it('keeps unresolved and scheduled external runs non-mutating in AgentChat', () => {
     const runId = '82000000-0000-4000-8000-000000000001';
-    expect(shouldRenderAgentChat(runId, undefined)).toBe(true);
-    expect(shouldRenderAgentChat(runId, 'agent-v1')).toBe(true);
-    expect(shouldRenderAgentChat(runId, 'legacy-v1')).toBe(false);
-
     expect(isReadOnlyRunView(runId, null, undefined)).toBe(true);
     expect(isReadOnlyRunView(runId, { run_id: runId, entrypoint: 'scheduled' }, 'scheduled')).toBe(
       true,
     );
     expect(
       isReadOnlyRunView(runId, { run_id: runId, entrypoint: 'interactive' }, 'interactive'),
-    ).toBe(false);
+    ).toBe(true);
+    expect(isReadOnlyRunView(runId,
+      { run_id: runId, entrypoint: 'interactive', workflow_version: 'legacy-v1' },
+      'interactive')).toBe(true);
   });
 });
