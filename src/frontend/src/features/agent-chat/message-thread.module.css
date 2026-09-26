@@ -2,15 +2,15 @@
   border-left: 3px solid transparent;
   box-shadow: none;
   transition:
-    border-color 160ms ease,
-    background 160ms ease;
+    border-color var(--duration-fast) var(--ease-standard),
+    background var(--duration-fast) var(--ease-standard);
 }
 
 .message:has(.structuredMeta) {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-left-width: 3px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   margin: 10px 0;
   padding: 14px 15px;
 }
@@ -19,7 +19,7 @@
   align-items: center;
   color: var(--color-muted);
   display: flex;
-  font-size: 11px;
+  font-size: var(--text-xs);
   gap: 7px;
   line-height: 1.35;
   margin: 5px 0 9px;
@@ -33,7 +33,7 @@
   background: var(--color-surface-muted);
   border-radius: 999px;
   color: var(--color-ink-soft);
-  font-size: 9px;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
   margin-left: auto;
   padding: 3px 6px;
@@ -45,7 +45,7 @@
   border-left-color: var(--color-accent);
 }
 .coordinator {
-  border-left-color: var(--color-midnight-raised);
+  border-left-color: var(--chart-series-4);
 }
 .data {
   border-left-color: var(--color-signal);
@@ -81,3 +81,5 @@
     margin-left: 22px;
   }
 }
+.contextRefs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; color: var(--color-muted); font-size: var(--text-xs); }
+.contextRefs > span { padding: 3px 7px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }

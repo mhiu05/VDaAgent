@@ -158,7 +158,7 @@ describe('shared contracts and configuration', () => {
     expect(defaults.GROK_RUNTIME_ENABLED).toBe(true);
     expect(defaults.GROK_WORKSPACE_ENABLED).toBe(true);
     expect(defaults.DURABLE_AGENT_EXECUTION_ENABLED).toBe(true);
-    expect(defaults.GROK_SSE_ENABLED).toBe(false);
+    expect(defaults.GROK_SSE_ENABLED).toBe(true);
     expect(defaults.AGENT_LLM_PRIMARY_PROVIDER).toBe('gemini');
     expect(defaults.AGENT_LLM_FALLBACK_PROVIDER).toBe('openai');
     expect(defaults.AGENT_PROVIDER_TIMEOUT_MS).toBe(12_000);

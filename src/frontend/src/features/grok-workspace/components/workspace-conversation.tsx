@@ -4,13 +4,13 @@ import type { Catalog, WorkspaceActionV1 } from '@vda/contracts';
 import { ActivityTimeline } from '../../agent-chat/activity-timeline';
 import { Composer } from '../../agent-chat/composer';
 import { MessageThread } from '../../agent-chat/message-thread';
-import { RunProgress } from '../../agent-chat/run-progress';
-import { WorkflowCheckpointStatus } from '../../agent-chat/workflow-checkpoint-status';
 import type { useAgentChatController } from '../../agent-chat/hooks/use-agent-chat-controller';
 import { InlineRunOutput } from '../../analysis/components/inline-run-output';
 import { DecisionResultSummary } from '../../analysis/components/decision-result-summary';
 import { ReportArtifactRow } from '../../reports/components/report-artifact-row';
 import { WorkspaceHeader } from './workspace-header';
+import { RuntimeConversation } from './runtime-conversation';
+import { ThreadContextControls, MessageContextControls } from './thread-context-controls';
 import { useTimelineScroll } from '../hooks/use-timeline-scroll';
 import styles from './grok-workspace.module.css';
 
@@ -38,6 +38,7 @@ export function WorkspaceConversation({
     chat.selectedConversationId,
     ...chat.messages.map((message) => `${message.message_id}:${message.updated_at}`),
     ...chat.activity.map((event) => event.sequence),
+    chat.runtime.snapshot.last_sequence,
     ...(chat.currentRunDetail?.tasks ?? []).map((task) => `${task.task_id}:${task.status}`),
     ...chat.bundle.artifacts.map((artifact) => artifact.artifact_id),
     chat.reportDetail?.report.report_id,
@@ -62,9 +63,11 @@ export function WorkspaceConversation({
       onCancelJob={() => void chat.cancelJob()}
       onOpenRail={onOpenRail}
       onOpenInspector={onOpenInspector}
-    />
+    ><ThreadContextControls chat={chat} /></WorkspaceHeader>
     <div className={styles.timeline} ref={timelineElement} onScroll={onScroll}>
       {chat.readState === 'stale' && <p className={styles.stale} role="status">Kết nối tạm gián đoạn. Đang thử cập nhật lượt chạy đã chọn.</p>}
+      {chat.runtime.connection === 'reconnecting' && <p className={styles.stale} role="status">Reconnecting to saved execution. Agents continue working.</p>}
+      {chat.threadWorkspace.error && <p className={styles.stale} role="alert">{chat.threadWorkspace.error}</p>}
       {chat.scheduledReadOnly && chat.currentRunDetail && <p className={styles.stale} role="status">
         {chat.currentRunDetail.run.entrypoint === 'scheduled'
           ? 'Lượt chạy theo lịch: chỉ xem kết quả đã lưu.'
@@ -74,9 +77,13 @@ export function WorkspaceConversation({
         {chat.retryTurn ? <button type="button" className="text-button" disabled={chat.busy} onClick={() => void chat.submit()}><RefreshCw size={14} /> Thử lại yêu cầu gốc</button>
           : <button type="button" className="text-button" onClick={() => chat.setError('')}>Đóng</button>}
       </div>}
-      {chat.currentRunDetail && <RunProgress detail={chat.currentRunDetail} canWrite={false} cancelling={false} onCancel={() => {}} compact />}
-      <ActivityTimeline events={chat.activity} />
-      {chat.workflowStatus && chat.canWrite && <WorkflowCheckpointStatus status={chat.workflowStatus} />}
+      {chat.currentRunDetail && <div className={styles.runSummary} aria-label="Tiến độ lượt chạy" role="status">
+        <span className={styles.runtimeDot} data-status={chat.currentRunDetail.run.status === 'succeeded' ? 'completed' : chat.currentRunDetail.run.status} />
+        <strong>{chat.currentRunDetail.run.status}</strong>
+        <span>{chat.currentRunDetail.tasks.filter((task) => task.status === 'succeeded').length}/{chat.currentRunDetail.tasks.length} steps complete</span>
+        <button type="button" className="text-button" onClick={onOpenInspector}>Run details</button>
+      </div>}
+      {!chat.runtime.snapshot.records.length && <ActivityTimeline events={chat.activity.slice(-1)} />}
       <MessageThread
         messages={chat.messages}
         loading={chat.loadingMessages}
@@ -86,7 +93,14 @@ export function WorkspaceConversation({
         onOpenReport={(id) => chat.onReport?.(id)}
         onOpenArtifact={(runId, id) => { chat.selectRun(runId); void chat.openEvidence(id, runId); }}
         onWorkspaceAction={onWorkspaceAction}
+        onReply={chat.canWrite && !chat.scheduledReadOnly ? (messageId) => {
+          chat.setReplyToMessageId(messageId);
+          timelineElement.current?.parentElement?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+        } : undefined}
       />
+      <RuntimeConversation records={chat.runtime.snapshot.records} agents={chat.threadWorkspace.agents} onEvidence={(id) => {
+        if (chat.visibleRunId) onWorkspaceAction({ type: 'open_evidence', run_id: chat.visibleRunId, artifact_id: id, evidence_path: null });
+      }} />
       {chat.currentRunDetail && <InlineRunOutput
         orgId={chat.orgId}
         runId={chat.currentRunDetail.run.run_id}
@@ -113,8 +127,10 @@ export function WorkspaceConversation({
     </div>
     {hasNewUpdates && <button type="button" className={styles.newUpdates} onClick={scrollToLatest}>Có cập nhật mới</button>}
     <div className={styles.composer}>
+      <MessageContextControls chat={chat} />
       <Composer
         compact
+        agents={chat.threadWorkspace.agents}
         catalog={catalog}
         canWrite={chat.canWrite}
         project={chat.project}
@@ -123,7 +139,7 @@ export function WorkspaceConversation({
         capabilityMode={chat.capabilityMode}
         focusRequest={chat.focusComposerRequest}
         draft={chat.draft}
-        busy={chat.busy}
+        busy={chat.busy || chat.threadWorkspace.saving}
         agentTarget={chat.agentTarget}
         scheduledReadOnly={chat.scheduledReadOnly}
         onProject={chat.updateProject}

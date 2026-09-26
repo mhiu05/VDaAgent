@@ -20,6 +20,7 @@ import { finishRunAssistant } from '../workflow/checkpoint-repository';
 import { syncAgentInvocationsFromRun } from '../workflow/agent-projection';
 import { fenceRun } from '../workflow/lease-repository';
 import type { Lease, ReviewedDraftPublication } from '../types';
+import { versionPublishedReport } from '../repositories/workspace-repository';
 
 const now = () => new Date().toISOString();
 
@@ -240,7 +241,7 @@ export async function publishReviewedDraft(
     run.report_artifact_id = report.artifact_id;
     run.lease_until = null;
     await updateRun(tx, run);
-    const record: ReportRecord = {
+    let record: ReportRecord = {
       report_id: randomUUID(),
       org_id: run.org_id,
       run_id: run.run_id,
@@ -252,6 +253,7 @@ export async function publishReviewedDraft(
       'INSERT INTO reports(org_id,id,run_id,artifact_id,payload) VALUES($1,$2,$3,$4,$5)',
       [run.org_id, record.report_id, run.run_id, report.artifact_id, JSON.stringify(record)],
     );
+    record = await versionPublishedReport(tx,run,record);
     // Draft and review records are intentionally owner/analyst-only. The
     // shared completion message carries public artifact references only;
     // authorized clients hydrate private workflow records separately.

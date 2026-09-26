@@ -38,6 +38,9 @@ export function normalizeMessage(row: Row): Message {
     sender_agent: row.sender_agent ?? payload.sender_agent ?? null,
     status: row.status ?? payload.status ?? 'completed',
     content,
+    ...(payload.context_refs ? { context_refs: payload.context_refs } : {}),
+    ...(payload.reply_to_message_id ? { reply_to_message_id: payload.reply_to_message_id } : {}),
+    ...(payload.report_intent ? { report_intent: payload.report_intent } : {}),
     parts: parts.length ? parts : textPart(content),
     created_at: asTimestamp(row.created_at ?? payload.created_at),
     updated_at: asTimestamp(

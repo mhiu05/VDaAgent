@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AnalysisRequestSchema,
+  CSV_COLUMNS, SEMANTIC_VERSION,
   type AnalysisRequest,
   type AnalysisRun,
   type Conversation,
@@ -90,6 +91,12 @@ export async function buildRun(
     [request.org_id],
   );
   const date = now();
+  // Refresh bounded, deterministic workspace knowledge from canonical schema and
+  // authorized organization configuration. Retrieved memory remains data, never instructions.
+  await tx.query(`INSERT INTO agent_memory(org_id,id,layer,scope_key,memory_key,summary,artifact_refs)
+    VALUES($1,$2,'workspace','workspace','system:dataset_schema',$3,'[]'::jsonb)
+    ON CONFLICT(org_id,layer,scope_key,memory_key) DO UPDATE SET summary=excluded.summary,updated_at=now()`,
+    [request.org_id,randomUUID(),`Semantic version: ${SEMANTIC_VERSION}. Unit snapshot schema: ${CSV_COLUMNS.join(', ')}. Configured slow-moving threshold: ${Number(metricConfig[0].slow_moving_threshold_days)} days. Analysis selects the latest unit snapshot at or before data_as_of.`]);
   const run: AnalysisRun = {
     run_id: randomUUID(),
     org_id: request.org_id,
@@ -134,5 +141,9 @@ export async function buildRun(
   );
   if (options.turn) await helpers.attachRunMessages(tx, run, options.turn);
   else await helpers.createRunMessages(tx, run);
+  if (run.request.conversation_id) await tx.query(
+    "UPDATE conversations SET context=context || jsonb_build_object('current_run_id',$3::text) WHERE org_id=$1 AND id=$2",
+    [run.org_id,run.request.conversation_id,run.run_id],
+  );
   return run;
 }

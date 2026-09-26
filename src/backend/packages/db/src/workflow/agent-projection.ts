@@ -9,6 +9,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { Driver } from '../driver';
 import { json } from '../mapping/rows';
+import { specialistPlan } from './specialist-plan';
+import type { AnalysisRun } from '@vda/contracts';
 
 const eventFor: Partial<Record<AgentExecutionStatus, AgentExecutionEventType>> = {
   queued: 'invocation_queued', running: 'invocation_started', waiting: 'invocation_waiting',
@@ -22,19 +24,22 @@ export async function syncAgentInvocationsFromRun(tx: Driver, orgId: string, run
     [orgId, runId],
   );
   if (!jobs.length) return;
+  const runRows = await tx.query('SELECT payload FROM runs WHERE org_id=$1 AND id=$2',[orgId,runId]);
+  const plan = specialistPlan((json(runRows[0]) as AnalysisRun).request.agent_target);
   const tasks = (await tx.query('SELECT id,payload FROM tasks WHERE org_id=$1 AND run_id=$2', [orgId, runId]))
     .map((row) => ({ id: String(row.id), task: json(row) as { kind?: string; status?: string; error_code?: string | null } }));
 
   for (const current of jobs) {
     const jobId = String(current.id);
     const invocations = await tx.query(
-      "SELECT id,step_key,status FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND step_key IN ('data','compare','insight','report') FOR UPDATE",
+      "SELECT id,step_key,status FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND step_key IN ('data','compare','chart','analyst','insight','report') FOR UPDATE",
       [orgId, jobId],
     );
-    for (const key of ['data', 'compare', 'insight', 'report'] as const) {
+    const keys = plan?.personas ?? ['data', 'compare', 'insight', 'report'] as const;
+    for (const key of keys) {
       const invocation = invocations.find((item) => item.step_key === key);
       if (!invocation) continue; // Historical durable snapshots remain honest.
-      const stageKinds = AGENT_V1_PERSONA_STAGES[key];
+      const stageKinds: readonly string[] = plan ? [key==='compare' ? 'comparison' : key] : AGENT_V1_PERSONA_STAGES[key as keyof typeof AGENT_V1_PERSONA_STAGES];
       const stages = stageKinds.map((kind) => tasks.find((item) => item.task.kind === kind)?.task.status ?? 'pending')
         .map((status) => status === 'running' || status === 'succeeded' || status === 'failed' || status === 'cancelled' ? status : 'pending') as ('pending'|'running'|'succeeded'|'failed'|'cancelled')[];
       const next = aggregatePersonaStageStatus(stages);

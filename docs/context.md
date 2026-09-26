@@ -8,6 +8,11 @@
 > [the migration plan](plan.md) and [rollout runbook](agent-v1-rollout.md) for
 > current implementation status and deployment gates.
 
+> Runtime update (2026-09-26): see [agent runtime and workspace upgrade](agent-runtime-upgrade.md)
+> for durable team execution, report-free specialist runs, replayable GET SSE,
+> thread/message context, memory and report versions. SSE now defaults on. The
+> workspace runtime migration must be applied before deploying matching workers.
+
 ## Product Overview
 
 VDaAgent is a workspace application for analyzing property inventory snapshots and presenting evidence-backed findings and reports. Its current MVP path is:

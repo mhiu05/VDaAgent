@@ -347,10 +347,13 @@
                   "agent_target": {
                     "type": "string",
                     "enum": [
+                      "data",
                       "analyst",
                       "comparison",
+                      "insight",
                       "chart",
-                      "report"
+                      "report",
+                      "reviewer"
                     ]
                   }
                 },

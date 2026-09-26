@@ -49,6 +49,9 @@ describe('GrokWorkspace', () => {
     expect(output).toContain('Bối cảnh và bằng chứng');
     expect(output).toContain('Câu hỏi phân tích');
     expect(output.match(/aria-label="Nội dung hội thoại"/g)).toHaveLength(1);
-    expect(output).toContain('Chưa có kết quả đang chọn');
+    expect(output).toContain('Chưa có lượt chạy');
+    expect(output).toContain('No report context');
+    expect(output).toContain('Agent recipients');
+    expect(output).toContain('Current run');
   });
 });

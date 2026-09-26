@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MessageContextRefSchema } from '../runtime/workspace';
 import {
   AgentKeySchema,
   CursorSchema,
@@ -123,6 +124,9 @@ export const MessageSchema = z
     status: MessageStatusSchema.default('completed'),
     content: z.string().max(5_000),
     parts: z.array(MessagePartSchema).max(32).default([]),
+    context_refs: z.array(MessageContextRefSchema).max(24).optional(),
+    reply_to_message_id: IdSchema.nullable().optional(),
+    report_intent: z.enum(['new', 'update']).nullable().optional(),
     created_at: TimestampSchema,
     updated_at: TimestampSchema.optional(),
   })
@@ -143,6 +147,9 @@ export const AgentTurnRequestSchema = z
     signal_action: z.enum(['inspect', 'analyze_segment']).nullable().optional(),
     drilldown_ref: DrillDownRefSchema.nullable().optional(),
     workspace_context: WorkspaceContextV1Schema.nullable().optional(),
+    context_refs: z.array(MessageContextRefSchema).max(24).optional(),
+    reply_to_message_id: IdSchema.nullable().optional(),
+    report_intent: z.enum(['new', 'update']).nullable().optional(),
     use_case: UseCaseKeySchema.default(DEFAULT_USE_CASE),
     agent_target: AgentKeySchema.nullable().optional(),
   })

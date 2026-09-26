@@ -43,7 +43,7 @@ function consumeFrame(block: string, onFrame: (frame: SseFrame) => void) {
   if (data.length) onFrame({ event, data: data.join('\n'), id });
 }
 
-export async function readSse(response: Response, onFrame: (frame: SseFrame) => void) {
+export async function readSse(response: Response, onFrame: (frame: SseFrame) => void, maxBufferSize = MAX_SSE_BUFFER_SIZE) {
   const reader = response.body?.getReader();
   if (!reader) throw streamError('The assistant activity stream is unavailable.');
   const decoder = new TextDecoder();
@@ -54,7 +54,7 @@ export async function readSse(response: Response, onFrame: (frame: SseFrame) => 
       if (part.done) break;
       buffer += decoder.decode(part.value, { stream: true });
       buffer = buffer.replace(/\r\n/g, '\n');
-      if (buffer.length > MAX_SSE_BUFFER_SIZE)
+      if (buffer.length > maxBufferSize)
         throw streamError('The assistant activity stream is invalid.');
       while (true) {
         const end = buffer.indexOf('\n\n');
@@ -66,6 +66,11 @@ export async function readSse(response: Response, onFrame: (frame: SseFrame) => 
     buffer += decoder.decode();
     buffer = buffer.replace(/\r\n/g, '\n');
     if (buffer.trim()) consumeFrame(buffer, onFrame);
+  } catch (cause) {
+    // A malformed frame or callback failure must close this HTTP subscription
+    // before its caller reconnects; releasing the lock alone leaves it alive.
+    try { await reader.cancel(cause); } catch { /* Preserve the original failure. */ }
+    throw cause;
   } finally {
     reader.releaseLock();
   }

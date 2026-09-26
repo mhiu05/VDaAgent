@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { executeAgentWorkflow } from '@vda/agents/analysis-v1/workflow';
+import { executeAgentWorkflow, executeSpecialistWorkflow } from '@vda/agents/analysis-v1/workflow';
 import { SAFE_SUMMARY } from '../../packages/domain/src/index';
 import { TEST_ORGS, TEST_USERS, type Repository } from '@vda/db';
 import { createTestRepository } from '../../tests/helpers/postgres';
@@ -26,6 +26,35 @@ const quiet = {
 };
 
 describe('durable Orchestrator vertical slice', () => {
+  it.each(['data', 'insight'] as const)('completes a %s Agent task with an artifact and no report while preserving the thread', async target => {
+    const {pg,repo} = await createTestRepository();
+    resources.push({repo,close:() => pg.close()});
+    const accepted = await repo.enqueueAgentTurn(TEST_USERS.owner,{...input,agent_target:target,text:'Inspect the inventory dataset'},`${target}-artifact-only`);
+    const turnLease = (await repo.claimAgentTurnJob('specialist',new Date(),120000))!;
+    await repo.startAgentAnalysis(turnLease,{planned:true});
+    const lease = (await repo.claimRun('data-worker',new Date(),240000))!;
+    const artifact = await executeSpecialistWorkflow(repo,lease,{
+      narrativeProvider:{narrate:async claims => ({summary:SAFE_SUMMARY,claims,provider:'gemini'})},
+    });
+    expect(artifact.kind).toBe(target === 'data' ? 'data_analysis_pack' : 'insight_pack');
+    const detail = await repo.getRun(TEST_USERS.owner,TEST_ORGS.alpha,lease.run.run_id);
+    expect(detail.run).toMatchObject({status:'succeeded',report_artifact_id:null});
+    expect(await repo.listReports(TEST_USERS.owner,TEST_ORGS.alpha)).toHaveLength(0);
+    const state = await repo.getRunRuntime(TEST_USERS.owner,TEST_ORGS.alpha,lease.run.run_id);
+    expect(state.records.find(record => record.kind === 'invocation' && !record.parent_step_key)?.agent_key).toBe(target);
+    expect(state.records.some(record => ['report','reviewer'].includes(record.agent_key))).toBe(false);
+    const resumed = (await repo.claimAgentTurnJob('specialist-resume',new Date(),120000))!;
+    await dispatchAgentTurn(repo,resumed,quiet);
+    const done = await repo.getAgentTurnJob(TEST_USERS.owner,TEST_ORGS.alpha,accepted.job.job_id);
+    expect(done.job.status).toBe('completed');
+    const context = await repo.getThreadContext(TEST_USERS.owner,TEST_ORGS.alpha,accepted.conversation.conversation_id);
+    expect(context.active_report_id).toBeNull();
+    expect(context.current_run_id).toBe(lease.run.run_id);
+    const messages = await repo.messages(TEST_USERS.owner,TEST_ORGS.alpha,accepted.conversation.conversation_id);
+    expect(messages.find(message => message.message_id === accepted.assistant_message.message_id)?.parts).toContainEqual(
+      expect.objectContaining({type:'artifact_ref',artifact_id:artifact.artifact_id,kind:artifact.kind}));
+  },120000);
+
   it('survives client departure and persists a grounded reply from one canonical agent-v1 run', async () => {
     // The repository default remains legacy-v1; this job must pin agent-v1 explicitly.
     const {pg,repo} = await createTestRepository();
@@ -58,6 +87,32 @@ describe('durable Orchestrator vertical slice', () => {
     expect(finished.invocations.map(i => [i.step_key,i.status])).toEqual(expect.arrayContaining([
       ['root','completed'],['data','completed'],['compare','completed'],['insight','completed'],['report','completed'],
     ]));
+    const runtime = await repo.getRunRuntime(TEST_USERS.owner, TEST_ORGS.alpha, runId);
+    expect(runtime.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({kind:'invocation',step_key:'team:insight:data-detail',parent_step_key:'team:insight',agent_key:'data',status:'completed'}),
+      expect.objectContaining({kind:'message',agent_key:'insight',target_agent_key:'data',message_type:'task_request'}),
+      expect.objectContaining({kind:'message',agent_key:'data',target_agent_key:'insight',message_type:'task_result'}),
+      expect.objectContaining({kind:'tool',tool_name:'data.evidence',status:'completed'}),
+    ]));
+    const dataResponse = runtime.records.find(record => record.step_key === 'team:insight:data-detail:response')!;
+    expect(dataResponse.artifact_refs?.length).toBeGreaterThan(0);
+    expect(dataResponse.evidence_refs?.length).toBeGreaterThan(0);
+    const replay = await repo.getRunRuntime(TEST_USERS.owner, TEST_ORGS.alpha, runId, runtime.last_sequence);
+    expect(replay.events).toHaveLength(0);
+    expect(replay.records).toEqual(runtime.records);
+    const thread = await repo.getThreadContext(TEST_USERS.owner, TEST_ORGS.alpha, accepted.conversation.conversation_id);
+    expect(thread.current_run_id).toBe(runId);
+    expect(thread.active_report_id).toBeTruthy();
+    if (process.env.RUNTIME_FIXTURE_PATH) {
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(process.env.RUNTIME_FIXTURE_PATH, JSON.stringify({
+        catalog: await repo.catalog(TEST_USERS.owner,TEST_ORGS.alpha), conversation: accepted.conversation,
+        messages: messages.messages, runDetail: await repo.getRun(TEST_USERS.owner,TEST_ORGS.alpha,runId),
+        runtime, artifacts: await repo.artifacts(TEST_USERS.owner,TEST_ORGS.alpha,runId),
+        reports: await repo.listReports(TEST_USERS.owner,TEST_ORGS.alpha), threadContext: thread,
+        memory: await repo.listMemory(TEST_USERS.owner,TEST_ORGS.alpha,{conversation_id:accepted.conversation.conversation_id,run_id:runId}),
+      }, null, 2));
+    }
     expect(assistant.status).toBe('completed');
     expect(userMessage.status).toBe('completed');
     expect(assistant.parts).toEqual(expect.arrayContaining([

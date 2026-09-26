@@ -1,7 +1,7 @@
 'use client';
 
 import { createElement } from 'react';
-import { ArrowUpRight, FileText, LoaderCircle } from 'lucide-react';
+import { ArrowUpRight, FileText, LoaderCircle, Reply } from 'lucide-react';
 import type { Message, WorkspaceActionV1 } from '@vda/contracts';
 import { agentIdentity } from '../../components/agents/agent-identity';
 import styles from './message-thread.module.css';
@@ -43,6 +43,7 @@ export function MessageThread({
   onOpenReport,
   onOpenArtifact,
   onWorkspaceAction,
+  onReply,
 }: {
   messages: Message[];
   loading: boolean;
@@ -52,6 +53,7 @@ export function MessageThread({
   onOpenReport: (reportId: string) => void;
   onOpenArtifact: (runId: string, artifactId: string) => void;
   onWorkspaceAction?: (action: WorkspaceActionV1) => void;
+  onReply?: (messageId: string) => void;
 }) {
   return (
     <section className="agent-thread" aria-label="Nội dung hội thoại">
@@ -88,6 +90,12 @@ export function MessageThread({
                 </div>
               )}
               <p>{message.content}</p>
+              {Boolean(message.context_refs?.length) && <div className={styles.contextRefs} aria-label="Attached message context">
+                {message.context_refs!.map((ref) => <span key={`${ref.type}:${ref.id}`} title={ref.id}>{ref.type} · {ref.id.slice(0, 8)}</span>)}
+              </div>}
+              {message.report_intent === 'new' && <small className={styles.contextRefs}>New report requested</small>}
+              {message.reply_to_message_id && <small className={styles.contextRefs} title={message.reply_to_message_id}>Reply to message · {message.reply_to_message_id.slice(0, 8)}</small>}
+              {onReply && message.parts.some((part) => part.type === 'report_ref' || part.type === 'artifact_ref') && <button type="button" className="text-button" onClick={() => onReply(message.message_id)} aria-label="Reply with this message's artifact context"><Reply size={13} /> Reply</button>}
               {message.status === 'in_progress' && message.role === 'assistant' && (
                 <span className="agent-pending">
                   <LoaderCircle size={13} className="spin" /> Đang chuẩn bị kết quả có bằng chứng…

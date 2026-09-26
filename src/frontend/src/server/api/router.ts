@@ -10,6 +10,7 @@ import { importRoutes } from './routes/imports';
 import { reportDefinitionRoutes } from './routes/report-definitions';
 import { schedulerRoutes } from './routes/scheduler';
 import { reportRoutes } from './routes/reports';
+import { runtimeWorkspaceRoutes } from './routes/runtime-workspace';
 import { principal, repository } from '../context';
 
 async function handle(request: Request, path: string[]): Promise<Response> {
@@ -32,6 +33,8 @@ async function handle(request: Request, path: string[]): Promise<Response> {
     routeContext.orgFromQuery,
   );
   if (catalogResponse) return catalogResponse;
+  const runtimeResponse = await runtimeWorkspaceRoutes(routeContext);
+  if (runtimeResponse) return runtimeResponse;
   const analysisRoutesResponse = await analysisRoutes(routeContext);
   if (analysisRoutesResponse) return analysisRoutesResponse;
   const conversationRoutesResponse = await conversationRoutes(routeContext);

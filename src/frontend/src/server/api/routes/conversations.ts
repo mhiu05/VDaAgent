@@ -16,6 +16,8 @@ import {
 import { json } from '../middleware/response';
 import { agentTurnSubmitter, streamAgentTurn } from '../streaming/agent-turn';
 import type { AuthenticatedRouteContext } from './route-context';
+import { durableEventStream } from '../../durable-event-stream';
+import { assertStreamAccept, eventCursor } from './runtime-workspace';
 
 function publicExecutionSnapshot(snapshot: { job: AgentTurnJob; invocations: AgentInvocation[]; events: AgentExecutionEvent[] } | null) {
   if (!snapshot) return null;
@@ -45,6 +47,17 @@ export async function conversationRoutes(
   if (path[0] === 'agent-turn-jobs' && path[1] && path.length <= 3) {
     const id = IdSchema.parse(path[1]);
     const org = orgFromQuery();
+    if (path.length === 3 && path[2] === 'events' && method === 'GET') {
+      assertStreamAccept(request);
+      const after = eventCursor(request, url);
+      const load = async (cursor: number) => publicExecutionSnapshot(await repo.getAgentTurnJob(actor.user_id, org, id, cursor))!;
+      const initial = await load(after);
+      return durableEventStream({ initial, load, after, signal: request.signal, eventName: 'execution',
+        events: (snapshot) => snapshot.events,
+        terminal: ({ job }) => ['completed', 'failed', 'cancelled'].includes(job.status)
+          ? { job_id: job.job_id, status: job.status } : null,
+      });
+    }
     if (path.length === 2 && method === 'GET') {
       const after = z.coerce.number().int().min(0).parse(url.searchParams.get('after') ?? '0');
       return json(z.object({

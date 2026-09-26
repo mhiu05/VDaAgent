@@ -26,7 +26,7 @@ const ConfigSchema = z.object({
   DURABLE_AGENT_EXECUTION_ENABLED: BooleanFlagSchema.default('true'),
   GROK_RUNTIME_ENABLED: BooleanFlagSchema.default('true'),
   GROK_WORKSPACE_ENABLED: BooleanFlagSchema.default('true'),
-  GROK_SSE_ENABLED: BooleanFlagSchema.default('false'),
+  GROK_SSE_ENABLED: BooleanFlagSchema.default('true'),
   // The runtime follows the established provider ordering. xAI remains an
   // opt-in adapter and is never required for the P0 control plane.
   AGENT_LLM_PRIMARY_PROVIDER: AgentRuntimeProviderSchema.default('gemini'),

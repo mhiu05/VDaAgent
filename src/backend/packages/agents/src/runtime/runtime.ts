@@ -2,6 +2,8 @@ import {
   AgentPlanV1Schema,
   AgentTurnAcceptedSchema,
   AgentTurnRequestSchema,
+  isApprovedDurableAnalysisTurn,
+  resolveReportIntent,
   type AgentPlanV1,
   type AgentRuntimeErrorCode,
   type AgentTurnAccepted,
@@ -13,7 +15,7 @@ import {
   type ResolvedAgentTurnRequest,
 } from '@vda/contracts';
 import { getConfig } from '@vda/config';
-import { RepositoryError, type AgentTurn, type Repository, type TurnContext } from '@vda/db';
+import { RepositoryError, type AgentJobLease, type AgentTurn, type Repository, type TurnContext } from '@vda/db';
 import { AgentActivityEmitter, type AgentActivitySink } from './activity';
 import {
   deterministicGroundedAnswer,
@@ -38,6 +40,7 @@ import { RuntimeContextError, type AuthorizedAgentContextV1 } from './context/ty
 import { runtimeLimits, type AgentRuntimeLimits } from './limits';
 import { isCausalQuestion } from '../chat/operations';
 import { enqueueEligibleDurableTurn } from './admission';
+import { isArtifactSpecialist } from '../analysis-v1/team-workflow';
 
 const safeCopy: Record<AgentRuntimeErrorCode, string> = {
   UNSUPPORTED_REQUEST: 'This request is not supported by the authorized analysis workspace.',
@@ -74,8 +77,8 @@ type DeterministicOutcome =
 
 function isCheckpointTarget(
   target: NonNullable<AuthorizedAgentContextV1['request']['agent_target']>,
-): target is 'analyst' | 'comparison' | 'chart' | 'report' {
-  return ['analyst', 'comparison', 'chart', 'report'].includes(target);
+): target is 'data' | 'analyst' | 'comparison' | 'insight' | 'chart' | 'report' | 'reviewer' {
+  return ['data', 'analyst', 'comparison', 'insight', 'chart', 'report', 'reviewer'].includes(target);
 }
 
 function turnContext(turn: AgentTurn, input: ResolvedAgentTurnRequest): TurnContext {
@@ -148,6 +151,23 @@ function deterministicPolicy(context: AuthorizedAgentContextV1): DeterministicOu
     };
   if (isCausalQuestion(context.request.text))
     return { kind: 'terminal', code: 'UNSUPPORTED_CAUSAL_REQUEST' };
+  const reportMutation = context.request.report_intent === 'new' || context.request.report_intent === 'update' ||
+    ((context.request.agent_target === 'report' || /\breport\b|báo cáo/iu.test(context.request.text)) &&
+    /\b(create|generate|new|separate|another|edit|update|fix|revise)\b|tạo|sửa|cập nhật/iu.test(context.request.text));
+  if (reportMutation) {
+    if (context.actor.role === 'viewer') return { kind: 'terminal', code: 'CAPABILITY_DENIED' };
+    return { kind: 'plan', plan: oneStepPlan('create_analysis', {
+      step_id: 'create-analysis', capability_id: 'create_analysis', input: { focus: 'current_inventory' },
+    }, 'queued') };
+  }
+  const specialistRequest = isArtifactSpecialist(context.request.agent_target) &&
+    (context.allowed_run_ids.length === 0 || /\b(analy[sz]e|calculate|compute|generate|create|fresh|rerun|refresh|find)\b|phân tích|tính toán/iu.test(context.request.text));
+  if (specialistRequest) {
+    if (context.actor.role === 'viewer') return { kind: 'terminal', code: 'CAPABILITY_DENIED' };
+    return { kind: 'plan', plan: oneStepPlan('create_analysis', {
+      step_id: 'create-analysis', capability_id: 'create_analysis', input: { focus: 'current_inventory' },
+    }, 'queued') };
+  }
   if (context.policy.requires_fresh_analysis) {
     if (context.actor.role === 'viewer')
       return { kind: 'terminal', code: 'CAPABILITY_UNAVAILABLE' };
@@ -177,7 +197,9 @@ function deterministicPolicy(context: AuthorizedAgentContextV1): DeterministicOu
         'grounded',
       ),
     };
-  if (context.request.agent_target) return { kind: 'terminal', code: 'UNSUPPORTED_REQUEST' };
+  // Selecting Main uses the same planner as an untargeted request.
+  if (context.request.agent_target && context.request.agent_target !== 'coordinator')
+    return { kind: 'terminal', code: 'UNSUPPORTED_REQUEST' };
   return null;
 }
 
@@ -252,16 +274,20 @@ export class AgentRuntime {
     code: AgentRuntimeErrorCode,
     retry = false,
     includeError = status !== 'completed',
+    lease?: AgentJobLease,
+    contentOverride?: string,
   ) {
-    const content = safeCopy[code];
-    await this.repository.finalizeTurn(userId, context, {
+    const content = contentOverride ?? safeCopy[code];
+    const result = {
       status,
       content,
       parts: [
-        { type: 'text', text: content },
+        { type: 'text' as const, text: content },
         ...(includeError ? [{ type: 'error' as const, code, retryable: retry }] : []),
       ],
-    });
+    };
+    if (lease) await this.repository.finalizeAgentTurnExecution(lease, result);
+    else await this.repository.finalizeTurn(userId, context, result);
     return accepted(context, null, status);
   }
 
@@ -270,16 +296,19 @@ export class AgentRuntime {
     context: TurnContext,
     authorized: AuthorizedAgentContextV1,
     rendered: RenderedGroundedResponse,
+    lease?: AgentJobLease,
   ) {
     // Rendering performs reference checks; this final membership check closes
     // the race between composition and persistence.
     await this.repository.authorize(authorized.actor.user_id, authorized.org_id);
-    await this.repository.finalizeTurn(userId, context, {
-      status: 'completed',
+    const result = {
+      status: 'completed' as const,
       content: rendered.content,
       parts: rendered.parts,
       sender_agent: authorized.request.agent_target,
-    });
+    };
+    if (lease) await this.repository.finalizeAgentTurnExecution(lease, result);
+    else await this.repository.finalizeTurn(userId, context, result);
     return accepted(context, rendered.primary_run_id, 'completed');
   }
 
@@ -419,6 +448,29 @@ export class AgentRuntime {
     if (turn.idempotent_replay)
       return this.replayAccepted(userId, input, idempotencyKey, conversationId, turn);
 
+    return this.executeTurn(userId, input, idempotencyKey, context, requestSignal);
+  }
+
+  /** Reuses the validated capability loop under the worker's durable job fence. */
+  async resumeDurableTurn(lease: AgentJobLease, requestSignal?: AbortSignal): Promise<AgentTurnAccepted> {
+    const execution = await this.repository.getAgentTurnExecution(lease);
+    if (isApprovedDurableAnalysisTurn(execution.input)) {
+      const run = await this.repository.startAgentAnalysis(lease);
+      return accepted(execution.context, run.run_id, 'in_progress', lease.job.job_id);
+    }
+    return this.executeTurn(lease.job.created_by, AgentTurnRequestSchema.parse(execution.input), execution.idempotency_key,
+      execution.context, requestSignal, lease);
+  }
+
+  private async executeTurn(
+    userId: string,
+    input: ResolvedAgentTurnRequest,
+    idempotencyKey: string,
+    context: TurnContext,
+    requestSignal?: AbortSignal,
+    lease?: AgentJobLease,
+  ): Promise<AgentTurnAccepted> {
+
     const deadline = AbortSignal.timeout(this.limits.turn_timeout_ms);
     const signal = requestSignal ? AbortSignal.any([requestSignal, deadline]) : deadline;
     const activity = new AgentActivityEmitter(this.activitySink);
@@ -439,13 +491,13 @@ export class AgentRuntime {
             : await this.plan(authorized, signal, stageCounters);
       if (policy?.kind === 'terminal') {
         activity.emit('error', 'safe_error', { error_code: policy.code });
-        return this.finalize(userId, context, 'completed', policy.code, false, false);
+        return this.finalize(userId, context, 'completed', policy.code, false, false, lease);
       }
       if (!plan) throw new AgentRuntimeProviderError('PROVIDER_OUTPUT_INVALID', true);
       if (plan.answer_mode === 'unavailable') {
         const code = plan.unsupported_reason ?? 'CAPABILITY_UNAVAILABLE';
         activity.emit('error', 'safe_error', { error_code: code });
-        return this.finalize(userId, context, 'completed', code, false, false);
+        return this.finalize(userId, context, 'completed', code, false, false, lease);
       }
 
       const budget = createCapabilityExecutionBudget();
@@ -456,6 +508,18 @@ export class AgentRuntime {
         const descriptor = this.registry.descriptor(step.capability_id);
         if (!descriptor) throw new CapabilityRegistryError('CAPABILITY_DENIED');
         activity.emit('tool_started', descriptor.activity_label, { capability: descriptor.id });
+        if (lease && descriptor.creates_run) {
+          // The planner and registry have authorized this mutation; the job
+          // repository atomically creates/links the run and releases the job.
+          const run = await this.repository.startAgentAnalysis(lease, { planned: true });
+          return accepted(context, run.run_id, 'in_progress', lease.job.job_id);
+        }
+        const jobState = lease ? await this.repository.getAgentTurnJob(userId, input.org_id, lease.job.job_id) : null;
+        const parent = jobState?.invocations.find(invocation => invocation.parent_invocation_id === null);
+        const invocation = lease && parent ? await this.repository.createAgentInvocation(lease, parent.invocation_id,
+          `capability:${index}:${descriptor.id}`, authorized.request.agent_target ?? 'coordinator') : null;
+        if (lease && invocation && invocation.status !== 'completed')
+          await this.repository.setAgentInvocationStatus(lease, invocation.invocation_id, 'running');
         const result = await this.registry.execute(
           {
             authorized_context: authorized,
@@ -465,6 +529,8 @@ export class AgentRuntime {
           step,
           budget,
         );
+        if (lease && invocation && invocation.status !== 'completed')
+          await this.repository.setAgentInvocationStatus(lease, invocation.invocation_id, 'completed');
         activity.emit('tool_completed', descriptor.activity_label, {
           capability: descriptor.id,
           run_id: result.queued_run_ref?.run_id ?? null,
@@ -510,7 +576,7 @@ export class AgentRuntime {
       }
       ensureWithinDeadline(deadline, requestSignal);
       if (!observations.length)
-        return this.finalize(userId, context, 'completed', 'CAPABILITY_UNAVAILABLE', false, false);
+        return this.finalize(userId, context, 'completed', 'CAPABILITY_UNAVAILABLE', false, false, lease);
       activity.emit('answer_started', 'preparing_answer');
       const rendered = observations.every((observation) => observation.availability !== 'available')
         ? await deterministicGroundedAnswer({
@@ -521,12 +587,12 @@ export class AgentRuntime {
           })
         : await this.compose(authorized, observations, actions, signal, stageCounters);
       ensureWithinDeadline(deadline, requestSignal);
-      const result = await this.finalizeRendered(userId, context, authorized, rendered);
+      const result = await this.finalizeRendered(userId, context, authorized, rendered, lease);
       activity.emit('answer_completed', 'answer_ready', { run_id: rendered.primary_run_id });
       return result;
     } catch (error) {
       if (isTerminalTurnRace(error))
-        return this.replayAccepted(userId, input, idempotencyKey, conversationId);
+        return this.replayAccepted(userId, input, idempotencyKey, context.conversation_id);
       // Final persistence reauthorizes the actor. Once that check fails there
       // is no safe write path for a partial response, so let the BFF return a
       // non-disclosing authorization result rather than retrying finalization.
@@ -535,7 +601,8 @@ export class AgentRuntime {
       const status: Extract<MessageStatus, 'completed' | 'failed' | 'cancelled'> =
         code === 'TURN_CANCELLED' ? 'cancelled' : 'failed';
       activity.emit('error', 'safe_error', { error_code: code });
-      return this.finalize(userId, context, status, code, retryable(error));
+      return this.finalize(userId, context, status, code, retryable(error), true, lease,
+        code === 'MISSING_CONTEXT' && resolveReportIntent(input) === 'update' ? 'Select the report you want to update.' : undefined);
     }
   }
 }

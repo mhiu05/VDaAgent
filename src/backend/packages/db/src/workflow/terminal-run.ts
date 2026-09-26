@@ -4,6 +4,7 @@ import type { Driver } from '../driver';
 import { json } from '../mapping/rows';
 import { ConversationRepository } from '../repositories/conversation-repository';
 import { syncAgentInvocationsFromRun } from './agent-projection';
+import { terminalizeRuntimeActivities } from './runtime-activity-store';
 
 /** Close projections in the same transaction that terminalizes the canonical run. */
 export async function terminalizeRun(
@@ -13,6 +14,7 @@ export async function terminalizeRun(
   code: string,
 ) {
   const date = new Date().toISOString();
+  await terminalizeRuntimeActivities(tx,run,status,code);
   const tasks = await tx.query(
     'SELECT id,payload FROM tasks WHERE org_id=$1 AND run_id=$2 FOR UPDATE',
     [run.org_id, run.run_id],

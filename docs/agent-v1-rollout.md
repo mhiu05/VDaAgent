@@ -13,7 +13,8 @@ retain their original identity and report data.
 2. Pause API mutation admission and scheduler ticks. Replace every web and
    worker instance; an old worker can still create scheduled legacy runs.
 3. Apply migrations 006, 007, 008, then
-   `20260925082316_guard_run_workflow_version.sql`. Confirm the trigger exists
+   `20260925082316_guard_run_workflow_version.sql`, then
+   `20260926082635_agent_workspace_runtime.sql`. Confirm the trigger exists
    before reopening traffic. The schema is required even when durable job
    admission is disabled because agent task updates project into its tables.
 4. Verify web and worker startup readiness. Canary direct analysis, a Runtime

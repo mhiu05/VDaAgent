@@ -91,7 +91,9 @@ describe('Agent Chat typed tools', () => {
     expect(
       resolveAgentTargetFollowUpAction('report', 'Add this comparison to the report.'),
     ).toBeNull();
-    expect(resolveAgentTargetFollowUpAction('data', 'Show the data pack.')).toBeNull();
+    expect(resolveAgentTargetFollowUpAction('data', 'Show the data pack.')).toBe('artifact');
+    expect(resolveAgentTargetFollowUpAction('insight', 'Show the validated findings.')).toBe('artifact');
+    expect(resolveAgentTargetFollowUpAction('reviewer', 'Show the review status.')).toBe('status');
   });
 
   it('rejects malformed model inputs before repository execution', async () => {

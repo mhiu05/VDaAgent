@@ -2,7 +2,7 @@
 
 Status: proposed; implementation requires explicit approval. Audit date: 2026-09-25. Scope: the current working tree, including the in-progress feature-directory refactor and durable execution additions. This task changes documentation only.
 
-Companion: [implementation plan](../plans/multi-agent-workspace-redesign-plan.md). Product authorities: [PRODUCT](../PRODUCT.md), [DESIGN](../DESIGN.md), and [technical context](../context.md). The requested `docs/context(4).md` is absent; `docs/context.md` is the available substitute. The [reference image](../ui-reference/multi-agent-workspace.png) was visually inspected. Current UI findings below come from source, CSS, contracts, and tests; no authenticated browser session, deployment flags, or runtime screenshots were verified in this audit.
+Companion: [implementation plan](../plans/multi-agent-workspace-redesign-plan.md). Product authorities: [PRODUCT](../PRODUCT.md), [DESIGN](../DESIGN.md), and [technical context](../context.md). The requested `docs/context(4).md` is absent; `docs/context.md` is the available substitute. The current [reference image](../ui-reference/grokbot-agent-workspace.png) informs the [runtime/workspace implementation](../agent-runtime-upgrade.md). Historical UI findings below come from source, CSS, contracts, and tests; no authenticated browser session, deployment flags, or runtime screenshots were verified in this original audit.
 
 ## 1. Executive summary
 

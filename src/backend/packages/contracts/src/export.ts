@@ -30,6 +30,8 @@ import {
 import { ReportDefinitionSchema } from './reports/schedule';
 import { RunSchema } from './analysis/run';
 import { SnapshotRowSchema } from './imports/inventory';
+import { AgentDefinitionSchema, MessageContextRefSchema, MemoryEntrySchema,
+  RuntimeActivityEventSchema, RunRuntimeSnapshotSchema, ThreadContextSchema } from './runtime/workspace';
 await mkdir('src/backend/packages/contracts/schema', { recursive: true });
 for (const [name, schema] of Object.entries({
   AnalysisRequest: AnalysisRequestSchema,
@@ -59,6 +61,12 @@ for (const [name, schema] of Object.entries({
   SnapshotRow: SnapshotRowSchema,
   WorkspaceActionV1: WorkspaceActionV1Schema,
   WorkspaceContextV1: WorkspaceContextV1Schema,
+  AgentDefinition: AgentDefinitionSchema,
+  MessageContextRef: MessageContextRefSchema,
+  MemoryEntry: MemoryEntrySchema,
+  RuntimeActivityEvent: RuntimeActivityEventSchema,
+  RunRuntimeSnapshot: RunRuntimeSnapshotSchema,
+  ThreadContext: ThreadContextSchema,
 })) {
   await writeFile(
     `src/backend/packages/contracts/schema/${name}.json`,

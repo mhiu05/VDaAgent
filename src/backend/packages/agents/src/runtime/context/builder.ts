@@ -1,5 +1,6 @@
 import {
   AgentTurnRequestSchema,
+  resolveReportIntent,
   type AgentTurnRequest,
   type AnalysisRun,
   type Artifact,
@@ -42,6 +43,9 @@ import {
   type PublicReportContextV1,
 } from './types';
 import type { Repository } from '@vda/db';
+import { ContextResolver } from './resolver';
+import { MemoryRetriever } from './memory';
+import { budgetContext, estimateContextTokens } from './budget';
 
 function sameScope(left: Scope, right: Scope) {
   return (
@@ -232,7 +236,7 @@ export class RuntimeContextBuilder {
     conversationId: string,
   ): Promise<AuthorizedAgentContextV1> {
     const input = AgentTurnRequestSchema.parse(inputValue);
-    const workspace = input.workspace_context ?? null;
+    let workspace = input.workspace_context ?? null;
     if (
       workspace &&
       workspace.conversation_id !== null &&
@@ -263,6 +267,24 @@ export class RuntimeContextBuilder {
       ]).then(([authorizedCatalog, messages]) => [authorizedCatalog, messages] as const);
     } catch {
       throw new RuntimeContextError('NO_AUTHORIZED_RESULT');
+    }
+
+    const resolved = await new ContextResolver(this.repository).resolve(userId, input, conversationId);
+    if (resolved.ambiguous_update) throw new RuntimeContextError('MISSING_CONTEXT');
+    if (resolved.source === 'message' || resolved.source === 'reply' ||
+      (resolved.source === 'thread' && (resolved.active || !workspace))) {
+      const active = resolved.active;
+      const runId = active?.run_id ?? (resolved.source === 'thread' ? resolved.thread.current_run_id : null);
+      workspace = {
+        version: 1, mode: workspace?.mode ?? 'agent_chat', org_id: input.org_id,
+        conversation_id: conversationId, scope: input.scope, data_as_of: input.data_as_of,
+        active_run_ref: runId ? { run_id: runId } : null,
+        active_report_ref: active?.type === 'report' && active.run_id
+          ? { report_id: active.id, run_id: active.run_id } : null,
+        active_artifact_ref: active?.artifact_id && active.run_id
+          ? { artifact_id: active.artifact_id, run_id: active.run_id } : null,
+        dashboard_selection: null, drilldown: null, evidence_ref: null,
+      };
     }
 
     const project = catalog.projects.find(
@@ -321,12 +343,13 @@ export class RuntimeContextBuilder {
     }
 
     const issues: ContextResolutionIssueV1[] = [];
+    const explicitReferences = resolved.source === 'message' || resolved.source === 'reply';
     const rootRunId = workspaceRootRunId(workspace, input);
     const rootRun = rootRunId
       ? await authorizedRun(this.repository, userId, input.org_id, rootRunId, true)
       : null;
     const requiresFreshAnalysis = Boolean(
-      rootRun && !compatibleRun(rootRun, scope, input.data_as_of),
+      rootRun && !explicitReferences && !compatibleRun(rootRun, scope, input.data_as_of),
     );
     const activeRun = rootRun && !requiresFreshAnalysis ? rootRun : null;
     if (rootRun && requiresFreshAnalysis) issue(issues, 'run', 'STALE_CONTEXT');
@@ -351,7 +374,7 @@ export class RuntimeContextBuilder {
     } else if (workspace?.active_report_ref && activeRun) {
       reportInvalid = true;
       issue(issues, 'report', 'NO_AUTHORIZED_RESULT');
-    } else if (activeRun && !workspace?.active_report_ref) {
+    } else if (activeRun && !workspace?.active_report_ref && !input.workspace_context && resolved.source === 'none') {
       report = await currentPublicReport(this.repository, userId, input.org_id, activeRun.run_id);
       if (report) issue(issues, 'report', 'MISSING_CONTEXT', 'replace');
     } else if (workspace?.active_report_ref && !activeRun) {
@@ -472,7 +495,10 @@ export class RuntimeContextBuilder {
     }
 
     const historicalRunIds = assistantRunIds(page.messages);
+    // Explicit attachments/replies may intentionally compare periods. A stale
+    // default or browser selection must still satisfy the requested data scope.
     const candidateRunIds = uniqueStrings([
+      ...resolved.references.flatMap((ref) => ref.run_id ? [ref.run_id] : []),
       ...(activeRun ? [activeRun.run_id] : []),
       ...(requestedSignalRef ? [requestedSignalRef.run_id] : []),
       ...historicalRunIds,
@@ -484,7 +510,8 @@ export class RuntimeContextBuilder {
         ),
       )
     ).filter((run): run is AnalysisRun =>
-      Boolean(run && compatibleRun(run, scope, input.data_as_of)),
+      Boolean(run && (compatibleRun(run, scope, input.data_as_of) ||
+        (explicitReferences && resolved.references.some((ref) => ref.run_id === run.run_id)))),
     );
     const allowedRunIds = compatibleRuns.map((run) => run.run_id);
 
@@ -545,7 +572,18 @@ export class RuntimeContextBuilder {
         const [run_id, artifact_id, evidence_path] = value.split('\u0000');
         return { run_id: run_id!, artifact_id: artifact_id!, evidence_path: evidence_path! };
       });
-    const allowedReports = report ? [{ run_id: report.run_id, report_id: report.report_id }] : [];
+    const allowedReports = [
+      ...(report ? [{ run_id: report.run_id, report_id: report.report_id }] : []),
+      ...resolved.references.flatMap((ref) => ref.type === 'report' && ref.run_id && allowedRunIds.includes(ref.run_id)
+        ? [{ run_id: ref.run_id, report_id: ref.id }] : []),
+    ].filter((ref, index, all) => all.findIndex((other) => other.report_id === ref.report_id) === index);
+
+    const memory = await new MemoryRetriever(this.repository).retrieve({
+      userId, orgId: input.org_id, conversationId,
+      runId: activeRun?.request.conversation_id === conversationId ? activeRun.run_id : undefined,
+      task: input.text,
+      maxTokens: 1_200,
+    });
 
     const providerContext = boundedProviderContext({
       version: 'authorized-agent-context-v1',
@@ -571,6 +609,17 @@ export class RuntimeContextBuilder {
         evidence,
       },
       resolution_issues: issues,
+      context_source: resolved.source,
+      referenced_context: resolved.references.filter((ref) => !ref.run_id || allowedRunIds.includes(ref.run_id)),
+    });
+    const memoryBudget = budgetContext([
+      { key: 'working', value: memory.working, priority: 3 },
+      { key: 'episodic', value: memory.episodic, priority: 2 },
+      { key: 'workspace', value: memory.workspace, priority: 1 },
+    ], Math.max(0, 6_000 - estimateContextTokens(providerContext)));
+    const boundedContext = boundedProviderContext({ ...providerContext, memory: memoryBudget.context,
+      context_metadata: { source: resolved.source, estimated_tokens: estimateContextTokens(providerContext) + memoryBudget.estimated_tokens,
+        memory_counts: { working: memory.working.length, episodic: memory.episodic.length, workspace: memory.workspace.length } },
     });
 
     return {
@@ -601,6 +650,7 @@ export class RuntimeContextBuilder {
         text: input.text,
         use_case: input.use_case ?? 'slow_moving_inventory',
         agent_target: input.agent_target ?? null,
+        report_intent: resolveReportIntent(input),
         signal_action: input.signal_action ?? null,
         requested_signal_ref: requestedSignalRef,
       },
@@ -621,7 +671,7 @@ export class RuntimeContextBuilder {
       allowed_dashboard: allowedDashboard,
       active_decision: activeDecision,
       policy: { requires_fresh_analysis: requiresFreshAnalysis },
-      provider_context: providerContext,
+      provider_context: boundedContext,
     };
   }
 }

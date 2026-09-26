@@ -149,6 +149,8 @@ export type {
 } from './decision/brief';
 export { ReportPayloadSchema, ReportRecordSchema } from './reports/report';
 export type { ReportPayload, ReportRecord } from './reports/report';
+export { resolveReportIntent } from './reports/intent';
+export type { ReportIntent } from './reports/intent';
 export {
   UseCaseCapabilitySchema,
   DecisionMaterialityRuleSchema,
@@ -383,3 +385,5 @@ export type {
   DecisionBriefResponse,
   DecisionIntelligenceResponse,
 } from './api/responses';
+
+export * from './runtime/workspace';

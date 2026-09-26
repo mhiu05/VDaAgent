@@ -60,7 +60,7 @@ export function GrokWorkspace({
   const railDialog = useRef<HTMLDialogElement>(null);
   const inspectorDialog = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
-  const [selectedStage, setSelectedStage] = useState<string | null>(null);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const { actionError, handleWorkspaceAction } = useWorkspaceAction(orgId, workspaceRevision, onWorkspaceAction);
   useEffect(() => {
     const railQuery = window.matchMedia('(max-width: 1024px)');
@@ -107,12 +107,15 @@ export function GrokWorkspace({
   }
   function openInspector() {
     closeDrawers();
-    if (!inspectorDrawer) return;
+    if (!inspectorDrawer) { setInspectorCollapsed((value) => !value); return; }
     restoreFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inspectorDialog.current?.showModal();
   }
   async function applyWorkspaceAction(action: WorkspaceActionV1) {
-    if (await handleWorkspaceAction(action) && action.type === 'open_evidence') openInspector();
+    if (await handleWorkspaceAction(action) && action.type === 'open_evidence') {
+      setInspectorCollapsed(false);
+      if (inspectorDrawer) openInspector();
+    }
   }
   function navigateConversation(id: string) {
     chat.selectConversation(id);
@@ -128,32 +131,28 @@ export function GrokWorkspace({
     conversations={chat.conversations}
     selectedConversation={chat.selectedConversation}
     selectedId={chat.selectedConversationId}
-    tasks={chat.currentRunDetail?.tasks ?? []}
-    workflowVersion={chat.currentRunDetail?.run.workflow_version}
+    agents={chat.threadWorkspace.agents}
+    records={chat.runtime.snapshot.records}
+    invocations={chat.agentExecution?.invocations}
+    recipient={chat.agentTarget}
+    onRecipient={(recipient) => { chat.setAgentTarget(recipient); closeDrawers(); }}
     canWrite={canWrite}
     loading={chat.loadingConversations}
     hasMore={chat.conversationCursor !== null}
     onNew={newConversation}
     onSelect={navigateConversation}
     onLoadMore={() => chat.conversationCursor && void chat.loadConversations(chat.conversationCursor, true)}
-    onStage={(task) => {
-      setSelectedStage(task.task_id);
-      closeDrawers();
-      openInspector();
-      document.querySelector<HTMLElement>(`[data-stage-output="${task.kind}"]`)?.scrollIntoView({ block: 'nearest' });
-    }}
   />;
   const inspector = <WorkspaceInspector
     controller={chat}
     context={workspaceState}
     organizationName={organizationName}
-    selectedStage={selectedStage}
     onArtifact={(id) => {
       onActiveArtifactChange(id);
       void chat.openEvidence(id);
     }}
   />;
-  return <div className={styles.workspace}>
+  return <div className={styles.workspace} data-inspector-collapsed={!inspectorDrawer && inspectorCollapsed}>
     {!railDrawer && <div className={styles.railDock}>{rail}</div>}
     {railDrawer && <dialog ref={railDialog} className={styles.drawer} aria-label="Hội thoại và quy trình" onClose={() => restoreFocus.current?.focus()}>
       <button type="button" className={styles.drawerClose} onClick={() => railDialog.current?.close()}>Đóng</button>{rail}
@@ -167,7 +166,7 @@ export function GrokWorkspace({
       onOpenRail={openRail}
       onOpenInspector={openInspector}
     />
-    {!inspectorDrawer && <div className={styles.inspectorDock}>{inspector}</div>}
+    {!inspectorDrawer && !inspectorCollapsed && <div className={styles.inspectorDock}>{inspector}</div>}
     {inspectorDrawer && <dialog ref={inspectorDialog} className={styles.drawer} aria-label="Bối cảnh và bằng chứng" onClose={() => restoreFocus.current?.focus()}>
       <button type="button" className={styles.drawerClose} onClick={() => inspectorDialog.current?.close()}>Đóng</button>{inspector}
     </dialog>}

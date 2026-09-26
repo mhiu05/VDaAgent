@@ -121,7 +121,7 @@ describe('worker process boundaries', () => {
       log: vi.fn(),
     });
     heartbeat?.();
-    expect(agentWorkflow).toHaveBeenCalledWith(repository, lease);
+    expect(agentWorkflow).toHaveBeenCalledWith(repository, lease, { signal: expect.any(AbortSignal) });
     expect(legacyWorkflow).not.toHaveBeenCalled();
     expect(startHeartbeat).toHaveBeenCalledWith(expect.any(Function), 10000);
     expect(repository.renewLease).toHaveBeenCalledWith(lease);

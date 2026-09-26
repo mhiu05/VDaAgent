@@ -29,6 +29,7 @@ import {
 } from '../mapping/conversation';
 import { json } from '../mapping/rows';
 import type { AgentTurn, TurnContext } from '../types';
+import { validateMessageContext } from '../authorization/context-references';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const now = () => new Date().toISOString();
@@ -87,6 +88,10 @@ export class ConversationRepository {
       message.role !== 'assistant'
     )
       fail('INVALID_MESSAGE_SENDER', 422);
+    if (message.role === 'user') {
+      const thread = await tx.query('SELECT context FROM conversations WHERE org_id=$1 AND id=$2',[message.org_id,message.conversation_id]);
+      payloadExtra = {...payloadExtra,thread_context_snapshot:thread[0]?.context ?? {}};
+    }
     await tx.query(
       "INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,($11::jsonb #>> '{}')::jsonb)",
       [
@@ -419,6 +424,9 @@ export class ConversationRepository {
         role: 'user',
         status: 'submitted',
         content: input.text,
+        context_refs: input.context_refs,
+        reply_to_message_id: input.reply_to_message_id,
+        report_intent: input.report_intent,
         parts: [
           ...textPart(input.text),
           ...(input.signal_ref
@@ -455,6 +463,7 @@ export class ConversationRepository {
           request: input,
         },
       };
+      await validateMessageContext(tx,input.org_id,conversation.conversation_id,input.context_refs,input.reply_to_message_id);
       await this.insertMessage(tx, userMessage, agentTurn);
       await this.insertMessage(tx, assistantMessage, agentTurn);
       await this.touchConversation(tx, input.org_id, conversation.conversation_id, assistantDate);

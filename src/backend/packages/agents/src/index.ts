@@ -16,7 +16,7 @@ export {
   OpenAIProvider,
   FallbackNarrativeProvider,
 } from './legacy-workflow/narrative/provider';
-export type { Narrative, NarrativeProvider } from './legacy-workflow/narrative/provider';
+export type { Narrative, NarrativeProvider, NarrativeContext } from './legacy-workflow/narrative/provider';
 export {
   createDecisionProvider,
   GeminiAgentDecisionProvider,
@@ -111,6 +111,14 @@ export type { RenderedGroundedResponse } from './runtime/composition/answer-comp
 export type { AgentActivitySink } from './runtime/activity';
 export { AgentActivityEmitter } from './runtime/activity';
 export { AgentRuntime } from './runtime/runtime';
+export { isApprovedDurableAnalysisTurn } from '@vda/contracts';
+export { TeamRuntime, AgentMessageBus } from './runtime/team/runtime';
+export type { TeamRuntimeOptions, RegisteredAgent, InvocationContext } from './runtime/team/runtime';
+export { ToolRegistry, ToolRuntimeError, ToolResultSchema } from './runtime/team/tools';
+export type { ToolDefinition, ToolResult, ToolExecutionContext, ToolExecutionEvent } from './runtime/team/tools';
+export { McpGateway } from './runtime/team/mcp-gateway';
+export type { McpSession, McpServerDefinition, McpToolCapability } from './runtime/team/mcp-gateway';
+export { ANALYSIS_AGENT_DEFINITIONS } from './runtime/team/definitions';
 export { XaiAgentRuntimeProvider } from './runtime/providers/xai-provider';
 export {
   validateVisualEvidence,

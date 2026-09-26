@@ -1,4 +1,4 @@
-import { isApprovedDurableAnalysisTurn, type AgentTurnRequest } from '@vda/contracts';
+import { type AgentTurnRequest } from '@vda/contracts';
 import { RepositoryError, type Repository } from '@vda/db';
 
 /** Return null when this turn belongs to the synchronous path or did before a flag flip. */
@@ -10,7 +10,7 @@ export async function enqueueEligibleDurableTurn(
   idempotencyKey: string,
   conversationId?: string,
 ) {
-  if (!enabled || !isApprovedDurableAnalysisTurn(input)) return null;
+  if (!enabled) return null;
   try {
     return await repository.enqueueAgentTurn(userId, input, idempotencyKey, conversationId);
   } catch (error) {

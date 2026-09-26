@@ -40,6 +40,25 @@ function sseResponse(chunks: string[]) {
 }
 
 describe('fetch SSE client', () => {
+  it('cancels an open response body when a frame callback rejects it', async () => {
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream({
+      start(controller) { controller.enqueue(encoder.encode('event: runtime\ndata: invalid\n\n')); },
+      cancel,
+    }));
+    const failure = new Error('Invalid persisted event');
+    await expect(readSse(response, () => { throw failure; })).rejects.toBe(failure);
+    expect(cancel).toHaveBeenCalledExactlyOnceWith(failure);
+    expect(response.body?.locked).toBe(false);
+  });
+  it('accepts a bounded durable snapshot larger than a chat activity frame', async () => {
+    const payload = JSON.stringify({ records: [{ summary: 'x'.repeat(70_000) }] });
+    const frame = `event: snapshot\ndata: ${payload}\n\n`;
+    const received = vi.fn();
+    await readSse(sseResponse([frame]), received, 2_000_000);
+    expect(received).toHaveBeenCalledWith({ event: 'snapshot', id: null, data: payload });
+    await expect(readSse(sseResponse([frame]), vi.fn())).rejects.toThrow('invalid');
+  });
   it('handles comments and fragmented CRLF frames', async () => {
     const frames: { event: string; data: string }[] = [];
     await readSse(

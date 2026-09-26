@@ -59,7 +59,7 @@ export const GetReportContextCapabilityInputSchema = z
   .object({ run_id: IdSchema, report_id: IdSchema })
   .strict();
 export const InspectAgentCheckpointCapabilityInputSchema = z
-  .object({ agent_target: z.enum(['analyst', 'comparison', 'chart', 'report']) })
+  .object({ agent_target: z.enum(['data', 'analyst', 'comparison', 'insight', 'chart', 'report', 'reviewer']) })
   .strict();
 
 export const CapabilityInvocationSchema = z.discriminatedUnion('capability_id', [

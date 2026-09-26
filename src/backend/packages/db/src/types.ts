@@ -30,6 +30,8 @@ import type {
   RunTask,
   Session,
   UnitSnapshot,
+  ThreadContext, MessageContextRef, RuntimeActivityInput, RuntimeActivityRecord, RunRuntimeSnapshot,
+  MemoryInput, MemoryEntry, MemoryQuery,
 } from '@vda/contracts';
 export interface Lease {
   run: AnalysisRun;
@@ -43,6 +45,10 @@ export interface AgentTurn {
   idempotent_replay: boolean;
 }
 export interface AgentJobLease { job: AgentTurnJob; worker_id: string; fencing_token: number }
+export interface AgentTurnExecution { input: AgentTurnRequest; idempotency_key: string; context: TurnContext }
+export interface AgentTurnExecutionResult {
+  status: 'completed' | 'failed' | 'cancelled'; content: string; parts: MessagePart[]; sender_agent?: AgentKey | null;
+}
 export interface TurnContext {
   org_id: string;
   conversation_id: string;
@@ -101,6 +107,14 @@ export function logicalArtifactKey(
 }
 
 export interface Repository {
+  getContextReference(userId: string, orgId: string, ref: MessageContextRef): Promise<MessageContextRef & {run_id: string | null; artifact_id: string | null}>;
+  getThreadContext(userId: string, orgId: string, conversationId: string): Promise<ThreadContext>;
+  updateThreadContext(userId: string, orgId: string, conversationId: string, context: ThreadContext): Promise<ThreadContext>;
+  recordRuntimeActivity(lease: Lease, activity: RuntimeActivityInput): Promise<RuntimeActivityRecord>;
+  finishAgentArtifactRun(lease: Lease, artifactId: string): Promise<void>;
+  getRunRuntime(userId: string, orgId: string, runId: string, afterSequence?: number): Promise<RunRuntimeSnapshot>;
+  listMemory(userId: string, orgId: string, options?: MemoryQuery): Promise<MemoryEntry[]>;
+  saveMemory(userId: string, orgId: string, input: MemoryInput): Promise<MemoryEntry>;
   close(): Promise<void>;
   hasAgentExecutionSchema(): Promise<boolean>;
   activeUnknownWorkflowVersions(): Promise<Array<{ workflow_version: string; count: number }>>;
@@ -149,7 +163,9 @@ export interface Repository {
   cancelAgentTurnJob(userId: string, orgId: string, jobId: string): Promise<AgentTurnJob>;
   claimAgentTurnJob(workerId: string, now?: Date, leaseMs?: number): Promise<AgentJobLease | null>;
   renewAgentTurnLease(lease: AgentJobLease, leaseMs?: number): Promise<void>;
-  startAgentAnalysis(lease: AgentJobLease): Promise<AnalysisRun>;
+  startAgentAnalysis(lease: AgentJobLease, options?: {planned?: boolean}): Promise<AnalysisRun>;
+  getAgentTurnExecution(lease: AgentJobLease): Promise<AgentTurnExecution>;
+  finalizeAgentTurnExecution(lease: AgentJobLease, result: AgentTurnExecutionResult): Promise<void>;
   resumeAgentAnalysis(lease: AgentJobLease): Promise<{ status: 'completed' | 'failed' | 'cancelled'; run_id: string; artifact_id: string | null }>;
   failAgentTurnJob(lease: AgentJobLease, errorCode: string): Promise<void>;
   completeAgentTurnJob(lease: AgentJobLease, content: string): Promise<Message>;

@@ -96,6 +96,7 @@ export async function upgradeTestDatabase(pg: PGlite) {
       'utf8',
     ),
   );
+  await pg.exec(await readFile('src/backend/supabase/migrations/20260926082635_agent_workspace_runtime.sql','utf8'));
 }
 
 export async function createTestRepository(): Promise<{

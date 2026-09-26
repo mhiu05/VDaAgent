@@ -5,12 +5,13 @@ import { fail } from '../errors';
 import { json } from '../mapping/rows';
 import { StorageError, type StorageUploader } from '../storage';
 import { resolveStorage } from '../storage/storage';
+import { enrichReport } from './workspace-repository';
 
 export function listReports(db: Driver, user: string, org: string): Promise<ReportRecord[]> {
   return db.transaction(async (tx) => {
     await authorizeInTransaction(tx, user, org);
-    const rows = await tx.query('SELECT payload FROM reports WHERE org_id=$1', [org]);
-    return (rows.map(json) as ReportRecord[]).sort((a, b) =>
+    const rows = await tx.query('SELECT r.payload,v.lineage_id,v.version,v.parent_report_id,v.conversation_id FROM reports r LEFT JOIN report_versions v ON v.org_id=r.org_id AND v.report_id=r.id WHERE r.org_id=$1', [org]);
+    return rows.map(enrichReport).sort((a, b) =>
       b.created_at.localeCompare(a.created_at),
     );
   });
@@ -19,9 +20,9 @@ export function listReports(db: Driver, user: string, org: string): Promise<Repo
 export function getReport(db: Driver, user: string, org: string, id: string) {
   return db.transaction(async (tx) => {
     await authorizeInTransaction(tx, user, org);
-    const rows = await tx.query('SELECT payload FROM reports WHERE org_id=$1 AND id=$2', [org, id]);
+    const rows = await tx.query('SELECT r.payload,v.lineage_id,v.version,v.parent_report_id,v.conversation_id FROM reports r LEFT JOIN report_versions v ON v.org_id=r.org_id AND v.report_id=r.id WHERE r.org_id=$1 AND r.id=$2', [org, id]);
     if (!rows[0]) fail('REPORT_NOT_FOUND', 404);
-    const report = json(rows[0]) as ReportRecord;
+    const report = enrichReport(rows[0]);
     const artifacts = await tx.query('SELECT payload FROM artifacts WHERE org_id=$1 AND id=$2', [
       org,
       report.artifact_id,

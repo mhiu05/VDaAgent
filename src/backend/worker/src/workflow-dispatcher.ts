@@ -1,9 +1,9 @@
 import type { Repository } from '@vda/db';
-import { executeAgentWorkflow } from '@vda/agents/analysis-v1/workflow';
+import { executeAgentWorkflow, executeSpecialistWorkflow, isArtifactSpecialist } from '@vda/agents/analysis-v1/workflow';
 import { executeLease } from '@vda/agents/legacy-workflow/workflow';
 
 type Lease = NonNullable<Awaited<ReturnType<Repository['claimRun']>>>;
-type Workflow = (repository: Repository, lease: Lease) => Promise<void>;
+type Workflow = (repository: Repository, lease: Lease, options?: { signal?: AbortSignal }) => Promise<unknown>;
 
 export async function dispatchWorkflow(
   repository: Repository,
@@ -18,7 +18,8 @@ export async function dispatchWorkflow(
   } = {},
 ) {
   const {
-    agentWorkflow = executeAgentWorkflow,
+    agentWorkflow = (repository: Repository, lease: Lease, options?: { signal?: AbortSignal }) =>
+      isArtifactSpecialist(lease.run.request.agent_target) ? executeSpecialistWorkflow(repository, lease, options) : executeAgentWorkflow(repository, lease, options),
     legacyWorkflow = executeLease,
     log = console.log,
     error = console.error,
@@ -32,14 +33,17 @@ export async function dispatchWorkflow(
       attempt: lease.run.attempt,
     }),
   );
+  const cancellation = new AbortController();
   const heartbeat = startHeartbeat(() => {
     void repository.renewLease(lease).catch(() => {
-      /* Fenced writes stop execution if ownership is lost. */
+      // Stop cooperative agents/tools immediately; existing stage writes also
+      // remain fenced, including adapters that cannot interrupt their work.
+      cancellation.abort();
     });
   }, 10000);
   try {
     // Release A keeps the legacy executor solely to drain existing runs.
-    if (lease.run.workflow_version === 'agent-v1') await agentWorkflow(repository, lease);
+    if (lease.run.workflow_version === 'agent-v1') await agentWorkflow(repository, lease, { signal: cancellation.signal });
     else if (lease.run.workflow_version === 'legacy-v1') await legacyWorkflow(repository, lease);
     else throw new Error('UNKNOWN_WORKFLOW_VERSION');
   } catch (cause) {

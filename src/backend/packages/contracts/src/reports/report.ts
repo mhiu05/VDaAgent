@@ -29,5 +29,9 @@ export const ReportRecordSchema = z.object({
   artifact_id: IdSchema,
   created_at: TimestampSchema,
   occurrence_id: IdSchema.nullable(),
+  conversation_id: IdSchema.nullable().optional(),
+  lineage_id: IdSchema.optional(),
+  version: z.number().int().positive().optional(),
+  parent_report_id: IdSchema.nullable().optional(),
 });
 export type ReportRecord = z.infer<typeof ReportRecordSchema>;

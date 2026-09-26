@@ -1,9 +1,11 @@
 'use client';
 
-import { createElement, useEffect, useRef, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Send, ShieldCheck, Sparkles } from 'lucide-react';
-import type { AgentKey, CapabilityMode, Catalog } from '@vda/contracts';
+import type { AgentDefinition, AgentKey, CapabilityMode, Catalog } from '@vda/contracts';
 import { ScopeFields } from '../../components/forms/scope-fields';
+import { matchingAgents, mentionAlias, mentionQuery, recipientKey } from './agent-workspace-model';
+import styles from '../grok-workspace/components/grok-workspace.module.css';
 
 const suggestions = [
   'Tổng lượng sản phẩm đang mở bán hiện tại là bao nhiêu?',
@@ -13,13 +15,6 @@ const suggestions = [
   'Tạo báo cáo tồn kho.',
 ];
 
-const agentTargets: Array<{ value: AgentKey | null; label: string }> = [
-  { value: null, label: 'Tự động' },
-  { value: 'analyst', label: 'Phân tích' },
-  { value: 'comparison', label: 'So sánh' },
-  { value: 'chart', label: 'Biểu đồ' },
-  { value: 'report', label: 'Báo cáo' },
-];
 const modePlaceholders: Record<CapabilityMode, string> = {
   grok: 'Hỏi về dữ liệu tồn kho trong phạm vi workspace.',
   data: 'Hỏi về dữ liệu đã xác thực và tình trạng mở bán.',
@@ -49,6 +44,7 @@ export function Composer({
   onDraft,
   onAgentTarget,
   onSubmit,
+  agents = [],
 }: {
   catalog: Catalog;
   canWrite: boolean;
@@ -69,9 +65,23 @@ export function Composer({
   onDraft: (value: string) => void;
   onAgentTarget: (value: AgentKey | null) => void;
   onSubmit: () => void;
+  agents?: AgentDefinition[];
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
+  const [mention, setMention] = useState<ReturnType<typeof mentionQuery>>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const matches = mention ? matchingAgents(agents, mention.query) : [];
+  const selectedAgent = agents.find((agent) => agent.id === (agentTarget ?? 'coordinator'));
+  function selectMention(agent: AgentDefinition) {
+    if (!mention) return;
+    const caret = textareaRef.current?.selectionStart ?? draft.length;
+    const text = `${draft.slice(0, mention.start)}@${mentionAlias(agent)} ${draft.slice(caret)}`;
+    onDraft(text);
+    onAgentTarget(recipientKey(agent));
+    setMention(null);
+    textareaRef.current?.focus();
+  }
   const disabled = !canWrite || busy || scheduledReadOnly;
   const ready = !disabled && !!project && !!dataAsOf && !!draft.trim();
   useEffect(() => {
@@ -117,39 +127,32 @@ export function Composer({
             disabled={disabled}
           />
         </label>
-        {showAgentTarget && (
-          <label>
-            Tác nhân xử lý
-            {createElement(
-              'select',
-              {
-                'aria-label': 'Tác nhân xử lý',
-                value: agentTarget ?? '',
-                disabled,
-                onChange: (event: ChangeEvent<HTMLSelectElement>) =>
-                  onAgentTarget((event.target.value as AgentKey) || null),
-              },
-              agentTargets.map((target) =>
-                createElement(
-                  'option',
-                  { key: target.value ?? 'auto', value: target.value ?? '' },
-                  target.label,
-                ),
-              ),
-            )}
-          </label>
-        )}
       </div>
+      {showAgentTarget && <label className={styles.recipientSelect}>To:
+        <select aria-label="Tác nhân xử lý" value={agentTarget ?? 'coordinator'} disabled={disabled} onChange={(event) => onAgentTarget(event.target.value === 'coordinator' ? null : event.target.value as AgentKey)}>
+          {!agents.length && <option value="coordinator">Main Agent</option>}
+          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+        </select><span>Type @ to mention an agent · same thread</span>
+      </label>}
       <label className="question-label">
         <span className="sr-only">Câu hỏi phân tích</span>
         <textarea
           ref={textareaRef}
           aria-label="Câu hỏi phân tích"
           value={draft}
-          onChange={(event) => onDraft(event.target.value)}
+          onChange={(event) => { onDraft(event.target.value); setMention(mentionQuery(event.target.value, event.target.selectionStart)); setMentionIndex(0); }}
+          onClick={(event) => setMention(mentionQuery(draft, event.currentTarget.selectionStart))}
+          aria-controls={matches.length ? 'agent-mention-options' : undefined}
+          aria-expanded={matches.length > 0}
+          aria-autocomplete="list"
           onCompositionStart={() => { composingRef.current = true; }}
           onCompositionEnd={() => { composingRef.current = false; }}
           onKeyDown={(event) => {
+            if (matches.length && !composingRef.current) {
+              if (event.key === 'Escape') { event.preventDefault(); setMention(null); return; }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setMentionIndex((value) => (value + (event.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length); return; }
+              if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) { event.preventDefault(); selectMention(matches[mentionIndex] ?? matches[0]!); return; }
+            }
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && ready && !composingRef.current && !event.nativeEvent.isComposing) {
               event.preventDefault();
               onSubmit();
@@ -158,13 +161,16 @@ export function Composer({
           maxLength={2000}
           rows={compact ? 2 : 3}
           placeholder={
-            capabilityMode
+            selectedAgent ? `@${mentionAlias(selectedAgent)} Ask about ${project || 'your data'}…` : capabilityMode
               ? modePlaceholders[capabilityMode]
               : 'Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?'
           }
           disabled={disabled}
         />
       </label>
+      {matches.length > 0 && <ul id="agent-mention-options" className={styles.mentionOptions} role="listbox" aria-label="Mention an agent">
+        {matches.map((agent, index) => <li key={agent.id} role="option" aria-selected={index === mentionIndex}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(agent)}><strong>@{mentionAlias(agent)} · {agent.name}</strong><span>{agent.description}</span></button></li>)}
+      </ul>}
       <div className="composer-footer">
         <span>
           <span className="live-dot" />

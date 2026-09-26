@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { z } from 'zod';
 import {
   ArtifactListSchema,
@@ -6,6 +6,7 @@ import {
   type AgentActivityEventV1,
   type AgentKey,
   type AgentTurnRequest,
+  type MessageContextRef,
   type DecisionBriefResponse,
   type DecisionIntelligenceResponse,
 } from '@vda/contracts';
@@ -17,6 +18,7 @@ import type { useConversations } from './use-conversations';
 import type { useMessages } from './use-messages';
 
 type TurnInput = Omit<AgentTurnRequest, 'org_id' | 'client_turn_id'>;
+const emptyContextRefs: MessageContextRef[] = [];
 type RetryTurn = {
   input: TurnInput;
   identity: TurnRequestIdentity;
@@ -45,8 +47,12 @@ type TurnDependencies = {
   loadMessages: ReturnType<typeof useMessages>['loadMessages'];
   activateConversation: ReturnType<typeof useMessages>['activateConversation'];
   setAcceptedJobId: Dispatch<SetStateAction<string | null>>;
-  onAcceptedTurn: () => void;
+  onAcceptedTurn: (conversationId: string) => void | Promise<void>;
   setError: Dispatch<SetStateAction<string>>;
+  messageContextRefs?: MessageContextRef[];
+  reportIntent?: 'new' | 'update' | null;
+  replyToMessageId?: string | null;
+  onClearMessageContext?: () => void;
 };
 
 export function useAgentTurn({
@@ -70,12 +76,17 @@ export function useAgentTurn({
   setAcceptedJobId,
   onAcceptedTurn,
   setError,
+  messageContextRefs = emptyContextRefs,
+  reportIntent = null,
+  replyToMessageId = null,
+  onClearMessageContext,
 }: TurnDependencies) {
   const [draft, setDraft] = useState('');
   const [agentTarget, setAgentTarget] = useState<AgentKey | null>(null);
   const [busy, setBusy] = useState(false);
   const [retryTurn, setRetryTurn] = useState<RetryTurn | null>(null);
   const [activity, setActivity] = useState<AgentActivityEventV1[]>([]);
+  useEffect(() => { setRetryTurn(null); }, [messageContextRefs, reportIntent, replyToMessageId]);
   function editDraft(value: string) {
     setDraft(value);
     // A changed prompt is a new request, never a replay of the failed identity.
@@ -99,6 +110,9 @@ export function useAgentTurn({
           data_as_of: workspaceContext.data_as_of,
           agent_target: agentTarget,
           workspace_context: workspaceContext,
+          context_refs: messageContextRefs,
+          report_intent: reportIntent,
+          reply_to_message_id: replyToMessageId,
         },
         identity: createTurnIdentity(),
         conversationId: selectedConversationId ?? undefined,
@@ -122,9 +136,9 @@ export function useAgentTurn({
           ),
       );
       setRetryTurn(null);
-      onAcceptedTurn();
+      await onAcceptedTurn(accepted.conversation_id);
       setDraft('');
-      setAgentTarget(null);
+      onClearMessageContext?.();
       setSelectedConversationId(accepted.conversation_id);
       activateConversation(accepted.conversation_id);
       setAcceptedJobId(accepted.agent_turn_job_id ?? null);

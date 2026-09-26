@@ -51,7 +51,7 @@
   align-items: center;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   color: var(--color-ink-soft);
   display: flex;
   gap: 8px;
@@ -72,9 +72,9 @@
 }
 
 .graph strong {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
-.node em { font-size: 12px; font-style: normal; color: var(--color-ink-soft); }
+.node em { font-size: var(--text-xs); font-style: normal; color: var(--color-ink-soft); }
 .node > span:last-child {
   display: grid;
   gap: 1px;
@@ -83,7 +83,7 @@
 }
 .node small {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }

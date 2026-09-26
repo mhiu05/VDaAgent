@@ -1,4 +1,5 @@
 import { RepositoryError, type AgentJobLease, type Repository } from '@vda/db';
+import { AgentRuntime, isApprovedDurableAnalysisTurn } from '@vda/agents';
 
 const publicCodes = new Set([
   'UNSUPPORTED_DURABLE_REQUEST','SCOPE_NOT_FOUND','DATA_ARTIFACT_MISSING',
@@ -16,20 +17,26 @@ export async function dispatchAgentTurn(
     error?: (message: string) => void;
     startHeartbeat?: typeof setInterval;
     stopHeartbeat?: typeof clearInterval;
+    runtime?: Pick<AgentRuntime, 'resumeDurableTurn'>;
   } = {},
 ) {
   const {
     log = console.log, error = console.error,
     startHeartbeat = setInterval, stopHeartbeat = clearInterval,
   } = dependencies;
+  const cancellation = new AbortController();
   const heartbeat = startHeartbeat(() => {
     void repository.renewAgentTurnLease(lease).catch(() => {
-      // The next fenced transition rejects a stale worker.
+      cancellation.abort();
     });
   },10000);
   try {
     if (lease.job.run_id) await repository.resumeAgentAnalysis(lease);
-    else await repository.startAgentAnalysis(lease);
+    else {
+      const execution = await repository.getAgentTurnExecution(lease);
+      if (isApprovedDurableAnalysisTurn(execution.input)) await repository.startAgentAnalysis(lease);
+      else await (dependencies.runtime ?? new AgentRuntime(repository)).resumeDurableTurn(lease, cancellation.signal);
+    }
     log(JSON.stringify({event:'agent_turn_phase_completed',job_id:lease.job.job_id}));
   } catch (cause) {
     const code = cause instanceof RepositoryError && publicCodes.has(cause.code)

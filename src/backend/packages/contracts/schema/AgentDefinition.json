@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "role": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "instructions": {
+      "type": "string",
+      "maxLength": 12000
+    },
+    "allowed_tools": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capabilities": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "avatar": {
+      "type": "object",
+      "properties": {
+        "initials": {
+          "type": "string",
+          "maxLength": 4
+        },
+        "color": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "initials",
+        "color"
+      ],
+      "additionalProperties": false
+    },
+    "model_config": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2
+        }
+      },
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "role",
+    "description",
+    "instructions",
+    "allowed_tools",
+    "capabilities",
+    "avatar"
+  ],
+  "additionalProperties": false
+}

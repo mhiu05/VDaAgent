@@ -12,6 +12,7 @@ import {
 import { readArtifactPath, verifyArtifact } from '@vda/domain';
 import type { Repository } from '@vda/db';
 import type { AuthorizedAgentContextV1 } from '../context/types';
+import { explicitComparisonRuns } from '../capabilities/compare-reports';
 
 const MAX_MESSAGE_PARTS = 32;
 const MAX_MESSAGE_CONTENT = 5_000;
@@ -416,11 +417,13 @@ export async function validateAndRenderGroundedResponse(
   let primaryRunId: string | null = null;
   let primaryRunStatus: RunReference['status'] | null = null;
   const grounding: GroundingReference[] = [];
+  const comparisonRuns = explicitComparisonRuns(values.context);
   for (const observation of selected) {
     for (const reference of observation.grounding_refs) {
       const runId = await reauthorizeReference(reference, values.context, values.repository);
-      if (primaryRunId && primaryRunId !== runId) throw new GroundingValidationError();
-      primaryRunId = runId;
+      if (primaryRunId && primaryRunId !== runId &&
+        !(comparisonRuns.size === 2 && comparisonRuns.has(primaryRunId) && comparisonRuns.has(runId))) throw new GroundingValidationError();
+      primaryRunId = primaryRunId ?? runId;
       if (reference.type === 'run') primaryRunStatus = reference.ref.status;
       grounding.push(reference);
     }

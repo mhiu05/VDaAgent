@@ -2,6 +2,7 @@ import {
   CreateAnalysisToolInputSchema,
   GetAnalysisResultToolInputSchema,
   InspectSignalToolInputSchema,
+  resolveReportIntent,
   type AnalysisRun,
   type AgentKey,
   type DecisionBrief,
@@ -77,6 +78,15 @@ type AgentTargetPolicy =
  * but are not automatically executable from a chat turn.
  */
 const targetPolicies: Partial<Record<AgentKey, AgentTargetPolicy>> = {
+  data: {
+    action: 'artifact', capability: 'analysis', artifact_key: 'data_analysis_pack',
+    content: 'The Data Agent linked the validated metrics, dimensions, and dataset evidence.',
+  },
+  insight: {
+    action: 'artifact', capability: 'analysis', artifact_key: 'insight_pack',
+    content: 'The Insight Agent linked the existing grounded findings and supporting evidence.',
+  },
+  reviewer: { action: 'status', capability: 'report_revision' },
   analyst: {
     action: 'artifact',
     capability: 'analyst_follow_up',
@@ -134,7 +144,7 @@ export function resolveAgentTargetFollowUpAction(
   )
     return null;
   if (policy.action === 'status') return reportStatusPattern.test(text) ? 'status' : null;
-  return targetReferencePattern.test(text) || targetExplanationPattern.test(text)
+  return targetReferencePattern.test(text) || targetExplanationPattern.test(text) || /\b(inspect|metrics?|data|findings?|anomalies)\b/i.test(text)
     ? 'artifact'
     : null;
 }
@@ -232,7 +242,7 @@ export async function createAnalysisTool(
       question: context.question,
       conversation_id: context.conversation_id,
       use_case: context.use_case,
-      agent_target: context.agent_target,
+      agent_target: resolveReportIntent({ text: context.question }) ? 'report' : context.agent_target,
     },
     context.idempotency_key,
   );
@@ -365,7 +375,9 @@ export async function getAgentTargetFollowUp(
   } catch {
     return { kind: 'agent_target_unavailable', reason_code: 'UNSUPPORTED_REQUEST' };
   }
-  const candidates = await authorizedConversationRuns(repository, context);
+  const candidates = await authorizedConversationRuns(repository, {
+    ...context, allowed_conversation_run_ids: [...new Set([...context.allowed_conversation_run_ids, ...context.allowed_run_ids])],
+  });
   if (!candidates.length)
     return { kind: 'agent_target_unavailable', reason_code: 'NO_AUTHORIZED_RESULT' };
   const matching = candidates.filter((run) => sameTargetRequest(run, context));

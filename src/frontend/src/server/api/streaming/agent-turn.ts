@@ -1,6 +1,6 @@
 import { getConfig } from '@vda/config';
 import { AgentChatOrchestrator, AgentRuntime, enqueueEligibleDurableTurn } from '@vda/agents';
-import { isApprovedDurableAnalysisTurn, type AgentTurnAccepted, type AgentTurnRequest } from '@vda/contracts';
+import { type AgentTurnAccepted, type AgentTurnRequest } from '@vda/contracts';
 import { RepositoryError, type Repository } from '@vda/db';
 import { agentTurnStream } from '../../agent-turn-stream';
 
@@ -47,7 +47,7 @@ export function streamAgentTurn(
   conversationId?: string,
 ) {
   const config = getConfig();
-  if ((config.DURABLE_AGENT_EXECUTION_ENABLED && isApprovedDurableAnalysisTurn(input)) || !config.GROK_RUNTIME_ENABLED || !config.GROK_SSE_ENABLED)
+  if (config.DURABLE_AGENT_EXECUTION_ENABLED || !config.GROK_RUNTIME_ENABLED || !config.GROK_SSE_ENABLED)
     throw new RepositoryError('SSE_DISABLED', 404);
   if (!request.headers.get('accept')?.includes('text/event-stream'))
     throw new RepositoryError('SSE_ACCEPT_REQUIRED', 406);

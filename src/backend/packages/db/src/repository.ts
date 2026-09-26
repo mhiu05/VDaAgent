@@ -34,6 +34,7 @@ import { fail } from './errors';
 import { buildRun as buildRunTransaction } from './transactions/create-run';
 import { publishLegacyReport } from './transactions/publish-legacy-report';
 import { publishReviewedDraft } from './transactions/publish-reviewed-draft';
+import { finishAgentArtifactRun } from './transactions/finish-agent-artifact-run';
 import { failRun } from './workflow/fail-run';
 import { readCatalog } from './repositories/catalog-repository';
 import {
@@ -61,6 +62,8 @@ import {
 } from './repositories/run-repository';
 import { ConversationRepository } from './repositories/conversation-repository';
 import { AgentExecutionRepository } from './repositories/agent-execution-repository';
+import { WorkspaceRepository } from './repositories/workspace-repository';
+import type { ThreadContext, MessageContextRef, RuntimeActivityInput, MemoryInput, MemoryQuery } from '@vda/contracts';
 import { ScheduleRepository } from './repositories/schedule-repository';
 import {
   artifacts,
@@ -97,6 +100,7 @@ import {
   type QueryResult,
   type ReviewedDraftPublication,
   type TurnContext,
+  type AgentTurnExecutionResult,
 } from './types';
 
 export { RepositoryError } from './errors';
@@ -124,6 +128,30 @@ export async function createRepository(options: RepositoryOptions = {}): Promise
   return repo;
 }
 class SqlRepository implements Repository {
+  finishAgentArtifactRun(lease: Lease, artifactId: string) {
+    return finishAgentArtifactRun(this.db,lease,artifactId);
+  }
+  getContextReference(user: string, org: string, ref: MessageContextRef) {
+    return new WorkspaceRepository(this.db).getContextReference(user,org,ref);
+  }
+  getThreadContext(user: string, org: string, conversation: string) {
+    return new WorkspaceRepository(this.db).getThreadContext(user,org,conversation);
+  }
+  updateThreadContext(user: string, org: string, conversation: string, context: ThreadContext) {
+    return new WorkspaceRepository(this.db).updateThreadContext(user,org,conversation,context);
+  }
+  recordRuntimeActivity(lease: Lease, input: RuntimeActivityInput) {
+    return new WorkspaceRepository(this.db).recordRuntimeActivity(lease,input);
+  }
+  getRunRuntime(user: string, org: string, run: string, after = 0) {
+    return new WorkspaceRepository(this.db).getRunRuntime(user,org,run,after);
+  }
+  listMemory(user: string, org: string, options?: MemoryQuery) {
+    return new WorkspaceRepository(this.db).listMemory(user,org,options);
+  }
+  saveMemory(user: string, org: string, input: MemoryInput) {
+    return new WorkspaceRepository(this.db).saveMemory(user,org,input);
+  }
   constructor(
     private db: Driver,
     private options: RepositoryOptions,
@@ -136,6 +164,10 @@ class SqlRepository implements Repository {
       to_regclass('public.agent_turn_jobs') IS NOT NULL AS jobs,
       to_regclass('public.agent_invocations') IS NOT NULL AS invocations,
       to_regclass('public.agent_execution_events') IS NOT NULL AS events,
+      to_regclass('public.runtime_activities') IS NOT NULL AND
+      to_regclass('public.runtime_activity_events') IS NOT NULL AND
+      to_regclass('public.agent_memory') IS NOT NULL AND
+      to_regclass('public.report_versions') IS NOT NULL AS workspace_runtime,
       NOT EXISTS (
         SELECT 1 FROM (VALUES
           ('artifacts','artifact_key'), ('messages','sender_agent'),
@@ -195,7 +227,7 @@ class SqlRepository implements Repository {
         WHERE p.oid IS NULL
       ) AS durable_read_policies`);
     const state = rows[0];
-    return Boolean(state?.jobs && state?.invocations && state?.events && state?.required_columns &&
+    return Boolean(state?.jobs && state?.invocations && state?.events && state?.workspace_runtime && state?.required_columns &&
       state?.required_constraints && state?.job_foreign_keys && state?.invocation_foreign_keys &&
       state?.event_foreign_keys && state?.required_indexes && state?.write_guard &&
       state?.event_guard && state?.durable_rls && state?.durable_read_policies);
@@ -461,8 +493,14 @@ class SqlRepository implements Repository {
   renewAgentTurnLease(lease: AgentJobLease, leaseMs?: number) {
     return this.agentExecution().renew(lease,leaseMs);
   }
-  startAgentAnalysis(lease: AgentJobLease) {
-    return this.agentExecution().startAnalysis(lease);
+  startAgentAnalysis(lease: AgentJobLease, options?: {planned?:boolean}) {
+    return this.agentExecution().startAnalysis(lease,options);
+  }
+  getAgentTurnExecution(lease: AgentJobLease) {
+    return this.agentExecution().getExecution(lease);
+  }
+  finalizeAgentTurnExecution(lease: AgentJobLease, result: AgentTurnExecutionResult) {
+    return this.agentExecution().finalizeExecution(lease,result);
   }
   resumeAgentAnalysis(lease: AgentJobLease) {
     return this.agentExecution().resumeAnalysis(lease);

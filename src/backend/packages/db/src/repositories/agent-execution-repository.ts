@@ -8,6 +8,7 @@ import {
   ReportRecordSchema,
   AGENT_V1_PERSONA_STAGES,
   RunStatusSchema,
+  resolveReportIntent,
   type AgentExecutionEvent, type AgentExecutionStatus, type AgentInvocation,
   type AgentTurnJob, type AgentTurnRequest, type AnalysisRequest, type AnalysisRun,
 } from '@vda/contracts';
@@ -20,7 +21,10 @@ import { verifyArtifact } from '@vda/domain';
 import { readRun } from './run-repository';
 import { ConversationRepository } from './conversation-repository';
 import { syncAgentInvocationsFromRun } from '../workflow/agent-projection';
-import type { AgentJobLease, AgentTurn, TurnContext } from '../types';
+import { validateMessageContext } from '../authorization/context-references';
+import { specialistPlan } from '../workflow/specialist-plan';
+import { verifiedSpecialistResult, specialistResultParts } from '../transactions/finish-agent-artifact-run';
+import type { AgentJobLease, AgentTurn, TurnContext, AgentTurnExecution, AgentTurnExecutionResult } from '../types';
 const maxAttempts = 3;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 type RunBuilder = (tx: Driver, user: string, request: AnalysisRequest, key: string, turn: TurnContext) => Promise<AnalysisRun>;
@@ -108,6 +112,50 @@ async function fencedJob(tx: Driver, lease: AgentJobLease) {
 }
 export class AgentExecutionRepository {
   constructor(private readonly db: Driver, private readonly buildAnalysisRun: RunBuilder) {}
+
+  private async executionInput(tx: Driver, current: AgentTurnJob): Promise<AgentTurnExecution> {
+    const messages = await tx.query('SELECT conversation_id,client_turn_id,role,payload FROM messages WHERE org_id=$1 AND id=$2 FOR UPDATE',[current.org_id,current.user_message_id]);
+    const row = messages[0];
+    if (!row || row.role !== 'user' || row.conversation_id !== current.conversation_id) fail('TURN_MISMATCH',409);
+    const metadata = (json(row) as Record<string,unknown>).agent_turn as Record<string,unknown> | undefined;
+    const parsed = AgentTurnRequestSchema.safeParse(metadata?.request);
+    if (!parsed.success || metadata?.actor_id !== current.created_by ||
+        metadata?.request_hash !== hash(JSON.stringify(parsed.data)) ||
+        typeof metadata?.idempotency_key !== 'string' || !metadata.idempotency_key ||
+        parsed.data.org_id !== current.org_id || parsed.data.client_turn_id !== row.client_turn_id)
+      fail('UNSUPPORTED_DURABLE_REQUEST',422);
+    await validateMessageContext(tx,current.org_id,current.conversation_id,parsed.data.context_refs,parsed.data.reply_to_message_id);
+    return {input:parsed.data,idempotency_key:metadata.idempotency_key,context:{org_id:current.org_id,conversation_id:current.conversation_id,user_message_id:current.user_message_id,assistant_message_id:current.assistant_message_id,client_turn_id:parsed.data.client_turn_id}};
+  }
+
+  getExecution(lease: AgentJobLease): Promise<AgentTurnExecution> {
+    return this.db.transaction(async tx => this.executionInput(tx,await fencedJob(tx,lease)));
+  }
+
+  async finalizeExecution(lease: AgentJobLease, result: AgentTurnExecutionResult): Promise<void> {
+    await this.db.transaction(async tx => {
+      const current = await fencedJob(tx,lease);
+      if (current.run_id) fail('RUN_FINALIZATION_REQUIRED',409);
+      const pending = await tx.query("SELECT id FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND parent_id IS NOT NULL AND status IN ('queued','running','waiting') LIMIT 1",[current.org_id,current.job_id]);
+      if (result.status === 'completed' && pending[0]) fail('INVOCATIONS_PENDING',409);
+      const conversation = new ConversationRepository(tx);
+      const prior = await conversation.message(tx,current.org_id,current.assistant_message_id,true);
+      if (prior.status !== 'in_progress') fail('TURN_TERMINAL',409);
+      const assistant = MessageSchema.parse({...prior,...result,updated_at:new Date().toISOString()});
+      await conversation.updateMessage(tx,assistant);
+      const userMessage = await conversation.message(tx,current.org_id,current.user_message_id,true);
+      if (userMessage.status === 'submitted') await conversation.updateMessage(tx,{...userMessage,status:'completed',updated_at:assistant.updated_at});
+      const error = assistant.parts.find(part=>part.type === 'error');
+      const code = error?.type === 'error' ? error.code : null;
+      await tx.query('UPDATE agent_turn_jobs SET status=$3,error_code=$4,worker_id=NULL,lease_until=NULL,updated_at=now() WHERE org_id=$1 AND id=$2',[current.org_id,current.job_id,result.status,code]);
+      const active = await tx.query("SELECT id FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND status IN ('queued','running','waiting') ORDER BY depth DESC",[current.org_id,current.job_id]);
+      await tx.query("UPDATE agent_invocations SET status=$3,updated_at=now() WHERE org_id=$1 AND job_id=$2 AND status IN ('queued','running','waiting')",[current.org_id,current.job_id,result.status]);
+      const type = result.status === 'completed' ? 'invocation_completed' : result.status === 'failed' ? 'invocation_failed' : 'invocation_cancelled';
+      for (const row of active) await appendEvent(tx,current,type,code ? {error_code:code} : {},String(row.id));
+      await appendEvent(tx,current,result.status === 'completed' ? 'turn_completed' : result.status === 'failed' ? 'turn_failed' : 'turn_cancelled',code ? {error_code:code} : {});
+      await conversation.touchConversation(tx,current.org_id,current.conversation_id,assistant.updated_at);
+    });
+  }
 
   async enqueue(user: string, input: AgentTurnRequest, key: string, conversationId?: string): Promise<AgentTurn & { job: AgentTurnJob }> {
     let created: AgentTurnJob | undefined;
@@ -230,28 +278,16 @@ export class AgentExecutionRepository {
   }
 
   /** Run insertion, turn attachment, invocation link, and lease release commit together. */
-  async startAnalysis(lease: AgentJobLease): Promise<AnalysisRun> {
+  async startAnalysis(lease: AgentJobLease, options: {planned?:boolean} = {}): Promise<AnalysisRun> {
     return this.db.transaction(async tx => {
       const current = await fencedJob(tx,lease);
       if (current.run_id) fail('RUN_ALREADY_LINKED',409);
-      const messages = await tx.query(
-        'SELECT conversation_id,client_turn_id,role,payload FROM messages WHERE org_id=$1 AND id=$2 FOR UPDATE',
-        [current.org_id,current.user_message_id],
-      );
-      const row = messages[0];
-      if (!row || row.role !== 'user' || row.conversation_id !== current.conversation_id)
-        fail('TURN_MISMATCH',409);
-      const metadata = (json(row) as Record<string,unknown>).agent_turn as Record<string,unknown> | undefined;
-      const parsed = AgentTurnRequestSchema.safeParse(metadata?.request);
-      if (!parsed.success || metadata?.actor_id !== current.created_by ||
-          metadata?.request_hash !== hash(JSON.stringify(parsed.data)) ||
-          parsed.data.org_id !== current.org_id || parsed.data.client_turn_id !== row.client_turn_id ||
-          !isApprovedDurableAnalysisTurn(parsed.data)) fail('UNSUPPORTED_DURABLE_REQUEST',422);
-      const input = parsed.data;
+      const {input} = await this.executionInput(tx,current);
+      if (!options.planned && !isApprovedDurableAnalysisTurn(input)) fail('UNSUPPORTED_DURABLE_REQUEST',422);
       const request: AnalysisRequest = {
         org_id: current.org_id, scope: input.scope, data_as_of: input.data_as_of,
         question: input.text, conversation_id: current.conversation_id,
-        use_case: input.use_case, agent_target: null,
+        use_case: input.use_case, agent_target: resolveReportIntent(input) ? 'report' : input.agent_target ?? null,
       };
       const run = await this.buildAnalysisRun(
         tx,current.created_by,request,`agent-turn:${current.job_id}:analysis-v1`,{
@@ -269,8 +305,9 @@ export class AgentExecutionRepository {
       );
       if (!roots[0]) fail('INVOCATION_ROOT_MISSING',409);
       const rootId = String(roots[0].id);
-      const personaInvocations: Array<{ id: string; key: 'data'|'compare'|'insight'|'report' }> = [];
-      for (const key of ['data','compare','insight','report'] as const) {
+      const personaInvocations: Array<{ id: string; key: string }> = [];
+      const personaKeys = specialistPlan(run.request.agent_target)?.personas ?? ['data','compare','insight','report'] as const;
+      for (const key of personaKeys) {
         const id = randomUUID();
         await tx.query(
           `INSERT INTO agent_invocations(org_id,id,job_id,parent_id,step_key,agent_key,depth,status,run_id)
@@ -326,6 +363,27 @@ export class AgentExecutionRepository {
         return {status,run_id:run.run_id,artifact_id:null};
       }
       if (run.status !== 'succeeded') fail('RUN_NOT_TERMINAL',409);
+      if (specialistPlan(run.request.agent_target) && run.report_artifact_id === null) {
+        const artifact = await verifiedSpecialistResult(tx,run);
+        const conversation = new ConversationRepository(tx);
+        const assistant = await conversation.message(tx,current.org_id,current.assistant_message_id,true);
+        if (assistant.status !== 'in_progress' || assistant.run_id !== run.run_id) fail('TURN_TERMINAL',409);
+        // The specialist's canonical stage message already owns its per-run sender slot.
+        Object.assign(assistant,{status:'completed',...specialistResultParts(run,artifact),updated_at:new Date().toISOString()});
+        await conversation.updateMessage(tx,assistant);
+        const userMessage = await conversation.message(tx,current.org_id,current.user_message_id,true);
+        if (userMessage.status==='submitted') await conversation.updateMessage(tx,{...userMessage,status:'completed',updated_at:assistant.updated_at});
+        await syncAgentInvocationsFromRun(tx,current.org_id,run.run_id);
+        const pending = await tx.query("SELECT id FROM agent_invocations WHERE org_id=$1 AND job_id=$2 AND parent_id IS NOT NULL AND status<>'completed'",[current.org_id,current.job_id]);
+        if (pending.length) fail('SPECIALIST_INVOCATIONS_INCOMPLETE',409);
+        const roots = await tx.query("UPDATE agent_invocations SET status='completed',updated_at=now() WHERE org_id=$1 AND job_id=$2 AND step_key='root' RETURNING id",[current.org_id,current.job_id]);
+        if (!roots[0]) fail('INVOCATION_ROOT_MISSING',409);
+        await tx.query("UPDATE agent_turn_jobs SET status='completed',worker_id=NULL,lease_until=NULL,updated_at=now() WHERE org_id=$1 AND id=$2",[current.org_id,current.job_id]);
+        await appendEvent(tx,current,'invocation_completed',{run_id:run.run_id,artifact_id:artifact.artifact_id},String(roots[0].id));
+        await appendEvent(tx,current,'turn_completed',{run_id:run.run_id,artifact_id:artifact.artifact_id});
+        await conversation.touchConversation(tx,current.org_id,current.conversation_id,assistant.updated_at);
+        return {status:'completed' as const,run_id:run.run_id,artifact_id:artifact.artifact_id};
+      }
 
       const artifactRows = await tx.query(
         "SELECT artifact_key,payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key IN ('data_analysis_pack','data.query_result')",

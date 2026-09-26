@@ -1,26 +1,15 @@
 import { type RunTask } from '@vda/contracts';
 import { type Lease, type Repository } from '@vda/db';
-import { executeAgentThroughDraft } from './stages/insight-report';
+import { executeTeamThroughReview } from './team-workflow';
+export { executeSpecialistWorkflow, isArtifactSpecialist } from './team-workflow';
 import { executePublicationStage, type PublishedAgentWorkflowResult } from './stages/publication';
-import { type NarrativeProvider } from '../legacy-workflow/narrative/provider';
 import {
-  executeReportRevisionStage,
-  executeReviewerStage,
-  loadReportDraftStage,
   type AgentReviewStageResult,
 } from './stages/reviewer';
-import { type ReviewerCorrectionRequest, type ReviewerProvider } from './agents/reviewer-agent';
+import type { AgentWorkflowOptions } from './options';
+export type { AgentWorkflowOptions } from './options';
 import { AGENT_WORKFLOW_DAG } from './dag';
 import { loadStageContext, transitionTask, workflowFailureCode } from './checkpoint/stage-context';
-
-export type AgentWorkflowOptions = {
-  narrativeProvider?: NarrativeProvider;
-  reviewerProvider?: ReviewerProvider;
-  /** Internal deterministic test/server hook for the first review only. */
-  firstReviewCorrection?: ReviewerCorrectionRequest | null;
-  /** Internal deterministic test/server hook for the bounded second review. */
-  secondReviewCorrection?: ReviewerCorrectionRequest | null;
-};
 
 async function failAtReviewLimit(repository: Repository, lease: Lease): Promise<never> {
   const context = await loadStageContext(repository, lease, AGENT_WORKFLOW_DAG);
@@ -56,29 +45,10 @@ export async function executeAgentWorkflow(
 ): Promise<PublishedAgentWorkflowResult> {
   if (lease.run.workflow_version !== 'agent-v1') throw new Error('AGENT_WORKFLOW_NOT_SELECTED');
   try {
-    await executeAgentThroughDraft(repository, lease, options.narrativeProvider);
-    // Recovery must resume the latest immutable revision. In particular, a
-    // persisted second rejection is terminal; it must not try to manufacture a
-    // third draft or reinterpret the first-review correction on revision two.
-    const latestDraft = await loadReportDraftStage(repository, lease);
-    const currentReview = await executeReviewerStage(repository, lease, {
-      provider: options.reviewerProvider,
-      correction:
-        latestDraft.report_draft.payload.revision === 1
-          ? options.firstReviewCorrection
-          : options.secondReviewCorrection,
-    });
-    if (currentReview.report_draft.payload.revision === 2)
-      return publishIfPassed(repository, lease, currentReview);
-    if (currentReview.review_result.payload.status === 'PASS')
-      return publishIfPassed(repository, lease, currentReview);
-
-    await executeReportRevisionStage(repository, lease);
-    const secondReview = await executeReviewerStage(repository, lease, {
-      provider: options.reviewerProvider,
-      correction: options.secondReviewCorrection,
-    });
-    return publishIfPassed(repository, lease, secondReview);
+    const review = await executeTeamThroughReview(repository, lease, options);
+    // Publication owns the terminal transaction. Runtime records are complete
+    // before that transaction releases the run's fencing lease.
+    return publishIfPassed(repository, lease, review);
   } catch (error) {
     try {
       await repository.failRun(lease, workflowFailureCode(error, 'AGENT_WORKFLOW_FAILED'));

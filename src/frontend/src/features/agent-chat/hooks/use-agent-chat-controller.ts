@@ -6,6 +6,7 @@ import {
   type Catalog,
   type WorkspaceActionV1,
   type WorkspaceModeV1,
+  type MessageContextRef,
 } from '@vda/contracts';
 import { errorMessage } from '../../../lib/http/api-client';
 import { cancelAcknowledgedRun } from '../../analysis/api/run-data';
@@ -14,7 +15,11 @@ import { useConversations } from './use-conversations';
 import { useMessages } from './use-messages';
 import { useSelectedMessages } from './use-selected-messages';
 import { useAgentExecution } from './use-agent-execution';
+import { useRunRuntime } from './use-run-runtime';
+import { useThreadWorkspace } from './use-thread-workspace';
+import { withThreadReportContext } from '../agent-workspace-model';
 import { cancelAgentTurnJob } from '../api/conversations';
+import { getThreadContext, putThreadContext } from '../api/runtime';
 import { useWorkspaceRunResource } from '../../analysis/hooks/use-workspace-run-resource';
 import { isReadOnlyRunView } from '../run-view';
 import {
@@ -85,6 +90,9 @@ export function useAgentChatController({
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<string | null>('root');
+  const [messageContextRefs, setMessageContextRefs] = useState<MessageContextRef[]>([]);
+  const [reportIntent, setReportIntent] = useState<'new' | 'update' | null>(null);
+  const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const {
     conversations,
     conversationCursor,
@@ -137,23 +145,8 @@ export function useAgentChatController({
     [runIsControlled],
   );
 
-  const buildWorkspaceContext = useCallback(
-    (conversationId: string | null, activeRunId?: string | null) => {
-      const state = workspaceState ?? initialWorkspaceContextState;
-      return toWorkspaceContext(state, {
-        org_id: orgId,
-        conversation_id: conversationId,
-        scope: { project_external_id: project, zone_external_id: zone || null },
-        data_as_of: dataAsOf,
-        mode: workspaceMode,
-        active_run_id: activeRunId ?? selectedRunId ?? state.active_run_id,
-      });
-    },
-    [dataAsOf, orgId, project, selectedRunId, workspaceMode, workspaceState, zone],
-  );
-
   const visibleRunId = externalRunId ?? selectedRunId;
-  const { snapshot: agentExecution, setSnapshot: setAgentExecution, error: executionError } = useAgentExecution(orgId, selectedConversationId, acceptedJobId);
+  const { snapshot: agentExecution, setSnapshot: setAgentExecution, error: executionError } = useAgentExecution(orgId, selectedConversationId, acceptedJobId, sseEnabled);
   const agentRunId = agentExecution?.job.run_id;
   const agentAssistantMessageId = agentExecution?.job.assistant_message_id;
   const agentJobId = agentExecution?.job.job_id;
@@ -237,6 +230,30 @@ export function useAgentChatController({
     currentRunDetail?.run ?? null,
     selectedConversation?.kind,
   );
+  const threadWorkspace = useThreadWorkspace(orgId, selectedConversationId, currentRunDetail?.run.status);
+  const runtime = useRunRuntime(orgId, visibleRunId ?? null, sseEnabled,
+    Boolean(currentRunDetail && ['queued', 'running'].includes(currentRunDetail.run.status)));
+  const buildWorkspaceContext = useCallback(
+    (conversationId: string | null, activeRunId?: string | null) => {
+      const state = workspaceState ?? initialWorkspaceContextState;
+      const snapshot = toWorkspaceContext(state, {
+        org_id: orgId, conversation_id: conversationId,
+        scope: { project_external_id: project, zone_external_id: zone || null },
+        data_as_of: dataAsOf, mode: workspaceMode,
+        active_run_id: activeRunId ?? selectedRunId ?? state.active_run_id,
+      });
+      if (!workspaceLayout) return snapshot;
+      // Report selection belongs to the thread, independent of the run being inspected.
+      // Never let an old dashboard selection override an explicit no-report selection.
+      const report = replyToMessageId ? undefined : threadWorkspace.reports.find((item) => item.report_id === threadWorkspace.context.active_report_id);
+      return withThreadReportContext(snapshot, report);
+    },
+    [dataAsOf, orgId, project, selectedRunId, workspaceMode, workspaceState, zone, workspaceLayout, threadWorkspace.reports, threadWorkspace.context.active_report_id, replyToMessageId],
+  );
+  const submissionContextRefs = useMemo<MessageContextRef[]>(() => {
+    if (messageContextRefs.length || selectedConversationId) return messageContextRefs;
+    return threadWorkspace.context.dataset_ids.map((id) => ({ type: 'dataset', id }));
+  }, [messageContextRefs, selectedConversationId, threadWorkspace.context.dataset_ids]);
   const {
     draft,
     setDraft,
@@ -268,8 +285,21 @@ export function useAgentChatController({
     loadMessages,
     activateConversation,
     setAcceptedJobId,
-    onAcceptedTurn: () => { runSelectionIntent.current = 'automatic'; },
+    onAcceptedTurn: async (conversationId) => {
+      runSelectionIntent.current = 'automatic';
+      if (!selectedConversationId && threadWorkspace.context.dataset_ids.length) {
+        try {
+          const current = await getThreadContext(orgId, conversationId);
+          await putThreadContext(orgId, conversationId, { ...current, dataset_ids: threadWorkspace.context.dataset_ids });
+        }
+        catch (cause) { setError(errorMessage(cause)); }
+      }
+    },
     setError,
+    messageContextRefs: submissionContextRefs,
+    reportIntent,
+    replyToMessageId,
+    onClearMessageContext: () => { setMessageContextRefs([]); setReportIntent(null); setReplyToMessageId(null); },
   });
   useEffect(() => {
     if (controlledProject === undefined)
@@ -383,6 +413,9 @@ export function useAgentChatController({
   }
 
   function selectConversation(id: string) {
+    setReplyToMessageId(null);
+    setMessageContextRefs([]);
+    setReportIntent(null);
     runSelectionIntent.current = 'automatic';
     setAcceptedJobId(null);
     activateConversation(id);
@@ -399,6 +432,9 @@ export function useAgentChatController({
     setError('');
   }
   function newConversation() {
+    setReplyToMessageId(null);
+    setMessageContextRefs([]);
+    setReportIntent(null);
     runSelectionIntent.current = 'cleared';
     setAcceptedJobId(null);
     activateConversation(null);
@@ -459,5 +495,7 @@ export function useAgentChatController({
     agentExecution, executionError, acceptedJobId, selectedAgent, setSelectedAgent, reportId, cancelling, error, setError,
     runMessageId, workspaceControlled, selectConversation, newConversation, cancelRun, cancelJob,
     updateActiveRun, setRunMessageId, selectRun,
+    threadWorkspace, runtime, messageContextRefs, setMessageContextRefs, reportIntent, setReportIntent,
+    replyToMessageId, setReplyToMessageId,
   };
 }

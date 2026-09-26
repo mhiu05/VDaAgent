@@ -100,6 +100,7 @@ export type AuthorizedAgentContextV1 = {
     text: string;
     use_case: NonNullable<AgentTurnRequest['use_case']>;
     agent_target: AgentKey | null;
+    report_intent?: 'new' | 'update' | null;
     signal_action: 'inspect' | 'analyze_segment' | null;
     requested_signal_ref: SignalRef | null;
   };
