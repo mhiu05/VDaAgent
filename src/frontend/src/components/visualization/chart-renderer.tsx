@@ -88,7 +88,7 @@ function CategoryPatterns({ spec }: { spec: ChartSpec }) {
 }
 
 const tooltipStyle = {
-  backgroundColor: 'var(--color-surface)',
+  backgroundColor: 'var(--chart-tooltip)',
   border: '1px solid var(--color-border-strong)',
   borderRadius: 'var(--radius-sm)',
   color: 'var(--color-ink)',
@@ -99,7 +99,7 @@ const tooltipStyle = {
 const legendStyle = {
   color: 'var(--color-ink-soft)',
   fontFamily: 'var(--font-ui)',
-  fontSize: '12px',
+  fontSize: 'var(--text-xs)',
 };
 
 function tooltipFormatter(spec: ChartSpec) {
@@ -124,7 +124,7 @@ function Axes({ spec }: { spec: ChartSpec }) {
       <XAxis
         dataKey={spec.x_axis!.key}
         type={spec.x_axis!.value_type === 'number' ? 'number' : 'category'}
-        tick={{ fontSize: 11, fill: 'var(--chart-axis)' }}
+        tick={{ fontSize: 12, fill: 'var(--chart-axis)' }}
         axisLine={false}
         tickLine={false}
         interval={0}
@@ -134,7 +134,7 @@ function Axes({ spec }: { spec: ChartSpec }) {
         domain={[spec.y_axis?.min ?? 'auto', spec.y_axis?.max ?? 'auto']}
         allowDecimals={spec.series.some((series) => series.value_format !== 'integer')}
         tickFormatter={(value: number) => formatSeriesValue(value, item)}
-        tick={{ fontSize: 11, fill: 'var(--chart-axis)' }}
+        tick={{ fontSize: 12, fill: 'var(--chart-axis)' }}
         axisLine={false}
         tickLine={false}
         width={72}

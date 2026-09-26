@@ -136,7 +136,7 @@ export function ImportsPanel({
             </details>
           ))
         ) : (
-          <EmptyState title="Chưa có nguồn dữ liệu">Nhập CSV để bắt đầu tạo snapshot.</EmptyState>
+          <EmptyState title="Chưa có nguồn dữ liệu" illustration>Nhập CSV để bắt đầu tạo snapshot.</EmptyState>
         )}
       </section>
     </div>

@@ -1570,7 +1570,14 @@ td small {
 .empty-state {
   text-align: center;
   padding: 45px 20px;
-  color: var(--color-signal);
+  color: var(--color-muted);
+}
+.empty-illustration {
+  display: block;
+  width: 96px;
+  height: auto;
+  margin: 0 auto 14px;
+  object-fit: contain;
 }
 .empty-icon {
   display: grid;
@@ -1578,17 +1585,17 @@ td small {
   width: 60px;
   height: 60px;
   margin: 0 auto 15px;
-  background: var(--color-surface);
+  background: var(--color-surface-muted);
   border-radius: 50%;
   color: var(--color-signal);
 }
 .empty-state h3 {
-  color: var(--color-signal);
+  color: var(--color-ink);
   font-size: 16px;
   margin-bottom: 9px;
 }
 .empty-state p {
-  font-size: 12px;
+  font-size: var(--text-sm);
   max-width: 430px;
   margin: auto;
 }

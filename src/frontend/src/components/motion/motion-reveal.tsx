@@ -43,8 +43,8 @@ export function MotionReveal({
       media.add('(prefers-reduced-motion: no-preference)', () => {
         gsap.fromTo(
           root.current,
-          { autoAlpha: 0, scale, y: distance },
-          { autoAlpha: 1, delay, duration, ease, scale: 1, y: 0 },
+          { scale, y: distance },
+          { delay, duration, ease, scale: 1, y: 0 },
         );
       });
 

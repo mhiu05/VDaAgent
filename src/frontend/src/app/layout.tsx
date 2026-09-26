@@ -31,7 +31,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#25243a', // design-token-exception: browser chrome metadata is serialized outside CSS.
+  themeColor: '#0b1021', // design-token-exception: browser chrome metadata is serialized outside CSS.
   width: 'device-width',
   initialScale: 1,
 };
@@ -40,7 +40,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html
       lang="vi"
-      data-theme="sakura-signal"
+      data-theme="midnight-signal"
       className={`${bodyFont.variable} ${displayFont.variable} ${codeFont.variable}`}
       suppressHydrationWarning
     >

@@ -91,7 +91,7 @@ export function AppShell({
         <Link className="brand" href={workspaceRouteHref({ page: 'workspace' }, organization.org_id)}>
           <span className="brand-mark">V</span>
           <span>
-            VDaAgent<span className="brand-sub">SAKURA SIGNAL · DATA STUDIO</span>
+            VDaAgent<span className="brand-sub">MIDNIGHT SIGNAL · DATA STUDIO</span>
           </span>
         </Link>
         {presentation === 'analytical' && (
@@ -212,7 +212,7 @@ export function AppShell({
             >
               <span className="brand-mark">V</span>
               <span>
-                VDaAgent<span className="brand-sub">SAKURA SIGNAL · DATA STUDIO</span>
+                VDaAgent<span className="brand-sub">MIDNIGHT SIGNAL · DATA STUDIO</span>
               </span>
             </Link>
             <button

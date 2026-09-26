@@ -257,7 +257,7 @@ export function SchedulesPanel({
             </div>
           ))
         ) : (
-          <EmptyState title="Chưa có lịch báo cáo">
+          <EmptyState title="Chưa có lịch báo cáo" illustration>
             Tạo lịch để theo dõi tồn kho mỗi ngày.
           </EmptyState>
         )}

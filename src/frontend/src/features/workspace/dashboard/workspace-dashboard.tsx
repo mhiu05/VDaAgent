@@ -126,6 +126,7 @@ function Status({ value, labels }: { value: string; labels: Record<string, strin
 export function WorkspaceDashboard({
   orgId,
   organizationName,
+  canWrite,
   onStartAnalysis,
   onOpenRun,
   onOpenConversation,
@@ -135,6 +136,7 @@ export function WorkspaceDashboard({
 }: {
   orgId: string;
   organizationName: string;
+  canWrite: boolean;
   onStartAnalysis: () => void;
   onOpenRun: (runId: string) => void;
   onOpenConversation: (conversationId: string) => void;
@@ -232,14 +234,26 @@ export function WorkspaceDashboard({
       };
     if (summary.recent_runs.length)
       return {
-        label: 'Bạn có thể tiếp tục phân tích',
-        description: 'Mở lại lượt trước hoặc bắt đầu một phân tích mới.',
+        label: canWrite ? 'Bạn có thể tiếp tục phân tích' : 'Có thể xem lại phân tích',
+        description: canWrite
+          ? 'Mở lại lượt trước hoặc bắt đầu một phân tích mới.'
+          : 'Mở lượt trước để xem kết quả và bằng chứng đã lưu.',
       };
     return {
-      label: 'Sẵn sàng cho câu hỏi đầu tiên',
-      description: 'Bắt đầu phân tích để tạo hồ sơ có thể truy vết từ dữ liệu workspace.',
+      label: canWrite ? 'Sẵn sàng cho câu hỏi đầu tiên' : 'Sẵn sàng xem dữ liệu',
+      description: canWrite
+        ? 'Bắt đầu phân tích để tạo hồ sơ có thể truy vết từ dữ liệu workspace.'
+        : 'Các kết quả đã lưu sẽ xuất hiện tại đây khi có phân tích.',
     };
-  }, [error, overview, summary]);
+  }, [canWrite, error, overview, summary]);
+
+  const navigatorArt = error
+    ? 'recovery'
+    : summary?.run_counts.running || summary?.run_counts.queued
+      ? 'progress'
+      : summary?.recent_reports.length
+        ? 'report-ready'
+        : 'welcome';
 
   function refreshDashboard() {
     setRefreshVersion((value) => value + 1);
@@ -257,7 +271,7 @@ export function WorkspaceDashboard({
           <p>Theo dõi phân tích, báo cáo, dữ liệu nguồn và tác vụ đã lên lịch tại đây.</p>
           <div className={styles.heroActions}>
             <button className={styles.primaryAction} onClick={onStartAnalysis}>
-              Bắt đầu phân tích <ArrowRight size={17} aria-hidden={true} />
+              {canWrite ? 'Bắt đầu phân tích' : 'Xem lượt phân tích'} <ArrowRight size={17} aria-hidden={true} />
             </button>
             <button
               className={styles.refreshAction}
@@ -271,10 +285,10 @@ export function WorkspaceDashboard({
         </div>
         <Image
           className={styles.heroMascot}
-          src="/brand/mascot/navigator-hero.webp"
+          src={`/brand/mascot/navigator-${navigatorArt}.webp`}
           alt=""
           width={768}
-          height={922}
+          height={923}
           sizes="(max-width: 760px) 190px, (max-width: 1100px) 220px, 270px"
           priority
         />
@@ -357,11 +371,13 @@ export function WorkspaceDashboard({
                       icon={Activity}
                       title={'Chưa có lượt phân tích'}
                       description={
-                        'Đặt câu hỏi để tạo lượt phân tích có thể truy vết đầu tiên trong workspace.'
+                        canWrite
+                          ? 'Đặt câu hỏi để tạo lượt phân tích có thể truy vết đầu tiên trong workspace.'
+                          : 'Lượt phân tích đã lưu sẽ xuất hiện tại đây.'
                       }
                       action={
                         <button className={styles.emptyAction} onClick={onStartAnalysis}>
-                          Bắt đầu phân tích <ArrowRight size={15} aria-hidden={true} />
+                          {canWrite ? 'Bắt đầu phân tích' : 'Xem lịch sử'} <ArrowRight size={15} aria-hidden={true} />
                         </button>
                       }
                     />

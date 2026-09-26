@@ -4,9 +4,7 @@
 
 .app-shell {
   min-height: 100dvh;
-  background:
-    radial-gradient(ellipse at 82% 0%, var(--color-accent-glaze), transparent 32rem),
-    var(--color-paper);
+  background: var(--color-paper);
 }
 
 .sidebar {
@@ -22,7 +20,7 @@
 }
 
 .brand-mark {
-  color: var(--color-on-accent);
+  color: var(--color-on-action);
   background: var(--color-accent);
   border: 1px solid var(--color-on-accent-faint);
   border-radius: var(--radius-sm);
@@ -76,7 +74,7 @@
 
 .nav-item.active {
   color: var(--color-on-accent);
-  background: var(--color-accent-glaze);
+  background: var(--color-accent-soft);
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
@@ -112,7 +110,7 @@
 }
 
 .avatar {
-  color: var(--color-on-accent);
+  color: var(--color-on-action);
   background: var(--color-accent);
 }
 
@@ -135,7 +133,7 @@
   z-index: var(--z-sticky);
   top: 0;
   color: var(--color-ink-soft);
-  background: color-mix(in srgb, var(--color-paper) 92%, transparent);
+  background: color-mix(in srgb, var(--color-paper) 94%, transparent);
   border-color: var(--color-border);
   backdrop-filter: blur(14px);
 }
@@ -213,7 +211,7 @@
 .primary,
 .primaryAction,
 .primary-action {
-  color: var(--color-on-accent);
+  color: var(--color-on-action);
   background: var(--color-accent);
   border-color: var(--color-accent);
   border-radius: var(--radius-sm);
@@ -223,7 +221,7 @@
 .primary:hover:not(:disabled),
 .primaryAction:hover:not(:disabled),
 .primary-action:hover:not(:disabled) {
-  color: var(--color-on-accent);
+  color: var(--color-on-action);
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
 }
@@ -471,13 +469,34 @@ td {
   min-height: 100dvh;
   color: var(--color-ink);
   background:
-    radial-gradient(ellipse at 50% 28%, var(--color-accent-soft), transparent 25rem),
+    radial-gradient(ellipse at 50% 28%, color-mix(in srgb, var(--color-moonlight) 16%, transparent), transparent 25rem),
     var(--color-paper);
+}
+
+.loading-illustration {
+  width: 96px;
+  height: auto;
+  object-fit: contain;
 }
 
 .login-page {
   min-height: 100dvh;
   background: var(--color-paper);
+}
+
+.login-story,
+.login-panel,
+.login-box,
+.role-login {
+  min-width: 0;
+}
+
+.role-login .secondary {
+  white-space: normal;
+}
+
+.role-login .secondary span {
+  min-width: 0;
 }
 
 .login-story {
@@ -702,6 +721,14 @@ td {
     --sidebar: 0px;
   }
 
+  .login-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .truth-chain {
+    flex-wrap: wrap;
+  }
+
   .sidebar {
     display: none;
   }
@@ -834,9 +861,25 @@ td {
 
 @media print {
   :root {
+    color-scheme: light;
     --color-paper: var(--color-print-paper);
     --color-surface: var(--color-print-paper);
+    --color-surface-muted: #f2eff1;
+    --color-surface-strong: #e9e6ea;
     --color-ink: var(--color-print-ink);
+    --color-ink-soft: #414154;
+    --color-muted: #55566a;
+    --color-border: #c9c5cf;
+    --color-border-strong: #aaa5b3;
+    --chart-grid: #d9d5dd;
+    --chart-axis: #55566a;
+    --chart-tooltip: #fffdf9;
+    --chart-series-1: #9b294a;
+    --chart-series-2: #1e6962;
+    --chart-series-3: #855218;
+    --chart-series-4: #594684;
+    --chart-series-5: #315d87;
+    --chart-series-6: #81476e;
   }
 
   html,
@@ -857,6 +900,11 @@ td {
   .button-row,
   .floating-status,
   .main-content button {
+    display: none !important;
+  }
+
+  .empty-illustration,
+  .loading-illustration {
     display: none !important;
   }
 

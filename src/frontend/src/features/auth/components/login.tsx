@@ -60,7 +60,7 @@ export function Login({
         <Link className="brand" href="/">
           <span className="brand-mark">V</span>
           <span>
-            VDaAgent<span className="brand-sub">SAKURA SIGNAL · DATA STUDIO</span>
+            VDaAgent<span className="brand-sub">MIDNIGHT SIGNAL · DATA STUDIO</span>
           </span>
         </Link>
         <div className="login-story-content">

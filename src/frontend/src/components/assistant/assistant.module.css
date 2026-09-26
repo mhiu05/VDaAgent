@@ -89,7 +89,7 @@
   height: 38%;
   min-height: 14px;
   place-items: center;
-  color: var(--color-on-accent);
+  color: var(--color-on-action);
   background: var(--assistant-state-color);
   border: 2px solid var(--color-surface);
   border-radius: 50%;

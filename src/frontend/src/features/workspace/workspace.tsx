@@ -315,7 +315,8 @@ function WorkspaceShell({
           <WorkspaceDashboard
             orgId={orgId}
             organizationName={organization.name}
-            onStartAnalysis={() => router.push(workspaceRouteHref({ page: 'chat' }, orgId))}
+            canWrite={canWrite}
+            onStartAnalysis={() => router.push(workspaceRouteHref({ page: canWrite ? 'chat' : 'runs' }, orgId))}
             onOpenRun={(nextRunId) => selectRun(nextRunId)}
             onOpenConversation={(conversationId) =>
               router.push(workspaceRouteHref({ page: 'chat', conversationId }, orgId))

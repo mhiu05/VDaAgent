@@ -47,11 +47,11 @@
   cursor: pointer;
   display: inline-flex;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-xs);
   gap: 5px;
   justify-content: center;
   margin-bottom: -1px;
-  min-height: 35px;
+  min-height: 44px;
   padding: 7px 3px;
 }
 
@@ -91,12 +91,12 @@
 
 .detailRow dt {
   color: var(--color-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .detailRow dd {
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   margin: 0;
   min-width: 0;
@@ -107,7 +107,7 @@
 .detailRow code,
 .selectedArtifact code {
   display: block;
-  font-size: 10px;
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
@@ -145,7 +145,7 @@
 .sectionLabel {
   color: var(--color-muted);
   display: block;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -221,14 +221,14 @@
 .runStatus span:last-child {
   color: var(--color-muted);
   display: block;
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.45;
   margin-top: 2px;
 }
 
 .artifactList time {
   color: var(--color-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -290,14 +290,14 @@
 .taskList small {
   color: var(--color-muted);
   display: block;
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.35;
   margin-top: 2px;
 }
 
 .taskList em {
   color: var(--color-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-style: normal;
   text-transform: capitalize;
 }
@@ -322,7 +322,7 @@
 
 .events time {
   color: var(--color-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .qualityNote {
