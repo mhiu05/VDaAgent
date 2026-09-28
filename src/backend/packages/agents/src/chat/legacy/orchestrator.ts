@@ -26,9 +26,9 @@ const unsupportedText: Record<
   UNSUPPORTED_REQUEST:
     'Yêu cầu này chưa thuộc các phân tích tồn kho được hỗ trợ. Bạn có thể hỏi về tồn kho hiện tại, hàng chậm luân chuyển, so sánh 7/30/90 ngày, phân phối giá hoặc báo cáo tồn kho.',
   UNSUPPORTED_CAUSAL_REQUEST:
-    'Không thể xác định nguyên nhân từ các snapshot tồn kho đã xác thực. Bạn có thể kiểm tra tín hiệu, bằng chứng, phạm vi hoặc ngày dữ liệu được hỗ trợ.',
+    'Chưa thể xác định nguyên nhân chỉ từ các mốc dữ liệu tồn kho đã xác thực. Bạn có thể xem các dấu hiệu, bằng chứng, phạm vi hoặc ngày dữ liệu được hỗ trợ.',
   UNSUPPORTED_SCOPE: 'Phạm vi được chọn chưa được hỗ trợ cho phân tích tồn kho này.',
-  MISSING_CONTEXT: 'Cần chọn project và ngày dữ liệu hợp lệ trước khi bắt đầu phân tích.',
+  MISSING_CONTEXT: 'Cần chọn dự án và ngày dữ liệu hợp lệ trước khi bắt đầu phân tích.',
   NO_AUTHORIZED_RESULT: 'Không tìm thấy kết quả đã được cấp quyền trong ngữ cảnh hội thoại này.',
 };
 

@@ -6,6 +6,7 @@ import { dateTime } from '../../../lib/format/date-time';
 import { workflowStatusLabel } from '../../../lib/format/status-label';
 import { EmptyState } from '../../../components/feedback/empty-state';
 import { Status } from '../../../components/ui';
+import { ReportLibraryPreview } from '../../reports/components/report-library-preview';
 
 export function HistoryPanel({
   orgId,
@@ -38,6 +39,10 @@ export function HistoryPanel({
           Đang tải…
         </p>
       ) : (
+        <>
+        {kind === 'reports' && reports[0] && (
+          <ReportLibraryPreview orgId={orgId} report={reports[0]} onOpen={onOpen} />
+        )}
         <div className="history-list">
           {kind === 'runs'
             ? runs.map((run) => (
@@ -84,6 +89,7 @@ export function HistoryPanel({
                 </button>
               ))}
         </div>
+        </>
       )}
       {!loading && !(kind === 'runs' ? runs.length : reports.length) && (
         <EmptyState title={kind === 'runs' ? 'Chưa có lượt phân tích' : 'Chưa có báo cáo'}>

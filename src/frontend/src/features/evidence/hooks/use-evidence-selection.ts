@@ -20,7 +20,7 @@ export function useEvidenceSelection(
         const nextBundle = await getRunArtifacts(orgId, runId);
         setBundle(nextBundle);
         if (!nextBundle.artifacts.some((artifact) => artifact.artifact_id === id)) {
-          onError('The referenced evidence artifact is unavailable for this run.');
+          onError('Không thể truy cập bằng chứng của lượt phân tích này.');
           return;
         }
       } catch (cause) {

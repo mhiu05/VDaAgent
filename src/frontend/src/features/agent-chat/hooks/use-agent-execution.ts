@@ -10,8 +10,12 @@ export function newerExecutionSnapshot(current: AgentTurnJobSnapshot | null, nex
   if (!active.has(current.job.status) && active.has(next.job.status)) return current;
   const currentSequence = Math.max(0, ...current.events.map((event) => event.sequence));
   const nextSequence = Math.max(0, ...next.events.map((event) => event.sequence));
-  if (nextSequence < currentSequence || next.job.updated_at < current.job.updated_at) return current;
-  return next;
+  if (next.job.updated_at < current.job.updated_at) return current;
+  // SSE pages and polling contain different slices of the ledger. A shorter
+  // page cannot veto a newer job status, especially its terminal state.
+  if (nextSequence < currentSequence && next.job.updated_at === current.job.updated_at && next.job.status === current.job.status) return current;
+  const events = new Map([...current.events, ...next.events].map(event => [event.sequence, event]));
+  return { ...next, events: [...events.values()].sort((a, b) => a.sequence - b.sequence).slice(-100) };
 }
 
 export function useAgentExecution(orgId: string, conversationId: string | null, acceptedJobId: string | null = null, sseEnabled = false) {

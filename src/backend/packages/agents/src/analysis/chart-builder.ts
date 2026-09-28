@@ -148,7 +148,7 @@ function buildKpis(calculation: ArtifactOf<'calculation'>): {
           unavailable(
             'inventory_kpi',
             'NO_DATA',
-            'No validated current metric is available for KPI evidence.',
+            'Chưa có chỉ số hiện tại đã được xác thực để làm bằng chứng cho chỉ số chính.',
             KPI_METRICS,
           ),
         ],
@@ -189,7 +189,7 @@ function buildTrend(calculation: ArtifactOf<'calculation'>): ChartSpec | ChartUn
     return unavailable(
       'inventory_trend',
       'INSUFFICIENT_HISTORY',
-      'At least two distinct validated snapshot dates are required for a line chart.',
+      'Cần ít nhất hai ngày dữ liệu khác nhau đã được xác thực để tạo biểu đồ đường.',
       [metricKey],
     );
   const values = points.map(([, value]) => value);
@@ -197,12 +197,12 @@ function buildTrend(calculation: ArtifactOf<'calculation'>): ChartSpec | ChartUn
     chart_id: 'inventory_trend',
     intent: 'inventory_trend',
     chart_type: 'line',
-    title: 'Available inventory trend',
+    title: 'Xu hướng số căn còn hàng',
     subtitle: null,
-    purpose: 'Show validated latest-at-or-before inventory values at each as-of target date.',
-    x_axis: { key: 'date', label: 'As-of date', value_type: 'date' },
-    y_axis: { label: 'Available inventory', unit: 'count', min: 0, max: null },
-    series: [series('value', 'Available inventory', metricKey, 'count')],
+    purpose: 'Thể hiện số căn còn hàng đã xác thực tại mốc dữ liệu gần nhất của từng ngày mục tiêu.',
+    x_axis: { key: 'date', label: 'Ngày dữ liệu', value_type: 'date' },
+    y_axis: { label: 'Số căn còn hàng', unit: 'count', min: 0, max: null },
+    series: [series('value', 'Số căn còn hàng', metricKey, 'count')],
     data: points.map(([date, item]) => ({ date, value: item.value })),
     provenance: provenance(values),
     limitations: [],
@@ -218,7 +218,7 @@ function buildAging(calculation: ArtifactOf<'calculation'>): ChartSpec | ChartUn
     return unavailable(
       'aging_distribution',
       'NO_DATA',
-      'No validated inventory-age buckets are available.',
+      'Chưa có nhóm tuổi tồn kho đã được xác thực.',
       [metricKey],
     );
   const values = calculation.payload.age_buckets.map((bucket, index) => ({
@@ -231,12 +231,12 @@ function buildAging(calculation: ArtifactOf<'calculation'>): ChartSpec | ChartUn
     chart_id: 'aging_distribution',
     intent: 'aging_distribution',
     chart_type: 'bar',
-    title: 'Inventory age distribution',
-    subtitle: 'Semantic bucket order is preserved',
-    purpose: 'Compare available inventory across validated age buckets.',
-    x_axis: { key: 'bucket', label: 'Age bucket (days)', value_type: 'category' },
-    y_axis: { label: 'Units', unit: 'count', min: 0, max: null },
-    series: [series('value', 'Available units', metricKey, 'count')],
+    title: 'Phân bố tuổi tồn kho',
+    subtitle: 'Giữ nguyên thứ tự các nhóm tuổi tồn kho.',
+    purpose: 'So sánh số căn còn hàng theo các nhóm tuổi tồn kho đã được xác thực.',
+    x_axis: { key: 'bucket', label: 'Nhóm tuổi tồn kho (ngày)', value_type: 'category' },
+    y_axis: { label: 'Số căn', unit: 'count', min: 0, max: null },
+    series: [series('value', 'Căn còn hàng', metricKey, 'count')],
     data: calculation.payload.age_buckets.map((bucket) => ({
       bucket: bucket.bucket,
       value: bucket.value,
@@ -257,14 +257,14 @@ function breakdownChart(
   );
   const breakdown = calculation.payload.breakdowns[breakdownIndex];
   if (!breakdown)
-    return unavailable(intent, 'NO_DATA', 'The required validated breakdown is unavailable.', [
+    return unavailable(intent, 'NO_DATA', 'Chưa có dữ liệu phân nhóm đã được xác thực cần thiết.', [
       metricKey,
     ]);
   if (intent === 'inventory_composition' && breakdown.items.length > MAX_COMPOSITION_CATEGORIES)
     return unavailable(
       intent,
       'TOO_MANY_CATEGORIES',
-      `Composition charts are limited to ${MAX_COMPOSITION_CATEGORIES} categories.`,
+      `Biểu đồ cơ cấu chỉ hiển thị tối đa ${MAX_COMPOSITION_CATEGORIES} nhóm.`,
       [metricKey],
     );
   const items = breakdown.items.flatMap((item, itemIndex) => {
@@ -275,7 +275,7 @@ function breakdownChart(
     !items.length ||
     (intent === 'inventory_composition' && !items.some((item) => item.value > 0))
   )
-    return unavailable(intent, 'NO_DATA', 'The validated breakdown has no plottable values.', [
+    return unavailable(intent, 'NO_DATA', 'Dữ liệu phân nhóm đã xác thực không có giá trị để vẽ biểu đồ.', [
       metricKey,
     ]);
   const unit = getMetricDefinition(metricKey).unit;
@@ -291,14 +291,14 @@ function breakdownChart(
     chart_type: intent === 'inventory_composition' ? 'donut' : 'bar',
     title:
       intent === 'inventory_composition'
-        ? 'Available inventory composition by unit type'
-        : 'Slow-moving rate by zone',
+        ? 'Cơ cấu căn còn hàng theo loại căn'
+        : 'Tỷ lệ căn tồn kho lâu theo khu vực',
     subtitle: null,
     purpose:
       intent === 'inventory_composition'
-        ? 'Show a validated part-to-whole composition with bounded cardinality.'
-        : 'Compare the validated slow-moving rate across zones.',
-    x_axis: { key: 'label', label: dimension, value_type: 'category' },
+        ? 'Thể hiện cơ cấu đã xác thực giữa các nhóm với số nhóm giới hạn.'
+        : 'So sánh tỷ lệ căn tồn kho lâu đã xác thực giữa các khu vực.',
+    x_axis: { key: 'label', label: dimension === 'zone' ? 'Khu vực' : 'Loại căn', value_type: 'category' },
     y_axis: { label: getMetricDefinition(metricKey).label, unit, min: 0, max: null },
     series: [series('value', getMetricDefinition(metricKey).label, metricKey, unit)],
     data: items.map(({ item, value }) => ({ label: item.label, value })),
@@ -323,7 +323,7 @@ function buildPrice(calculation: ArtifactOf<'calculation'>): ChartSpec | ChartUn
     return unavailable(
       'price_distribution',
       'MISSING_REQUIRED_FIELD',
-      'P25, median, and P75 price-per-area metrics must all be available.',
+      'Cần có đủ chỉ số giá trên mỗi m² ở phân vị P25, trung vị và P75.',
       metricKeys,
     );
   const currencies = [...new Set(values.map(({ metric }) => metric.currency))];
@@ -331,19 +331,19 @@ function buildPrice(calculation: ArtifactOf<'calculation'>): ChartSpec | ChartUn
     return unavailable(
       'price_distribution',
       'INCOMPARABLE_CURRENCY',
-      'Price quartiles require one explicit currency.',
+      'Các tứ phân vị giá cần dùng cùng một loại tiền tệ được xác định rõ.',
       metricKeys,
     );
   return chart({
     chart_id: 'price_distribution',
     intent: 'price_distribution',
     chart_type: 'bar',
-    title: 'Price per area distribution',
-    subtitle: 'Validated quartile summary',
-    purpose: 'Compare validated price-per-area quartiles without recalculating them.',
-    x_axis: { key: 'label', label: 'Statistic', value_type: 'category' },
-    y_axis: { label: 'Price per m²', unit: 'currency_per_sqm', min: 0, max: null },
-    series: [series('value', 'Price per m²', null, 'currency_per_sqm', currencies[0])],
+    title: 'Phân bố giá trên mỗi m²',
+    subtitle: 'Tóm tắt các tứ phân vị đã xác thực',
+    purpose: 'So sánh các tứ phân vị giá trên mỗi m² đã xác thực mà không tính lại.',
+    x_axis: { key: 'label', label: 'Thống kê', value_type: 'category' },
+    y_axis: { label: 'Giá mỗi m²', unit: 'currency_per_sqm', min: 0, max: null },
+    series: [series('value', 'Giá mỗi m²', null, 'currency_per_sqm', currencies[0])],
     data: values.map(({ metric, value }) => ({ label: metric.label, value })),
     provenance: provenance(
       values.map(({ metricKey, value, index }) => ({
@@ -363,7 +363,7 @@ function buildPeerComparison(inputs: Inputs): ChartSpec | ChartUnavailable {
     return unavailable(
       'peer_comparison',
       'INSUFFICIENT_PEERS',
-      'No validated peer-comparison artifact is available.',
+      'Chưa có dữ liệu so sánh nhóm tương đồng đã được xác thực.',
       [metricKey],
     );
   const items = inputs.comparison.payload.items.flatMap((item, itemIndex) => {
@@ -380,14 +380,14 @@ function buildPeerComparison(inputs: Inputs): ChartSpec | ChartUnavailable {
     return unavailable(
       'peer_comparison',
       'INSUFFICIENT_PEERS',
-      'No unit has a valid target value and a validated peer median.',
+      'Không có căn nào có giá trị mục tiêu hợp lệ và trung vị nhóm tương đồng đã được xác thực.',
       [metricKey],
     );
   if (items.length > MAX_COMPARISON_CATEGORIES)
     return unavailable(
       'peer_comparison',
       'TOO_MANY_CATEGORIES',
-      `Peer comparison is limited to ${MAX_COMPARISON_CATEGORIES} units.`,
+      `Biểu đồ so sánh nhóm tương đồng chỉ hiển thị tối đa ${MAX_COMPARISON_CATEGORIES} căn.`,
       [metricKey],
     );
   const currencies = [...new Set(items.map(({ item }) => item.currency))].filter(Boolean);
@@ -395,7 +395,7 @@ function buildPeerComparison(inputs: Inputs): ChartSpec | ChartUnavailable {
     return unavailable(
       'peer_comparison',
       'INCOMPARABLE_CURRENCY',
-      'Peer observations must share one currency to use a common chart axis.',
+      'Các căn trong nhóm tương đồng cần dùng cùng một loại tiền tệ để so sánh trên cùng trục biểu đồ.',
       [metricKey],
     );
   const inputIds = [inputs.calculation.artifact_id, inputs.comparison.artifact_id].sort();
@@ -419,14 +419,14 @@ function buildPeerComparison(inputs: Inputs): ChartSpec | ChartUnavailable {
     chart_id: 'peer_comparison',
     intent: 'peer_comparison',
     chart_type: 'bar',
-    title: 'Unit price per area vs peer median',
+    title: 'Đơn giá mỗi m² so với trung vị nhóm tương đồng',
     subtitle: null,
-    purpose: 'Compare each compatible unit observation with its validated cohort median.',
-    x_axis: { key: 'unit', label: 'Unit', value_type: 'category' },
-    y_axis: { label: 'Price per m²', unit: 'currency_per_sqm', min: 0, max: null },
+    purpose: 'So sánh giá trị hợp lệ của từng căn với trung vị đã xác thực của nhóm tương đồng.',
+    x_axis: { key: 'unit', label: 'Căn', value_type: 'category' },
+    y_axis: { label: 'Giá mỗi m²', unit: 'currency_per_sqm', min: 0, max: null },
     series: [
-      series('subject', 'Subject unit', metricKey, 'currency_per_sqm', currencies[0]),
-      series('peer_median', 'Peer median', metricKey, 'currency_per_sqm', currencies[0]),
+      series('subject', 'Căn đang xem', metricKey, 'currency_per_sqm', currencies[0]),
+      series('peer_median', 'Trung vị nhóm tương đồng', metricKey, 'currency_per_sqm', currencies[0]),
     ],
     data: items.map(({ item, target, peer }) => ({
       unit: item.unit_external_id,
@@ -434,7 +434,7 @@ function buildPeerComparison(inputs: Inputs): ChartSpec | ChartUnavailable {
       peer_median: peer,
     })),
     provenance: { input_artifact_ids: inputIds, metric_keys: [metricKey], bindings },
-    limitations: ['Visual comparison is descriptive and does not imply causation.'],
+    limitations: ['Biểu đồ chỉ mô tả số liệu, không khẳng định quan hệ nhân quả.'],
   });
 }
 

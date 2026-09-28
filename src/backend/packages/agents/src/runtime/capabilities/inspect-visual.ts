@@ -55,7 +55,7 @@ export async function inspectVisual(
     ...metrics.map((ref) => ({ type: 'metric', ref })),
   ]);
   const measure = chart.provenance.metric_keys.slice(0, 6).join(', ');
-  const purpose = boundedCanonicalText(chart.purpose, 'Validated chart comparison is available.');
+  const purpose = boundedCanonicalText(chart.purpose, 'Đã có biểu đồ so sánh được xác thực.');
   return capabilityResult(
     'inspect_visual',
     'available',
@@ -64,14 +64,14 @@ export async function inspectVisual(
         'inspect_visual-title',
         'metric',
         'available',
-        boundedCanonicalText(chart.title, 'Validated chart title is available.'),
+        boundedCanonicalText(chart.title, 'Đã có tiêu đề biểu đồ được xác thực.'),
         grounding,
       ),
       observation(
         'inspect_visual-measure',
         'metric',
         'available',
-        measure ? `Chart measure: ${measure}.` : 'Validated chart measure is available.',
+        measure ? `Chỉ số biểu đồ: ${measure}.` : 'Đã có chỉ số biểu đồ được xác thực.',
         grounding,
         { display_value: chart.y_axis?.unit ?? null },
       ),
@@ -79,14 +79,14 @@ export async function inspectVisual(
         'inspect_visual-comparison',
         'decision',
         'available',
-        `Chart intent: ${chart.intent}. ${purpose}`,
+        `Mục đích biểu đồ: ${chart.intent}. ${purpose}`,
         grounding,
       ),
       observation(
         'inspect_visual-provenance',
         'status',
         'available',
-        `Chart provenance includes ${chart.provenance.bindings.length} validated binding(s).`,
+        `Nguồn biểu đồ có ${chart.provenance.bindings.length} liên kết đã xác thực.`,
         grounding,
       ),
     ],

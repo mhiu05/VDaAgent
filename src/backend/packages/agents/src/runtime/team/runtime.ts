@@ -30,6 +30,21 @@ export type TeamRuntimeOptions = {
 };
 type Frame = { key: string; agentKey: string; ancestors: string[]; depth: number };
 
+const agentLabels: Record<AgentDefinition['id'], string> = {
+  coordinator: 'Điều phối viên',
+  data: 'Tác nhân dữ liệu',
+  comparison: 'Tác nhân so sánh',
+  chart: 'Tác nhân biểu đồ',
+  analyst: 'Tác nhân phân tích',
+  insight: 'Tác nhân nhận định',
+  report: 'Tác nhân báo cáo',
+  reviewer: 'Người rà soát',
+};
+
+function displayAgentName(agent: RegisteredAgent | undefined) {
+  return agent ? agentLabels[agent.definition.id] ?? 'tác nhân' : 'tác nhân';
+}
+
 /** Durable message transport. Requests/results share a correlation id and invocation parent. */
 export class AgentMessageBus {
   constructor(private readonly emit: TeamRuntimeOptions['emit']) {}
@@ -81,7 +96,7 @@ export class TeamRuntime {
     const frame: Frame = { key: stepKey, agentKey, depth, ancestors: parent ? [...parent.ancestors, parent.agentKey] : [] };
     const base = { kind: 'invocation' as const, step_key: stepKey, parent_step_key: parent?.key, agent_key: agentKey };
     await this.options.authorize();
-    await this.options.emit({ ...base, status: 'running', summary: `Preparing ${agent.definition.name}` });
+    await this.options.emit({ ...base, status: 'running', summary: `Đang chuẩn bị` });
     const started = Date.now();
     let pendingChildren = 0;
     const toolCalls = new Map<string, number>();
@@ -109,7 +124,7 @@ export class TeamRuntime {
           if (delegationId > (this.options.maxDelegations ?? 30)) throw new ToolRuntimeError('AGENT_DELEGATION_LIMIT');
           pendingChildren++;
           await this.bus.send({ key: childStepKey, from: frame, to: target, summary: request });
-          await this.options.emit({ ...base, status: 'waiting', summary: `Waiting for ${this.agents.get(target)?.definition.name ?? target}` });
+          await this.options.emit({ ...base, status: 'waiting', summary: `Đang chờ ${displayAgentName(this.agents.get(target))}` });
           // Agent calls enter the same validated, authorized tool loop as other tools.
           const name = `agent.${target}.${delegationId}`;
           this.options.tools.register({ name, description: request.slice(0, 2000), inputSchema: z.unknown(), outputSchema: ToolResultSchema,
@@ -125,7 +140,7 @@ export class TeamRuntime {
             return child;
           } finally {
             pendingChildren--;
-            if (!signal.aborted && pendingChildren === 0) await this.options.emit({ ...base, status: 'running', summary: `${agent.definition.name} continuing` });
+            if (!signal.aborted && pendingChildren === 0) await this.options.emit({ ...base, status: 'running', summary: `Đang tiếp tục` });
           }
         },
       }), signal));
@@ -136,7 +151,7 @@ export class TeamRuntime {
       return result;
     } catch (error) {
       try {
-        await this.options.emit({ ...base, status: signal.aborted ? 'cancelled' : 'failed', summary: `${agent.definition.name} stopped`,
+        await this.options.emit({ ...base, status: signal.aborted ? 'cancelled' : 'failed', summary: `Đã dừng`,
           duration_ms: Date.now() - started, error_code: error instanceof ToolRuntimeError ? error.code : 'AGENT_EXECUTION_FAILED' });
       } catch { /* Cancellation or reclaimed lease wins over obsolete runtime writes. */ }
       throw error;

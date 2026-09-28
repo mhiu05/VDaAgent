@@ -97,6 +97,19 @@ describe('definition-driven team runtime', () => {
 });
 
 describe('tool runtime and centralized MCP gateway', () => {
+  it('preserves the original database cause even if persisting failure also fails', async () => {
+    const databaseError = Object.assign(new Error('private SQL detail'), { code: '23514', constraint_name: 'artifact_refs_check' });
+    const registry = new ToolRegistry();
+    registry.register({ name: 'data.fail', description: 'Read data', inputSchema: z.object({}), outputSchema: ToolResultSchema,
+      allowedAgents: ['data'], timeoutMs: 1000, riskLevel: 'read', executionMode: 'internal',
+      execute: async () => { throw databaseError; }, normalizeResult: value => value });
+    const context = { ...toolContext(), emit: vi.fn(async (event: Parameters<ToolExecutionContext['emit']>[0]) => {
+      if (event.status === 'failed') throw new Error('LEASE_LOST');
+    }) };
+    await expect(registry.execute('data.fail', {}, context)).rejects.toMatchObject({ code: 'TOOL_EXECUTION_FAILED', cause: databaseError });
+    expect(context.emit).toHaveBeenLastCalledWith(expect.objectContaining({ errorCode: 'TOOL_EXECUTION_FAILED' }));
+    expect(JSON.stringify(context.emit.mock.calls)).not.toContain('private SQL');
+  });
   it('enforces schemas, agent permissions, result compaction and finite call budgets', async () => {
     const registry = new ToolRegistry({ maxCalls: 1, maxResultBytes: 500 });
     const execute = vi.fn(async () => ({ count: 120000, raw: 'x'.repeat(10000) }));

@@ -12,6 +12,7 @@ export {
 } from '@vda/domain';
 export {
   createProvider,
+  createNarrativeProviders,
   GeminiProvider,
   OpenAIProvider,
   FallbackNarrativeProvider,

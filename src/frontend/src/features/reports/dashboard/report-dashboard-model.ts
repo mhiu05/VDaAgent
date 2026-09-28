@@ -10,6 +10,8 @@ import type {
   VisualEvidencePayload,
 } from '@vda/contracts';
 import { formatChartValue, formatMetricValue, formatSeriesValue } from '../../../lib/chart-format';
+import { decisionReasonLabel, workflowStatusLabel } from '../../../lib/format/status-label';
+import { localizeLegacyLimitation, localizeLegacyMetricStatement, localizeLegacyReportSectionTitle, localizeLegacyReportTitle, localizedMetricLabel } from '../../../lib/format/analysis-copy';
 
 type Scope = { project_external_id: string; zone_external_id: string | null };
 
@@ -83,6 +85,9 @@ export type ReportDashboardModel = {
   charts: ChartSpec[];
   drilldowns: DrillDown[];
   units: CalculatedUnit[];
+  metrics: ReportPayload['metrics'];
+  claims: ReportPayload['claims'];
+  calculationArtifactId: string;
   sections: ReportPayload['sections'];
 };
 
@@ -158,7 +163,7 @@ function chartKpis(
       const value = typeof raw === 'number' ? raw : null;
       return {
         id: `chart:${chart.chart_id}`,
-        label: chart.title,
+        label: localizedMetricLabel(series.metric_key ?? '', chart.title),
         value: formatSeriesValue(value, series),
         metricKey: series.metric_key,
         available: value !== null,
@@ -171,7 +176,7 @@ function chartKpis(
 function reportMetricKpis(metrics: Metric[], fallbackArtifactId: string): DashboardKpi[] {
   return metrics.slice(0, 6).map((metric) => ({
     id: `metric:${metric.key}`,
-    label: metric.label,
+    label: localizedMetricLabel(metric.key, metric.label),
     value: formatMetricValue(metric),
     metricKey: metric.key,
     available: metric.status === 'available' && metric.value !== null,
@@ -230,10 +235,13 @@ export function buildReportDashboardModel({
   const mode = decisionMode(decision);
   const scope = scopeFrom(payload, decision);
   const visualModel = orderedVisuals(visualEvidence, decision);
+  const metricLabels = new Map<string, string>(payload.metrics.map(({ key, label }) => [key, localizedMetricLabel(key, label)]));
+  const metricUnits = new Map<string, string>(payload.metrics.map(({ key, unit }) => [key, unit]));
+  const metricName = (key: string) => metricLabels.get(key) ?? 'Chỉ số tồn kho';
   const kpis = pack
     ? pack.decision_brief.kpi_cards.slice(0, 6).map((card) => ({
         id: card.kpi_id,
-        label: card.label,
+        label: localizedMetricLabel(card.metric_key, card.label),
         value: formatChartValue(
           numberValue(card.value),
           card.unit === 'currency_per_sqm'
@@ -255,7 +263,7 @@ export function buildReportDashboardModel({
     ? pack.priority_entities.slice(0, 6).map((entity) => ({
         id: entity.priority_entity_id,
         label: entity.entity.label,
-        summary: entity.reason_codes.join(' · '),
+        summary: entity.reason_codes.map((reason) => decisionReasonLabel(reason, metricName)).join(' · '),
         tier: entity.tier,
         metricKey: entity.metric_refs[0]?.metric_key ?? null,
         evidenceArtifactId: entity.evidence_refs[0]!.artifact_id,
@@ -268,15 +276,15 @@ export function buildReportDashboardModel({
     ? pack.decision_brief.business_implications.slice(0, 3).map((item) => ({
         id: item.implication_id,
         label: item.text,
-        summary: `${item.support_level} support`,
+        summary: `Mức hỗ trợ: ${item.support_level === 'high' ? 'cao' : item.support_level === 'medium' ? 'trung bình' : item.support_level === 'limited' ? 'hạn chế' : 'thăm dò'}`,
         metricKey: null,
         evidenceArtifactId: item.evidence_refs[0]!.artifact_id,
         limitations: item.limitations,
       }))
     : payload.claims.slice(0, 3).map((claim) => ({
         id: claim.claim_id,
-        label: claim.text,
-        summary: claim.metric_key,
+        label: localizeLegacyMetricStatement(claim.text, claim.metric_key, metricLabels, metricUnits),
+        summary: metricName(claim.metric_key),
         metricKey: claim.metric_key,
         evidenceArtifactId: claim.evidence_artifact_id,
         limitations: [],
@@ -309,7 +317,7 @@ export function buildReportDashboardModel({
   return {
     mode,
     header: {
-      title: payload.title,
+      title: localizeLegacyReportTitle(payload.title),
       summary: pack?.decision_brief.headline ?? payload.summary,
       dataAsOf,
       scope,
@@ -323,7 +331,14 @@ export function buildReportDashboardModel({
     actions,
     drilldowns: pack?.drilldowns ?? [],
     units: payload.units,
-    sections: payload.sections,
+    metrics: payload.metrics,
+    claims: payload.claims,
+    calculationArtifactId: payload.calculation_artifact_id,
+    sections: payload.sections.map((section) => ({
+      ...section,
+      title: localizeLegacyReportSectionTitle(section.key, section.title),
+      limitations: section.limitations.map(localizeLegacyLimitation),
+    })),
     ...visualModel,
   };
 }
@@ -362,9 +377,9 @@ function filtersUnits(
   return {
     units: requiresUnavailableDimension ? [] : filtered,
     note: requiresUnavailableDimension
-      ? 'This published unit detail does not expose the requested dimension, so no local filter is applied.'
+      ? 'Chi tiết căn đã phát hành không có chiều dữ liệu được yêu cầu nên không áp dụng bộ lọc tại đây.'
       : applied.length || entity
-        ? 'This is a local presentation filter over the already-published canonical unit detail; it does not run new analysis.'
+        ? 'Đây là bộ lọc hiển thị trên chi tiết căn chuẩn đã phát hành; hệ thống không chạy phân tích mới.'
         : null,
   };
 }
@@ -394,14 +409,14 @@ function detailForDrilldown(
   if (drilldown.kind === 'open_chart')
     return {
       ...base,
-      summary: 'Focused view of the validated chart and its canonical provenance.',
+      summary: 'Xem biểu đồ đã xác thực cùng nguồn dữ liệu gốc.',
       chart: model.charts.find((chart) => chart.chart_id === drilldown.chart_id) ?? base.chart,
       evidenceArtifactId: drilldown.chart_pack_artifact_id,
     };
   if (drilldown.kind === 'open_evidence')
     return {
       ...base,
-      summary: 'Inspect the same-run canonical evidence and stated limitations.',
+      summary: 'Xem bằng chứng gốc của cùng lượt phân tích và các giới hạn đã nêu.',
       evidenceArtifactId: drilldown.evidence_refs[0]?.artifact_id ?? base.evidenceArtifactId,
     };
   if (drilldown.kind === 'open_report_section') {
@@ -409,8 +424,8 @@ function detailForDrilldown(
     return {
       ...base,
       summary: section
-        ? `${section.title} is ${section.status}.`
-        : 'The published report section is unavailable.',
+        ? `${section.title}: ${workflowStatusLabel(section.status)}.`
+        : 'Phần báo cáo đã phát hành hiện không khả dụng.',
       chart:
         model.charts.find((chart) =>
           section?.metric_keys.some((metricKey) =>
@@ -427,7 +442,7 @@ function detailForDrilldown(
     const filtered = filtersUnits(model.units, drilldown.filters, entity ?? null);
     return {
       ...base,
-      summary: 'Inspect the published entity detail and the evidence supporting its priority.',
+      summary: 'Xem chi tiết đối tượng đã phát hành và bằng chứng làm căn cứ ưu tiên.',
       units: filtered.units,
       totalUnits: filtered.units.length,
       localFilterNote: filtered.note,
@@ -440,7 +455,7 @@ function detailForDrilldown(
     ]);
     return {
       ...base,
-      summary: 'Compare this segment within the already-published run and scope.',
+      summary: 'So sánh nhóm này trong phạm vi và lượt phân tích đã phát hành.',
       units: filtered.units,
       totalUnits: filtered.units.length,
       localFilterNote: filtered.note,
@@ -449,7 +464,7 @@ function detailForDrilldown(
   return {
     ...base,
     summary:
-      'Changing to this scope requires a new canonical analysis; it is not a local dashboard filter.',
+      'Thay đổi phạm vi này cần chạy lượt phân tích mới; không thể áp dụng như bộ lọc trên bảng điều khiển.',
     scope: drilldown.target_scope,
     requiresNewRun: true,
   };
@@ -464,7 +479,7 @@ export function resolveReportDashboardDetail(
     if (!kpi) return null;
     return {
       title: kpi.label,
-      summary: 'This value is displayed from the published canonical report data.',
+      summary: 'Giá trị này lấy từ dữ liệu báo cáo chuẩn đã phát hành.',
       scope: model.header.scope,
       value: kpi.value,
       chart: chartForMetric(model, kpi.metricKey),
@@ -497,7 +512,7 @@ export function resolveReportDashboardDetail(
     const insight = model.insights.find((candidate) => candidate.id === selection.id);
     if (!insight) return null;
     return {
-      title: 'Evidence-backed insight',
+      title: 'Nhận định có bằng chứng',
       summary: insight.label,
       scope: model.header.scope,
       value: null,

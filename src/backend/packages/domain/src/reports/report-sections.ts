@@ -33,21 +33,21 @@ export function reportSections(
   return [
     section(
       'executive_summary',
-      'Executive Summary',
+      'Tóm tắt điều hành',
       insight.payload.claims.map((claim) => claim.metric_key),
       [insight.artifact_id],
       insight.payload.claims.length ? 'available' : 'unavailable',
     ),
     section(
       'inventory_overview',
-      'Inventory Overview',
+      'Tổng quan tồn kho',
       ['total_inventory', 'available_inventory', 'available_inventory_rate'],
       [calculation.artifact_id, chart.artifact_id],
       metricAvailable('total_inventory') ? 'available' : 'unavailable',
     ),
     section(
       'trend',
-      'Trend',
+      'Xu hướng',
       ['inventory_change_7d', 'inventory_change_30d', 'inventory_change_90d'],
       [calculation.artifact_id, chart.artifact_id],
       calculation.payload.period_comparisons.some((item) => item.abstention_reason === null)
@@ -56,7 +56,7 @@ export function reportSections(
     ),
     section(
       'aging_analysis',
-      'Aging Analysis',
+      'Thời gian tồn kho',
       ['median_inventory_age_days', 'p75_inventory_age_days', 'slow_moving_rate'],
       [calculation.artifact_id, chart.artifact_id],
       metricAvailable('slow_moving_rate')
@@ -68,7 +68,7 @@ export function reportSections(
     ),
     section(
       'price_analysis',
-      'Price Analysis',
+      'Phân tích giá',
       ['median_price', 'median_price_per_area', 'price_per_area_iqr'],
       [calculation.artifact_id, chart.artifact_id],
       calculation.payload.metrics.some(
@@ -79,14 +79,14 @@ export function reportSections(
     ),
     section(
       'segment_analysis',
-      'Segment Analysis',
+      'Phân tích phân khúc',
       ['available_inventory', 'slow_moving_rate'],
       [calculation.artifact_id, chart.artifact_id],
       calculation.payload.breakdowns.length ? 'available' : 'unavailable',
     ),
     section(
       'comparison',
-      'Comparison',
+      'So sánh',
       ['median_price_per_area', 'available_inventory'],
       [comparison.artifact_id, chart.artifact_id],
       comparison.payload.items.some((item) => item.abstention_reason === null) ||
@@ -97,7 +97,7 @@ export function reportSections(
     ),
     section(
       'data_quality_limitations',
-      'Data Quality & Limitations',
+      'Chất lượng dữ liệu và giới hạn',
       [
         'missing_inventory_age_rate',
         'missing_price_rate',
@@ -110,7 +110,7 @@ export function reportSections(
     ),
     section(
       'evidence_lineage',
-      'Evidence / Lineage',
+      'Nguồn bằng chứng',
       [],
       [calculation.artifact_id, chart.artifact_id, comparison.artifact_id, insight.artifact_id],
     ),

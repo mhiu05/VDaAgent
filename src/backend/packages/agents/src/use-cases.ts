@@ -18,7 +18,7 @@ const slowMovingInventory = UseCaseDefinitionSchema.parse({
   contract_version: USE_CASE_CONTRACT_VERSION,
   key: 'slow_moving_inventory',
   version: 'slow-moving-inventory-v2',
-  display_name: 'Slow-moving inventory',
+  display_name: 'Tồn kho luân chuyển chậm',
   scope_policy: { project_required: true, zone_optional: true },
   comparison_windows_days: [7, 30, 90],
   required_fields: [

@@ -1,16 +1,17 @@
 import { useLayoutEffect } from 'react';
 import { CircleAlert, RefreshCw } from 'lucide-react';
-import type { Catalog, WorkspaceActionV1 } from '@vda/contracts';
+import type { AgentKey, Catalog, WorkspaceActionV1 } from '@vda/contracts';
 import { ActivityTimeline } from '../../agent-chat/activity-timeline';
 import { Composer } from '../../agent-chat/composer';
 import { MessageThread } from '../../agent-chat/message-thread';
+import { agentSuggestions } from '../../agent-chat/agent-suggestions';
 import type { useAgentChatController } from '../../agent-chat/hooks/use-agent-chat-controller';
 import { InlineRunOutput } from '../../analysis/components/inline-run-output';
 import { DecisionResultSummary } from '../../analysis/components/decision-result-summary';
 import { ReportArtifactRow } from '../../reports/components/report-artifact-row';
 import { WorkspaceHeader } from './workspace-header';
 import { RuntimeConversation } from './runtime-conversation';
-import { ThreadContextControls, MessageContextControls } from './thread-context-controls';
+import { ExecutionProgress } from './execution-progress';
 import { useTimelineScroll } from '../hooks/use-timeline-scroll';
 import styles from './grok-workspace.module.css';
 
@@ -19,7 +20,6 @@ type Controller = ReturnType<typeof useAgentChatController>;
 export function WorkspaceConversation({
   controller,
   catalog,
-  organizationName,
   directRun,
   onWorkspaceAction,
   onOpenRail,
@@ -34,6 +34,10 @@ export function WorkspaceConversation({
   onOpenInspector: () => void;
 }) {
   const chat = controller;
+  const recipient = chat.agentTarget ?? 'coordinator';
+  const selectedAgent = chat.threadWorkspace.agents.find((agent) => agent.id === recipient);
+  const showSuggestions = chat.canWrite && !chat.busy && !chat.threadWorkspace.saving && !chat.scheduledReadOnly
+    && !chat.currentRunDetail && !chat.agentExecution && !chat.acceptedJobId && !chat.loadingConversations;
   const timelineKey = [
     chat.selectedConversationId,
     ...chat.messages.map((message) => `${message.message_id}:${message.updated_at}`),
@@ -56,17 +60,16 @@ export function WorkspaceConversation({
       conversation={chat.selectedConversation}
       run={chat.currentRunDetail}
       job={chat.agentExecution}
-      organizationName={organizationName}
       canCancel={chat.canWrite && !chat.scheduledReadOnly}
       cancelling={chat.cancelling}
       onCancel={() => void chat.cancelRun()}
       onCancelJob={() => void chat.cancelJob()}
       onOpenRail={onOpenRail}
       onOpenInspector={onOpenInspector}
-    ><ThreadContextControls chat={chat} /></WorkspaceHeader>
+    />
     <div className={styles.timeline} ref={timelineElement} onScroll={onScroll}>
       {chat.readState === 'stale' && <p className={styles.stale} role="status">Kết nối tạm gián đoạn. Đang thử cập nhật lượt chạy đã chọn.</p>}
-      {chat.runtime.connection === 'reconnecting' && <p className={styles.stale} role="status">Reconnecting to saved execution. Agents continue working.</p>}
+      {chat.runtime.connection === 'reconnecting' && <p className={styles.stale} role="status">Đang kết nối lại với lượt phân tích đã lưu. Các tác nhân vẫn tiếp tục xử lý.</p>}
       {chat.threadWorkspace.error && <p className={styles.stale} role="alert">{chat.threadWorkspace.error}</p>}
       {chat.scheduledReadOnly && chat.currentRunDetail && <p className={styles.stale} role="status">
         {chat.currentRunDetail.run.entrypoint === 'scheduled'
@@ -77,22 +80,21 @@ export function WorkspaceConversation({
         {chat.retryTurn ? <button type="button" className="text-button" disabled={chat.busy} onClick={() => void chat.submit()}><RefreshCw size={14} /> Thử lại yêu cầu gốc</button>
           : <button type="button" className="text-button" onClick={() => chat.setError('')}>Đóng</button>}
       </div>}
-      {chat.currentRunDetail && <div className={styles.runSummary} aria-label="Tiến độ lượt chạy" role="status">
-        <span className={styles.runtimeDot} data-status={chat.currentRunDetail.run.status === 'succeeded' ? 'completed' : chat.currentRunDetail.run.status} />
-        <strong>{chat.currentRunDetail.run.status}</strong>
-        <span>{chat.currentRunDetail.tasks.filter((task) => task.status === 'succeeded').length}/{chat.currentRunDetail.tasks.length} steps complete</span>
-        <button type="button" className="text-button" onClick={onOpenInspector}>Run details</button>
-      </div>}
-      {!chat.runtime.snapshot.records.length && <ActivityTimeline events={chat.activity.slice(-1)} />}
+      <ExecutionProgress run={chat.currentRunDetail} job={chat.agentExecution} accepted={Boolean(chat.acceptedJobId)}
+        records={chat.runtime.snapshot.records} onDetails={onOpenInspector} />
+      {!chat.currentRunDetail && !chat.agentExecution && !chat.acceptedJobId && !chat.runtime.snapshot.records.length && <ActivityTimeline events={chat.activity.slice(-1)} />}
       <MessageThread
         messages={chat.messages}
-        loading={chat.loadingMessages}
+        execution={chat.agentExecution}
+        loading={chat.loadingMessages || Boolean(chat.selectedConversationId && chat.loadedConversationId !== chat.selectedConversationId)}
         hasEarlier={chat.messageCursor !== null}
         onLoadEarlier={() => { if (chat.selectedConversationId && chat.messageCursor) { beforeEarlier(); void chat.loadMessages(chat.selectedConversationId, chat.messageCursor, true); } }}
         onOpenRun={(id, messageId) => { chat.selectRun(id, messageId); scrollToStart(); }}
         onOpenReport={(id) => chat.onReport?.(id)}
         onOpenArtifact={(runId, id) => { chat.selectRun(runId); void chat.openEvidence(id, runId); }}
         onWorkspaceAction={onWorkspaceAction}
+        suggestions={showSuggestions && selectedAgent ? agentSuggestions[selectedAgent.id as AgentKey] : undefined}
+        onSuggestion={(question) => { afterOwnSubmission(); void chat.submitPrompt(question, chat.agentTarget); }}
         onReply={chat.canWrite && !chat.scheduledReadOnly ? (messageId) => {
           chat.setReplyToMessageId(messageId);
           timelineElement.current?.parentElement?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
@@ -127,7 +129,6 @@ export function WorkspaceConversation({
     </div>
     {hasNewUpdates && <button type="button" className={styles.newUpdates} onClick={scrollToLatest}>Có cập nhật mới</button>}
     <div className={styles.composer}>
-      <MessageContextControls chat={chat} />
       <Composer
         compact
         agents={chat.threadWorkspace.agents}

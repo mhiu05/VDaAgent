@@ -102,7 +102,7 @@ describe('fetch SSE client', () => {
     ).resolves.toMatchObject({ assistant_status: 'completed' });
     expect(seen).toEqual(['context_started']);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
+      '/api/v1/conversations/stream?org_id=10000000-0000-4000-8000-000000000001',
       expect.objectContaining({
         headers: expect.objectContaining({ 'Idempotency-Key': 'turn-stream' }),
       }),

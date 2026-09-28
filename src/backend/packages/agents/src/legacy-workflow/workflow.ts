@@ -103,9 +103,9 @@ export async function executeLease(
       source_refs: unique(refs?.sources ?? inputs.flatMap((a) => a.source_refs)),
       limitations: [
         LIMITATION,
-        'Missing available_since remains null; cohorts with fewer than three peers abstain.',
+        'Ngày bắt đầu khả dụng bị thiếu sẽ được giữ trống; nhóm có dưới ba căn đối chiếu sẽ không đưa ra kết quả so sánh.',
         ...(artifacts.get('query_result')?.snapshot_refs.length === 0
-          ? ['No snapshot exists at the selected date and scope; affected metrics remain null.']
+          ? ['Không có mốc dữ liệu trong ngày và phạm vi đã chọn; các chỉ số liên quan chưa có giá trị.']
           : []),
       ],
       payload,
@@ -254,7 +254,7 @@ export async function executeLease(
     await task('insight', 'succeeded');
     await task('validation', 'running');
     const reportPayload = {
-      title: `Inventory report · ${run.request.scope.zone_external_id ?? run.request.scope.project_external_id}`,
+      title: `Báo cáo tồn kho · ${run.request.scope.zone_external_id ?? run.request.scope.project_external_id}`,
       summary: insight.payload.summary,
       claims: insight.payload.claims,
       metrics: calculation.payload.metrics,

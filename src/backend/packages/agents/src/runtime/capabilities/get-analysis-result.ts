@@ -20,10 +20,10 @@ export async function getAnalysisResult(
         : 'unavailable';
   const text =
     state === 'available'
-      ? 'Analysis result is available.'
+      ? 'Kết quả phân tích đã sẵn sàng.'
       : state === 'pending'
-        ? 'Analysis is pending.'
-        : 'Analysis is unavailable.';
+        ? 'Phân tích đang xử lý.'
+        : 'Chưa có kết quả phân tích.';
   return capabilityResult(
     'get_analysis_result',
     state,

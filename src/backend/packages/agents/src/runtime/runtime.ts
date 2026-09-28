@@ -43,24 +43,24 @@ import { enqueueEligibleDurableTurn } from './admission';
 import { isArtifactSpecialist } from '../analysis-v1/team-workflow';
 
 const safeCopy: Record<AgentRuntimeErrorCode, string> = {
-  UNSUPPORTED_REQUEST: 'This request is not supported by the authorized analysis workspace.',
+  UNSUPPORTED_REQUEST: 'Yêu cầu này chưa thuộc các dạng phân tích tồn kho hiện được hỗ trợ.',
   UNSUPPORTED_CAUSAL_REQUEST:
-    'The authorized inventory snapshots cannot establish a causal explanation for this request.',
-  UNSUPPORTED_SCOPE: 'The selected scope is not supported by this analysis workspace.',
-  MISSING_CONTEXT: 'Choose a valid project and data date before continuing.',
-  NO_AUTHORIZED_RESULT: 'No authorized result is available in this conversation context.',
-  STALE_CONTEXT: 'The selected workspace context is stale. Refresh the result before continuing.',
+    'Dữ liệu tồn kho đã xác thực hiện chưa đủ để xác định nguyên nhân cho yêu cầu này.',
+  UNSUPPORTED_SCOPE: 'Phạm vi đã chọn hiện chưa được hỗ trợ trong phân tích tồn kho.',
+  MISSING_CONTEXT: 'Hãy chọn dự án hợp lệ và ngày dữ liệu trước khi tiếp tục.',
+  NO_AUTHORIZED_RESULT: 'Không có kết quả được cấp quyền trong ngữ cảnh hội thoại này.',
+  STALE_CONTEXT: 'Dữ liệu phân tích đang chọn đã cũ. Hãy làm mới kết quả trước khi tiếp tục.',
   PROVIDER_UNAVAILABLE:
-    'The assistant service is temporarily unavailable. Try the same request again.',
-  PROVIDER_TIMEOUT: 'The assistant request timed out. Try the same request again.',
+    'Dịch vụ trợ lý hiện tạm thời không khả dụng. Hãy thử lại yêu cầu.',
+  PROVIDER_TIMEOUT: 'Trợ lý mất quá nhiều thời gian để xử lý yêu cầu. Hãy thử lại.',
   PROVIDER_OUTPUT_INVALID:
-    'The assistant could not produce a safe response. Try the same request again.',
-  RUNTIME_LIMIT_EXCEEDED: 'This request exceeds the bounded assistant runtime limit.',
-  CAPABILITY_DENIED: 'The requested authorized workspace action is not available.',
-  CAPABILITY_UNAVAILABLE: 'An authorized result is not available for this request.',
-  CAPABILITY_OUTPUT_INVALID: 'An authorized result could not be validated for this request.',
-  GROUNDING_INVALID: 'Only a limited authorized reference response is available for this request.',
-  TURN_CANCELLED: 'The assistant request was cancelled.',
+    'Trợ lý chưa thể tạo câu trả lời đáng tin cậy. Hãy thử lại yêu cầu.',
+  RUNTIME_LIMIT_EXCEEDED: 'Yêu cầu vượt quá giới hạn xử lý hiện tại của trợ lý.',
+  CAPABILITY_DENIED: 'Tác vụ này hiện không được phép trong phạm vi phân tích đã chọn.',
+  CAPABILITY_UNAVAILABLE: 'Chưa có kết quả được cấp quyền cho yêu cầu này.',
+  CAPABILITY_OUTPUT_INVALID: 'Kết quả của yêu cầu này chưa vượt qua bước xác thực.',
+  GROUNDING_INVALID: 'Hiện chỉ có thể cung cấp câu trả lời tham khảo trong phạm vi dữ liệu được cấp quyền.',
+  TURN_CANCELLED: 'Yêu cầu phân tích đã được hủy.',
 };
 
 type RuntimeOptions = {
@@ -151,6 +151,15 @@ function deterministicPolicy(context: AuthorizedAgentContextV1): DeterministicOu
     };
   if (isCausalQuestion(context.request.text))
     return { kind: 'terminal', code: 'UNSUPPORTED_CAUSAL_REQUEST' };
+  const firstTurnAnalysis = context.request.agent_target === 'reviewer' ||
+    ((context.request.agent_target === null || context.request.agent_target === 'coordinator') &&
+      /\b(analy[sz]e)\b|phân tích/iu.test(context.request.text));
+  if (context.allowed_run_ids.length === 0 && firstTurnAnalysis) {
+    if (context.actor.role === 'viewer') return { kind: 'terminal', code: 'CAPABILITY_DENIED' };
+    return { kind: 'plan', plan: oneStepPlan('create_analysis', {
+      step_id: 'create-analysis', capability_id: 'create_analysis', input: { focus: 'current_inventory' },
+    }, 'queued') };
+  }
   const reportMutation = context.request.report_intent === 'new' || context.request.report_intent === 'update' ||
     ((context.request.agent_target === 'report' || /\breport\b|báo cáo/iu.test(context.request.text)) &&
     /\b(create|generate|new|separate|another|edit|update|fix|revise)\b|tạo|sửa|cập nhật/iu.test(context.request.text));
@@ -602,7 +611,7 @@ export class AgentRuntime {
         code === 'TURN_CANCELLED' ? 'cancelled' : 'failed';
       activity.emit('error', 'safe_error', { error_code: code });
       return this.finalize(userId, context, status, code, retryable(error), true, lease,
-        code === 'MISSING_CONTEXT' && resolveReportIntent(input) === 'update' ? 'Select the report you want to update.' : undefined);
+        code === 'MISSING_CONTEXT' && resolveReportIntent(input) === 'update' ? 'Chọn báo cáo cần cập nhật.' : undefined);
     }
   }
 }

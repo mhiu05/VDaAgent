@@ -12,16 +12,16 @@ export type StageContext = {
 };
 
 const stageMessageContent: Record<AgentKey, string> = {
-  coordinator: 'Coordinator Agent persisted the registered use-case decision and authorized scope.',
-  data: 'Data Agent persisted the canonical deterministic analysis pack.',
-  comparison: 'Comparison Agent persisted the validated comparison pack.',
-  chart: 'Chart Agent persisted the validated chart pack.',
-  analyst: 'Analyst Agent persisted the evidence-bound analysis pack.',
-  insight: 'Insight Agent persisted the bounded insight pack.',
+  coordinator: 'Điều phối viên đã lưu quyết định phân tích và phạm vi được cấp quyền.',
+  data: 'Tác nhân dữ liệu đã lưu kết quả phân tích xác định.',
+  comparison: 'Tác nhân so sánh đã lưu kết quả so sánh đã xác thực.',
+  chart: 'Tác nhân biểu đồ đã lưu biểu đồ đã xác thực.',
+  analyst: 'Tác nhân phân tích đã lưu kết quả gắn với bằng chứng.',
+  insight: 'Tác nhân nhận định đã lưu các nhận định có căn cứ.',
   report:
-    'Report Agent persisted a reviewable draft checkpoint. Authorized roles can inspect its status.',
+    'Tác nhân báo cáo đã lưu bản nháp để rà soát. Người có quyền có thể xem trạng thái.',
   reviewer:
-    'Reviewer Agent recorded the bounded review checkpoint. Publication remains deterministically gated.',
+    'Người rà soát đã lưu kết quả kiểm tra. Báo cáo chỉ được phát hành khi đạt điều kiện xác thực.',
 };
 
 export function workflowFailureCode(error: unknown, fallback: string): string {

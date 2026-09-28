@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
   AgentPlanV1,
+  AgentKey,
   AgentTurnRequest,
   CapabilityResultV1,
   MessageStatus,
@@ -12,6 +13,7 @@ import { AgentRuntimeProviderError } from './runtime/providers/errors';
 import { type AgentRuntimeProvider } from './runtime/providers/contracts';
 import { type RuntimeContextBuilder } from './runtime/context/builder';
 import { runtimeLimits } from './runtime/limits';
+import { agentSuggestions } from '../../../../frontend/src/features/agent-chat/agent-suggestions';
 
 const ORG = '10000000-0000-4000-8000-000000000001';
 const CONVERSATION = '20000000-0000-4000-8000-000000000001';
@@ -175,6 +177,24 @@ function availableReadResult(): CapabilityResultV1 {
 }
 
 describe('AgentRuntime', () => {
+  it.each(Object.entries(agentSuggestions).flatMap(([agent, questions]) =>
+    questions.map((text) => [agent as AgentKey, text] as const)))
+  ('routes the first %s suggestion through one supported analysis turn: %s', async (agent, text) => {
+    const recipient = agent === 'coordinator' ? null : agent;
+    const request = { ...input(), agent_target: recipient, text };
+    const lease = { job: { job_id: RUN, org_id: ORG, created_by: context().actor.user_id }, worker_id: 'worker', fencing_token: 1 } as AgentJobLease;
+    const startAgentAnalysis = vi.fn(async () => ({ run_id: RUN }));
+    const plan = vi.fn();
+    const runtime = new AgentRuntime({ getAgentTurnExecution: async () => ({ input: request, idempotency_key: 'suggestion',
+      context: { org_id: ORG, conversation_id: CONVERSATION, user_message_id: USER_MESSAGE, assistant_message_id: ASSISTANT_MESSAGE, client_turn_id: request.client_turn_id } }),
+      startAgentAnalysis } as unknown as Repository, {
+      provider: { provider: 'gemini', model: 'fixture', plan, compose: vi.fn() } as AgentRuntimeProvider,
+      context_builder: { build: async () => ({ ...context(), request: { ...context().request, text, agent_target: recipient } }) } as unknown as RuntimeContextBuilder,
+    });
+    expect(await runtime.resumeDurableTurn(lease)).toMatchObject({ assistant_status: 'in_progress', run_id: RUN });
+    expect(startAgentAnalysis).toHaveBeenCalledOnce();
+    expect(plan).not.toHaveBeenCalled();
+  });
   it('queues specialist follow-ups durably without executing providers in the browser request', async () => {
     const enqueueAgentTurn = vi.fn().mockResolvedValue({ ...turn(), job: { job_id: RUN } });
     const plan = vi.fn();
@@ -202,7 +222,7 @@ describe('AgentRuntime', () => {
       context_builder: { build: async () => ({ ...context(), request: { ...context().request, text: question.text, agent_target: 'insight' } }) } as unknown as RuntimeContextBuilder,
     });
     expect(await runtime.resumeDurableTurn(lease)).toMatchObject({ assistant_status: 'completed', assistant_message_id: ASSISTANT_MESSAGE });
-    expect(finalizeAgentTurnExecution).toHaveBeenCalledWith(lease, expect.objectContaining({ status: 'completed', content: expect.stringContaining('causal explanation') }));
+    expect(finalizeAgentTurnExecution).toHaveBeenCalledWith(lease, expect.objectContaining({ status: 'completed', content: expect.stringContaining('xác định nguyên nhân') }));
     expect(startTurn).not.toHaveBeenCalled();
     expect(finalizeTurn).not.toHaveBeenCalled();
     expect(plan).not.toHaveBeenCalled();
@@ -221,6 +241,44 @@ describe('AgentRuntime', () => {
     expect(await runtime.resumeDurableTurn(lease)).toMatchObject({ assistant_status: 'in_progress', run_id: RUN, agent_turn_job_id: RUN });
     expect(startAgentAnalysis).toHaveBeenCalledWith(lease, { planned: true });
     expect(startAgentAnalysis).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'Rà soát bằng chứng và giới hạn của báo cáo tồn kho trong phạm vi đang chọn.',
+    'Rà soát tính nhất quán của chỉ số tồn chậm và dữ liệu tuổi tồn trong báo cáo cho phạm vi đang chọn.',
+  ])('starts a reviewable workflow for a first-turn Reviewer suggestion: %s', async (text) => {
+    const lease = { job: { job_id: RUN, org_id: ORG, created_by: context().actor.user_id }, worker_id: 'worker', fencing_token: 1 } as AgentJobLease;
+    const request = { ...input(), agent_target: 'reviewer' as const, text };
+    const startAgentAnalysis = vi.fn(async () => ({ run_id: RUN }));
+    const plan = vi.fn();
+    const runtime = new AgentRuntime({ getAgentTurnExecution: async () => ({ input: request, idempotency_key: 'reviewer',
+      context: { org_id: ORG, conversation_id: CONVERSATION, user_message_id: USER_MESSAGE, assistant_message_id: ASSISTANT_MESSAGE, client_turn_id: request.client_turn_id } }),
+      startAgentAnalysis } as unknown as Repository, {
+      provider: { provider: 'gemini', model: 'fixture', plan, compose: vi.fn() } as AgentRuntimeProvider,
+      context_builder: { build: async () => ({ ...context(), request: { ...context().request, text, agent_target: 'reviewer' } }) } as unknown as RuntimeContextBuilder,
+    });
+    expect(await runtime.resumeDurableTurn(lease)).toMatchObject({ assistant_status: 'in_progress', run_id: RUN });
+    expect(startAgentAnalysis).toHaveBeenCalledOnce();
+    expect(plan).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Phân tích hiện trạng tồn kho trong phạm vi đang chọn, nêu chỉ số chính, bằng chứng và giới hạn dữ liệu.',
+    'Phân tích phân bố căn đang mở bán theo phân khu trong phạm vi đang chọn và nêu điểm cần xem xét.',
+  ])('starts a first-turn Main Agent analysis without provider routing: %s', async (text) => {
+    const lease = { job: { job_id: RUN, org_id: ORG, created_by: context().actor.user_id }, worker_id: 'worker', fencing_token: 1 } as AgentJobLease;
+    const request = { ...input(), agent_target: null, text };
+    const startAgentAnalysis = vi.fn(async () => ({ run_id: RUN }));
+    const plan = vi.fn();
+    const runtime = new AgentRuntime({ getAgentTurnExecution: async () => ({ input: request, idempotency_key: 'main',
+      context: { org_id: ORG, conversation_id: CONVERSATION, user_message_id: USER_MESSAGE, assistant_message_id: ASSISTANT_MESSAGE, client_turn_id: request.client_turn_id } }),
+      startAgentAnalysis } as unknown as Repository, {
+      provider: { provider: 'gemini', model: 'fixture', plan, compose: vi.fn() } as AgentRuntimeProvider,
+      context_builder: { build: async () => ({ ...context(), request: { ...context().request, text, agent_target: null } }) } as unknown as RuntimeContextBuilder,
+    });
+    expect(await runtime.resumeDurableTurn(lease)).toMatchObject({ assistant_status: 'in_progress', run_id: RUN });
+    expect(startAgentAnalysis).toHaveBeenCalledOnce();
+    expect(plan).not.toHaveBeenCalled();
   });
 
   it('admits an eligible durable turn without starting a second message pair', async () => {

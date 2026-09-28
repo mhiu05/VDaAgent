@@ -26,7 +26,7 @@ export type AgentKey = z.infer<typeof AgentKeySchema>;
 export const resolveUseCase = (value: { use_case?: UseCaseKey | null }): UseCaseKey =>
   value.use_case ?? DEFAULT_USE_CASE;
 export const LIMITATION =
-  'Assumption / MVP provisional — dữ liệu tổng hợp và công thức synthetic, chưa được BA/Data Owner phê duyệt.';
+  'Giả định thử nghiệm cho MVP — dữ liệu tổng hợp và công thức mô phỏng, chưa được Bộ phận Phân tích nghiệp vụ hoặc Chủ sở hữu dữ liệu phê duyệt.';
 export const IdSchema = z.uuid();
 export const DateSchema = z.iso.date();
 export const TimestampSchema = z.iso.datetime({ offset: true });

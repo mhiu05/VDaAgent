@@ -2,7 +2,7 @@ import type { AgentActivityEventV1 } from '@vda/contracts';
 
 const labels: Record<AgentActivityEventV1['label'], string> = {
   understanding_context: 'Đang nắm phạm vi dữ liệu được phép truy cập',
-  inspecting_context: 'Đang rà soát ngữ cảnh workspace',
+  inspecting_context: 'Đang rà soát ngữ cảnh hội thoại',
   starting_analysis: 'Đang bắt đầu phân tích',
   analysis_queued: 'Phân tích đang chờ xử lý',
   analysis_progress: 'Tiến độ có trong màn hình chi tiết lượt chạy',

@@ -240,9 +240,6 @@ function WorkspaceShell({
     selectRun,
     openReport,
   );
-  const statusText = setup
-    ? `Mô hình: ${setup.llm_primary_provider === 'gemini' ? 'Gemini' : 'OpenAI'} · Dự phòng: ${setup.llm_fallback_provider === 'openai' ? 'OpenAI' : 'Gemini'}`
-    : 'Đang kiểm tra cấu hình mô hình';
   return (
     <AppShell
       section={routeMeta.section}
@@ -259,7 +256,6 @@ function WorkspaceShell({
           setError(errorMessage(cause));
         }
       }}
-      statusText={statusText}
       presentation={tab === 'analysis' && grokWorkspaceEnabled ? 'analytical' : 'standard'}
       pageHeader={false}
     >
@@ -284,14 +280,7 @@ function WorkspaceShell({
             </button>
           )}
         </header>
-        <div className="provisional-banner">
-          <ShieldCheck size={17} />
-          <span>
-              <strong>Giả định và giới hạn tạm thời</strong>
-              <span className="banner-detail"> · Công thức ngữ nghĩa chưa được chuyên viên nghiệp vụ hoặc chủ sở hữu dữ liệu phê duyệt.</span>
-          </span>
-          <span className="banner-version">mvp-inventory-v0.2</span>
-        </div>
+
         {error && (
           <div className="error-box" role="alert">
             <CircleAlert size={19} />

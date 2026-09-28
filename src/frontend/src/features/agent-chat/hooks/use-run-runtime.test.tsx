@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RuntimeActivityRecordSchema } from '@vda/contracts';
+import { RunSchema, RuntimeActivityRecordSchema, AgentExecutionEventSchema } from '@vda/contracts';
 import { getRunRuntime } from '../api/runtime';
 import { readSse } from '../../../lib/sse';
 import { useRunRuntime } from './use-run-runtime';
@@ -17,8 +17,9 @@ const record = RuntimeActivityRecordSchema.parse({ activity_id: '10000000-0000-4
 let root: Root;
 let host: HTMLDivElement;
 let current: ReturnType<typeof useRunRuntime>;
-function Harness({ active = true, streaming = true, runId = run }: { active?: boolean; streaming?: boolean; runId?: string }) {
-  current = useRunRuntime(org, runId, streaming, active);
+function Harness({ active = true, streaming = true, runId = run, onRunUpdate }: { active?: boolean; streaming?: boolean; runId?: string; onRunUpdate?: Parameters<typeof useRunRuntime>[4] }) {
+  const value = useRunRuntime(org, runId, streaming, active, onRunUpdate);
+  useEffect(() => { current = value; }, [value]);
   return null;
 }
 beforeEach(() => {
@@ -30,6 +31,42 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('durable runtime subscription', () => {
+  it('accepts newer terminal job metadata even when a reconnect page has no events', () => {
+    const job = { job_id: run, conversation_id: org, user_message_id: org, assistant_message_id: org,
+      status: 'running', run_id: run, error_code: null, created_at: record.created_at, updated_at: record.updated_at };
+    const event = AgentExecutionEventSchema.parse({ event_id: org, org_id: org, job_id: run, invocation_id: null,
+      sequence: 120, type: 'turn_claimed', data: {}, created_at: record.created_at });
+    const running = AgentTurnJobSnapshotSchema.parse({ job, invocations: [], events: [event] });
+    const failed = AgentTurnJobSnapshotSchema.parse({ job: { ...job, status: 'failed', updated_at: '2026-09-26T00:01:00Z' }, invocations: [], events: [] });
+    const merged = newerExecutionSnapshot(running, failed);
+    expect(merged.job.status).toBe('failed');
+    expect(merged.events).toEqual([event]);
+  });
+  it('consumes real SSE frames, updates run status, and stops on terminal without another read', async () => {
+    const terminalRun = RunSchema.parse({ run_id: run, org_id: org, created_by: org, status: 'failed',
+      request: { org_id: org, scope: { project_external_id: 'P', zone_external_id: null }, data_as_of: '2026-09-19', question: 'Analyze', conversation_id: null },
+      created_at: record.created_at, updated_at: record.updated_at, idempotency_key: 'terminal', request_hash: 'terminal',
+      entrypoint: 'interactive', occurrence_id: null, attempt: 1, fencing_token: 1, lease_until: null,
+      error_code: 'AGENT_WORKFLOW_FAILED', report_artifact_id: null, cancel_requested: false, workflow_version: 'agent-v1',
+    });
+    const runtime = { records: [{ ...record, status: 'failed' }], events: [], last_sequence: 2 };
+    vi.mocked(getRunRuntime).mockResolvedValueOnce({ records: [record], events: [], last_sequence: 1 })
+      .mockRejectedValue(new Error('Polling unavailable after terminal'));
+    vi.mocked(fetch).mockResolvedValue(new Response(
+      `event: snapshot\ndata: ${JSON.stringify({ run: terminalRun, runtime })}\n\nevent: terminal\ndata: {"status":"failed"}\n\n`,
+      { headers: { 'content-type': 'text/event-stream' } }));
+    const real = await vi.importActual<typeof import('../../../lib/sse')>('../../../lib/sse');
+    vi.mocked(readSse).mockImplementation(real.readSse);
+    const update = vi.fn();
+    await act(async () => root.render(<Harness onRunUpdate={update} />));
+    expect(update).toHaveBeenCalledWith(terminalRun);
+    expect(current.snapshot.records[0].status).toBe('failed');
+    expect(current.connection).toBe('idle');
+    expect(current.error).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(10000));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getRunRuntime).toHaveBeenCalledOnce();
+  });
   it('never replaces terminal SSE state with a delayed running poll response', () => {
     const completed = AgentTurnJobSnapshotSchema.parse({ job: {
       job_id: run, conversation_id: org, user_message_id: org, assistant_message_id: org,
@@ -38,7 +75,7 @@ describe('durable runtime subscription', () => {
     }, invocations: [], events: [] });
     const stale = { ...completed, job: { ...completed.job, status: 'running' as const, updated_at: '2026-09-26T00:00:30Z' } };
     expect(newerExecutionSnapshot(completed, stale)).toBe(completed);
-    expect(newerExecutionSnapshot(stale, completed)).toBe(completed);
+    expect(newerExecutionSnapshot(stale, completed)).toEqual(completed);
     expect(newerExecutionSnapshot(completed, { ...stale, job: { ...stale.job, job_id: record.activity_id } }).job.job_id).toBe(record.activity_id);
   });
   it('reconnects with the last persisted sequence and ignores replayed events', async () => {

@@ -3,16 +3,38 @@
 import { createElement } from 'react';
 import { ArrowUpRight, FileText, LoaderCircle, Reply } from 'lucide-react';
 import type { Message, WorkspaceActionV1 } from '@vda/contracts';
+import type { AgentTurnJobSnapshot } from './api/conversations';
 import { agentIdentity } from '../../components/agents/agent-identity';
+import { analysisErrorMessage } from '../../lib/format/analysis-error';
+import { artifactKindLabel, workflowStatusLabel } from '../../lib/format/status-label';
 import styles from './message-thread.module.css';
 
 export function senderLabel(senderAgent: Message['sender_agent']): string {
   return agentIdentity(senderAgent)?.label ?? 'VDaAgent';
 }
 
+const legacyAgentNamePrefixes: Partial<Record<NonNullable<Message['sender_agent']>, readonly string[]>> = {
+  coordinator: ['Tác nhân điều phối', 'Điều phối viên', 'Main Agent'],
+  data: ['Tác nhân dữ liệu', 'Data Agent'],
+  comparison: ['Tác nhân so sánh', 'Compare Agent'],
+  chart: ['Tác nhân biểu đồ', 'Chart Agent'],
+  analyst: ['Tác nhân phân tích', 'Analyst Agent'],
+  insight: ['Tác nhân nhận định', 'Insight Agent'],
+  report: ['Tác nhân báo cáo', 'Report Agent'],
+  reviewer: ['Người rà soát', 'Reviewer'],
+};
+
+function displayedMessageContent(message: Message): string {
+  if (message.role !== 'assistant' || !message.sender_agent) return message.content;
+  const label = agentIdentity(message.sender_agent)?.label;
+  const prefix = legacyAgentNamePrefixes[message.sender_agent]?.find((name) => message.content.startsWith(`${name} `));
+  return label && prefix ? label + message.content.slice(prefix.length) : message.content;
+}
+
 const errorLabels: Record<string, string> = {
   ALL_AGENT_PROVIDERS_FAILED: 'Dịch vụ định tuyến hiện chưa sẵn sàng.',
   ANALYSIS_ACTION_FAILED: 'Không thể khởi tạo hoặc tải kết quả phân tích.',
+  AGENT_EXECUTION_FAILED: 'Tác vụ nền gặp lỗi ngoài dự kiến. Xem mã lỗi an toàn trong tab Lượt chạy.',
   RUN_CANCELLED: 'Lượt phân tích đã bị hủy.',
 };
 const workspaceActionLabels: Record<WorkspaceActionV1['type'], string> = {
@@ -23,6 +45,7 @@ const workspaceActionLabels: Record<WorkspaceActionV1['type'], string> = {
   open_evidence: 'Mở bằng chứng đã xác thực',
   switch_capability_mode: 'Đổi chế độ trợ lý',
 };
+const groundingLabels: Record<string, string> = { claim_ref: 'Nhận định có bằng chứng', metric_ref: 'Chỉ số có bằng chứng', evidence_ref: 'Bằng chứng liên quan', quality_ref: 'Giới hạn dữ liệu' };
 const agentCardKinds: Record<string, string> = {
   coordinator: 'Điểm kiểm tra quy trình',
   data: 'Điểm kiểm tra chất lượng dữ liệu',
@@ -44,6 +67,9 @@ export function MessageThread({
   onOpenArtifact,
   onWorkspaceAction,
   onReply,
+  suggestions,
+  onSuggestion,
+  execution,
 }: {
   messages: Message[];
   loading: boolean;
@@ -54,6 +80,9 @@ export function MessageThread({
   onOpenArtifact: (runId: string, artifactId: string) => void;
   onWorkspaceAction?: (action: WorkspaceActionV1) => void;
   onReply?: (messageId: string) => void;
+  suggestions?: readonly string[];
+  onSuggestion?: (text: string) => void;
+  execution?: AgentTurnJobSnapshot | null;
 }) {
   return (
     <section className="agent-thread" aria-label="Nội dung hội thoại">
@@ -71,6 +100,9 @@ export function MessageThread({
           const identity =
             message.role === 'assistant' ? agentIdentity(message.sender_agent) : null;
           const AgentIcon = identity?.icon;
+          const terminalJob = execution?.job.assistant_message_id === message.message_id &&
+            execution.job.conversation_id === message.conversation_id &&
+            ['failed', 'cancelled', 'completed'].includes(execution.job.status) ? execution.job : null;
           return (
             <article
               className={`agent-message agent-message-${message.role} ${styles.message} ${identity ? styles[identity.accent] : styles.user}`}
@@ -85,22 +117,27 @@ export function MessageThread({
                   {AgentIcon && <AgentIcon aria-hidden={true} size={15} />}
                   <span>{identity.description}</span>
                   <span className={styles.cardKind}>
-                    {agentCardKinds[identity.accent] ?? 'Persisted workflow update'}
+                    {agentCardKinds[identity.accent] ?? 'Cập nhật quy trình đã lưu'}
                   </span>
                 </div>
               )}
-              <p>{message.content}</p>
-              {Boolean(message.context_refs?.length) && <div className={styles.contextRefs} aria-label="Attached message context">
+              <p>{displayedMessageContent(message)}</p>
+              {Boolean(message.context_refs?.length) && <div className={styles.contextRefs} aria-label="Ngữ cảnh đính kèm">
                 {message.context_refs!.map((ref) => <span key={`${ref.type}:${ref.id}`} title={ref.id}>{ref.type} · {ref.id.slice(0, 8)}</span>)}
               </div>}
-              {message.report_intent === 'new' && <small className={styles.contextRefs}>New report requested</small>}
-              {message.reply_to_message_id && <small className={styles.contextRefs} title={message.reply_to_message_id}>Reply to message · {message.reply_to_message_id.slice(0, 8)}</small>}
-              {onReply && message.parts.some((part) => part.type === 'report_ref' || part.type === 'artifact_ref') && <button type="button" className="text-button" onClick={() => onReply(message.message_id)} aria-label="Reply with this message's artifact context"><Reply size={13} /> Reply</button>}
-              {message.status === 'in_progress' && message.role === 'assistant' && (
+              {message.report_intent === 'new' && <small className={styles.contextRefs}>Đã yêu cầu báo cáo mới</small>}
+              {message.reply_to_message_id && <small className={styles.contextRefs} title={message.reply_to_message_id}>Trả lời tin nhắn · {message.reply_to_message_id.slice(0, 8)}</small>}
+              {onReply && message.parts.some((part) => part.type === 'report_ref' || part.type === 'artifact_ref') && <button type="button" className="text-button" onClick={() => onReply(message.message_id)} aria-label="Trả lời với bằng chứng của tin nhắn này"><Reply size={13} /> Trả lời</button>}
+              {message.status === 'in_progress' && message.role === 'assistant' && !terminalJob && (
                 <span className="agent-pending">
                   <LoaderCircle size={13} className="spin" /> Đang chuẩn bị kết quả có bằng chứng…
                 </span>
               )}
+              {message.status === 'in_progress' && terminalJob && <span role="status">
+                {terminalJob.status === 'failed' ? 'Tác vụ đã dừng do lỗi. Bạn có thể gửi lại yêu cầu để bắt đầu lượt mới.'
+                  : terminalJob.status === 'cancelled' ? 'Tác vụ đã được hủy.'
+                  : 'Tác vụ đã hoàn tất. Đang đồng bộ câu trả lời đã lưu; tải lại trang nếu chưa thấy kết quả.'}
+              </span>}
               {message.parts.map((part, index) => {
                 if (part.type === 'run_ref')
                   return (
@@ -109,7 +146,7 @@ export function MessageThread({
                       key={`${message.message_id}:run:${index}`}
                       onClick={() => onOpenRun(part.run_id, message.message_id)}
                     >
-                      Lượt phân tích · {part.status} <ArrowUpRight size={13} />
+                      Lượt phân tích · {workflowStatusLabel(part.status)} <ArrowUpRight size={13} />
                     </button>
                   );
                 if (part.type === 'report_ref')
@@ -148,7 +185,7 @@ export function MessageThread({
                     },
                     createElement(FileText, { size: 13 }),
                     ' Bằng chứng · ',
-                    part.kind,
+                    artifactKindLabel(part.kind),
                     ' ',
                     createElement(ArrowUpRight, { size: 13 }),
                   );
@@ -159,7 +196,7 @@ export function MessageThread({
                       key={`${message.message_id}:signal:${index}`}
                       onClick={() => onOpenRun(part.run_id, message.message_id)}
                     >
-                      Validated signal <ArrowUpRight size={13} />
+                      Tín hiệu đã xác thực <ArrowUpRight size={13} />
                     </button>
                   );
                 if (part.type === 'decision_ref')
@@ -177,7 +214,7 @@ export function MessageThread({
                           : onOpenRun(part.run_id, message.message_id)
                       }
                     >
-                      Decision intelligence <ArrowUpRight size={13} />
+                      Kết quả hỗ trợ quyết định <ArrowUpRight size={13} />
                     </button>
                   );
                 if (part.type === 'drilldown_ref')
@@ -195,7 +232,7 @@ export function MessageThread({
                           : onOpenRun(part.run_id, message.message_id)
                       }
                     >
-                      Validated drill-down <ArrowUpRight size={13} />
+                      Phân tích chi tiết đã xác thực <ArrowUpRight size={13} />
                     </button>
                   );
                 if (
@@ -209,7 +246,7 @@ export function MessageThread({
                       className="agent-reference"
                       key={`${message.message_id}:${part.type}:${index}`}
                     >
-                      Grounded {part.type.replace('_ref', '').replace('_', ' ')}
+                      {groundingLabels[part.type]}
                     </span>
                   );
                 if (part.type === 'workspace_action' && onWorkspaceAction)
@@ -225,7 +262,7 @@ export function MessageThread({
                 if (part.type === 'workspace_action')
                   return (
                     <span className="agent-reference" key={`${message.message_id}:action:${index}`}>
-                      Suggested workspace action
+                      Gợi ý thao tác trong không gian làm việc
                     </span>
                   );
                 if (part.type === 'error')
@@ -235,7 +272,7 @@ export function MessageThread({
                       key={`${message.message_id}:error:${index}`}
                       role="status"
                     >
-                      {errorLabels[part.code] ?? 'Không thể hoàn tất yêu cầu này.'}
+                      {analysisErrorMessage(part.code) ?? errorLabels[part.code] ?? 'Không thể hoàn tất yêu cầu này.'}
                     </p>
                   );
                 return null;
@@ -246,7 +283,10 @@ export function MessageThread({
       ) : (
         <div className="agent-empty-thread">
           <h2>Bắt đầu với một câu hỏi</h2>
-          <p>Kết quả sẽ luôn lấy từ semantic engine, artifacts và bằng chứng đã được kiểm tra.</p>
+          <p>Kết quả sẽ dựa trên dữ liệu và bằng chứng đã được kiểm tra.</p>
+          {Boolean(suggestions?.length && onSuggestion) && <div className={styles.emptySuggestions} aria-label="Câu hỏi gợi ý cho tác nhân đang chọn">
+            {suggestions?.map((question) => <button key={question} type="button" className={styles.emptySuggestion} onClick={() => onSuggestion?.(question)}>{question}</button>)}
+          </div>}
         </div>
       )}
     </section>

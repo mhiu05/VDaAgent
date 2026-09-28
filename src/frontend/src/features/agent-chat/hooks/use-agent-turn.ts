@@ -1,4 +1,4 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { z } from 'zod';
 import {
   ArtifactListSchema,
@@ -84,6 +84,7 @@ export function useAgentTurn({
   const [draft, setDraft] = useState('');
   const [agentTarget, setAgentTarget] = useState<AgentKey | null>(null);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [retryTurn, setRetryTurn] = useState<RetryTurn | null>(null);
   const [activity, setActivity] = useState<AgentActivityEventV1[]>([]);
   useEffect(() => { setRetryTurn(null); }, [messageContextRefs, reportIntent, replyToMessageId]);
@@ -97,27 +98,28 @@ export function useAgentTurn({
     if (value !== agentTarget) setRetryTurn(null);
   }
 
-  async function submit(providedAttempt?: RetryTurn) {
+  async function submit(providedAttempt?: RetryTurn, prompt?: { text: string; agentTarget: AgentKey | null }) {
     // The compatibility fields and versioned snapshot intentionally come
     // from one derived object. That keeps the browser from accidentally
     // sending two different scope/date views of the same turn.
     const workspaceContext = buildWorkspaceContext(selectedConversationId);
     const attempt = providedAttempt ??
-      retryTurn ?? {
+      (prompt ? null : retryTurn) ?? {
         input: {
-          text: draft.trim(),
+          text: (prompt?.text ?? draft).trim(),
           scope: workspaceContext.scope,
           data_as_of: workspaceContext.data_as_of,
-          agent_target: agentTarget,
+          agent_target: prompt ? prompt.agentTarget : agentTarget,
           workspace_context: workspaceContext,
           context_refs: messageContextRefs,
-          report_intent: reportIntent,
-          reply_to_message_id: replyToMessageId,
+          report_intent: prompt ? null : reportIntent,
+          reply_to_message_id: prompt ? null : replyToMessageId,
         },
         identity: createTurnIdentity(),
         conversationId: selectedConversationId ?? undefined,
       };
-    if (!attempt.input.text || busy || !canWrite || scheduledReadOnly) return;
+    if (!attempt.input.text || submitting.current || !canWrite || scheduledReadOnly) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
     setActivity([]);
@@ -157,8 +159,13 @@ export function useAgentTurn({
       void loadConversations(null, false);
       setError(errorMessage(cause));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
+  }
+
+  function submitPrompt(text: string, target: AgentKey | null) {
+    return submit(undefined, { text, agentTarget: target });
   }
 
   async function submitSignalAction(
@@ -197,6 +204,7 @@ export function useAgentTurn({
     activity,
     setActivity,
     submit,
+    submitPrompt,
     submitSignalAction,
   };
 }

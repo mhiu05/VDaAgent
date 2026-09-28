@@ -67,6 +67,16 @@ function taskStatus(detail: Awaited<ReturnType<Repository['getRun']>>, kind: str
 }
 
 describe('terminal Agent workflow publication gate', () => {
+  it('terminalizes asynchronous publication failures before returning to the worker', async () => {
+    const { repo, run, lease } = await start('agent-workflow-publication-db-failure');
+    const failure = Object.assign(new Error('private database details'), { code: '23514' });
+    vi.spyOn(repo, 'publishReviewedDraft').mockRejectedValueOnce(failure);
+    await expect(executeAgentWorkflow(repo, lease, { narrativeProvider: narrativeProvider() })).rejects.toBe(failure);
+    const detail = await repo.getRun(TEST_USERS.owner, run.org_id, run.run_id);
+    expect(detail.run).toMatchObject({ status: 'failed', error_code: 'AGENT_WORKFLOW_FAILED', report_artifact_id: null });
+    expect(detail.tasks.some(task => task.status === 'running' || task.status === 'pending')).toBe(false);
+    expect(await repo.listReports(TEST_USERS.owner, run.org_id)).toEqual([]);
+  }, 120000);
   it(
     'publishes exactly one legacy-compatible report after an exact PASS review',
     async () => {

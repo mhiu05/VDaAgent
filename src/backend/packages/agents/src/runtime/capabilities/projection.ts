@@ -111,7 +111,7 @@ export function capabilityResult(
 export function unavailable(
   capabilityId: AgentCapabilityIdV1,
   id: string,
-  text = 'An authorized result is unavailable for this request.',
+  text = 'Chưa có kết quả được phép xem cho yêu cầu này.',
 ) {
   return capabilityResult(
     capabilityId,
@@ -130,7 +130,7 @@ export function safeReadFailure(capabilityId: AgentCapabilityIdV1) {
         `${capabilityId}-technical-failure`,
         'limitation',
         'failed',
-        'A later authorized result could not be retrieved.',
+        'Không thể tải kết quả đã được cấp quyền.',
         [],
       ),
     ],

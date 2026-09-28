@@ -210,7 +210,7 @@ describe('CapabilityRegistry', () => {
       context,
       repository: repo,
     });
-    expect(renderedVisual.content).toContain('Analysis answer');
+    expect(renderedVisual.content).toContain('Kết quả phân tích');
     expect(renderedVisual.parts).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: 'metric_ref' })]),
     );

@@ -18,7 +18,7 @@ import {
   ChartUnavailableView,
 } from '../../../components/visualization/chart-renderer';
 import { formatChartValue } from '../../../lib/chart-format';
-import { inventoryStatusLabel } from '../../../lib/format/status-label';
+import { inventoryStatusLabel, workflowStatusLabel } from '../../../lib/format/status-label';
 import { DecisionIntelligenceView } from '../../../components/decision-intelligence';
 import { ReportDashboard } from '../../reports/dashboard/report-dashboard';
 
@@ -489,7 +489,7 @@ export function AnalysisResult({
                         'percent',
                       )}
                     </td>
-                    <td>{item.abstention_reason ?? 'Đủ mẫu so sánh'}</td>
+                    <td>{item.abstention_reason ? workflowStatusLabel(item.abstention_reason) : 'Đủ mẫu so sánh'}</td>
                   </tr>
                 ))}
               </tbody>

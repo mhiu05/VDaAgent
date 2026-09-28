@@ -48,7 +48,7 @@ export async function executeAgentWorkflow(
     const review = await executeTeamThroughReview(repository, lease, options);
     // Publication owns the terminal transaction. Runtime records are complete
     // before that transaction releases the run's fencing lease.
-    return publishIfPassed(repository, lease, review);
+    return await publishIfPassed(repository, lease, review);
   } catch (error) {
     try {
       await repository.failRun(lease, workflowFailureCode(error, 'AGENT_WORKFLOW_FAILED'));

@@ -62,6 +62,24 @@ const checkpointStatus: AgentWorkflowStatus = {
 };
 
 describe('Agent Chat message presentation', () => {
+  it('explains rejected AI credentials in the saved assistant error', () => {
+    const output = renderToStaticMarkup(<MessageThread
+      messages={[{ ...message, parts: [{ type: 'error', code: 'LLM_AUTHENTICATION_FAILED', retryable: false }] }]}
+      loading={false} hasEarlier={false} onLoadEarlier={() => undefined}
+      onOpenRun={() => undefined} onOpenReport={() => undefined} onOpenArtifact={() => undefined} />);
+    expect(output).toContain('Dịch vụ AI từ chối thông tin xác thực');
+    expect(output).toContain('kiểm tra cấu hình kết nối AI trước khi chạy lại');
+  });
+
+  it.each(['failed', 'cancelled', 'completed'] as const)('stops a stale pending message when its durable job is %s', status => {
+    const output = renderToStaticMarkup(<MessageThread messages={[{ ...message, status: 'in_progress' }]} loading={false} hasEarlier={false}
+      onLoadEarlier={() => undefined} onOpenRun={() => undefined} onOpenReport={() => undefined} onOpenArtifact={() => undefined}
+      execution={{ ...executionSnapshot, job: { ...executionSnapshot.job, status, assistant_message_id: message.message_id } }} />);
+    expect(output).not.toContain('class="spin"');
+    expect(output).not.toContain('Đang chuẩn bị kết quả');
+    if (status === 'failed') expect(output).toContain('gửi lại yêu cầu');
+    if (status === 'completed') expect(output).toContain('Đang đồng bộ câu trả lời đã lưu');
+  });
   it('shows a historical published report even without agent packs or a decision brief', () => {
     const runId = '82000000-0000-4000-8000-000000000001';
     const reportId = '84000000-0000-4000-8000-000000000001';
@@ -84,24 +102,24 @@ describe('Agent Chat message presentation', () => {
     const output = renderToStaticMarkup(<ConversationList conversations={[]} selectedId={null} loading={false} hasMore={false}
       onNew={() => undefined} onSelect={() => undefined} onLoadMore={() => undefined} execution={executionSnapshot}
       selectedAgent="compare" onSelectAgent={() => undefined} />);
-    expect(output).toContain('Điều phối');
-    expect(output).toContain('Dữ liệu</span><span>Hoàn tất');
-    expect(output).toContain('So sánh</span><span>Đang chạy');
-    expect(output).toContain('Báo cáo</span><span>Đang chờ');
+    expect(output).toContain('Điều phối viên');
+    expect(output).toContain('Tác nhân dữ liệu</span><span>Hoàn tất');
+    expect(output).toContain('Tác nhân so sánh</span><span>Đang chạy');
+    expect(output).toContain('Tác nhân báo cáo</span><span>Đang chờ');
     expect(output).toContain('aria-pressed="true"');
     const historical = renderToStaticMarkup(<ConversationList conversations={[]} selectedId="81000000-0000-4000-8000-000000000001" loading={false} hasMore={false}
       onNew={() => undefined} onSelect={() => undefined} onLoadMore={() => undefined} execution={null} />);
     expect(historical).toContain('Không có nhật ký thực thi cho hội thoại đã lưu này.');
-    expect(historical).not.toContain('Báo cáo</span><span>Đang chờ');
+    expect(historical).not.toContain('Tác nhân báo cáo</span><span>Đang chờ');
   });
 
   it('opens persisted run stages in the selected persona inspector', () => {
     const output = renderToStaticMarkup(<AgentExecutionInspector snapshot={executionSnapshot} selectedAgent="insight"
       tasks={[{task_id:'88000000-0000-4000-8000-000000000001',run_id:'82000000-0000-4000-8000-000000000001',org_id:'10000000-0000-4000-8000-000000000001',kind:'analyst',dependencies:[],status:'succeeded',attempt:1,error_code:null}]}
       artifacts={[]} reportId={null} onRun={() => undefined} onArtifact={() => undefined} />);
-    expect(output).toContain('Nhận định</h2>');
+    expect(output).toContain('Tác nhân nhận định</h2>');
     expect(output).toContain('Các bước nội bộ');
-    expect(output).toContain('Phân tích<span>Thành công');
+    expect(output).toContain('Tác nhân phân tích<span>Thành công');
     expect(output).toContain('Lượt phân tích');
     expect(output).toContain('Dòng thời gian thực thi');
   });
@@ -117,7 +135,7 @@ describe('Agent Chat message presentation', () => {
         onOpenArtifact={() => undefined}
       />,
     );
-    expect(output).toContain('Lượt phân tích · failed');
+    expect(output).toContain('Lượt phân tích · Thất bại');
     expect(output).toContain('Báo cáo đã liên kết');
     expect(output).toContain('Không thể khởi tạo hoặc tải kết quả phân tích.');
     expect(output).toContain('&lt;script&gt;unsafe()&lt;/script&gt;');
@@ -131,9 +149,24 @@ describe('Agent Chat message presentation', () => {
     expect(taskLabel('untrusted-task')).toBe('Đang xử lý');
   });
 
-  it('keeps persisted specialist names while preserving the legacy label', () => {
-    expect(senderLabel('reviewer')).toBe('Người rà soát');
+  it('keeps Vietnamese agent names while preserving the legacy label', () => {
+    for (const [key, name] of [
+      ['coordinator', 'Điều phối viên'], ['data', 'Tác nhân dữ liệu'], ['comparison', 'Tác nhân so sánh'],
+      ['insight', 'Tác nhân nhận định'], ['chart', 'Tác nhân biểu đồ'], ['report', 'Tác nhân báo cáo'],
+      ['reviewer', 'Người rà soát'], ['analyst', 'Tác nhân phân tích'],
+    ] as const) expect(senderLabel(key)).toBe(name);
     expect(senderLabel(null)).toBe('VDaAgent');
+  });
+
+  it('shows a Vietnamese agent-name prefix without changing the stored message', () => {
+    const content = 'Tác nhân điều phối đã lưu quyết định phân tích và phạm vi được cấp quyền.';
+    const historical = { ...message, sender_agent: 'coordinator' as const, status: 'completed' as const, content, parts: [] };
+    const output = renderToStaticMarkup(<MessageThread messages={[historical]} loading={false} hasEarlier={false}
+      onLoadEarlier={() => undefined} onOpenRun={() => undefined} onOpenReport={() => undefined}
+      onOpenArtifact={() => undefined} />);
+    expect(output).toContain('Điều phối viên đã lưu quyết định phân tích');
+    expect(output).not.toContain('Tác nhân điều phối đã lưu');
+    expect(historical.content).toBe(content);
   });
 
   it('renders a persisted specialist card without inventing conversation content', () => {

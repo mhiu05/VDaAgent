@@ -60,7 +60,7 @@ export function buildBreakdowns(
           : [],
       items: summaries.map(({ key, summary }) => ({
         key,
-        label: key === 'unknown' ? 'Unknown' : key,
+        label: key === 'unknown' ? 'Chưa xác định' : key,
         value: valueOf(summary.metrics, metricKey),
         currency: metricOf(summary.metrics, metricKey)?.currency ?? null,
         abstention_reason: metricOf(summary.metrics, metricKey)?.abstention_reason ?? null,

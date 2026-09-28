@@ -4,6 +4,7 @@ import { Check, CircleAlert, LoaderCircle, Square } from 'lucide-react';
 import type { AnalysisRun, RunEvent, RunTask } from '@vda/contracts';
 import { WorkflowGraph } from './workflow-graph';
 import { workflowViewModel } from './workflow-view-model';
+import { analysisErrorMessage } from '../../lib/format/analysis-error';
 
 type RunDetail = { run: AnalysisRun; tasks: RunTask[]; events: RunEvent[] };
 
@@ -13,11 +14,11 @@ const taskLabels: Record<string, string> = {
   reviewer: 'Rà soát bản nháp',
   publication: 'Cổng phát hành',
   orchestrator: 'Chuẩn bị',
-  data: 'Đọc snapshot đã khóa',
+  data: 'Đọc mốc dữ liệu đã khóa',
   calculation: 'Tính chỉ số',
   comparison: 'Tạo so sánh',
   chart: 'Tạo biểu đồ',
-  insight: 'Liên kết insight với bằng chứng',
+  insight: 'Liên kết nhận định với bằng chứng',
   validation: 'Kiểm tra bằng chứng',
   report: 'Chuẩn bị báo cáo',
 };
@@ -54,7 +55,8 @@ export function RunProgress({
         <div>
           <span className="eyebrow">LUỒNG PHÂN TÍCH</span>
           <h2>{statusLabels[detail.run.status] ?? detail.run.status}</h2>
-          {compact && <p>{view.completed}/{detail.tasks.length} bước hoàn tất</p>}
+          {compact && detail.tasks.length > 0 && <p>{view.completed}/{detail.tasks.length} bước hoàn tất</p>}
+          {!detail.tasks.length && active && <p>{detail.run.status === 'queued' ? 'Đã nhận yêu cầu, đang xếp hàng chờ xử lý.' : 'Đã bắt đầu phân tích, chưa có bước hoàn tất.'}</p>}
         </div>
         {active && canWrite && (
           <button
@@ -67,14 +69,14 @@ export function RunProgress({
           </button>
         )}
       </header>
-      <WorkflowGraph tasks={detail.tasks} workflowVersion={detail.run.workflow_version} />
+      <WorkflowGraph tasks={detail.tasks} workflowVersion={detail.run.workflow_version} active={active} />
       {!compact && <div className="task-track">
         {detail.tasks.map((task) => (
           <div className={`task-step task-${task.status}`} key={task.task_id}>
             <span>
               {task.status === 'succeeded' ? (
                 <Check size={15} />
-              ) : task.status === 'running' ? (
+              ) : task.status === 'running' && active ? (
                 <LoaderCircle size={15} className="spin" />
               ) : task.status === 'failed' ? (
                 <CircleAlert size={15} />
@@ -86,7 +88,7 @@ export function RunProgress({
           </div>
         ))}
       </div>}
-      {detail.run.error_code && <p className="error-box">{detail.run.error_code}</p>}
+      {detail.run.error_code && <p className="error-box">{analysisErrorMessage(detail.run.error_code) ?? 'Phân tích đã dừng do lỗi. Bạn có thể xem trạng thái từng bước và gửi lại yêu cầu để bắt đầu lượt mới.'}</p>}
     </section>
   );
 }

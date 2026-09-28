@@ -1,24 +1,13 @@
 import type { Artifact, RunTask } from '@vda/contracts';
 import type { AgentTurnJobSnapshot } from './api/conversations';
-import { workflowStatusLabel } from '../../lib/format/status-label';
+import { agentExecutionEventLabel, artifactKindLabel, workflowStatusLabel } from '../../lib/format/status-label';
 
-const labels: Record<string,string> = { root:'Điều phối',data:'Dữ liệu',compare:'So sánh',insight:'Nhận định',report:'Báo cáo' };
+const labels: Record<string,string> = { root:'Điều phối viên',data:'Tác nhân dữ liệu',compare:'Tác nhân so sánh',insight:'Tác nhân nhận định',report:'Tác nhân báo cáo' };
 const stageLabels: Record<string,string> = {
-  coordinator:'Điều phối',data:'Dữ liệu',calculation:'Tính toán',comparison:'So sánh',chart:'Biểu đồ',
-  analyst:'Phân tích',insight:'Nhận định',report:'Báo cáo',reviewer:'Rà soát',publication:'Phát hành',
+  coordinator:'Điều phối viên',data:'Tác nhân dữ liệu',calculation:'Tính toán',comparison:'Tác nhân so sánh',chart:'Tác nhân biểu đồ',
+  analyst:'Tác nhân phân tích',insight:'Tác nhân nhận định',report:'Tác nhân báo cáo',reviewer:'Người rà soát',publication:'Phát hành',
 };
-const eventLabels: Record<string, string> = {
-  invocation_queued: 'Đã xếp lịch tác nhân',
-  invocation_started: 'Tác nhân bắt đầu chạy',
-  invocation_completed: 'Tác nhân hoàn tất',
-  invocation_failed: 'Tác nhân gặp lỗi',
-  invocation_cancelled: 'Tác nhân đã bị hủy',
-  turn_queued: 'Lượt phân tích đang chờ',
-  turn_started: 'Lượt phân tích bắt đầu',
-  turn_completed: 'Lượt phân tích hoàn tất',
-  turn_failed: 'Lượt phân tích gặp lỗi',
-  turn_cancelled: 'Lượt phân tích đã bị hủy',
-};
+
 
 export function AgentExecutionInspector({
   snapshot, selectedAgent, tasks, artifacts, reportId, onRun, onArtifact, onReport,
@@ -49,7 +38,7 @@ export function AgentExecutionInspector({
     <div className="agent-inspector-heading"><span className="eyebrow">CHI TIẾT THỰC THI</span><h2>{labels[persona] ?? 'Tác nhân'}</h2></div>
     {!snapshot ? <p>Không có nhật ký thực thi cho lượt chạy đã lưu này.</p> : <>
       <p><strong>Trạng thái</strong><span>{status ? workflowStatusLabel(status) : 'Đang chờ'}</span></p>
-      <p><strong>Yêu cầu bởi</strong><span>Điều phối</span></p>
+      <p><strong>Yêu cầu bởi</strong><span>Điều phối viên</span></p>
       <p><strong>Tạo lúc</strong><time dateTime={invocation?.created_at ?? snapshot.job.created_at}>{invocation?.created_at ?? snapshot.job.created_at}</time></p>
       {startedAt && <p><strong>Bắt đầu lúc</strong><time dateTime={startedAt}>{startedAt}</time></p>}
       {completedAt && <p><strong>Hoàn tất lúc</strong><time dateTime={completedAt}>{completedAt}</time></p>}
@@ -58,8 +47,8 @@ export function AgentExecutionInspector({
       {snapshot.job.run_id && <p><strong>Lượt phân tích</strong><button className="text-button" onClick={() => onRun(snapshot.job.run_id!)}>Mở lượt chạy liên kết</button></p>}
       {safeErrorCode && <p role="status"><strong>Mã lỗi an toàn</strong><code>{safeErrorCode}</code></p>}
       <section><h3>Các bước nội bộ</h3>{relevant.length ? <ul>{relevant.map((task) => <li key={task.task_id}>{stageLabels[task.kind] ?? task.kind}<span>{workflowStatusLabel(task.status)}</span></li>)}</ul> : <p>Chưa có thông tin bước xử lý.</p>}</section>
-      <section><h3>Artifact</h3>{artifacts.length ? <ul>{artifacts.map((artifact) => <li key={artifact.artifact_id}><button className="text-button" onClick={() => onArtifact(artifact.run_id,artifact.artifact_id)}>{artifact.kind}</button></li>)}</ul> : <p>Không có artifact được phép xem.</p>}{reportId && onReport && <button className="text-button" onClick={() => onReport(reportId)}>Mở báo cáo đã phát hành</button>}</section>
-      <section><h3>Dòng thời gian thực thi</h3>{events.length ? <ol>{events.map((event) => <li key={event.event_id}><span>{eventLabels[event.type] ?? `Sự kiện: ${event.type.replaceAll('_', ' ')}`}</span><time dateTime={event.created_at}>{event.created_at}</time></li>)}</ol> : <p>Chưa có sự kiện cho tác nhân này.</p>}</section>
+      <section><h3>Bằng chứng</h3>{artifacts.length ? <ul>{artifacts.map((artifact) => <li key={artifact.artifact_id}><button className="text-button" onClick={() => onArtifact(artifact.run_id,artifact.artifact_id)}>{artifactKindLabel(artifact.kind)}</button></li>)}</ul> : <p>Không có bằng chứng được phép xem.</p>}{reportId && onReport && <button className="text-button" onClick={() => onReport(reportId)}>Mở báo cáo đã phát hành</button>}</section>
+      <section><h3>Dòng thời gian thực thi</h3>{events.length ? <ol>{events.map((event) => <li key={event.event_id}><span>{agentExecutionEventLabel(event.type)}</span><time dateTime={event.created_at}>{event.created_at}</time></li>)}</ol> : <p>Chưa có sự kiện cho tác nhân này.</p>}</section>
     </>}
   </aside>;
 }

@@ -18,10 +18,10 @@ const MAX_MESSAGE_PARTS = 32;
 const MAX_MESSAGE_CONTENT = 5_000;
 
 const titleText: Record<GroundedResponseSelectionV1['title_key'], string> = {
-  analysis_answer: 'Analysis answer',
-  analysis_queued: 'Analysis queued',
-  analysis_partial: 'Partial analysis answer',
-  analysis_unavailable: 'Analysis unavailable',
+  analysis_answer: 'Kết quả phân tích',
+  analysis_queued: 'Phân tích đang chờ',
+  analysis_partial: 'Kết quả phân tích một phần',
+  analysis_unavailable: 'Chưa có kết quả phân tích',
 };
 
 export class GroundingValidationError extends Error {

@@ -20,8 +20,8 @@ export function buildCandidates(
     observation: change.reason,
     metric_key: change.metric_key,
     evidence_paths: change.evidence_paths,
-    context: `Current ${change.current_value}; comparison ${change.comparison_value}.`,
-    interpretation: 'The deterministic threshold was crossed; no cause is asserted.',
+    context: `Giá trị hiện tại: ${change.current_value}; giá trị kỳ so sánh: ${change.comparison_value}.`,
+    interpretation: 'Đã vượt ngưỡng xác định; chưa có đủ căn cứ để kết luận nguyên nhân.',
     limitations:
       change.metric_key.includes('age') || change.metric_key === 'slow_moving_rate'
         ? qualityLimitations
@@ -40,11 +40,11 @@ export function buildCandidates(
     if (!found || found.value === null || output.some((item) => item.metric_key === key)) continue;
     output.push({
       candidate_id: `current:${key}`,
-      observation: `${found.label} is ${found.value} ${found.unit}.`,
+      observation: `${found.label}: ${found.value}%.`,
       metric_key: key,
       evidence_paths: [`payload.metrics[${metrics.indexOf(found)}].value`],
-      context: 'Current point-in-time result.',
-      interpretation: 'Descriptive observation only.',
+      context: 'Kết quả tại thời điểm dữ liệu được chốt.',
+      interpretation: 'Chỉ phản ánh số liệu, không khẳng định nguyên nhân.',
       limitations:
         key === 'slow_moving_rate' || key === 'missing_inventory_age_rate'
           ? qualityLimitations

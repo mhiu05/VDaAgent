@@ -176,7 +176,7 @@ describe('grounded answer composer', () => {
         expect.objectContaining({ type: 'workspace_action' }),
       ]),
     );
-    expect(rendered.content).toContain('Analysis answer');
+    expect(rendered.content).toContain('Kết quả phân tích');
     expect(rendered.content).toContain('The authorized inventory metric is available for review.');
     expect(repository.publicArtifactById).toHaveBeenCalledWith(
       expect.any(String),

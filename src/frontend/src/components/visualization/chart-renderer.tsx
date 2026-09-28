@@ -18,7 +18,9 @@ import {
   YAxis,
 } from 'recharts';
 import type { ChartSpec, ChartUnavailable } from '@vda/contracts';
+import { localizeLegacyChartText, localizeLegacyLimitation, localizedMetricDescription, localizedMetricLabel } from '../../lib/format/analysis-copy';
 import { formatSeriesValue } from '../../lib/chart-format';
+import { workflowStatusLabel } from '../../lib/format/status-label';
 
 const COLORS = [
   'var(--chart-series-1)',
@@ -155,10 +157,15 @@ function KpiView({ spec }: { spec: ChartSpec }) {
   );
 }
 
+function displayChartData(spec: ChartSpec) {
+  if (spec.chart_id !== 'aging_distribution') return spec.data;
+  return spec.data.map((item) => item.bucket === 'unknown' ? { ...item, bucket: 'Chưa xác định' } : item);
+}
+
 function BarView({ spec }: { spec: ChartSpec }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={spec.data} accessibilityLayer>
+      <BarChart data={displayChartData(spec)} accessibilityLayer>
         <SeriesPatterns spec={spec} />
         <Axes spec={spec} />
         {spec.series.map((item, index) => (
@@ -272,9 +279,9 @@ export function ChartUnavailableView({ state }: { state: ChartUnavailable }) {
   };
   return (
     <section className="chart-unavailable" role="status">
-      <strong>{intentLabels[state.intent] ?? state.intent.replaceAll('_', ' ')}</strong>
-      <span>{state.message}</span>
-      <code>{state.reason}</code>
+      <strong>{intentLabels[state.intent] ?? 'Biểu đồ phân tích'}</strong>
+      <span>{localizeLegacyChartText(state.message)}</span>
+      <span>{workflowStatusLabel(state.reason)}</span>
     </section>
   );
 }
@@ -286,30 +293,57 @@ export function ChartRenderer({
   spec: ChartSpec;
   onDrilldown?: () => void;
 }) {
+  const displaySpec: ChartSpec = {
+    ...spec,
+    title: spec.chart_type === 'kpi'
+      ? localizedMetricLabel(spec.series[0]?.metric_key ?? '', spec.title)
+      : localizeLegacyChartText(spec.title),
+    subtitle: spec.subtitle ? localizeLegacyChartText(spec.subtitle) : null,
+    purpose: spec.chart_type === 'kpi' && spec.series[0]?.metric_key
+      ? localizedMetricDescription(spec.series[0].metric_key, spec.purpose)
+      : localizeLegacyChartText(spec.purpose),
+    x_axis: spec.x_axis
+      ? { ...spec.x_axis, label: spec.x_axis.label ? localizeLegacyChartText(spec.x_axis.label) : null }
+      : spec.x_axis,
+    y_axis: spec.y_axis
+      ? {
+          ...spec.y_axis,
+          label: spec.intent !== 'peer_comparison' && spec.series[0]?.metric_key
+            ? localizedMetricLabel(spec.series[0].metric_key, spec.y_axis.label ?? undefined)
+            : spec.y_axis.label ? localizeLegacyChartText(spec.y_axis.label) : null,
+        }
+      : spec.y_axis,
+    series: spec.series.map((series) => ({
+      ...series,
+      label: spec.intent === 'peer_comparison'
+        ? localizeLegacyChartText(series.label)
+        : localizedMetricLabel(series.metric_key ?? '', series.label),
+    })),
+  };
   const content = (
     <>
       <header className="chart-spec-heading">
         <div>
-          <h3>{spec.title}</h3>
-          {spec.subtitle && <p>{spec.subtitle}</p>}
+          <h3>{displaySpec.title}</h3>
+          {displaySpec.subtitle && <p>{displaySpec.subtitle}</p>}
         </div>
         <span className="badge">{spec.rules_version}</span>
       </header>
       {spec.chart_type === 'kpi' ? (
-        <KpiView spec={spec} />
+        <KpiView spec={displaySpec} />
       ) : (
         <div className="chart-container">
-          {spec.chart_type === 'bar' && <BarView spec={spec} />}
-          {spec.chart_type === 'line' && <LineView spec={spec} />}
-          {(spec.chart_type === 'pie' || spec.chart_type === 'donut') && <PieView spec={spec} />}
-          {spec.chart_type === 'scatter' && <ScatterView spec={spec} />}
+          {spec.chart_type === 'bar' && <BarView spec={displaySpec} />}
+          {spec.chart_type === 'line' && <LineView spec={displaySpec} />}
+          {(spec.chart_type === 'pie' || spec.chart_type === 'donut') && <PieView spec={displaySpec} />}
+          {spec.chart_type === 'scatter' && <ScatterView spec={displaySpec} />}
         </div>
       )}
-      <p className="chart-purpose">{spec.purpose}</p>
+      <p className="chart-purpose">{displaySpec.purpose}</p>
       {!!spec.limitations.length && (
         <ul className="chart-limitations">
           {spec.limitations.map((item) => (
-            <li key={item}>{item}</li>
+            <li key={item}>{localizeLegacyLimitation(item)}</li>
           ))}
         </ul>
       )}
@@ -322,7 +356,7 @@ export function ChartRenderer({
         data-chart-id={spec.chart_id}
         type="button"
         onClick={onDrilldown}
-        aria-label={`Xem chi tiết biểu đồ: ${spec.title}`}
+        aria-label={`Xem chi tiết biểu đồ: ${displaySpec.title}`}
       >
         {content}
       </button>

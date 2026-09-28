@@ -6,6 +6,7 @@ import type { AgentDefinition, AgentKey, CapabilityMode, Catalog } from '@vda/co
 import { ScopeFields } from '../../components/forms/scope-fields';
 import { matchingAgents, mentionAlias, mentionQuery, recipientKey } from './agent-workspace-model';
 import styles from '../grok-workspace/components/grok-workspace.module.css';
+import { agentIdentity } from '../../components/agents/agent-identity';
 
 const suggestions = [
   'Tổng lượng sản phẩm đang mở bán hiện tại là bao nhiêu?',
@@ -16,7 +17,7 @@ const suggestions = [
 ];
 
 const modePlaceholders: Record<CapabilityMode, string> = {
-  grok: 'Hỏi về dữ liệu tồn kho trong phạm vi workspace.',
+  grok: 'Hỏi về dữ liệu tồn kho trong phạm vi đã chọn.',
   data: 'Hỏi về dữ liệu đã xác thực và tình trạng mở bán.',
   insight: 'Yêu cầu nhận định có bằng chứng hỗ trợ.',
   compare: 'Yêu cầu so sánh các kết quả được phép xem.',
@@ -105,10 +106,7 @@ export function Composer({
         </span>
       </header>
       </>}
-      {compact && <details className="agent-composer-scope">
-        <summary>Phạm vi cho yêu cầu tiếp theo: {project || 'Chọn dự án'}{zone ? ` / ${zone}` : ''} · {dataAsOf || 'Chọn ngày'}</summary>
-      </details>}
-      <div className="scope-row">
+      {!compact && <div className="scope-row">
         <ScopeFields
           catalog={catalog}
           project={project}
@@ -127,14 +125,15 @@ export function Composer({
             disabled={disabled}
           />
         </label>
-      </div>
-      {showAgentTarget && <label className={styles.recipientSelect}>To:
+      </div>}
+      {!compact && showAgentTarget && <label className={styles.recipientSelect}>Tác nhân:
         <select aria-label="Tác nhân xử lý" value={agentTarget ?? 'coordinator'} disabled={disabled} onChange={(event) => onAgentTarget(event.target.value === 'coordinator' ? null : event.target.value as AgentKey)}>
-          {!agents.length && <option value="coordinator">Main Agent</option>}
-          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
-        </select><span>Type @ to mention an agent · same thread</span>
+          {!agents.length && <option value="coordinator">Điều phối viên</option>}
+          {agents.map((agent) => <option key={agent.id} value={agent.id}>{agentIdentity(agent.id as AgentKey)?.label ?? agent.name}</option>)}
+        </select><span>Nhập @ để đề cập tác nhân trong cùng hội thoại</span>
       </label>}
-      <label className="question-label">
+      <div className={compact ? styles.composerBar : undefined}>
+        <label className={`question-label ${compact ? styles.composerInput : ''}`}>
         <span className="sr-only">Câu hỏi phân tích</span>
         <textarea
           ref={textareaRef}
@@ -143,7 +142,6 @@ export function Composer({
           onChange={(event) => { onDraft(event.target.value); setMention(mentionQuery(event.target.value, event.target.selectionStart)); setMentionIndex(0); }}
           onClick={(event) => setMention(mentionQuery(draft, event.currentTarget.selectionStart))}
           aria-controls={matches.length ? 'agent-mention-options' : undefined}
-          aria-expanded={matches.length > 0}
           aria-autocomplete="list"
           onCompositionStart={() => { composingRef.current = true; }}
           onCompositionEnd={() => { composingRef.current = false; }}
@@ -159,38 +157,46 @@ export function Composer({
             }
           }}
           maxLength={2000}
-          rows={compact ? 2 : 3}
+          rows={compact ? 1 : 3}
           placeholder={
-            selectedAgent ? `@${mentionAlias(selectedAgent)} Ask about ${project || 'your data'}…` : capabilityMode
+            selectedAgent ? `@${mentionAlias(selectedAgent)} Hỏi về ${project || 'dữ liệu đã chọn'}…` : capabilityMode
               ? modePlaceholders[capabilityMode]
               : 'Ví dụ: Phân khu nào có sản phẩm chậm luân chuyển?'
           }
           disabled={disabled}
         />
-      </label>
-      {matches.length > 0 && <ul id="agent-mention-options" className={styles.mentionOptions} role="listbox" aria-label="Mention an agent">
-        {matches.map((agent, index) => <li key={agent.id} role="option" aria-selected={index === mentionIndex}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(agent)}><strong>@{mentionAlias(agent)} · {agent.name}</strong><span>{agent.description}</span></button></li>)}
+        </label>
+        {compact && <button
+          className={`primary ${styles.composerSend}`}
+          type="button"
+          disabled={!ready}
+          onClick={onSubmit}
+          aria-label={busy ? 'Đang gửi yêu cầu' : 'Gửi yêu cầu'}
+        >
+          <Send size={18} aria-hidden="true" />
+        </button>}
+      </div>
+      {matches.length > 0 && <ul id="agent-mention-options" className={styles.mentionOptions} role="listbox" aria-label="Đề cập đến tác nhân">
+        {matches.map((agent, index) => <li key={agent.id} role="option" aria-selected={index === mentionIndex}><button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(agent)}><strong>@{mentionAlias(agent)} · {agentIdentity(agent.id as AgentKey)?.label ?? agent.name}</strong><span>{agentIdentity(agent.id as AgentKey)?.description ?? agent.description}</span></button></li>)}
       </ul>}
-      <div className="composer-footer">
+      {!compact && <div className="composer-footer">
         <span>
           <span className="live-dot" />
           {catalog.latest_snapshot_date
-            ? `Snapshot mới nhất: ${catalog.latest_snapshot_date}`
-            : 'Chưa có snapshot'}
+            ? `Mốc dữ liệu mới nhất: ${catalog.latest_snapshot_date}`
+            : 'Chưa có mốc dữ liệu'}
         </span>
         <button className="primary" type="button" disabled={!ready} onClick={onSubmit}>
           <Send size={16} /> {busy ? 'Đang gửi…' : 'Gửi yêu cầu'}
         </button>
-      </div>
-      {!canWrite && (
+      </div>}
+      {!compact && !canWrite && (
         <p className="viewer-notice">
           <ShieldCheck size={15} /> Người xem có thể xem hội thoại và kết quả, nhưng không thể gửi hoặc
           hủy phân tích.
         </p>
       )}
-      {canWrite && !busy && !scheduledReadOnly && (
-        <>
-        {compact && <details className="agent-composer-quick-actions"><summary>Gợi ý câu hỏi</summary></details>}
+      {!compact && canWrite && !busy && !scheduledReadOnly && (
         <div className="agent-suggestions" aria-label="Gợi ý câu hỏi được hỗ trợ">
           {suggestions.map((suggestion) => (
             <button key={suggestion} className="suggestion" onClick={() => onDraft(suggestion)}>
@@ -198,7 +204,6 @@ export function Composer({
             </button>
           ))}
         </div>
-        </>
       )}
     </section>
   );

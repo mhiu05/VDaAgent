@@ -74,7 +74,7 @@ function metadataMatches(
 function legacyCompatibleReport(input: ReportAgentInput): ReportPayload {
   const { run, calculation, comparison, visual_evidence: chart, insight } = input;
   return {
-    title: `Inventory report \u00c2\u00b7 ${run.request.scope.zone_external_id ?? run.request.scope.project_external_id}`,
+    title: `Báo cáo tồn kho · ${run.request.scope.zone_external_id ?? run.request.scope.project_external_id}`,
     summary: insight.payload.summary,
     claims: insight.payload.claims,
     metrics: calculation.payload.metrics,

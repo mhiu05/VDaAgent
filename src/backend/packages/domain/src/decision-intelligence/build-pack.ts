@@ -388,14 +388,14 @@ function visualStory(input: ResolvedInput, limitations: string[]) {
       chart_id: chart.chart_id,
       role,
       display_priority: selected.length + 1,
-      reason: `Selected ${intent} visual from the pinned visualization policy.`,
+      reason: `Đã chọn biểu đồ “${chart.title}” theo cấu hình trực quan đã xác thực.`,
     });
   }
   return {
     version: 'visual-story-v1' as const,
     headline: selected.length
-      ? 'Current inventory, movement, and concentration visuals are ordered for review.'
-      : 'No supported decision visual is available for this run.',
+      ? 'Các biểu đồ về tồn kho, biến động và mức tập trung đã được sắp xếp để rà soát.'
+      : 'Lượt phân tích này chưa có biểu đồ phù hợp đã được xác thực.',
     ordered_visuals: selected,
     primary_visual_ids: selected
       .filter((item) => item.role === 'primary')
@@ -437,7 +437,7 @@ function actionsAndDrilldowns(
     drilldowns.push({
       drilldown_id: inspectId,
       kind: 'inspect_entities',
-      label: `Inspect ${entity.entity.label}`,
+      label: `Xem xét ${entity.entity.label}`,
       context,
       entity_refs: [entity.entity],
       filters:
@@ -449,8 +449,8 @@ function actionsAndDrilldowns(
       ActionCandidateSchema.parse({
         action_candidate_id: `action:inspect:${normalize(entity.priority_entity_id)}`,
         kind: 'inspect_entities',
-        label: `Inspect ${entity.entity.label}`,
-        rationale: 'Review the evidence-backed entity before choosing a business response.',
+        label: `Xem xét ${entity.entity.label}`,
+        rationale: 'Rà soát đối tượng có bằng chứng hỗ trợ trước khi lựa chọn phương án xử lý.',
         policy_rule_id: inspectPolicy.rule_id,
         support_level: 'high',
         target_entity_ids: [entity.priority_entity_id],
@@ -465,7 +465,7 @@ function actionsAndDrilldowns(
       drilldowns.push({
         drilldown_id: compareId,
         kind: 'compare_segment',
-        label: `Compare ${entity.entity.label}`,
+        label: `So sánh ${entity.entity.label}`,
         context,
         dimension: entity.entity.type,
         segment_key: entity.entity.key,
@@ -474,8 +474,8 @@ function actionsAndDrilldowns(
         ActionCandidateSchema.parse({
           action_candidate_id: `action:compare:${normalize(entity.priority_entity_id)}`,
           kind: 'compare_segments',
-          label: `Compare ${entity.entity.label}`,
-          rationale: 'Compare this segment within the same validated run and scope.',
+          label: `So sánh ${entity.entity.label}`,
+          rationale: 'So sánh nhóm này trong cùng lượt phân tích và phạm vi dữ liệu đã xác thực.',
           policy_rule_id: comparePolicy.rule_id,
           support_level: 'high',
           target_entity_ids: [entity.priority_entity_id],
@@ -491,7 +491,7 @@ function actionsAndDrilldowns(
   drilldowns.push({
     drilldown_id: evidenceId,
     kind: 'open_evidence',
-    label: 'Open decision evidence',
+    label: 'Mở bằng chứng hỗ trợ quyết định',
     context,
     evidence_refs: fallbackEvidence,
   });
@@ -499,8 +499,8 @@ function actionsAndDrilldowns(
     ActionCandidateSchema.parse({
       action_candidate_id: 'action:open-decision-evidence',
       kind: 'navigate_to_evidence',
-      label: 'Open decision evidence',
-      rationale: 'Review the same-run canonical evidence and stated limitations.',
+      label: 'Mở bằng chứng hỗ trợ quyết định',
+      rationale: 'Rà soát bằng chứng chuẩn và các giới hạn trong cùng lượt phân tích.',
       policy_rule_id: evidencePolicy.rule_id,
       support_level: 'high',
       target_entity_ids: [],
@@ -575,7 +575,7 @@ export function buildDecisionIntelligencePack(
     kind: 'descriptive' as const,
     support_level: 'high' as const,
     template_id: 'inspect-concentrated-entity-v1',
-    text: `${hotspot.entity.label} is a supported concentration; inspect its contributing units.`,
+    text: `${hotspot.entity.label} là nhóm tập trung có bằng chứng hỗ trợ; hãy xem các căn tạo nên nhóm này.`,
     evidence_refs: hotspot.evidence_refs,
     limitations: hotspot.limitations,
   }));
@@ -599,10 +599,10 @@ export function buildDecisionIntelligencePack(
   const status = businessStatus(materialChanges, comparable);
   const primarySignal = materialChanges[0];
   const headline = primarySignal
-    ? `${primarySignal.metric_key} is ${primarySignal.direction} over ${primarySignal.period_days} days.`
+    ? `${calculation.payload.metrics.find((metric) => metric.key === primarySignal.metric_key)?.label ?? 'Chỉ số tồn kho'} ${primarySignal.direction === 'improving' ? 'đang cải thiện' : primarySignal.direction === 'deteriorating' ? 'đang xấu đi' : 'có biến động'} trong ${primarySignal.period_days} ngày.`
     : status === 'insufficient_evidence'
-      ? 'Comparable movement is unavailable; review current-state evidence and limitations.'
-      : 'No policy-material movement is present in the comparable inventory evidence.';
+      ? 'Chưa có đủ dữ liệu biến động để so sánh; cần xem bằng chứng hiện tại và các giới hạn dữ liệu.'
+      : 'Chưa ghi nhận biến động trọng yếu theo chính sách trong bằng chứng tồn kho có thể so sánh.';
   return DecisionIntelligencePackSchema.parse({
     contract_version: 'decision-intelligence-pack-v1',
     pack_id: stableId(`${source.run.run_id}:decision-intelligence-pack`),
@@ -644,7 +644,7 @@ export function buildDecisionIntelligencePack(
       business_implications: implications,
       watchouts: limitations.map((limitation, index) => ({
         watchout_id: `watchout:${index + 1}`,
-        label: 'Data limitation',
+        label: 'Giới hạn dữ liệu',
         reason: limitation,
         evidence_refs: [qualityEvidence],
       })),

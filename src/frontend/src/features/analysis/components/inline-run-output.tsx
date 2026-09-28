@@ -1,6 +1,8 @@
 import type { Artifact, ArtifactValidation, RunTask } from '@vda/contracts';
 import { ChartRenderer, ChartUnavailableView } from '../../../components/visualization/chart-renderer';
 import { formatMetricValue } from '../../../lib/chart-format';
+import { workflowStatusLabel } from '../../../lib/format/status-label';
+import { localizeLegacyLimitation, localizeLegacyMetricStatement, localizedMetricLabel } from '../../../lib/format/analysis-copy';
 import { validatedPreviews } from '../models/artifact-preview';
 import styles from './inline-run-output.module.css';
 
@@ -17,6 +19,19 @@ export function InlineRunOutput({ orgId, runId, tasks, artifacts, validations, o
 }) {
   const previews = validatedPreviews(orgId, runId, tasks, artifacts, validations);
   const chartIds = new Set<string>();
+  const metricLabels = new Map<string, string>([
+    ['available_inventory_rate', 'Tỷ lệ căn còn hàng'],
+    ['slow_moving_rate', 'Tỷ lệ căn tồn kho lâu'],
+    ['missing_inventory_age_rate', 'Tỷ lệ thiếu tuổi tồn kho'],
+  ]);
+  const metricUnits = new Map<string, string>();
+  for (const artifact of previews) {
+    if (artifact.kind === 'data_analysis_pack')
+      for (const metric of artifact.payload.metrics) {
+        metricLabels.set(metric.key, localizedMetricLabel(metric.key, metric.label));
+        metricUnits.set(metric.key, metric.unit);
+      }
+  }
   if (!previews.length) return null;
   return <section className={styles.output} aria-label="Kết quả đã xác thực của lượt chạy" data-run-id={runId}>
     <h2>Kết quả lượt chạy</h2>
@@ -26,38 +41,38 @@ export function InlineRunOutput({ orgId, runId, tasks, artifacts, validations, o
         <header><h3>Dữ liệu đã phân tích</h3><button type="button" onClick={() => evidence()}>Xem bằng chứng</button></header>
         <p>{artifact.payload.dataset.row_count.toLocaleString('vi-VN')} dòng trong lượt phân tích</p>
         <dl className={styles.metrics}>{artifact.payload.metrics.slice(0, 4).map((metric, index) => <div key={metric.metric_id}>
-          <dt>{metric.label}</dt><dd>{formatMetricValue(metric)}</dd>
-          {metric.value === null && <small>{metric.abstention_reason ?? 'Không khả dụng'}</small>}
+          <dt>{localizedMetricLabel(metric.key, metric.label)}</dt><dd>{formatMetricValue(metric)}</dd>
+          {metric.value === null && <small>{metric.abstention_reason ? workflowStatusLabel(metric.abstention_reason) : 'Không khả dụng'}</small>}
           {artifact.payload.evidence_refs.find((ref) => ref.path === `payload.metrics[${index}].value`) &&
             <button type="button" onClick={() => {
               const ref = artifact.payload.evidence_refs.find((item) => item.path === `payload.metrics[${index}].value`)!;
               onEvidence(ref.artifact_id, ref.path);
             }}>Bằng chứng</button>}
         </div>)}</dl>
-        {artifact.payload.quality_limitations.length > 0 && <ul>{artifact.payload.quality_limitations.slice(0, 3).map((text) => <li key={text}>{text}</li>)}</ul>}
+        {artifact.payload.quality_limitations.length > 0 && <ul>{artifact.payload.quality_limitations.slice(0, 3).map((text) => <li key={text}>{localizeLegacyLimitation(text)}</li>)}</ul>}
       </article>;
       if (artifact.kind === 'comparison_pack') return <article key={artifact.artifact_id} className={styles.block} data-stage-output="comparison">
         <header><h3>So sánh kỳ</h3><button type="button" onClick={() => evidence()}>Xem bằng chứng</button></header>
         <div className={styles.comparisons}>{artifact.payload.period_comparisons.slice(0, 3).map((item, index) => <dl key={`${item.metric_key}:${item.period_days}:${index}`}>
-          <dt>{item.metric_key.replaceAll('_', ' ')} · {item.period_days} ngày</dt>
+          <dt>{metricLabels.get(item.metric_key) ?? 'Chỉ số tồn kho'} · {item.period_days} ngày</dt>
           <dd>Ngày yêu cầu hiện tại: {item.current_as_of}</dd>
-          <dd>Snapshot hiện tại: {item.current_snapshot_date ?? 'Không khả dụng'}</dd>
+          <dd>Mốc dữ liệu hiện tại: {item.current_snapshot_date ?? 'Không khả dụng'}</dd>
           <dd>Ngày mốc so sánh: {item.comparison_target_date}</dd>
-          <dd>Snapshot mốc: {item.comparison_snapshot_date ?? 'Không khả dụng'}</dd>
+          <dd>Mốc dữ liệu so sánh: {item.comparison_snapshot_date ?? 'Không khả dụng'}</dd>
           <dd>Hiện tại: {value(item.current_value)} {item.current_currency ?? ''}</dd>
           <dd>Mốc so sánh: {value(item.comparison_value)} {item.comparison_currency ?? ''}</dd>
           <dd>Chênh lệch tuyệt đối: {value(item.absolute_delta)}</dd>
           <dd>Thay đổi tương đối: {item.relative_delta_pct === null ? '—' : `${item.relative_delta_pct}%`}</dd>
           {item.percentage_point_delta !== null && <dd>Chênh lệch điểm phần trăm: {item.percentage_point_delta} điểm %</dd>}
-          {(item.relative_delta_abstention_reason || item.abstention_reason) && <dd>{item.relative_delta_abstention_reason ?? item.abstention_reason}</dd>}
+          {(item.relative_delta_abstention_reason || item.abstention_reason) && <dd>{workflowStatusLabel(item.relative_delta_abstention_reason ?? item.abstention_reason!)}</dd>}
           <dd><button type="button" onClick={() => evidence(`payload.period_comparisons[${index}]`)}>Bằng chứng kỳ so sánh</button></dd>
         </dl>)}</div>
       </article>;
       if (artifact.kind === 'analysis_pack') return <article key={artifact.artifact_id} className={styles.block} data-stage-output="analyst">
         <header><h3>Phân tích có bằng chứng</h3><button type="button" onClick={() => evidence()}>Xem hiện vật</button></header>
         <ol>{artifact.payload.findings.slice(0, 3).map((finding) => <li key={finding.finding_id}>
-          <p>{finding.statement}</p><small>Mức hỗ trợ: {finding.support_level}</small>
-          {finding.limitations.map((text) => <small key={text}>{text}</small>)}
+          <p>{localizeLegacyMetricStatement(finding.statement, finding.metric_key, metricLabels, metricUnits)}</p><small>Mức hỗ trợ: {workflowStatusLabel(finding.support_level)}</small>
+          {finding.limitations.map((text) => <small key={text}>{localizeLegacyLimitation(text)}</small>)}
           {finding.evidence_refs[0] && <button type="button" onClick={() => onEvidence(finding.evidence_refs[0]!.artifact_id, finding.evidence_refs[0]!.path)}>Bằng chứng</button>}
         </li>)}</ol>
       </article>;
@@ -65,7 +80,7 @@ export function InlineRunOutput({ orgId, runId, tasks, artifacts, validations, o
         <header><h3>Nhận định</h3><button type="button" onClick={() => evidence()}>Xem hiện vật</button></header>
         <p>{artifact.payload.summary}</p>
         <ol>{artifact.payload.claims.slice(0, 3).map((claim) => <li key={claim.claim_id}>
-          {claim.text} <button type="button" onClick={() => onEvidence(claim.evidence_artifact_id, claim.evidence_path)}>Bằng chứng</button>
+          {localizeLegacyMetricStatement(claim.text, claim.metric_key, metricLabels, metricUnits)} <button type="button" onClick={() => onEvidence(claim.evidence_artifact_id, claim.evidence_path)}>Bằng chứng</button>
         </li>)}</ol>
       </article>;
       if (artifact.kind === 'chart_pack' || artifact.kind === 'visual_evidence') {

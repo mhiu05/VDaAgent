@@ -12,12 +12,12 @@ function briefValue(
   unit: MetricUnit,
   currency: string | null,
 ): string {
-  if (value === null) return 'unavailable';
+  if (value === null) return 'chưa có dữ liệu';
   if (unit === 'percent') return `${value}%`;
-  if (unit === 'percentage_points') return `${value} percentage points`;
-  if (unit === 'days') return `${value} days`;
+  if (unit === 'percentage_points') return `${value} điểm phần trăm`;
+  if (unit === 'days') return `${value} ngày`;
   if (unit === 'currency') return `${value} ${currency ?? ''}`.trim();
-  if (unit === 'currency_per_sqm') return `${value} ${currency ?? ''}/m2`.trim();
+  if (unit === 'currency_per_sqm') return `${value} ${currency ?? ''}/m²`.trim();
   return String(value);
 }
 
@@ -38,7 +38,7 @@ function metricSignal(
     label: metric.label,
     summary: available
       ? `${metric.label}: ${briefValue(metric.value, metric.unit, metric.currency)}.`
-      : `${metric.label} is unavailable (${metric.abstention_reason ?? 'NO_DATA'}).`,
+      : `${metric.label}: chưa có dữ liệu (${metric.abstention_reason ?? 'NO_DATA'}).`,
     metric_key: metricKey,
     dimension: null,
     segment_key: null,
@@ -86,7 +86,7 @@ function changeSignals(calculation: CalculationPayload, artifactId: string): Dec
       rule_id: change.rule_id,
       kind: 'material_change',
       label: metric.label,
-      summary: `${metric.label} moved from ${briefValue(comparison.comparison_value, metric.unit, comparison.comparison_currency)} to ${briefValue(comparison.current_value, metric.unit, comparison.current_currency)} over ${comparison.period_days} days; the ${change.severity} threshold was crossed.`,
+      summary: `${metric.label} thay đổi từ ${briefValue(comparison.comparison_value, metric.unit, comparison.comparison_currency)} thành ${briefValue(comparison.current_value, metric.unit, comparison.current_currency)} trong ${comparison.period_days} ngày; đã vượt ngưỡng ${change.severity === 'material' ? 'đáng kể' : 'cần theo dõi'}.`,
       metric_key: change.metric_key,
       dimension: null,
       segment_key: null,
@@ -155,15 +155,18 @@ function concentrationSignal(calculation: CalculationPayload, artifactId: string
       a.item.key.localeCompare(b.item.key),
   );
   const selected = candidates[0];
+  const dimensionLabels: Record<(typeof dimensionOrder)[number], string> = {
+    zone: 'khu vực', unit_type: 'loại căn', bedrooms: 'số phòng ngủ', status: 'trạng thái',
+  };
   const denominator = denominatorMetric.value;
   if (!selected || denominator === null || decimalOf(denominator).lte(0)) {
     return {
       signal_id: 'segment_concentration:available_inventory',
       rule_id: `${SEMANTIC_VERSION}:segment-concentration:available_inventory`,
       kind: 'segment_concentration',
-      label: 'Available inventory concentration',
+      label: 'Mức tập trung của số căn còn hàng',
       summary:
-        'A supported segment concentration is unavailable because available inventory has no usable denominator.',
+        'Chưa thể xác định mức tập trung theo nhóm vì không có mẫu số hợp lệ cho số căn còn hàng.',
       metric_key: 'available_inventory',
       dimension: null,
       segment_key: null,
@@ -194,8 +197,8 @@ function concentrationSignal(calculation: CalculationPayload, artifactId: string
     signal_id: 'segment_concentration:available_inventory',
     rule_id: `${SEMANTIC_VERSION}:segment-concentration:available_inventory`,
     kind: 'segment_concentration',
-    label: `Available inventory in ${selected.dimension} ${selected.item.label}`,
-    summary: `${selected.item.value} of ${denominator} available inventory units are in ${selected.dimension} ${selected.item.label}.`,
+    label: `Số căn còn hàng tập trung tại ${dimensionLabels[selected.dimension]} ${selected.item.label}`,
+    summary: `Có ${selected.item.value} trong tổng số ${denominator} căn còn hàng thuộc ${dimensionLabels[selected.dimension]} ${selected.item.label}.`,
     metric_key: 'available_inventory',
     dimension: selected.dimension,
     segment_key: selected.item.key,
@@ -254,14 +257,14 @@ export function buildDecisionBrief(
     {
       action_id: 'review_inventory_units',
       kind: 'review_inventory_units',
-      label: 'Review the underlying inventory units',
+      label: 'Rà soát danh sách căn tồn kho',
       target_signal_id: null,
       artifact_id: calculationArtifactId,
     },
     {
       action_id: 'review_primary_evidence',
       kind: 'review_evidence',
-      label: 'Review the concentration evidence',
+      label: 'Xem bằng chứng về nhóm tập trung',
       target_signal_id: where.signal_id,
       artifact_id: calculationArtifactId,
     },

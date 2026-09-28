@@ -50,7 +50,7 @@ export function ConversationList({
       <section className="agent-persona-list" aria-label="Các tác nhân">
         <h3>Tác nhân</h3>
         {([
-          ['root','Điều phối'],['data','Dữ liệu'],['compare','So sánh'],['insight','Nhận định'],['report','Báo cáo'],
+          ['root','Điều phối viên'],['data','Tác nhân dữ liệu'],['compare','Tác nhân so sánh'],['insight','Tác nhân nhận định'],['report','Tác nhân báo cáo'],
         ] as const).map(([key,label]) => {
           const invocation = key === 'root' ? null : execution?.invocations.find((item) => item.step_key === key);
           const status = key === 'root' ? execution?.job.status : invocation?.status;

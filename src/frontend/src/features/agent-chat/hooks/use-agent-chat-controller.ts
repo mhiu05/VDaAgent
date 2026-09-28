@@ -7,6 +7,7 @@ import {
   type WorkspaceActionV1,
   type WorkspaceModeV1,
   type MessageContextRef,
+  type AnalysisRun,
 } from '@vda/contracts';
 import { errorMessage } from '../../../lib/http/api-client';
 import { cancelAcknowledgedRun } from '../../analysis/api/run-data';
@@ -103,7 +104,7 @@ export function useAgentChatController({
     loadConversations,
     clearConversations,
   } = useConversations(orgId, setError);
-  const { messages, setMessages, messageCursor, setMessageCursor, loadingMessages, loadMessages, refreshMessage, activateConversation } =
+  const { messages, setMessages, messageCursor, setMessageCursor, loadingMessages, loadedConversationId, loadMessages, refreshMessage, activateConversation } =
     useMessages(orgId, setError);
   const project = controlledProject ?? localProject;
   const zone = controlledZone ?? localZone;
@@ -231,8 +232,16 @@ export function useAgentChatController({
     selectedConversation?.kind,
   );
   const threadWorkspace = useThreadWorkspace(orgId, selectedConversationId, currentRunDetail?.run.status);
+  const onRuntimeRunUpdate = useCallback((run: AnalysisRun) => {
+    setRunDetail(current => {
+      if (!current || current.run.run_id !== run.run_id || current.run.org_id !== run.org_id) return current;
+      if (['succeeded', 'failed', 'cancelled'].includes(current.run.status) && ['queued', 'running'].includes(run.status)) return current;
+      if (run.updated_at < current.run.updated_at) return current;
+      return { ...current, run };
+    });
+  }, [setRunDetail]);
   const runtime = useRunRuntime(orgId, visibleRunId ?? null, sseEnabled,
-    Boolean(currentRunDetail && ['queued', 'running'].includes(currentRunDetail.run.status)));
+    Boolean(currentRunDetail && ['queued', 'running'].includes(currentRunDetail.run.status)), onRuntimeRunUpdate);
   const buildWorkspaceContext = useCallback(
     (conversationId: string | null, activeRunId?: string | null) => {
       const state = workspaceState ?? initialWorkspaceContextState;
@@ -265,6 +274,7 @@ export function useAgentChatController({
     activity,
     setActivity,
     submit,
+    submitPrompt,
     submitSignalAction,
   } = useAgentTurn({
     orgId,
@@ -486,12 +496,12 @@ export function useAgentChatController({
     orgId, catalog, canWrite, capabilityMode, focusComposerRequest, showConversationList,
     onWorkspaceAction, onReport, onClearExternalRun,
     conversations, conversationCursor, selectedConversationId, selectedConversation, loadingConversations,
-    loadConversations, messages, messageCursor, loadingMessages, loadMessages,
+    loadConversations, messages, messageCursor, loadingMessages, loadedConversationId, loadMessages,
     project, zone, dataAsOf, updateProject, updateZone, updateDataAsOf,
     visibleRunId, currentRunDetail, workflowStatus, bundle, brief, decision, reportDetail, briefStatus, readState,
     detailsLoading, selectedArtifact, setEvidenceId, loadRunArtifacts, openEvidence,
     scheduledReadOnly, draft, setDraft, agentTarget, setAgentTarget, busy,
-    retryTurn, setRetryTurn, activity, submit, submitSignalAction,
+    retryTurn, setRetryTurn, activity, submit, submitPrompt, submitSignalAction,
     agentExecution, executionError, acceptedJobId, selectedAgent, setSelectedAgent, reportId, cancelling, error, setError,
     runMessageId, workspaceControlled, selectConversation, newConversation, cancelRun, cancelJob,
     updateActiveRun, setRunMessageId, selectRun,

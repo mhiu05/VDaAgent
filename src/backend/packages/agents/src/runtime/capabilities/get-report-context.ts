@@ -45,7 +45,7 @@ export async function reportContext(
       'available',
       boundedCanonicalText(
         artifact.payload.summary,
-        'Published report summary is available.',
+        'Đã có tóm tắt báo cáo được phát hành.',
         1_100,
       ),
       grounding,
@@ -57,7 +57,7 @@ export async function reportContext(
           `get_report_context-section-${index + 1}`,
           section.status === 'unavailable' ? 'limitation' : 'status',
           section.status === 'available' ? 'available' : 'unavailable',
-          `${boundedCanonicalText(section.title, section.key, 700)} is ${section.status}.`,
+          `${boundedCanonicalText(section.title, section.key, 700)}: ${section.status === 'available' ? 'đã có dữ liệu' : 'chưa có dữ liệu'}.`,
           grounding,
         ),
       ),

@@ -1,4 +1,5 @@
-import type { RunTask } from '@vda/contracts';
+import type { AgentKey, RunTask } from '@vda/contracts';
+import { agentIdentity } from '../../components/agents/agent-identity';
 
 const agent: ReadonlyArray<[RunTask['kind'], readonly RunTask['kind'][]]> = [
   ['coordinator', []], ['data', ['coordinator']], ['comparison', ['data']],
@@ -21,8 +22,10 @@ const states: Record<RunTask['status'], string> = {
   pending: 'Đang chờ', running: 'Đang xử lý', succeeded: 'Hoàn tất',
   failed: 'Thất bại', cancelled: 'Đã hủy',
 };
-export const stageLabel = (kind: RunTask['kind'], version?: string) =>
-  kind === 'report' && (version ?? 'legacy-v1') === 'legacy-v1' ? 'Báo cáo' : names[kind];
+export const stageLabel = (kind: RunTask['kind'], version?: string) => {
+  const agentName = version === 'agent-v1' ? agentIdentity(kind as AgentKey)?.label : null;
+  return agentName ?? (kind === 'report' && (version ?? 'legacy-v1') === 'legacy-v1' ? 'Báo cáo' : names[kind]);
+};
 export const stageStateLabel = (status: RunTask['status']) => states[status];
 
 function matches(tasks: RunTask[], expected: ReadonlyArray<[RunTask['kind'], readonly RunTask['kind'][]]>) {

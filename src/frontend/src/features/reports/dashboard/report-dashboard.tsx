@@ -27,6 +27,13 @@ import {
 } from './report-dashboard-model';
 import { dashboardSelectionForDrilldown } from './selection';
 import { inventoryStatusLabel, workflowStatusLabel } from '../../../lib/format/status-label';
+import {
+  localizeLegacyLimitation,
+  localizeLegacyMetricStatement,
+  localizedMetricDescription,
+  localizedMetricLabel,
+} from '../../../lib/format/analysis-copy';
+import { formatMetricValue } from '../../../lib/chart-format';
 
 function ScopeLabel({
   scope,
@@ -41,6 +48,13 @@ function ScopeLabel({
   );
 }
 
+function decimalText(value: string | null) {
+  if (value === null) return '—';
+  const [integer, fraction] = value.split('.');
+  const grouped = new Intl.NumberFormat('vi-VN').format(BigInt(integer));
+  return fraction ? `${grouped},${fraction}` : grouped;
+}
+
 function DetailTable({
   units,
   total,
@@ -48,8 +62,15 @@ function DetailTable({
   units: ReturnType<typeof buildReportDashboardModel>['units'];
   total: number;
 }) {
+  const [filter, setFilter] = useState('');
+  const normalizedFilter = filter.trim().toLocaleLowerCase();
+  const filtered = units.filter((unit) =>
+    `${unit.unit_code} ${unit.zone_external_id} ${unit.unit_type} ${unit.status}`
+      .toLocaleLowerCase()
+      .includes(normalizedFilter),
+  );
+  const visible = filtered.slice(0, 50);
   if (!units.length) return null;
-  const visible = units.slice(0, 20);
   return (
     <section className="dashboard-detail-table">
       <header className="dashboard-section-heading">
@@ -57,6 +78,14 @@ function DetailTable({
           <span className="eyebrow">CHI TIẾT ĐÃ CÔNG BỐ</span>
           <h3>Sản phẩm liên quan</h3>
         </div>
+        <label className="search-label">
+          <span className="sr-only">Tìm sản phẩm trong báo cáo</span>
+          <input
+            placeholder="Tìm mã căn, phân khu…"
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+          />
+        </label>
         <span className="badge">{total} mục</span>
       </header>
       <div className="table-scroll">
@@ -65,7 +94,10 @@ function DetailTable({
             <tr>
               <th>Sản phẩm</th>
               <th>Phân khu</th>
+              <th>Loại căn</th>
               <th>Trạng thái</th>
+              <th>Diện tích (m²)</th>
+              <th>Giá niêm yết</th>
               <th>Tuổi tồn (ngày)</th>
               <th>Chậm luân chuyển</th>
             </tr>
@@ -75,11 +107,14 @@ function DetailTable({
               <tr key={unit.unit_external_id}>
                 <td>{unit.unit_code}</td>
                 <td>{unit.zone_external_id}</td>
+                <td>{unit.unit_type}</td>
                 <td>
                   <span className={`status status-${unit.status}`}>
                     {inventoryStatusLabel(unit.status)}
                   </span>
                 </td>
+                <td>{decimalText(unit.area_sqm)}</td>
+                <td>{decimalText(unit.list_price)} {unit.currency}</td>
                 <td>{unit.age_days ?? 'Chưa có dữ liệu'}</td>
                 <td>
                   {unit.slow_moving === null ? 'Chưa có dữ liệu' : unit.slow_moving ? 'Có' : 'Không'}
@@ -89,8 +124,11 @@ function DetailTable({
           </tbody>
         </table>
       </div>
-      {total > visible.length && (
-        <p className="muted">Đang hiển thị {visible.length} trong số {total} mục.</p>
+      {!filtered.length && <p className="empty-inline">Không tìm thấy căn phù hợp.</p>}
+      {filtered.length > visible.length && (
+        <p className="muted">
+          Đang hiển thị {visible.length} trong số {filtered.length} mục phù hợp trên tổng {total} mục.
+        </p>
       )}
     </section>
   );
@@ -194,7 +232,7 @@ function DashboardDetail({
           </header>
           <ul>
             {detail.limitations.map((limitation) => (
-              <li key={limitation}>{limitation}</li>
+              <li key={limitation}>{localizeLegacyLimitation(limitation)}</li>
             ))}
           </ul>
         </section>
@@ -209,6 +247,143 @@ function DashboardDetail({
         </button>
       )}
     </section>
+  );
+}
+
+function PublishedReportDetails({
+  model,
+  onEvidence,
+}: {
+  model: ReturnType<typeof buildReportDashboardModel>;
+  onEvidence: (artifactId: string) => void;
+}) {
+  const metricLabels = new Map<string, string>(
+    model.metrics.map((metric) => [metric.key, localizedMetricLabel(metric.key, metric.label)]),
+  );
+  const metricUnits = new Map<string, string>(model.metrics.map((metric) => [metric.key, metric.unit]));
+
+  return (
+    <details className="dashboard-full-details">
+      <summary>
+        <span>
+          <strong>Chi tiết toàn bộ báo cáo</strong>
+          <small>
+            {model.metrics.length} chỉ số · {model.sections.length} phần · {model.units.length} căn trong dữ liệu đã công bố
+          </small>
+        </span>
+      </summary>
+      <div className="dashboard-full-details-body">
+        <section className="dashboard-detail-table" aria-labelledby="published-metrics-title">
+          <header className="dashboard-section-heading">
+            <div>
+              <span className="eyebrow">SỐ LIỆU NGUỒN</span>
+              <h3 id="published-metrics-title">Tất cả chỉ số đã lưu</h3>
+            </div>
+            <button className="text-button" type="button" onClick={() => onEvidence(model.calculationArtifactId)}>
+              Mở dữ liệu tính toán
+            </button>
+          </header>
+          {model.metrics.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Chỉ số</th><th>Giá trị</th><th>Cách đọc</th><th>Trạng thái</th></tr>
+                </thead>
+                <tbody>
+                  {model.metrics.map((metric) => (
+                    <tr key={metric.metric_id}>
+                      <td>{localizedMetricLabel(metric.key, metric.label)}</td>
+                      <td>{formatMetricValue(metric)}</td>
+                      <td>{localizedMetricDescription(metric.key, metric.description)}</td>
+                      <td>
+                        {metric.value === null && metric.abstention_reason
+                          ? workflowStatusLabel(metric.abstention_reason)
+                          : workflowStatusLabel(metric.status)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="muted">Báo cáo không lưu chỉ số chi tiết.</p>}
+        </section>
+
+        <section className="dashboard-detail-table" aria-labelledby="published-claims-title">
+          <header className="dashboard-section-heading">
+            <div>
+              <span className="eyebrow">NHẬN ĐỊNH</span>
+              <h3 id="published-claims-title">Các kết luận đã lưu</h3>
+            </div>
+            <span className="badge">{model.claims.length} nhận định</span>
+          </header>
+          {model.claims.length ? (
+            <ol className="published-claim-list">
+              {model.claims.map((claim) => (
+                <li key={claim.claim_id}>
+                  <div>
+                    <strong>{localizeLegacyMetricStatement(claim.text, claim.metric_key, metricLabels, metricUnits)}</strong>
+                    <small>{metricLabels.get(claim.metric_key) ?? 'Chỉ số tồn kho'} · Giá trị trong báo cáo: {claim.value}</small>
+                  </div>
+                  <button className="text-button" type="button" onClick={() => onEvidence(claim.evidence_artifact_id)}>
+                    Bằng chứng
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="muted">Báo cáo chưa có nhận định được lưu.</p>}
+        </section>
+
+        <section className="dashboard-detail-table" aria-labelledby="published-sections-title">
+          <header className="dashboard-section-heading">
+            <div>
+              <span className="eyebrow">PHẠM VI BÁO CÁO</span>
+              <h3 id="published-sections-title">Các phần và mức độ dữ liệu</h3>
+            </div>
+          </header>
+          {model.sections.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Phần</th><th>Trạng thái</th><th>Chỉ số liên quan</th><th>Nguồn</th></tr>
+                </thead>
+                <tbody>
+                  {model.sections.map((section) => (
+                    <tr key={section.key}>
+                      <td>
+                        <strong>{section.title}</strong>
+                        {!!section.limitations.length && <small className="published-section-limitations">{section.limitations.join(' · ')}</small>}
+                      </td>
+                      <td>{workflowStatusLabel(section.status)}</td>
+                      <td>{section.metric_keys.map((key) => metricLabels.get(key) ?? key).join(' · ') || '—'}</td>
+                      <td>
+                        {section.artifact_refs.map((artifactId, index) => (
+                          <button className="text-button" key={artifactId} type="button" onClick={() => onEvidence(artifactId)}>
+                            {section.artifact_refs.length > 1 ? `Nguồn ${index + 1}` : 'Mở nguồn'}
+                          </button>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="muted">Báo cáo không lưu cấu trúc phần chi tiết.</p>}
+        </section>
+
+        <section className="dashboard-detail-table" aria-labelledby="published-units-title">
+          <header className="dashboard-section-heading">
+            <div>
+              <span className="eyebrow">DỮ LIỆU SẢN PHẨM</span>
+              <h3 id="published-units-title">Các căn có trong báo cáo</h3>
+            </div>
+            <span className="badge">{model.units.length} căn</span>
+          </header>
+          {model.units.length ? (
+            <DetailTable units={model.units} total={model.units.length} />
+          ) : <p className="muted">Báo cáo không lưu chi tiết từng căn.</p>}
+        </section>
+      </div>
+    </details>
   );
 }
 
@@ -437,7 +612,7 @@ export function ReportDashboard({
           {model.quality.limitations.length ? (
             <ul>
               {model.quality.limitations.slice(0, 4).map((limitation) => (
-                <li key={limitation}>{limitation}</li>
+                <li key={limitation}>{localizeLegacyLimitation(limitation)}</li>
               ))}
             </ul>
           ) : (
@@ -502,6 +677,7 @@ export function ReportDashboard({
           </div>
         </section>
       )}
+      <PublishedReportDetails model={model} onEvidence={onEvidence} />
       {model.mode !== 'decision-intelligence' && (
         <div className="dashboard-callout">
           <CircleAlert size={18} />

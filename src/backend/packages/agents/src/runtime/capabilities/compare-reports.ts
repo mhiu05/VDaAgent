@@ -1,4 +1,5 @@
 import type { ArtifactOf, Metric } from '@vda/contracts';
+import { getMetricDefinition } from '@vda/semantic';
 import type { Repository } from '@vda/db';
 import { verifyArtifact } from '@vda/domain';
 import type { AuthorizedAgentContextV1 } from '../context/types';
@@ -44,9 +45,20 @@ export function reportMetricComparisons(left: ArtifactOf<'report'>, right: Artif
       || before.unit !== after.unit || before.currency !== after.currency) continue;
     const difference = metricDifference(after.value, before.value);
     if (difference === null) continue;
-    output.push(observation(`compare-reports-${output.length + 1}`, 'metric', 'available',
-      `${before.label}: ${left.data_as_of} → ${right.data_as_of}`, [metricRef(left, before, index), metricRef(right, after, afterIndex)],
-      { display_value: `${before.value} → ${after.value}; Δ ${difference} ${before.currency ?? (before.unit === 'percent' ? 'percentage points' : before.unit)}`, support_level: 'high' }));
+    const metricLabel = getMetricDefinition(before.key).label;
+    const unitLabel = before.currency
+      ? before.unit === 'currency_per_sqm' ? before.currency + '/m²' : before.currency
+      : before.unit === 'percent' || before.unit === 'percentage_points'
+        ? 'điểm phần trăm'
+        : before.unit === 'count' ? 'căn'
+          : before.unit === 'days' ? 'ngày'
+            : before.unit === 'currency_per_sqm' ? 'đơn vị tiền tệ/m²' : 'đơn vị tiền tệ';
+    output.push(observation(
+      'compare-reports-' + (output.length + 1), 'metric', 'available',
+      metricLabel + ': ' + left.data_as_of + ' → ' + right.data_as_of,
+      [metricRef(left, before, index), metricRef(right, after, afterIndex)],
+      { display_value: before.value + ' → ' + after.value + '; Δ ' + difference + ' ' + unitLabel, support_level: 'high' },
+    ));
     if (output.length === 8) break;
   }
   return output;
@@ -56,9 +68,9 @@ export function reportMetricComparisons(left: ArtifactOf<'report'>, right: Artif
 export async function compareExplicitReports(repository: Repository, context: AuthorizedAgentContextV1) {
   const runs = explicitComparisonRuns(context);
   if (runs.size < 2) return null;
-  if (runs.size !== 2) return unavailable('inspect_agent_checkpoint', 'compare-reports-select-two', 'Select exactly two reports to compare their validated metrics.');
+  if (runs.size !== 2) return unavailable('inspect_agent_checkpoint', 'compare-reports-select-two', 'Chọn đúng hai báo cáo để so sánh các chỉ số đã xác thực.');
   const selected = context.allowed_report_refs.filter(report => runs.has(report.run_id));
-  if (selected.length !== 2) return unavailable('inspect_agent_checkpoint', 'compare-reports-select-two', 'Select exactly two reports to compare their validated metrics.');
+  if (selected.length !== 2) return unavailable('inspect_agent_checkpoint', 'compare-reports-select-two', 'Chọn đúng hai báo cáo để so sánh các chỉ số đã xác thực.');
   const reports = await Promise.all(selected.map(async ref => {
     const current = await repository.getReport(context.actor.user_id, context.org_id, ref.report_id);
     if (current.report.run_id !== ref.run_id) throw new CapabilityRegistryError('CAPABILITY_DENIED');
@@ -69,5 +81,5 @@ export async function compareExplicitReports(repository: Repository, context: Au
   }));
   const observations = reportMetricComparisons(reports[0]!, reports[1]!);
   return observations.length ? capabilityResult('inspect_agent_checkpoint', 'available', observations)
-    : unavailable('inspect_agent_checkpoint', 'compare-reports-unavailable', 'The selected reports do not share available metrics with matching units and currencies.');
+    : unavailable('inspect_agent_checkpoint', 'compare-reports-unavailable', 'Hai báo cáo đã chọn không có chỉ số chung với đơn vị và tiền tệ tương thích.');
 }

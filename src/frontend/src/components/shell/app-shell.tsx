@@ -14,7 +14,6 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
-  Workflow,
   X,
 } from 'lucide-react';
 import type { Role, Session } from '@vda/contracts';
@@ -49,7 +48,6 @@ export function AppShell({
   organization,
   setOrgId,
   onLogout,
-  statusText,
   capabilityRail,
   feedback,
   contextSlot,
@@ -65,7 +63,6 @@ export function AppShell({
   organization: Session['organizations'][number];
   setOrgId: (id: string) => void;
   onLogout: () => Promise<void>;
-  statusText: string;
   capabilityRail?: ReactNode;
   feedback?: ReactNode;
   contextSlot?: ReactNode;
@@ -149,12 +146,6 @@ export function AppShell({
           })}
         </nav>
         {presentation === 'standard' && <div className="sidebar-bottom">
-          <div className="trust-note">
-            <Workflow size={22} />
-            <strong>Mọi con số đều có nguồn.</strong>
-            <p>Từ snapshot đến báo cáo, luôn giữ nguyên chuỗi bằng chứng.</p>
-            <span className="badge">SUPABASE</span>
-          </div>
           <div className="user-row">
             <span className="avatar">{organization.role.slice(0, 1).toUpperCase()}</span>
             <span className="user-identity">
@@ -187,8 +178,6 @@ export function AppShell({
             VDaAgent <span>/</span> <strong>{title}</strong>
           </div>
           <div className="topbar-status">
-            <span className="live-dot" />
-            {statusText}
             <span className="badge">{roleLabels[organization.role]}</span>
           </div>
         </header>

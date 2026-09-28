@@ -45,7 +45,7 @@ function consumeFrame(block: string, onFrame: (frame: SseFrame) => void) {
 
 export async function readSse(response: Response, onFrame: (frame: SseFrame) => void, maxBufferSize = MAX_SSE_BUFFER_SIZE) {
   const reader = response.body?.getReader();
-  if (!reader) throw streamError('The assistant activity stream is unavailable.');
+  if (!reader) throw streamError('Luồng cập nhật hoạt động của trợ lý hiện không khả dụng.');
   const decoder = new TextDecoder();
   let buffer = '';
   try {
@@ -55,7 +55,7 @@ export async function readSse(response: Response, onFrame: (frame: SseFrame) => 
       buffer += decoder.decode(part.value, { stream: true });
       buffer = buffer.replace(/\r\n/g, '\n');
       if (buffer.length > maxBufferSize)
-        throw streamError('The assistant activity stream is invalid.');
+        throw streamError('Luồng cập nhật hoạt động của trợ lý không hợp lệ.');
       while (true) {
         const end = buffer.indexOf('\n\n');
         if (end === -1) break;
@@ -116,7 +116,7 @@ export async function sendTurnStream(
   const path = conversationId
     ? '/conversations/' + conversationId + '/messages/stream'
     : '/conversations/stream';
-  const response = await fetch(scoped(path, orgId), {
+  const response = await fetch(`/api/v1${scoped(path, orgId)}`, {
     method: 'POST',
     body: JSON.stringify(body),
     credentials: 'same-origin',
@@ -130,7 +130,7 @@ export async function sendTurnStream(
   });
   if (!response.ok) throw await errorFromResponse(response);
   if (!response.headers.get('content-type')?.includes('text/event-stream'))
-    throw streamError('The assistant activity stream is unavailable.');
+    throw streamError('Luồng cập nhật hoạt động của trợ lý hiện không khả dụng.');
 
   let sequence = -1;
   const terminal: { value: AgentTurnStreamTerminal | null } = { value: null };
@@ -139,11 +139,11 @@ export async function sendTurnStream(
     try {
       value = JSON.parse(frame.data);
     } catch {
-      throw streamError('The assistant activity stream is invalid.');
+      throw streamError('Luồng cập nhật hoạt động của trợ lý không hợp lệ.');
     }
     const event = AgentTurnStreamEventV1Schema.safeParse(value);
     if (!event.success || frame.event !== event.data.type || event.data.sequence <= sequence)
-      throw streamError('The assistant activity stream is invalid.');
+      throw streamError('Luồng cập nhật hoạt động của trợ lý không hợp lệ.');
     sequence = event.data.sequence;
     if (event.data.type === 'activity') {
       onActivity(AgentActivityEventV1Schema.parse(event.data.activity));
@@ -152,12 +152,12 @@ export async function sendTurnStream(
     terminal.value = event.data;
   });
   const completed = terminal.value;
-  if (!completed) throw streamError('The assistant activity stream ended before completion.');
+  if (!completed) throw streamError('Luồng cập nhật hoạt động của trợ lý kết thúc trước khi hoàn tất.');
   if (completed.accepted) return AgentTurnAcceptedSchema.parse(completed.accepted);
   throw streamError(
     completed.error_code === 'TURN_CANCELLED'
-      ? 'The assistant request was cancelled.'
-      : 'The assistant activity stream could not be completed.',
+      ? 'Yêu cầu phân tích đã được hủy.'
+      : 'Không thể hoàn tất luồng cập nhật hoạt động của trợ lý.',
     503,
   );
 }

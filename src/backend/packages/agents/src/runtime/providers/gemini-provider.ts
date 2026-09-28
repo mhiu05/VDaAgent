@@ -18,20 +18,7 @@ import {
 } from './errors';
 import { composerInstructions, plannerInstructions } from './instructions';
 import { responseUsage } from './telemetry';
-
-const GeminiResponseSchema = z
-  .object({
-    candidates: z
-      .array(
-        z.object({
-          content: z
-            .object({ parts: z.array(z.object({ text: z.string().optional() }).passthrough()) })
-            .optional(),
-        }),
-      )
-      .default([]),
-  })
-  .passthrough();
+import { geminiOutputText } from '../../providers/gemini-response';
 
 function runtimeJsonSchema(schema: z.ZodType) {
   return z.toJSONSchema(schema, { unrepresentable: 'any' });
@@ -116,10 +103,7 @@ export class GeminiAgentRuntimeProvider implements AgentRuntimeProvider {
     if (!response.ok) throw providerHttpError(response.status);
     try {
       const body: unknown = await response.json();
-      const text = GeminiResponseSchema.parse(body)
-        .candidates.flatMap((candidate) => candidate.content?.parts ?? [])
-        .map((part) => part.text)
-        .find((part): part is string => Boolean(part));
+      const text = geminiOutputText(body);
       if (!text) throw new Error('missing Gemini response text');
       return {
         value: schema.parse(JSON.parse(text)),

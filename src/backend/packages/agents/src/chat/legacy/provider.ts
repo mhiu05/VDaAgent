@@ -8,7 +8,7 @@ import {
   type SignalRef,
 } from '@vda/contracts';
 import { getConfig, type AppConfig, type LlmProvider } from '@vda/config';
-import { GeminiResponseSchema } from '../../providers/gemini-response';
+import { geminiOutputText } from '../../providers/gemini-response';
 
 export type AgentDecisionContext = {
   question: string;
@@ -136,10 +136,7 @@ export class GeminiAgentDecisionProvider implements AgentDecisionProvider {
     if (!response.ok) throw new Error('GEMINI_AGENT_REQUEST_FAILED');
     try {
       const body: unknown = await response.json();
-      const text = GeminiResponseSchema.parse(body)
-        .candidates.flatMap((candidate) => candidate.content?.parts ?? [])
-        .map((part) => part.text)
-        .find((part): part is string => Boolean(part));
+      const text = geminiOutputText(body);
       if (!text) throw new Error('missing Gemini response text');
       return AgentDecisionSchema.parse(JSON.parse(text));
     } catch {

@@ -41,8 +41,8 @@ export function detectChanges(
       if (!eligible) return [];
       const threshold =
         definition.unit === 'percent'
-          ? `${notableChangeRules.rate_percentage_points.toString()} percentage points`
-          : `${price ? notableChangeRules.price_relative_pct.toString() : notableChangeRules.inventory_relative_pct.toString()}% relative`;
+          ? `${notableChangeRules.rate_percentage_points.toString()} điểm phần trăm`
+          : `${price ? notableChangeRules.price_relative_pct.toString() : notableChangeRules.inventory_relative_pct.toString()}% tương đối so với kỳ trước`;
       return [
         {
           rule_id: `${notableChangeRules.version}:${comparison.metric_key}:${comparison.period_days}d`,
@@ -53,7 +53,7 @@ export function detectChanges(
           scope,
           threshold,
           evidence_paths: [`payload.period_comparisons[${index}].current_value`],
-          reason: `${definition.label} crossed the configured ${comparison.period_days}-day materiality threshold.`,
+          reason: `${definition.label} đã vượt ngưỡng biến động được cấu hình trong kỳ ${comparison.period_days} ngày.`,
           severity:
             relative?.gte(notableChangeRules.material_relative_pct) ||
             points?.gte(notableChangeRules.material_rate_percentage_points)

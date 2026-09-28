@@ -11,12 +11,13 @@ function checkpointLabel(status: AgentWorkflowStatus['publication_status']) {
   return 'Đang chờ phát hành';
 }
 
-export function WorkflowCheckpointStatus({ status }: { status: AgentWorkflowStatus }) {
+export function WorkflowCheckpointStatus({ status, runStatus }: { status: AgentWorkflowStatus; runStatus?: string }) {
   if (status.workflow_version !== 'agent-v1') return null;
-  const reviewText = status.review
+  const terminal = ['failed', 'cancelled', 'succeeded'].includes(runStatus ?? status.publication_status ?? '');
+  const reviewText = terminal && !status.review ? 'Phân tích đã kết thúc trước khi có kết quả rà soát.' : status.review
     ? status.review.status === 'PASS'
-      ? `Người rà soát đã duyệt bản nháp ${status.review.draft_revision}.`
-      : `Người rà soát yêu cầu chỉnh sửa bản nháp ${status.review.draft_revision}.`
+      ? `Reviewer đã duyệt bản nháp ${status.review.draft_revision}.`
+      : `Reviewer yêu cầu chỉnh sửa bản nháp ${status.review.draft_revision}.`
     : status.draft_revision
       ? `Đang chờ rà soát bản nháp ${status.draft_revision}.`
       : 'Đang chờ bản nháp báo cáo.';
@@ -25,7 +26,7 @@ export function WorkflowCheckpointStatus({ status }: { status: AgentWorkflowStat
       <Check size={15} />
     ) : status.review?.status === 'REVISION_REQUIRED' ? (
       <CircleAlert size={15} />
-    ) : (
+    ) : terminal ? <CircleAlert size={15} /> : (
       <LoaderCircle size={15} className="spin" />
     );
 
@@ -43,7 +44,7 @@ export function WorkflowCheckpointStatus({ status }: { status: AgentWorkflowStat
         <dd>
           {status.draft_revision
             ? `Bản sửa bất biến ${status.draft_revision} đã được lưu`
-            : 'Đang chờ tác nhân báo cáo'}
+            : terminal ? 'Không có bản nháp đã hoàn tất' : 'Đang chờ tác nhân báo cáo'}
         </dd>
         <dt>Rà soát</dt>
         <dd className="agent-checkpoint-review">
@@ -51,7 +52,7 @@ export function WorkflowCheckpointStatus({ status }: { status: AgentWorkflowStat
           {reviewText}
         </dd>
         <dt>Phát hành</dt>
-        <dd>{checkpointLabel(status.publication_status)}</dd>
+        <dd>{terminal && !status.publication_status ? 'Không có báo cáo được phát hành.' : checkpointLabel(status.publication_status)}</dd>
       </dl>
     </section>
   );

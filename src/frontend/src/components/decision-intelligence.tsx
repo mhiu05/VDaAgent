@@ -1,7 +1,8 @@
 import { ArrowUpRight } from 'lucide-react';
 import type { DecisionIntelligencePack, MetricUnit } from '@vda/contracts';
 import { formatChartValue } from '../lib/chart-format';
-import { workflowStatusLabel } from '../lib/format/status-label';
+import { decisionReasonLabel, workflowStatusLabel } from '../lib/format/status-label';
+import { localizedMetricLabel } from '../lib/format/analysis-copy';
 
 const formats: Record<MetricUnit, 'integer' | 'percent' | 'percentage_points' | 'days' | 'currency' | 'currency_per_area'> = {
   count: 'integer',
@@ -27,6 +28,13 @@ export function DecisionIntelligenceView({
   onLoadDetails?: () => void;
 }) {
   const brief = pack.decision_brief;
+  const metricLabels = new Map<string, string>(
+    brief.kpi_cards.map((card) => [card.metric_key, localizedMetricLabel(card.metric_key, card.label)] as const),
+  );
+  const metricName = (key: string) => metricLabels.get(key) ?? ({
+    total_inventory: 'Tổng số căn', missing_inventory_age_rate: 'Tỷ lệ thiếu tuổi tồn kho',
+    missing_price_rate: 'Tỷ lệ thiếu giá niêm yết', missing_area_rate: 'Tỷ lệ thiếu diện tích',
+  } as Record<string, string>)[key] ?? 'Chỉ số tồn kho';
   const openDrilldown = (drilldownId: string) => {
     const drilldown = pack.drilldowns.find((candidate) => candidate.drilldown_id === drilldownId);
     if (!drilldown) return;
@@ -59,7 +67,7 @@ export function DecisionIntelligenceView({
         <div className='chart-kpi-grid'>
           {brief.kpi_cards.map((card) => (
             <button className='brief-signal' key={card.kpi_id} onClick={() => onEvidence(card.metric_ref.artifact_id)}>
-              <span><strong>{card.label}</strong><small>{displayValue(card.value, card.unit, card.currency)}</small></span>
+              <span><strong>{metricName(card.metric_key)}</strong><small>{displayValue(card.value, card.unit, card.currency)}</small></span>
             </button>
           ))}
         </div>
@@ -70,7 +78,7 @@ export function DecisionIntelligenceView({
           <div className='brief-signal-list'>
             {brief.material_changes.map((change) => (
               <button className='brief-signal' key={change.change_id} onClick={() => onEvidence(change.evidence_refs[0]!.artifact_id)}>
-                <span><strong>{change.metric_key} · {workflowStatusLabel(change.severity)}</strong><small>{workflowStatusLabel(change.direction)} trong {change.period_days} ngày</small></span>
+                <span><strong>{metricName(change.metric_key)} · {workflowStatusLabel(change.severity)}</strong><small>{workflowStatusLabel(change.direction)} trong {change.period_days} ngày</small></span>
               </button>
             ))}
             {!brief.material_changes.length && <p className='muted'>Không có thay đổi ảnh hưởng đến quyết định.</p>}
@@ -85,7 +93,7 @@ export function DecisionIntelligenceView({
                 key={entity.priority_entity_id}
                 onClick={() => openDrilldown(entity.drilldown_ids[0]!)}
               >
-                <span><strong>#{entity.rank} {entity.entity.label}</strong><small>{entity.tier} - {entity.reason_codes.join(', ')}</small></span>
+                <span><strong>#{entity.rank} {entity.entity.label}</strong><small>{workflowStatusLabel(entity.tier)} · {entity.reason_codes.map((reason) => decisionReasonLabel(reason, metricName)).join(' · ')}</small></span>
               </button>
             ))}
           </div>

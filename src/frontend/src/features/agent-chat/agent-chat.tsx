@@ -83,9 +83,10 @@ export function AgentChat(props: Parameters<typeof useAgentChatController>[0]) {
             ? 'Lượt chạy theo lịch: chỉ xem kết quả đã lưu.'
             : 'Lượt chạy lịch sử: chỉ xem kết quả đã lưu.'}
         </p>}
-        <ActivityTimeline events={activity} />
-        {currentRunDetail && workflowStatus && <WorkflowCheckpointStatus status={workflowStatus} />}
+        {!agentExecution && !currentRunDetail && <ActivityTimeline events={activity} />}
+        {currentRunDetail && workflowStatus && <WorkflowCheckpointStatus status={workflowStatus} runStatus={currentRunDetail.run.status} />}
         <MessageThread
+          execution={agentExecution}
           messages={messages}
           loading={loadingMessages}
           hasEarlier={messageCursor !== null}

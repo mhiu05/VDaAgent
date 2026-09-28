@@ -36,7 +36,7 @@ export type ToolDefinition<I = unknown, O = unknown> = {
   normalizeResult: (output: O) => ToolResult;
 };
 export class ToolRuntimeError extends Error {
-  constructor(readonly code: string) { super(code); }
+  constructor(readonly code: string, options?: ErrorOptions) { super(code, options); }
 }
 
 /** Race even non-cooperative adapters, while passing cancellation to cooperative ones. */
@@ -121,9 +121,11 @@ export class ToolRegistry {
     } catch (error) {
       const code = context.signal.aborted ? 'TOOL_CANCELLED' : timeout.aborted ? 'TOOL_TIMEOUT'
         : error instanceof Error && /^[A-Z0-9_]{1,100}$/.test(error.message) ? error.message : 'TOOL_EXECUTION_FAILED';
-      await context.emit({ toolCallId, toolName: name, status: code === 'TOOL_CANCELLED' ? 'cancelled' : 'failed',
-        summary: code === 'TOOL_CANCELLED' ? 'Tool cancelled' : 'Tool could not complete', durationMs: Date.now() - started, errorCode: code });
-      throw new ToolRuntimeError(code);
+      try {
+        await context.emit({ toolCallId, toolName: name, status: code === 'TOOL_CANCELLED' ? 'cancelled' : 'failed',
+          summary: code === 'TOOL_CANCELLED' ? 'Công cụ đã được hủy' : 'Công cụ không thể hoàn tất', durationMs: Date.now() - started, errorCode: code });
+      } catch { /* Keep the original failure when the lease or activity store is unavailable. */ }
+      throw new ToolRuntimeError(code, { cause: error });
     }
   }
 }

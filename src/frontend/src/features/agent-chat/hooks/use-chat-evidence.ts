@@ -63,7 +63,7 @@ export function useChatEvidence({
         if (selection.current !== requestSelection) return;
         setBundle(artifacts);
         if (!artifacts.artifacts.some((artifact) => artifact.artifact_id === id)) {
-          onError('The referenced evidence artifact is unavailable for this run.');
+          onError('Bằng chứng được tham chiếu không có trong lượt phân tích này.');
           return;
         }
       } catch (cause) {

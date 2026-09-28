@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AgentDefinition, ImportManifest, MemoryEntry, ReportRecord, ThreadContext } from '@vda/contracts';
 import { errorMessage } from '../../../lib/http/api-client';
 import { listReports } from '../../reports/api/reports';
@@ -17,7 +17,7 @@ export function useThreadWorkspace(orgId: string, conversationId: string | null,
   const [saving, setSaving] = useState(false);
   const selected = useRef(`${orgId}:${conversationId}`);
   const contextRevision = useRef(0);
-  selected.current = `${orgId}:${conversationId}`;
+  useLayoutEffect(() => { selected.current = `${orgId}:${conversationId}`; }, [orgId, conversationId]);
   useEffect(() => {
     let disposed = false;
     setAgents([]);

@@ -21,7 +21,7 @@ export async function createAnalysis(
     'create_analysis',
     'pending',
     [
-      observation('create_analysis-1', 'status', 'pending', 'Analysis queued.', [
+      observation('create_analysis-1', 'status', 'pending', 'Phân tích đã được xếp hàng.', [
         { type: 'run', ref: queued },
       ]),
     ],

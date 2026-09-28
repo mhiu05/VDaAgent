@@ -80,30 +80,30 @@ type AgentTargetPolicy =
 const targetPolicies: Partial<Record<AgentKey, AgentTargetPolicy>> = {
   data: {
     action: 'artifact', capability: 'analysis', artifact_key: 'data_analysis_pack',
-    content: 'The Data Agent linked the validated metrics, dimensions, and dataset evidence.',
+    content: 'Tác nhân dữ liệu đã liên kết chỉ số, chiều phân tích và bằng chứng dữ liệu đã xác thực.',
   },
   insight: {
     action: 'artifact', capability: 'analysis', artifact_key: 'insight_pack',
-    content: 'The Insight Agent linked the existing grounded findings and supporting evidence.',
+    content: 'Tác nhân nhận định đã liên kết các phát hiện có căn cứ và bằng chứng hỗ trợ.',
   },
   reviewer: { action: 'status', capability: 'report_revision' },
   analyst: {
     action: 'artifact',
     capability: 'analyst_follow_up',
     artifact_key: 'analysis_pack',
-    content: 'The Analyst Agent linked the existing validated analysis pack.',
+    content: 'Tác nhân phân tích đã liên kết kết quả phân tích đã xác thực.',
   },
   comparison: {
     action: 'artifact',
     capability: 'comparison',
     artifact_key: 'comparison_pack',
-    content: 'The Comparison Agent linked the existing validated comparison pack.',
+    content: 'Tác nhân so sánh đã liên kết kết quả so sánh đã xác thực.',
   },
   chart: {
     action: 'artifact',
     capability: 'chart',
     artifact_key: 'chart_pack',
-    content: 'The Chart Agent linked the existing validated chart pack.',
+    content: 'Tác nhân biểu đồ đã liên kết biểu đồ đã xác thực.',
   },
   report: { action: 'status', capability: 'report_revision' },
 };
@@ -454,10 +454,10 @@ export async function getAgentTargetFollowUp(
     );
     const content =
       review?.kind === 'review_result' && review.payload.status === 'REVISION_REQUIRED'
-        ? 'The Report Agent checkpoint is in the deterministic bounded revision flow.'
+        ? 'Bản nháp báo cáo đang được chỉnh sửa trong quy trình có giới hạn.'
         : review?.kind === 'review_result'
-          ? 'The Report Agent checkpoint has a deterministic review result and remains publication-gated.'
-          : 'The Report Agent persisted a reviewable draft checkpoint; deterministic review is pending.';
+          ? 'Báo cáo đã có kết quả rà soát và chỉ được phát hành khi đủ điều kiện.'
+          : 'Bản nháp báo cáo đã được lưu để rà soát; đang chờ kết quả kiểm tra.';
     return {
       kind: 'agent_target_follow_up',
       run,

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { RuntimeActivityEventSchema } from '@vda/contracts';
+import { useEffect, useRef, useState } from 'react';
+import { RunSchema, RuntimeActivityEventSchema, type AnalysisRun } from '@vda/contracts';
 import { ApiError, errorMessage, scoped } from '../../../lib/http/api-client';
 import { readSse } from '../../../lib/sse';
 import { getRunRuntime, RuntimeSnapshotSchema, type RuntimeSnapshot } from '../api/runtime';
@@ -7,10 +7,13 @@ import { getRunRuntime, RuntimeSnapshotSchema, type RuntimeSnapshot } from '../a
 const empty: RuntimeSnapshot = { records: [], events: [], last_sequence: 0 };
 
 /** A browser subscribes to persisted work; disconnecting never cancels that work. */
-export function useRunRuntime(orgId: string, runId: string | null, sseEnabled: boolean, active: boolean) {
+export function useRunRuntime(orgId: string, runId: string | null, sseEnabled: boolean, active: boolean,
+  onRunUpdate?: (run: AnalysisRun) => void) {
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot>(empty);
   const [connection, setConnection] = useState<'loading' | 'live' | 'reconnecting' | 'idle'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const onRunUpdateRef = useRef(onRunUpdate);
+  useEffect(() => { onRunUpdateRef.current = onRunUpdate; }, [onRunUpdate]);
   useEffect(() => {
     setSnapshot(empty);
     setError(null);
@@ -45,18 +48,21 @@ export function useRunRuntime(orgId: string, runId: string | null, sseEnabled: b
         });
         if (!response.ok) {
           await response.body?.cancel();
-          throw new ApiError('Runtime stream is unavailable.', response.status);
+          throw new ApiError('Không thể kết nối luồng cập nhật phân tích.', response.status);
         }
         if (!response.headers.get('content-type')?.includes('text/event-stream')) {
           await response.body?.cancel();
-          throw new Error('Invalid runtime stream.');
+          throw new Error('Luồng cập nhật phân tích không hợp lệ.');
         }
         setConnection('live');
         let terminal = false;
         await readSse(response, (frame) => {
           if (disposed) return;
           if (frame.event === 'snapshot') {
-            const value = JSON.parse(frame.data) as { runtime?: unknown };
+            const value = JSON.parse(frame.data) as { runtime?: unknown; run?: unknown };
+            const run = RunSchema.safeParse(value.run);
+            if (run.success && run.data.run_id === runId && run.data.org_id === orgId)
+              onRunUpdateRef.current?.(run.data);
             const parsed = RuntimeSnapshotSchema.safeParse(value.runtime);
             if (parsed.success && parsed.data.last_sequence >= lastSequence) {
               lastSequence = parsed.data.last_sequence;
@@ -76,9 +82,9 @@ export function useRunRuntime(orgId: string, runId: string | null, sseEnabled: b
           } else if (frame.event === 'terminal') terminal = true;
         }, 2_000_000);
         if (disposed) return;
+        if (terminal) { setConnection('idle'); setError(null); return; }
         await refresh();
-        if (terminal) { setConnection('idle'); return; }
-        throw new Error('Runtime connection interrupted. Reconnecting to saved execution.');
+        throw new Error('Kết nối cập nhật bị gián đoạn. Đang kết nối lại với lượt phân tích đã lưu.');
       } catch (cause) {
         if (disposed) return;
         setError(errorMessage(cause));

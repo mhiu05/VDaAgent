@@ -31,6 +31,59 @@
 .app-shell-analytical .sidebar .nav-item svg { width: 20px; height: 20px; }
 .app-shell-analytical .sidebar .nav-dot { display: none; }
 
+@media (min-width: 721px) {
+  :root { --sidebar: 86px; }
+
+  .app-shell .sidebar {
+    width: 86px;
+    align-items: center;
+    padding: 16px 8px;
+    overflow: visible;
+    transition: width 180ms ease, box-shadow 180ms ease;
+  }
+
+  .app-shell .sidebar > .brand { justify-content: center; width: 100%; gap: 0; }
+  .app-shell .sidebar > .brand > span:last-child,
+  .app-shell .sidebar > .workspace-picker,
+  .app-shell .sidebar > .capability-rail,
+  .app-shell .sidebar > .nav-caption,
+  .app-shell .sidebar > .sidebar-bottom { display: none; }
+  .app-shell .sidebar nav { width: 100%; margin-top: 20px; }
+  .app-shell .sidebar .nav-item { justify-content: center; gap: 0; padding: 10px; font-size: 0; }
+  .app-shell .sidebar .nav-item svg { width: 20px; height: 20px; flex: 0 0 20px; }
+  .app-shell .sidebar .nav-dot { display: none; }
+
+  .app-shell .sidebar:is(:hover, :focus-within) {
+    width: 264px;
+    align-items: stretch;
+    padding: 16px;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .app-shell .sidebar:is(:hover, :focus-within) > .brand {
+    justify-content: flex-start;
+    gap: 11px;
+  }
+  .app-shell .sidebar:is(:hover, :focus-within) > .brand > span:last-child,
+  .app-shell .sidebar:is(:hover, :focus-within) > .workspace-picker,
+  .app-shell .sidebar:is(:hover, :focus-within) > .nav-caption,
+  .app-shell .sidebar:is(:hover, :focus-within) > .sidebar-bottom { display: block; }
+  .app-shell .sidebar:is(:hover, :focus-within) > .workspace-picker { display: flex; }
+  .app-shell .sidebar:is(:hover, :focus-within) > .capability-rail { display: flex; flex-direction: column; }
+  .app-shell .sidebar:is(:hover, :focus-within) nav { width: 100%; margin-top: 20px; }
+  .app-shell .sidebar:is(:hover, :focus-within) .nav-item {
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 12px 11px;
+    font-size: 12px;
+  }
+  .app-shell .sidebar:is(:hover, :focus-within) .nav-dot { display: block; }
+  .app-shell .sidebar:is(:hover, :focus-within) .sidebar-bottom .trust-note,
+  .app-shell .sidebar:is(:hover, :focus-within) .sidebar-bottom .user-identity { display: block; }
+  .app-shell .sidebar:is(:hover, :focus-within) .sidebar-bottom .user-row > .icon-button { display: inline-grid; }
+  .app-shell .sidebar:is(:hover, :focus-within) .user-row { justify-content: flex-start; }
+}
+
 .analytical-account { position: relative; margin-top: 16px; }
 .analytical-account > summary {
   display: grid;
@@ -85,27 +138,7 @@
   flex-direction: column;
 }
 .app-shell-analytical #workspace-content > .page-heading { display: none; }
-.app-shell-analytical #workspace-content > .provisional-banner {
-  margin: 0;
-  border-inline: 0;
-  border-radius: 0;
-  padding: 5px 16px;
-}
 .app-shell-analytical .workspace-footer { display: none; }
-.app-shell-analytical .agent-composer-compact .scope-row,
-.app-shell-analytical .agent-composer-compact .agent-suggestions { display: none; }
-.app-shell-analytical .agent-composer-compact .agent-composer-scope[open] + .scope-row,
-.app-shell-analytical .agent-composer-compact .agent-composer-quick-actions[open] + .agent-suggestions { display: grid; }
-.app-shell-analytical .agent-composer-compact .agent-composer-scope,
-.app-shell-analytical .agent-composer-compact .agent-composer-quick-actions {
-  border: 0;
-  padding: 0;
-  margin: 0 0 8px;
-}
-.app-shell-analytical .agent-composer-compact summary { color: var(--color-ink-soft); font-size: var(--text-xs); }
-.app-shell-analytical .agent-composer-compact textarea { resize: vertical; min-height: 70px; max-height: 160px; }
-.app-shell-analytical .agent-composer-compact .composer-footer { margin-top: 8px; }
-.app-shell-analytical .agent-composer-compact .agent-suggestions { margin-top: 8px; }
 
 @media (max-width: 720px) {
   .app-shell-analytical { overflow: hidden; height: 100dvh; min-height: 0; }

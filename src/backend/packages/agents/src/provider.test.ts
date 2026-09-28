@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Claim } from '@vda/contracts';
 import {
   FallbackAgentDecisionProvider,
@@ -23,6 +23,29 @@ const claims: Claim[] = [
 ];
 
 describe('narrative providers', () => {
+  it('ignores a Gemini thought part before the structured Insight output', async () => {
+    const provider = new GeminiProvider('test-key', 'gemini-test', async () =>
+      new Response(JSON.stringify({ candidates: [{ content: { parts: [
+        { thought: true, text: 'internal thought, not the structured result' },
+        { text: JSON.stringify({ summary_key: 'inventory_descriptive', claim_ids: ['claim-available'] }) },
+      ] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    await expect(provider.narrate(claims)).resolves.toMatchObject({ provider: 'gemini', claims });
+  });
+
+  it('does not reach a failing fallback when Gemini thought precedes valid Insight JSON', async () => {
+    const gemini = new GeminiProvider('test-key', 'gemini-test', async () =>
+      new Response(JSON.stringify({ candidates: [{ content: { parts: [
+        { thought: true, text: 'not structured output' },
+        { text: JSON.stringify({ summary_key: 'inventory_descriptive', claim_ids: ['claim-available'] }) },
+      ] } }] })),
+    );
+    const fallback = vi.fn(async () => { throw new Error('OPENAI_REQUEST_FAILED'); });
+    const provider = new FallbackNarrativeProvider([gemini, { narrate: fallback }]);
+    await expect(provider.narrate(claims)).resolves.toMatchObject({ provider: 'gemini', claims });
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
   it('passes bounded runtime hierarchy and untrusted context while keeping the ID-only output contract', async () => {
     let request: {systemInstruction:{parts:Array<{text:string}>};contents:Array<{parts:Array<{text:string}>}>;generationConfig:{responseJsonSchema:{properties:unknown}}} | undefined;
     const provider = new GeminiProvider('test-key','gemini-test',async (_input,init) => {
@@ -98,6 +121,18 @@ describe('narrative providers', () => {
     });
   });
 
+  it('retains only safe provider codes when both Insight providers fail', async () => {
+    const gemini: NarrativeProvider = { narrate: async () => { throw new Error('GEMINI_RESPONSE_INVALID'); } };
+    const fallback: NarrativeProvider = { narrate: async () => {
+      throw Object.assign(new Error('private response body'), { status: 429, apiKey: 'private credential' });
+    } };
+    const error = await new FallbackNarrativeProvider([gemini, fallback]).narrate(claims).catch(cause => cause);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.message).toBe('ALL_LLM_PROVIDERS_FAILED');
+    expect(error.errors.map((cause: Error) => cause.message)).toEqual(['GEMINI_RESPONSE_INVALID', 'PROVIDER_HTTP_429']);
+    expect(JSON.stringify(error.errors.map((cause: Error) => cause.message))).not.toMatch(/private|credential/);
+  });
+
   it.each([
     ['invented claim', ['invented-claim']],
     ['duplicate claim', ['claim-available', 'claim-available']],
@@ -152,6 +187,18 @@ describe('Agent Chat decision providers', () => {
     active_brief: null,
     requested_signal_ref: null,
   };
+  it('reads a structured Gemini decision after a thought part', async () => {
+    const provider = new GeminiAgentDecisionProvider('test-key', 'gemini-test', async () =>
+      new Response(JSON.stringify({ candidates: [{ content: { parts: [
+        { thought: true, text: 'internal thought, not a decision' },
+        { text: JSON.stringify({ action: 'unsupported', reason_code: 'UNSUPPORTED_REQUEST' }) },
+      ] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    await expect(provider.decide(context)).resolves.toEqual({
+      action: 'unsupported', reason_code: 'UNSUPPORTED_REQUEST',
+    });
+  });
+
   it('rejects unknown fields from a structured Gemini decision', async () => {
     const provider = new GeminiAgentDecisionProvider(
       'test-key',

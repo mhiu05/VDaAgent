@@ -10,7 +10,9 @@ import { RuntimeActivityRecordSchema } from '@vda/contracts';
 import type { MessageContextRef } from '@vda/contracts';
 import { MessageContextControls, ThreadContextControls } from './thread-context-controls';
 import { MessageThread } from '../../agent-chat/message-thread';
+import { agentSuggestions } from '../../agent-chat/agent-suggestions';
 import { MessageSchema } from '@vda/contracts';
+import { ANALYSIS_AGENT_DEFINITIONS } from '@vda/agents';
 
 const agents = ['coordinator', 'data', 'comparison', 'insight', 'chart', 'report', 'reviewer'].map((id) => AgentDefinitionSchema.parse({ id, name: id === 'coordinator' ? 'Main Agent' : `${id} Agent`, role: id, description: `Work with ${id}`, instructions: '', allowed_tools: [], capabilities: [], avatar: { initials: id.slice(0, 2), color: 'blue' } }));
 let root: Root;
@@ -19,28 +21,56 @@ beforeEach(() => { host = document.createElement('div'); document.body.append(ho
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe('agent workspace interactions', () => {
+  it('keeps two distinct questions for every registered agent and sends the selected text from an empty thread', async () => {
+    for (const agent of ANALYSIS_AGENT_DEFINITIONS) {
+      const questions = agentSuggestions[agent.id as keyof typeof agentSuggestions];
+      expect(questions).toHaveLength(2);
+      expect(new Set(questions).size).toBe(2);
+    }
+    const send = vi.fn();
+    const base = { messages: [], loading: false, hasEarlier: false, onLoadEarlier: vi.fn(),
+      onOpenRun: vi.fn(), onOpenReport: vi.fn(), onOpenArtifact: vi.fn(), onSuggestion: send };
+    await act(async () => root.render(<MessageThread {...base} suggestions={agentSuggestions.data} />));
+    expect(host.querySelectorAll('[aria-label="Câu hỏi gợi ý cho tác nhân đang chọn"] button')).toHaveLength(2);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Câu hỏi gợi ý cho tác nhân đang chọn"] button')!.click());
+    expect(send).toHaveBeenCalledWith(agentSuggestions.data[0]);
+    await act(async () => root.render(<MessageThread {...base} suggestions={agentSuggestions.chart} />));
+    expect(host.textContent).toContain(agentSuggestions.chart[0]);
+    expect(host.textContent).not.toContain(agentSuggestions.data[0]);
+    await act(async () => root.render(<MessageThread {...base} loading suggestions={agentSuggestions.chart} />));
+    expect(host.querySelector('[aria-label="Câu hỏi gợi ý cho tác nhân đang chọn"]')).toBeNull();
+    const existing = MessageSchema.parse({ message_id: crypto.randomUUID(), org_id: crypto.randomUUID(),
+      conversation_id: crypto.randomUUID(), run_id: null, role: 'user', status: 'completed', content: 'Đã hỏi',
+      parts: [], created_at: '2026-09-19T00:00:00Z' });
+    await act(async () => root.render(<MessageThread {...base} messages={[existing]} suggestions={agentSuggestions.chart} />));
+    expect(host.querySelector('[aria-label="Câu hỏi gợi ý cho tác nhân đang chọn"]')).toBeNull();
+  });
   it('replies to artifact-bearing messages and lets the composer clear that context', async () => {
     const id = '10000000-0000-4000-8000-000000000001';
     const message = MessageSchema.parse({ message_id: id, org_id: id, conversation_id: id, run_id: id, role: 'assistant', status: 'completed', content: 'Here is the analysis', parts: [{ type: 'artifact_ref', artifact_id: id, run_id: id, kind: 'data_analysis_pack' }], created_at: '2026-09-26T00:00:00Z' });
     const reply = vi.fn();
     await act(async () => root.render(<MessageThread messages={[message]} loading={false} hasEarlier={false} onLoadEarlier={vi.fn()} onOpenRun={vi.fn()} onOpenReport={vi.fn()} onOpenArtifact={vi.fn()} onReply={reply} />));
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Reply with this message\'s artifact context"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Trả lời với bằng chứng của tin nhắn này"]')!.click());
     expect(reply).toHaveBeenCalledWith(id);
     const clear = vi.fn();
     const chat = { replyToMessageId: id, setReplyToMessageId: clear, messages: [message], messageContextRefs: [], threadWorkspace: { context: {}, reports: [] }, bundle: { artifacts: [] }, canWrite: true } as unknown as Parameters<typeof MessageContextControls>[0]['chat'];
     await act(async () => root.render(<MessageContextControls chat={chat} />));
-    expect(host.querySelector('[aria-label="Clear reply context"]')).not.toBeNull();
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Clear reply context"]')!.click());
+    expect(host.querySelector('[aria-label="Xóa ngữ cảnh trả lời"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Xóa ngữ cảnh trả lời"]')!.click());
     expect(clear).toHaveBeenCalledWith(null);
   });
   it('selects a specialist without opening another thread', async () => {
     const recipient = vi.fn(); const selectThread = vi.fn();
     await act(async () => root.render(<WorkspaceRail agents={agents} records={[]} recipient={null} onRecipient={recipient} conversations={[]} selectedConversation={null} selectedId="thread-a" canWrite loading={false} hasMore={false} onNew={vi.fn()} onSelect={selectThread} onLoadMore={vi.fn()} />));
-    const button = Array.from(host.querySelectorAll('button')).find((element) => element.textContent?.includes('data Agent'))!;
+    const button = Array.from(host.querySelectorAll('button')).find((element) => element.textContent?.includes('Data Agent'))!;
     await act(async () => button.click());
     expect(recipient).toHaveBeenCalledWith('data');
     expect(selectThread).not.toHaveBeenCalled();
-    expect(host.querySelectorAll('[aria-pressed]')).toHaveLength(7);
+    const agentButtons = Array.from(host.querySelectorAll<HTMLButtonElement>('button[aria-pressed]'));
+    expect(agentButtons.map((item) => item.querySelector('strong')?.textContent)).toEqual([
+      'Main Agent', 'Data Agent', 'Compare Agent', 'Insight Agent', 'Chart Agent', 'Report Agent', 'Reviewer',
+    ]);
+    expect(new Set(agentButtons.map((item) => item.querySelector('svg')?.getAttribute('class'))).size).toBe(7);
   });
   it('autocompletes a registry mention with keyboard selection', async () => {
     const target = vi.fn(); const draft = vi.fn();
@@ -48,7 +78,7 @@ describe('agent workspace interactions', () => {
     const textarea = host.querySelector('textarea')!;
     textarea.setSelectionRange(3, 3);
     await act(async () => textarea.click());
-    expect(host.querySelector('[role="listbox"]')?.textContent).toContain('data Agent');
+    expect(host.querySelector('[role="listbox"]')?.textContent).toContain('Data Agent');
     await act(async () => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     expect(target).toHaveBeenCalledWith('data');
     expect(draft).toHaveBeenCalledWith('@Data ');
@@ -58,6 +88,10 @@ describe('agent workspace interactions', () => {
     const message = RuntimeActivityRecordSchema.parse(base);
     const tool = RuntimeActivityRecordSchema.parse({ ...base, activity_id: crypto.randomUUID(), kind: 'tool', summary: 'Parsing tool arguments' });
     await act(async () => root.render(<RuntimeConversation agents={agents} records={[message, tool]} onEvidence={vi.fn()} />));
+    expect(host.textContent).toContain('Insight Agent');
+    expect(host.textContent).toContain('Data Agent');
+    expect(host.querySelector('.lucide-lightbulb')).not.toBeNull();
+    expect(host.querySelector('.lucide-database')).not.toBeNull();
     expect(host.textContent).toContain('Request product breakdown');
     expect(host.textContent).not.toContain('Parsing tool arguments');
   });
@@ -72,7 +106,7 @@ describe('agent workspace interactions', () => {
       canWrite: true, busy: false, setReportIntent: vi.fn(), setAgentTarget: recipient,
     } as unknown as Parameters<typeof ThreadContextControls>[0]['chat'];
     await act(async () => root.render(<ThreadContextControls chat={chat} />));
-    const selector = host.querySelector<HTMLSelectElement>('[aria-label="Active report"]')!;
+    const selector = host.querySelector<HTMLSelectElement>('[aria-label="Báo cáo đang chọn"]')!;
     await act(async () => { selector.value = ''; selector.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(update).toHaveBeenCalledWith({ active_report_id: null, active_artifact_id: null, referenced_artifact_ids: [] });
     expect(recipient).not.toHaveBeenCalled();

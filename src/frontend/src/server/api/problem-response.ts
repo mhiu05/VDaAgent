@@ -7,12 +7,25 @@ import { json } from './middleware/response';
 export function logInternalError(error: unknown, method: string, route: string) {
   if (error instanceof RepositoryError && error.status < 500) return;
   if (error instanceof RuntimeContextError || error instanceof z.ZodError) return;
-  const cause = error as { name?: unknown; code?: unknown; message?: unknown; table?: unknown; column?: unknown; constraint?: unknown } | null;
+  const cause = error as {
+    name?: unknown;
+    code?: unknown;
+    message?: unknown;
+    table?: unknown;
+    table_name?: unknown;
+    column?: unknown;
+    column_name?: unknown;
+    constraint?: unknown;
+    constraint_name?: unknown;
+  } | null;
   const diagnostic: Record<string, string> = { method, route };
   if (typeof cause?.name === 'string') diagnostic.name = cause.name;
   if (typeof cause?.code === 'string' && /^[A-Z0-9_]{2,64}$/.test(cause.code)) diagnostic.code = cause.code;
-  for (const field of ['table', 'column', 'constraint'] as const) {
-    const value = cause?.[field];
+  for (const [field, value] of [
+    ['table', cause?.table ?? cause?.table_name],
+    ['column', cause?.column ?? cause?.column_name],
+    ['constraint', cause?.constraint ?? cause?.constraint_name],
+  ] as const) {
     if (typeof value === 'string' && /^[a-zA-Z_][a-zA-Z0-9_]{0,127}$/.test(value)) diagnostic[field] = value;
   }
   if (diagnostic.code === '42703' && typeof cause?.message === 'string') {

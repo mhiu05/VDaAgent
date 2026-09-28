@@ -39,7 +39,7 @@ export async function inspectDecisionIntelligence(
       'inspect_decision_intelligence-1',
       'decision',
       'available',
-      'Decision intelligence is available.',
+      'Kết quả hỗ trợ quyết định đã sẵn sàng.',
       [{ type: 'run', ref: { run_id: parsed.run_id, status: 'succeeded' } }, ...artifactGrounding],
     ),
   ];

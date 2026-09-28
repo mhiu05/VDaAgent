@@ -48,7 +48,7 @@ export async function inspectEvidence(
     return unavailable(
       'inspect_evidence',
       'inspect_evidence-unavailable',
-      'The selected public evidence is unavailable in a bounded display form.',
+      'Không thể hiển thị bằng chứng đã chọn trong giới hạn an toàn.',
     );
   return capabilityResult(
     'inspect_evidence',
@@ -58,7 +58,7 @@ export async function inspectEvidence(
         'inspect_evidence-value',
         'metric',
         'available',
-        `Public evidence at ${parsed.evidence_path}.`,
+        `Bằng chứng tại ${parsed.evidence_path}.`,
         [
           { type: 'run', ref: { run_id: parsed.run_id, status: 'succeeded' } },
           { type: 'artifact', ref: artifactRef(artifact) },

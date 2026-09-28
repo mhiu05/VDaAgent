@@ -8,6 +8,7 @@ export function useMessages(orgId: string, onError: (message: string) => void) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageCursor, setMessageCursor] = useState<string | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [loadedConversationId, setLoadedConversationId] = useState<string | null>(null);
   const activeConversation = useRef<string | null>(null);
   const activeOrg = useRef(orgId);
   const generation = useRef(0);
@@ -21,6 +22,7 @@ export function useMessages(orgId: string, onError: (message: string) => void) {
       setMessages([]);
       setMessageCursor(null);
       setLoadingMessages(false);
+      setLoadedConversationId(null);
     }
   }, [orgId]);
   const activateConversation = useCallback((id: string | null) => {
@@ -30,6 +32,7 @@ export function useMessages(orgId: string, onError: (message: string) => void) {
       setMessages([]);
       setMessageCursor(null);
       setLoadingMessages(false);
+      setLoadedConversationId(null);
     }
     activeConversation.current = id;
   }, []);
@@ -42,6 +45,7 @@ export function useMessages(orgId: string, onError: (message: string) => void) {
         const page = await listConversationMessages(orgId, conversationId, { limit: 30, cursor });
         if (activeConversation.current !== conversationId || activeOrg.current !== orgId || generation.current !== requestGeneration) return 'stale';
         setMessages((current) => mergeMessages(current, page.messages));
+        setLoadedConversationId(conversationId);
         if (appendEarlier) exhausted.current = page.next_cursor === null;
         setMessageCursor((current) => appendEarlier ? page.next_cursor : exhausted.current ? null : (current ?? page.next_cursor));
         return 'ok';
@@ -88,5 +92,5 @@ export function useMessages(orgId: string, onError: (message: string) => void) {
     }
   }, [orgId, onError]);
 
-  return { messages, setMessages, messageCursor, setMessageCursor, loadingMessages, loadMessages, refreshMessage, activateConversation };
+  return { messages, setMessages, messageCursor, setMessageCursor, loadingMessages, loadedConversationId, loadMessages, refreshMessage, activateConversation };
 }

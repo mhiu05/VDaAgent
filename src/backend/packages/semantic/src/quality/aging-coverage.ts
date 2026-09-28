@@ -8,6 +8,6 @@ export function agingLimitations(metrics: Metric[]): string[] {
   if (!missing || !rate || missing.value === null || rate.value === null) return [];
   if (decimalOf(missing.value).eq(0)) return [];
   return [
-    `Aging metrics exclude ${missing.value} available unit(s) with unknown age (${rate.value}% of available inventory).`,
+    `Chỉ số tuổi tồn kho loại trừ ${missing.value} căn còn hàng chưa rõ tuổi (${rate.value}% tổng số căn còn hàng).`,
   ];
 }

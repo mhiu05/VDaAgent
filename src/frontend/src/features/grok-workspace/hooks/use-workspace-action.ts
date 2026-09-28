@@ -33,7 +33,7 @@ export function useWorkspaceAction(
         actionRequestRef.current === requestAtStart &&
         activeRevisionRef.current === revisionAtStart
       )
-        setActionError('The referenced workspace context is unavailable.');
+        setActionError('Ngữ cảnh thao tác được tham chiếu hiện không khả dụng.');
       return false;
     }
   }

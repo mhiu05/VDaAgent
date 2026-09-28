@@ -108,7 +108,12 @@ export function useChatRunPolling({
         const detail = await getRunDetail(orgId, pollingRunId);
         if (obsolete) return;
         if (detail.run.run_id !== pollingRunId || detail.run.org_id !== orgId) return;
-        setRunDetail(detail);
+        setRunDetail(current => {
+          if (current?.run.run_id === detail.run.run_id &&
+              ((terminalStatuses.has(current.run.status) && !terminalStatuses.has(detail.run.status)) ||
+               current.run.updated_at > detail.run.updated_at)) return current;
+          return detail;
+        });
         setReadState('ready');
         failures = 0;
         const signature = detail.tasks.map((task) => `${task.task_id}:${task.status}:${task.attempt}`).join('|');

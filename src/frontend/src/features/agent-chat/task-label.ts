@@ -4,11 +4,11 @@ const taskLabels: Record<string, string> = {
   reviewer: 'Rà soát bản nháp',
   publication: 'Cổng phát hành',
   orchestrator: 'Chuẩn bị',
-  data: 'Đọc snapshot đã khóa',
+  data: 'Đọc mốc dữ liệu đã khóa',
   calculation: 'Tính chỉ số',
   comparison: 'Tạo so sánh',
   chart: 'Tạo biểu đồ',
-  insight: 'Liên kết insight với bằng chứng',
+  insight: 'Liên kết nhận định với bằng chứng',
   validation: 'Kiểm tra bằng chứng',
   report: 'Chuẩn bị báo cáo',
 };
