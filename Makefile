@@ -3,7 +3,7 @@
 # VDaAgent shortcuts for the pnpm workspace.
 PNPM ?= pnpm
 
-.PHONY: help install i dev d dev-web dw dev-worker dworker build b typecheck tc lint l format f format-check fc test t test-e2e e2e check test-db db-test db-start db-reset scheduler-tick contracts-export check-docs check-security mock-data-validate-source mock-data-import mock-data-validate
+.PHONY: help install i dev d dev-web dw dev-worker dworker build b typecheck tc lint l format f format-check fc test t test-e2e e2e check test-db db-test db-start db-reset scheduler-tick contracts-export mock-data-validate-source mock-data-import mock-data-validate
 
 help:
 	@echo "VDaAgent commands:"
@@ -75,12 +75,6 @@ scheduler-tick:
 
 contracts-export:
 	$(PNPM) contracts:export
-
-check-docs:
-	$(PNPM) check:docs
-
-check-security:
-	$(PNPM) check:security
 
 mock-data-validate-source:
 	$(PNPM) mock-data:validate-source

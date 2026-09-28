@@ -13,10 +13,4 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     viewport: { width: 1440, height: 1000 },
   },
-  webServer: {
-    command: 'node ../scripts/e2e-server.mjs',
-    url: 'http://127.0.0.1:3100/api/v1/setup',
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
 });
