@@ -118,7 +118,7 @@ export async function buildRun(
     workflow_version: 'agent-v1',
   };
   await tx.query(
-    'INSERT INTO runs(org_id,id,created_by,idempotency_key,request_hash,status,fencing_token,created_at,payload,slow_moving_threshold_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    'INSERT INTO runs(org_id,id,created_by,idempotency_key,request_hash,status,fencing_token,created_at,payload,slow_moving_threshold_days) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)',
     [
       run.org_id,
       run.run_id,

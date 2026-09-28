@@ -93,7 +93,7 @@ export class ConversationRepository {
       payloadExtra = {...payloadExtra,thread_context_snapshot:thread[0]?.context ?? {}};
     }
     await tx.query(
-      "INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,($11::jsonb #>> '{}')::jsonb)",
+      'INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)',
       [
         message.org_id,
         message.message_id,
@@ -123,7 +123,7 @@ export class ConversationRepository {
            payload=(CASE jsonb_typeof(payload)
              WHEN 'string' THEN (payload #>> '{}')::jsonb
              ELSE payload
-           END) || (($8::jsonb #>> '{}')::jsonb)
+           END) || $8::jsonb
        WHERE org_id=$9 AND id=$10`,
       [
         message.run_id,

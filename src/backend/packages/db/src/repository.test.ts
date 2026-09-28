@@ -106,15 +106,18 @@ describe('durable tenant repository', () => {
     const pending = {...task,task_id:crypto.randomUUID(),kind:'report' as const,
       status:'pending' as const};
     await repo.setTask(old,pending);
-    const storedRow = (await pg.query('SELECT payload FROM runs WHERE id=$1',[run.run_id])).rows[0] as {payload:AnalysisRun};
-    const stored = storedRow.payload;
-    await pg.query('UPDATE runs SET payload=$2 WHERE id=$1',
-      [run.run_id,JSON.stringify({...stored,attempt:3})]);
-    expect(await repo.claimRun('new-worker',new Date(Date.now()+60_000))).toBeNull();
+    await repo.recordRuntimeActivity(old,{kind:'invocation',step_key:'team:data',agent_key:'data',status:'completed',summary:'Data Agent completed'});
+    await repo.recordRuntimeActivity(old,{kind:'invocation',step_key:'team:insight',agent_key:'insight',status:'waiting',summary:'Waiting for Data Agent'});
+    await repo.recordRuntimeActivity(old,{kind:'tool',step_key:'team:insight:tool:data.evidence:1',parent_step_key:'team:insight',agent_key:'data',tool_name:'data.evidence',status:'completed',summary:'Verified evidence'});
+    await repo.recordRuntimeActivity(old,{kind:'tool',step_key:'team:insight:data:delegate',parent_step_key:'team:insight',agent_key:'insight',tool_name:'agent.data',status:'running',summary:'Delegated evidence'});
+    const second = (await repo.claimRun('second-worker',new Date(Date.parse(old.run.lease_until!) + 1)))!;
+    const third = (await repo.claimRun('third-worker',new Date(Date.parse(second.run.lease_until!) + 1)))!;
+    expect([old.run.attempt,second.run.attempt,third.run.attempt]).toEqual([1,2,3]);
+    expect(await repo.claimRun('new-worker',new Date(Date.parse(third.run.lease_until!) + 1))).toBeNull();
     const closed = (await pg.query('SELECT status,worker_id,lease_until,fencing_token FROM runs WHERE id=$1',
       [run.run_id])).rows[0];
     expect(closed).toMatchObject({status:'failed',worker_id:null,lease_until:null,
-      fencing_token:old.fencing_token+1});
+      fencing_token:third.fencing_token+1});
     const messages = await repo.listMessages(TEST_USERS.owner,TEST_ORGS.alpha,
       turn.conversation.conversation_id,{limit:30,cursor:null});
     expect(messages.messages).toEqual(expect.arrayContaining([
@@ -127,6 +130,11 @@ describe('durable tenant repository', () => {
       expect.objectContaining({task_id:task.task_id,status:'succeeded',error_code:null}),
       expect.objectContaining({task_id:pending.task_id,status:'failed',error_code:'MAX_ATTEMPTS'}),
     ]));
+    const runtime = await repo.getRunRuntime(TEST_USERS.owner,run.org_id,run.run_id);
+    expect(runtime.records.find(record => record.step_key === 'team:data')).toMatchObject({status:'completed'});
+    expect(runtime.records.find(record => record.tool_name === 'data.evidence')).toMatchObject({status:'completed'});
+    expect(runtime.records.find(record => record.step_key === 'team:insight')).toMatchObject({status:'failed',error_code:'MAX_ATTEMPTS'});
+    expect(runtime.records.find(record => record.tool_name === 'agent.data')).toMatchObject({status:'failed',error_code:'MAX_ATTEMPTS'});
     await expect(repo.setTask(old,{...task,status:'running'})).rejects.toThrow('LEASE_LOST');
   });
   it('refuses startup before the agent schema and new-write guard are present', async () => {

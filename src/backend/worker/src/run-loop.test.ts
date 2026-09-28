@@ -128,6 +128,36 @@ describe('worker process boundaries', () => {
     expect(stopHeartbeat).toHaveBeenCalledOnce();
   });
 
+  it('records a lost run lease without marking the interrupted workflow complete', async () => {
+    const databaseError = Object.assign(new Error('private query'), { code: '08006' });
+    const repository = {
+      renewLease: vi.fn().mockRejectedValue(databaseError),
+      failRun: vi.fn().mockRejectedValue(new Error('LEASE_LOST')),
+    } as unknown as Repository;
+    const error = vi.fn();
+    let heartbeat: (() => void) | undefined;
+    const pending = dispatchWorkflow(repository, lease, {
+      agentWorkflow: async (_repository, _lease, options) => {
+        await new Promise<void>(resolve => options?.signal?.addEventListener('abort', () => resolve(), { once: true }));
+      },
+      startHeartbeat: vi.fn((callback: () => void) => {
+        heartbeat = callback;
+        return 1 as unknown as ReturnType<typeof setInterval>;
+      }) as unknown as typeof setInterval,
+      stopHeartbeat: vi.fn(),
+      log: vi.fn(), error,
+    });
+    heartbeat?.();
+    await pending;
+    expect(JSON.parse(error.mock.calls[0]![0])).toEqual({
+      event: 'run_lease_renewal_failed', run_id: 'run-1', attempt: 2,
+      cause_type: 'Error', database_code: '08006',
+    });
+    expect(JSON.parse(error.mock.calls[1]![0])).toMatchObject({event:'run_failed',code:'LEASE_LOST'});
+    expect(error.mock.calls.map(call => call[0]).join(' ')).not.toContain('private query');
+    expect(repository.failRun).toHaveBeenCalledWith(lease, 'EXECUTION_FAILED');
+  });
+
   it('records a failed run and clears its heartbeat', async () => {
     const repository = { failRun: vi.fn().mockResolvedValue(undefined) } as unknown as Repository;
     const error = vi.fn();
@@ -148,6 +178,7 @@ describe('worker process boundaries', () => {
       event: 'run_failed',
       run_id: 'run-1',
       code: 'VALIDATION_FAILED',
+      cause_type: 'Error',
     });
     expect(stopHeartbeat).toHaveBeenCalledOnce();
   });
