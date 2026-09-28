@@ -164,7 +164,7 @@ function chartKpis(
       return {
         id: `chart:${chart.chart_id}`,
         label: localizedMetricLabel(series.metric_key ?? '', chart.title),
-        value: formatSeriesValue(value, series),
+        value: value === null ? 'Chưa có dữ liệu' : formatSeriesValue(value, series),
         metricKey: series.metric_key,
         available: value !== null,
         evidenceArtifactId: chart.provenance.bindings[0]?.artifact_id ?? fallbackArtifactId,
@@ -177,7 +177,7 @@ function reportMetricKpis(metrics: Metric[], fallbackArtifactId: string): Dashbo
   return metrics.slice(0, 6).map((metric) => ({
     id: `metric:${metric.key}`,
     label: localizedMetricLabel(metric.key, metric.label),
-    value: formatMetricValue(metric),
+    value: metric.value === null ? 'Chưa có dữ liệu' : formatMetricValue(metric),
     metricKey: metric.key,
     available: metric.status === 'available' && metric.value !== null,
     evidenceArtifactId: fallbackArtifactId,

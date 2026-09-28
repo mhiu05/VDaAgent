@@ -18,6 +18,7 @@ import { getReportDetail } from '../api/reports';
 type Preview = {
   artifact: ArtifactOf<'report'>;
   chart: ReturnType<typeof chartFromArtifacts>;
+  dataAsOf: string;
 };
 
 function chartFromArtifacts(artifacts: Awaited<ReturnType<typeof getRunArtifacts>>['artifacts'], chartArtifactId: string) {
@@ -53,6 +54,7 @@ export function ReportLibraryPreview({
         setPreview({
           artifact: detail.artifact,
           chart: chartFromArtifacts(artifacts.artifacts, detail.artifact.payload.chart_artifact_id),
+          dataAsOf: detail.artifact.data_as_of,
         });
       } catch {
         if (current) setUnavailable(true);
@@ -85,6 +87,7 @@ export function ReportLibraryPreview({
               {' · Ngày dữ liệu '}{brief.requested_data_as_of}
             </p>
           )}
+          {!brief && preview && <p>Ngày dữ liệu {preview.dataAsOf}</p>}
         </div>
         <button className="secondary" type="button" onClick={() => onOpen(report.report_id)}>
           <FileText size={15} /> Mở báo cáo <ArrowRight size={14} />
@@ -106,7 +109,7 @@ export function ReportLibraryPreview({
               {metrics.map((metric) => (
                 <div key={metric.metric_id}>
                   <dt>{localizedMetricLabel(metric.key, metric.label)}</dt>
-                  <dd>{formatMetricValue(metric)}</dd>
+                  <dd>{metric.value === null ? 'Chưa có dữ liệu' : formatMetricValue(metric)}</dd>
                   {metric.value === null && metric.abstention_reason && (
                     <small>{workflowStatusLabel(metric.abstention_reason)}</small>
                   )}

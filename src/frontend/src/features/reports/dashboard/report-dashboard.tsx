@@ -293,7 +293,7 @@ function PublishedReportDetails({
                   {model.metrics.map((metric) => (
                     <tr key={metric.metric_id}>
                       <td>{localizedMetricLabel(metric.key, metric.label)}</td>
-                      <td>{formatMetricValue(metric)}</td>
+                      <td>{metric.value === null ? 'Chưa có dữ liệu' : formatMetricValue(metric)}</td>
                       <td>{localizedMetricDescription(metric.key, metric.description)}</td>
                       <td>
                         {metric.value === null && metric.abstention_reason
