@@ -6,4 +6,4 @@
 
 `working` có thể sinh từ tool activity, `episodic` từ report, `workspace` được làm mới từ schema semantic khi tạo run. Các entry là dữ liệu tham khảo, không phải instruction đáng tin; context builder tách instruction hierarchy và gắn nhãn retrieved context là data. Persistent state còn gồm run/task/artifact/report và không được gọi chung là memory.
 
-Code mapping: `src/backend/packages/agents/src/runtime/context/resolver.ts`, `src/backend/packages/agents/src/runtime/context/team-context.ts`, `src/backend/packages/agents/src/runtime/context/memory.ts`, `src/backend/packages/db/src/repositories/workspace-repository.ts`. Xem [core concepts](../product/core-concepts.md).
+Code mapping: `src/backend/agents/runtime/context/resolver.ts`, `src/backend/agents/runtime/context/team-context.ts`, `src/backend/agents/runtime/context/memory.ts`, `src/backend/database/repositories/workspace-repository.ts`. Xem [core concepts](../product/core-concepts.md).

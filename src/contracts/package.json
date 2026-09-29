@@ -1,0 +1,39 @@
+{
+  "name": "@vda/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./common/primitives": "./common/primitives.ts",
+    "./analysis/request": "./analysis/request.ts",
+    "./imports/inventory": "./imports/inventory.ts",
+    "./analysis/run": "./analysis/run.ts",
+    "./analysis/metrics": "./analysis/metrics.ts",
+    "./analysis/calculation": "./analysis/calculation.ts",
+    "./analysis/chart": "./analysis/chart.ts",
+    "./reports/section": "./reports/section.ts",
+    "./decision/intelligence": "./decision/intelligence.ts",
+    "./decision/brief": "./decision/brief.ts",
+    "./reports/report": "./reports/report.ts",
+    "./agents/use-case": "./agents/use-case.ts",
+    "./agents/workflow-packs": "./agents/workflow-packs.ts",
+    "./artifacts/artifact": "./artifacts/artifact.ts",
+    "./reports/schedule": "./reports/schedule.ts",
+    "./auth/session": "./auth/session.ts",
+    "./runtime/context": "./runtime/context.ts",
+    "./runtime/capabilities": "./runtime/capabilities.ts",
+    "./runtime/plan": "./runtime/plan.ts",
+    "./runtime/execution": "./runtime/execution.ts",
+    "./chat/message": "./chat/message.ts",
+    "./chat/conversation": "./chat/conversation.ts",
+    "./runtime/activity": "./runtime/activity.ts",
+    "./api/responses": "./api/responses.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "4.6.5"
+  }
+}

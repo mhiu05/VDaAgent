@@ -1,0 +1,22 @@
+{
+  "name": "@vda/semantic",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./analyze": "./analyze.ts",
+    "./pack": "./pack.ts",
+    "./selection/latest-snapshot": "./selection/latest-snapshot.ts",
+    "./metrics/registry": "./metrics/registry.ts",
+    "./comparisons/peer-cohort": "./comparisons/peer-cohort.ts",
+    "./decisions/build-decision-brief": "./decisions/build-decision-brief.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@vda/contracts": "workspace:*",
+    "decimal.js": "10.6.0"
+  }
+}

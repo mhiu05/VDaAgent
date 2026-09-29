@@ -12,4 +12,4 @@
 
 Local `DEVELOPMENT_ROLE_BYPASS` dùng cookie ký cho principal seed; config cấm bật trong production. Không nên suy ra cơ chế này là role impersonation trong production.
 
-Code: `src/frontend/src/server/context.ts`, `src/backend/packages/db/src/authorization/authorization-repository.ts`, `src/backend/supabase/schemas`, `src/backend/packages/agents/src/runtime/capabilities/registry.ts`. Xem [security](../architecture/security.md) và [authentication](../api/authentication.md).
+Code: `src/frontend/server/context.ts`, `src/backend/database/authorization/authorization-repository.ts`, `src/backend/supabase/schemas`, `src/backend/agents/runtime/capabilities/registry.ts`. Xem [security](../architecture/security.md) và [authentication](../api/authentication.md).

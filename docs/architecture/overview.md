@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  UI[App Router + React workspace] --> API[Route /api/v1]
+  UI[App Router + React workspace] --> API[Route /api]
   API --> REPO[Repository]
   API --> RT[Chat Agent Runtime]
   REPO --> DB[(PostgreSQL)]

@@ -1,6 +1,6 @@
 # Nhóm endpoint chính
 
-Mọi path bên dưới có prefix `/api/v1`. Bảng này là bản đồ nghiệp vụ; Zod schemas trong `@vda/contracts` là nguồn định nghĩa payload chi tiết.
+Mọi path bên dưới có prefix `/api`. Bảng này là bản đồ nghiệp vụ; Zod schemas trong `@vda/contracts` là nguồn định nghĩa payload chi tiết.
 
 | Nhóm | Endpoint quan trọng | Vai trò |
 | --- | --- | --- |
@@ -17,4 +17,4 @@ Mọi path bên dưới có prefix `/api/v1`. Bảng này là bản đồ nghi�
 
 Các route POST stream hội thoại cũ (`/conversations/stream`, `/conversations/{id}/messages/stream`) chỉ khả dụng theo feature flags; xem [streaming](streaming.md). Không thấy endpoint public để cài skill, đăng ký MCP server, hay quản lý membership.
 
-Code: `src/frontend/src/server/api/routes`, `src/backend/packages/contracts/src`. Xem [overview](overview.md), [authentication](authentication.md).
+Code: `src/frontend/server/api/routes`, `src/contracts`. Xem [overview](overview.md), [authentication](authentication.md).

@@ -6,4 +6,4 @@ Conversation giữ message history và `context` đang chọn: dataset refs, cur
 
 Workspace là phạm vi làm việc; thread context là lựa chọn hiện tại; memory là tóm tắt agent đã persist; chúng không đồng nghĩa. Không thấy mô hình nhiều workspace tùy ý trong cùng một organization.
 
-Code: `src/frontend/src/features/workspace/workspace.tsx`, `src/frontend/src/features/grok-workspace/components/grok-workspace.tsx`, `src/backend/packages/db/src/repositories/workspace-repository.ts`, `src/backend/packages/db/src/repositories/conversation-repository.ts`. Xem [core concepts](../product/core-concepts.md) và [permissions](permissions.md).
+Code: `src/frontend/features/workspace/workspace.tsx`, `src/frontend/features/agent-workspace/components/agent-workspace.tsx`, `src/backend/database/repositories/workspace-repository.ts`, `src/backend/database/repositories/conversation-repository.ts`. Xem [core concepts](../product/core-concepts.md) và [permissions](permissions.md).

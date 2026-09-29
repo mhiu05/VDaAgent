@@ -21,4 +21,4 @@ flowchart TB
 
 `agent-v1` có DAG stage cố định. Sau Data, Comparison/Chart/Analyst được chạy song song và Insight chờ đủ kết quả. Reviewer có tối đa hai lần review gắn với draft revision 1/2. Nếu lần hai vẫn yêu cầu sửa, run thất bại với `REVIEW_REVISION_LIMIT`; publication chỉ chạy khi `PASS`. Câu hỏi chat ban đầu được Agent Runtime định tuyến theo policy/plan và có thể tạo run qua capability `create_analysis`.
 
-Code mapping: `src/backend/packages/agents/src/analysis-v1/dag.ts`, `src/backend/packages/agents/src/analysis-v1/team-workflow.ts`, `src/backend/packages/agents/src/runtime/team/runtime.ts`, `src/backend/packages/agents/src/analysis-v1/workflow.ts`. Xem [analysis workflow](../workflows/analysis-workflow.md).
+Code mapping: `src/backend/agents/analysis/dag.ts`, `src/backend/agents/analysis/team-workflow.ts`, `src/backend/agents/runtime/team/executor.ts`, `src/backend/agents/analysis/workflow.ts`. Xem [analysis workflow](../workflows/analysis-workflow.md).

@@ -9,6 +9,6 @@
 | OpenAI | Fallback bắt buộc theo config ứng dụng | API key/model trên server; provider error được chuẩn hóa. |
 | xAI | Adapter tùy chọn cho Agent Runtime | Cần key/model và cờ provider; production giới hạn base URL hợp lệ. |
 
-**Partially implemented:** `McpGateway` có cơ chế discover, allowlist, schema, timeout và session nhưng không thấy luồng sản xuất đăng ký server hoặc gọi gateway. Vì vậy chưa có kết nối MCP vận hành mặc định. Không thấy webhook/email hay hệ thống phát báo cáo ra ngoài.
+Không có kết nối MCP, webhook/email hay hệ thống phát báo cáo ra ngoài trong luồng hiện hành.
 
-Code mapping: `src/backend/packages/config/src/index.ts`, `src/backend/packages/agents/src/runtime/providers/factory.ts`, `src/backend/packages/db/src/storage.ts`, `src/backend/packages/agents/src/runtime/team/mcp-gateway.ts`. Xem [security](security.md).
+Code mapping: `src/backend/config/index.ts`, `src/backend/agents/runtime/providers/factory.ts`, `src/backend/database/storage.ts`. Xem [security](security.md).

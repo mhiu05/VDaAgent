@@ -10,4 +10,4 @@
 
 Các luồng cùng dùng organization scope và repository. Một chat turn đọc ngắn không nhất thiết tạo run; specialist run có thể kết thúc ở pack mà không tạo report. Lịch chỉ tạo run; worker vẫn cần hoạt động để thực thi.
 
-Code: `src/frontend/src/server/api/routes`, `src/backend/worker/src`, `src/backend/packages/agents/src/analysis-v1`. Xem [system flow](../architecture/system-flow.md).
+Code: `src/frontend/server/api/routes`, `src/backend/worker`, `src/backend/agents/analysis`. Xem [system flow](../architecture/system-flow.md).

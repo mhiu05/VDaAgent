@@ -22,4 +22,4 @@ flowchart LR
 
 **Implemented.** `/automations` quản lý report definition; trigger thủ công hoặc scheduler tạo run. `viewer` đọc workspace/report nhưng không nhập CSV, tạo analysis hay thay đổi lịch. Giao diện chặn tương ứng; API và repository vẫn là ranh giới phân quyền chính.
 
-Codebase: `src/frontend/src/features/workspace/workspace.tsx`, `src/frontend/src/features/agent-chat/hooks/use-agent-chat-controller.ts`, `src/frontend/src/features/imports/components/imports-panel.tsx`, `src/frontend/src/features/schedules/components/schedules-panel.tsx`. Xem [workflow phân tích](../workflows/analysis-workflow.md).
+Codebase: `src/frontend/features/workspace/workspace.tsx`, `src/frontend/features/agent-chat/hooks/use-agent-chat-controller.ts`, `src/frontend/features/imports/components/imports-panel.tsx`, `src/frontend/features/schedules/components/schedules-panel.tsx`. Xem [workflow phân tích](../workflows/analysis-workflow.md).

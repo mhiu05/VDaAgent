@@ -20,7 +20,7 @@ stateDiagram-v2
   running --> queued: lease hết hạn, claim lại
 ```
 
-`create-run.ts` ghi run `agent-v1`, tập snapshot đã chọn và message liên quan trong transaction có idempotency key; task/checkpoint được lưu khi worker thực thi stage. `run-loop.ts` luân phiên claim run và durable turn job. Claim dùng `FOR UPDATE SKIP LOCKED`, lease 30 giây, heartbeat mỗi 10 giây và fencing token; write stage kiểm tra lại lease. Run có tối đa 3 attempt. Worker bị ngắt/mất lease khiến owner mới tiếp tục từ checkpoint/artifact hợp lệ; `legacy-v1` chỉ để drain run cũ.
+`create-run.ts` ghi run `agent-v1`, tập snapshot đã chọn và message liên quan trong transaction có idempotency key; task/checkpoint được lưu khi worker thực thi stage. `run-loop.ts` luân phiên claim run và durable turn job. Claim dùng `FOR UPDATE SKIP LOCKED`, lease 30 giây, heartbeat mỗi 10 giây và fencing token; write stage kiểm tra lại lease. Run có tối đa 3 attempt. Worker bị ngắt/mất lease khiến owner mới tiếp tục từ checkpoint/artifact hợp lệ. Worker chỉ claim `agent-v1`; run `legacy-v1` chỉ còn được đọc như dữ liệu lịch sử.
 
 Chat Agent Runtime mặc định giới hạn 3 plan steps, 3 capability calls, một run mới và một mutating call mỗi turn. Provider attempt mặc định timeout 12 giây, turn tối đa 45 giây; Team Runtime có deadline riêng 10 phút và tool timeout theo từng definition. Các giới hạn này không thay thế lease: tool có thể bị abort khi worker mất quyền sở hữu, còn repository fence mới quyết định write có hợp lệ.
 
@@ -28,4 +28,4 @@ Durable turn job có queue/lease/event riêng và có thể tạo run. Worker x�
 
 Lỗi workflow sau khi đã claim thường ghi run `failed` terminal; tự động claim lại áp dụng cho owner mất lease trước khi hoàn tất, không phải nút retry một run đã failed. Turn không durable bị ngắt có script operator để reconcile khi chắc chắn HTTP owner đã dừng. Xem [failure recovery](../workflows/failure-recovery.md) cho từng trường hợp.
 
-Code mapping: `src/backend/packages/db/src/transactions/create-run.ts`, `src/backend/packages/db/src/workflow/lease-repository.ts`, `src/backend/packages/db/src/repositories/agent-execution-repository.ts`, `src/backend/worker/src/run-loop.ts`, `src/frontend/src/server/durable-event-stream.ts`. Xem [failure recovery](../workflows/failure-recovery.md).
+Code mapping: `src/backend/database/transactions/create-run.ts`, `src/backend/database/workflow/lease-repository.ts`, `src/backend/database/repositories/agent-execution-repository.ts`, `src/backend/worker/run-loop.ts`, `src/frontend/server/durable-event-stream.ts`. Xem [failure recovery](../workflows/failure-recovery.md).

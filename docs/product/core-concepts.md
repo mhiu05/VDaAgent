@@ -15,4 +15,4 @@
 | Report / version | Draft và review là artifact nội bộ. Publication tạo report record. `report_versions` nối các report được tạo tiếp theo thành lineage. |
 | Skill | **Planned / placeholder:** không có cơ chế skill registry/loader trong runtime hiện tại. |
 
-Codebase: `src/backend/packages/contracts/src`, `src/backend/supabase/migrations`, `src/backend/packages/agents/src/runtime`. Xem [data model](../architecture/data-model.md) và [context & memory](../agents/context-memory.md).
+Codebase: `src/contracts`, `src/backend/supabase/migrations`, `src/backend/agents/runtime`. Xem [data model](../architecture/data-model.md) và [context & memory](../agents/context-memory.md).

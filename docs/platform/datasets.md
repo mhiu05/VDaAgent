@@ -6,4 +6,4 @@ Một import tạo manifest với file hash, source name, row count, schema vers
 
 Data quality/coverage và các công thức thuộc semantic `mvp-inventory-v0.1` nên được đọc cùng limitation trong artifact. Warehouse mock có thêm bảng giao dịch/giá/reservation nhưng workflow phân tích hiện dùng snapshot. Xem [dataset processing](../workflows/dataset-processing.md) để theo dõi từng bước và lỗi.
 
-Code: `src/backend/packages/contracts/src/imports/inventory.ts`, `src/backend/packages/db/src/repositories/import-repository.ts`, `src/backend/packages/semantic/src/selection/latest-snapshot.ts`, `src/backend/supabase/schemas`.
+Code: `src/contracts/imports/inventory.ts`, `src/backend/database/repositories/import-repository.ts`, `src/backend/semantic/selection/latest-snapshot.ts`, `src/backend/supabase/schemas`.

@@ -12,4 +12,4 @@
 
 Các thuật ngữ “decision intelligence”, “priority entity” là projection từ artifact tồn kho hiện tại, không phải dịch vụ dự báo tổng quát. Kết quả không chứng minh quan hệ nhân quả; Agent Runtime từ chối câu hỏi nhân quả không được hỗ trợ.
 
-Codebase: `src/backend/packages/agents/src/use-cases.ts`, `src/backend/packages/agents/src/runtime/capabilities/registry.ts`, `src/backend/packages/semantic/src`. Xem [giới hạn sản phẩm](overview.md) và [tools](../agents/tools.md).
+Codebase: `src/backend/agents/use-cases.ts`, `src/backend/agents/runtime/capabilities/registry.ts`, `src/backend/semantic`. Xem [giới hạn sản phẩm](overview.md) và [tools](../agents/tools.md).

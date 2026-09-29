@@ -13,4 +13,4 @@
 
 Run/job còn có `error_code` ở trạng thái terminal và event `failed`; lỗi HTTP của một lần poll không tự chứng minh worker đã dừng. `Idempotency-Key` cùng key nhưng payload khác trả `IDEMPOTENCY_CONFLICT`. API không phát correlation/request ID chung trong problem response ở code hiện tại; event sequence và run/job IDs là khóa theo dõi hữu ích.
 
-Code: `src/frontend/src/server/api/problem-response.ts`, `src/backend/packages/db/src/errors.ts`, `src/frontend/src/server/api/middleware/request-body.ts`, `src/backend/packages/contracts/src`. Xem [failure recovery](../workflows/failure-recovery.md).
+Code: `src/frontend/server/api/problem-response.ts`, `src/backend/database/errors.ts`, `src/frontend/server/api/middleware/request-body.ts`, `src/contracts`. Xem [failure recovery](../workflows/failure-recovery.md).

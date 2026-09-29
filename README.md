@@ -14,7 +14,7 @@ VDaAgent là workspace phân tích tồn kho bất động sản. Người dùng
 ```mermaid
 flowchart LR
   U[Người dùng] --> W[Next.js workspace]
-  W --> API[/api/v1]
+  W --> API[/api]
   API --> DB[(Supabase PostgreSQL)]
   DB --> WK[Worker]
   WK --> AG[Agent workflow]
@@ -27,14 +27,14 @@ API tạo hội thoại/run và đọc trạng thái. Worker nhận run từ Pos
 
 ## Cấu trúc repo
 
-| Đường dẫn | Vai trò |
-| --- | --- |
-| `src/frontend` | Next.js UI và API route |
-| `src/backend/worker` | Worker cho run, agent turn và lịch |
-| `src/backend/packages` | Contracts, domain, tính toán, agents, repository và config |
-| `src/backend/supabase` | Migration, seed và chính sách dữ liệu |
-| `src/backend/scripts`, `src/backend/tests` | Công cụ dữ liệu mock và cấu hình kiểm tra thủ công |
-| `docs` | Tài liệu sản phẩm và kỹ thuật |
+| Đường dẫn                                                               | Vai trò                                                    |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `src/frontend`                                                          | Next.js UI và API route                                    |
+| `src/backend/worker`                                                    | Worker cho run, agent turn và lịch                         |
+| `src/contracts`, `src/backend/{agents,config,database,domain,semantic}` | Contracts, domain, tính toán, agents, repository và config |
+| `src/backend/supabase`                                                  | Migration, seed và chính sách dữ liệu                      |
+| `scripts`, `tests`                                                      | Công cụ phát triển và bộ kiểm thử ở root                   |
+| `docs`                                                                  | Tài liệu sản phẩm và kỹ thuật                              |
 
 ## Chạy local
 
@@ -51,9 +51,10 @@ pnpm dev
 cùng cơ sở dữ liệu local. Worker chạy ổn định trong một phiên; sau khi sửa code backend, hãy khởi
 động lại worker khi không có lượt phân tích đang chạy để tránh tiêu hao lượt khôi phục do watch
 restart. `pnpm db:start` và
-`pnpm db:reset` gọi Supabase từ `src/backend`. Các lệnh kiểm tra thủ công vẫn có trong
-`package.json`; Playwright cần môi trường và web server local tại `127.0.0.1:3100` được
-chuẩn bị trước khi chạy `pnpm test:e2e`.
+`pnpm db:reset` gọi Supabase từ `src/backend`. Sau khi Supabase local đã chạy và migration
+đã được áp dụng, `pnpm test:db` chạy pgTAP ở root `tests/db`. `pnpm test:e2e` và
+`pnpm test:e2e:durable` tự build web riêng, mở web/worker với provider giả lập và dừng
+chúng sau khi kiểm tra. Runner lấy DB và API từ Supabase local, từ chối URL từ xa.
 
 Chạy `pnpm llm:check` để kiểm tra riêng Gemini và OpenAI bằng đúng adapter Insight và
 cấu hình `.env` của worker. Lệnh gửi một yêu cầu với dữ liệu kiểm tra giả lập cho mỗi
@@ -65,7 +66,7 @@ Sau khi cập nhật cấu hình, chạy lại lệnh này và khởi động l�
 
 Repo dùng một pnpm workspace và một `pnpm-lock.yaml` ở root. Dependency của ứng dụng web nằm
 trong `src/frontend/package.json`; công cụ Supabase, Playwright và dữ liệu mock nằm trong
-`src/backend/package.json`. pnpm dùng virtual store chung `node_modules/.pnpm` ở root và tạo
+`package.json` ở root. pnpm dùng virtual store chung `node_modules/.pnpm` ở root và tạo
 liên kết `node_modules` theo từng workspace để Node phân giải đúng dependency. Turbo dùng cache
 ở root `.turbo/cache`;
 `.next` của Next.js nằm trong `src/frontend`.

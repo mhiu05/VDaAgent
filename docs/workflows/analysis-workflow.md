@@ -20,4 +20,4 @@ flowchart LR
 
 Giới hạn: schema tồn kho `csv-v1` và semantic `mvp-inventory-v0.1`; đây là các giả định MVP, không phải mô hình phân tích tùy ý. Lỗi kiểm scope/validation dừng trước publication.
 
-Code: `src/backend/packages/db/src/transactions/create-run.ts`, `src/backend/worker/src/workflow-dispatcher.ts`, `src/backend/packages/agents/src/analysis-v1/team-workflow.ts`. Xem [orchestration](../agents/orchestration.md), [report generation](report-generation.md).
+Code: `src/backend/database/transactions/create-run.ts`, `src/backend/worker/workflow-dispatcher.ts`, `src/backend/agents/analysis/team-workflow.ts`. Xem [orchestration](../agents/orchestration.md), [report generation](report-generation.md).

@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "types": ["node", "vitest/globals"],
+    "paths": { "@/*": ["../src/frontend/*"] }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "../src/frontend/next-env.d.ts"],
+  "exclude": ["node_modules"]
+}

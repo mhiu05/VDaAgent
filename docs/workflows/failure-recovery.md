@@ -11,6 +11,6 @@
 | User hủy | Endpoint cancel run/job đặt trạng thái terminal và fence; `AbortSignal` hỗ trợ ngừng cooperative work. Adapter không ngắt được vẫn không thể ghi bằng lease cũ. |
 | SSE mất kết nối | UI lấy lại snapshot/event bằng cursor hoặc polling; stream có heartbeat và thời hạn kết nối. |
 
-Đường chat không durable còn phụ thuộc HTTP owner; script `reconcile-stalled-turns.ts` là thao tác operator có điều kiện, yêu cầu owner đã dừng, không phải auto-recovery cho mọi turn. `legacy-v1` chỉ còn để drain run cũ; unknown workflow version không được dispatch. Không thấy dead-letter queue hoặc external retry service riêng.
+Đường chat không durable còn phụ thuộc HTTP owner; script `reconcile-stalled-turns.ts` là thao tác operator có điều kiện, yêu cầu owner đã dừng, không phải auto-recovery cho mọi turn. Worker không dispatch `legacy-v1` hoặc workflow version không hỗ trợ; reader vẫn mở được run lịch sử. Không thấy dead-letter queue hoặc external retry service riêng.
 
-Code: `src/backend/packages/db/src/workflow/lease-repository.ts`, `src/backend/packages/db/src/repositories/agent-execution-repository.ts`, `src/backend/worker/src/workflow-dispatcher.ts`, `src/backend/worker/src/agent-turn-dispatcher.ts`, `src/backend/packages/db/src/workflow/reconcile-stalled-turn.ts`. Xem [execution model](../architecture/execution-model.md) và [streaming](../api/streaming.md).
+Code: `src/backend/database/workflow/lease-repository.ts`, `src/backend/database/repositories/agent-execution-repository.ts`, `src/backend/worker/workflow-dispatcher.ts`, `src/backend/worker/agent-turn-dispatcher.ts`, `src/backend/database/workflow/reconcile-stalled-turn.ts`. Xem [execution model](../architecture/execution-model.md) và [streaming](../api/streaming.md).

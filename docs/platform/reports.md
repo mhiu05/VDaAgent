@@ -6,4 +6,4 @@
 
 **Giới hạn:** Không thấy report editor tự do, trạng thái phê duyệt của con người, email/webhook delivery hoặc public sharing. “Publish” chỉ có nghĩa là ghi report record nội bộ sau validation.
 
-Code: `src/backend/packages/db/src/transactions/publish-reviewed-draft.ts`, `src/backend/packages/db/src/repositories/workspace-repository.ts`, `src/backend/packages/db/src/repositories/report-repository.ts`, `src/frontend/src/server/api/routes/reports.ts`. Xem [report generation](../workflows/report-generation.md).
+Code: `src/backend/database/transactions/publish-reviewed-draft.ts`, `src/backend/database/repositories/workspace-repository.ts`, `src/backend/database/repositories/report-repository.ts`, `src/frontend/server/api/routes/reports.ts`. Xem [report generation](../workflows/report-generation.md).

@@ -6,4 +6,4 @@ Người dùng chính là `owner` và `analyst` cần nhập dữ liệu, chạy
 
 Khả năng hiện có: CSV import, phân tích semantic có công thức xác định, agent workflow tạo draft/review/report, hội thoại theo ngữ cảnh, dashboard bằng chứng, lịch báo cáo và export JSON/CSV. Dữ liệu mock và công thức `mvp-inventory-v0.1` phục vụ MVP; mọi số đo cần được hiểu cùng định nghĩa và giới hạn của phiên bản này. Không thấy code giao nhận báo cáo cho bên ngoài hoặc hỗ trợ dữ liệu tùy ý ngoài schema tồn kho.
 
-Codebase: `src/frontend/src/features/workspace`, `src/backend/packages/semantic`, `src/backend/packages/agents/src/analysis-v1`. Xem [user flows](user-flows.md) và [use cases](use-cases.md).
+Codebase: `src/frontend/features/workspace`, `src/backend/semantic`, `src/backend/agents/analysis`. Xem [user flows](user-flows.md) và [use cases](use-cases.md).

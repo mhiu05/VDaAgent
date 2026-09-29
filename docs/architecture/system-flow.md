@@ -20,9 +20,9 @@ sequenceDiagram
   A-->>U: snapshot, event, report
 ```
 
-1. `/api/v1/[...path]` gọi router; `principal()` xác thực và repository kiểm tra membership. Request body và response được kiểm bằng schema contract.
+1. `/api/[...path]` gọi router; `principal()` xác thực và repository kiểm tra membership. Request body và response được kiểm bằng schema contract.
 2. Chat POST nhận `Idempotency-Key`. Agent Runtime có thể trả lời bằng capability đọc; yêu cầu phân tích mới tạo `run`. Khi durable admission được bật và request phù hợp, API ghi job để worker tiếp tục.
 3. `POST /analyses` tạo run trực tiếp. Giao dịch tạo run chốt danh sách snapshot cùng scope/ngày và tạo message liên quan. Worker lưu task/checkpoint khi thực thi stage.
 4. Worker claim bằng lease, ghi stage và artifact; publication ghi report record trong giao dịch có fencing. UI đọc qua endpoint run, artifact, report, runtime event hoặc job event.
 
-Code mapping: `src/frontend/src/server/api/router.ts`, `src/backend/packages/agents/src/runtime/runtime.ts`, `src/backend/packages/db/src/transactions/create-run.ts`, `src/backend/worker/src/run-loop.ts`, `src/backend/packages/agents/src/analysis-v1/workflow.ts`. Xem [execution model](execution-model.md).
+Code mapping: `src/frontend/server/api/router.ts`, `src/backend/agents/runtime/agent-runtime.ts`, `src/backend/database/transactions/create-run.ts`, `src/backend/worker/run-loop.ts`, `src/backend/agents/analysis/workflow.ts`. Xem [execution model](execution-model.md).

@@ -8,4 +8,4 @@ Team Runtime có registry agent, `ToolRegistry`, context builder, event emission
 
 Giới hạn mặc định trong code: Team Runtime tối đa 40 invocation, depth 6, 30 delegation và 10 phút; ToolRegistry tối đa 80 call và kết quả chuẩn hóa 16 KB (phần lớn stage tool timeout 240 giây). Chat runtime tối đa 3 plan steps/3 capability calls, một run mới và một mutating call; provider attempt mặc định 12 giây, turn tối đa 45 giây. Đây là guardrail của process; lease và transaction vẫn là ranh giới nhất quán dữ liệu.
 
-Code mapping: `src/backend/packages/agents/src/runtime/runtime.ts`, `src/backend/packages/agents/src/runtime/team/runtime.ts`, `src/backend/packages/agents/src/runtime/team/tools.ts`, `src/backend/worker/src/agent-turn-dispatcher.ts`. Xem [tools](tools.md), [execution model](../architecture/execution-model.md).
+Code mapping: `src/backend/agents/runtime/agent-runtime.ts`, `src/backend/agents/runtime/team/executor.ts`, `src/backend/agents/runtime/team/tools.ts`, `src/backend/worker/agent-turn-dispatcher.ts`. Xem [tools](tools.md), [execution model](../architecture/execution-model.md).

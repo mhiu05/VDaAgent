@@ -1,0 +1,29 @@
+{
+  "name": "@vda/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./imports/parse-inventory-csv": "./imports/parse-inventory-csv.ts",
+    "./imports/hierarchy": "./imports/hierarchy.ts",
+    "./scheduling/daily-schedule": "./scheduling/daily-schedule.ts",
+    "./artifacts/integrity": "./artifacts/integrity.ts",
+    "./analysis/claim-binding": "./analysis/claim-binding.ts",
+    "./reports/report-sections": "./reports/report-sections.ts",
+    "./reports/report-validation": "./reports/report-validation.ts",
+    "./reports/export": "./reports/export.ts",
+    "./decision-intelligence/build-pack": "./decision-intelligence/build-pack.ts",
+    "./decision-intelligence/validate-pack": "./decision-intelligence/validate-pack.ts",
+    "./workflow-validation/publication": "./workflow-validation/publication.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vda/contracts": "workspace:*",
+    "@vda/semantic": "workspace:*",
+    "csv-parse": "7.0.2"
+  }
+}

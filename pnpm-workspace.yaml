@@ -1,8 +1,12 @@
 packages:
   - src/frontend
-  - src/backend
+  - src/contracts
   - src/backend/worker
-  - src/backend/packages/*
+  - src/backend/agents
+  - src/backend/config
+  - src/backend/database
+  - src/backend/domain
+  - src/backend/semantic
 allowBuilds:
   esbuild: true
   unrs-resolver: true

@@ -6,4 +6,4 @@ Stage lưu artifact/checkpoint theo key ổn định để retry có thể nạp
 
 Artifact trong PostgreSQL khác file CSV/export trong Supabase Storage. File nguồn và export có path riêng; artifact runtime không phải file upload tùy ý.
 
-Code: `src/backend/packages/contracts/src/artifacts/artifact.ts`, `src/backend/packages/db/src/repositories/artifact-repository.ts`, `src/backend/packages/agents/src/analysis-v1/checkpoint/artifact-store.ts`, `src/backend/packages/domain/src/artifacts/integrity.ts`. Xem [evidence validation](../agents/evidence-validation.md).
+Code: `src/contracts/artifacts/artifact.ts`, `src/backend/database/repositories/artifact-repository.ts`, `src/backend/agents/analysis/checkpoint/artifact-store.ts`, `src/backend/domain/artifacts/integrity.ts`. Xem [evidence validation](../agents/evidence-validation.md).

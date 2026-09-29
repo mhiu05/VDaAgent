@@ -20,4 +20,4 @@ flowchart LR
 
 Coordinator điều phối full report run. Data cung cấp metric đã xác minh; Comparison, Chart và Analyst xử lý các nhánh có thể chạy song song; Insight tổng hợp claim có evidence; Report dựng draft; Reviewer kiểm tra trước publication. Specialist run có thể dừng ở artifact của Data/Comparison/Chart/Analyst/Insight mà không tạo report. Endpoint agent definitions còn đưa thông tin vai trò cho UI.
 
-Code mapping: `src/backend/packages/agents/src/runtime/team/definitions.ts`, `src/backend/packages/agents/src/analysis-v1/team-workflow.ts`, `src/backend/packages/agents/src/runtime/runtime.ts`. Xem [orchestration](orchestration.md), [Coordinator](agents/orchestrator.md), [Chart](agents/chart-agent.md) và [Analyst](agents/analyst-agent.md).
+Code mapping: `src/backend/agents/runtime/team/definitions.ts`, `src/backend/agents/analysis/team-workflow.ts`, `src/backend/agents/runtime/agent-runtime.ts`. Xem [orchestration](orchestration.md), [Coordinator](roles/orchestrator.md), [Chart](roles/chart-agent.md) và [Analyst](roles/analyst-agent.md).

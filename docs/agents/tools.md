@@ -6,4 +6,4 @@ Trong full run, tool nội bộ gồm `data.analyze`, `data.evidence`, `comparis
 
 Chat Agent Runtime dùng một registry khác: `create_analysis`, `get_analysis_result`, `inspect_signal`, `inspect_decision_intelligence`, `inspect_visual`, `inspect_priority_entity`, `inspect_evidence`, `get_report_context`, `inspect_agent_checkpoint`. Mỗi capability có role/mode/context yêu cầu; mutating call kiểm quyền lại trước khi ghi. Lỗi đọc có thể trả kết quả unavailable an toàn.
 
-**Partially implemented:** `McpGateway` có discover/allowlist/health nhưng chưa có server được đăng ký trong workflow chính. Code mapping: `src/backend/packages/agents/src/runtime/team/tools.ts`, `src/backend/packages/agents/src/analysis-v1/team-workflow.ts`, `src/backend/packages/agents/src/runtime/capabilities/registry.ts`. Xem [security](../architecture/security.md).
+Code mapping: `src/backend/agents/runtime/team/tools.ts`, `src/backend/agents/analysis/team-workflow.ts`, `src/backend/agents/runtime/capabilities/registry.ts`. Xem [security](../architecture/security.md).

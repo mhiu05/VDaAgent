@@ -12,4 +12,4 @@ Repository kiểm quyền ghi và khóa organization. Cùng file hash trong tổ
 
 Khi tạo run, hệ thống chốt tập snapshot mới nhất tại hoặc trước `data_as_of` vào `run_snapshots`; worker chỉ đọc tập này, giới hạn 20.000 rows và timeout truy vấn 5 giây. Các bảng warehouse mock (market/project/zone/unit, giao dịch, giá, reservation) có trong schema, nhưng phân tích MVP dùng snapshot làm nguồn chính.
 
-Code: `src/backend/packages/domain/src/imports/parse-inventory-csv.ts`, `src/backend/packages/db/src/repositories/import-repository.ts`, `src/backend/packages/db/src/transactions/create-run.ts`, `src/backend/packages/db/src/workflow/lease-repository.ts`. Xem [datasets](../platform/datasets.md), [data model](../architecture/data-model.md).
+Code: `src/backend/domain/imports/parse-inventory-csv.ts`, `src/backend/database/repositories/import-repository.ts`, `src/backend/database/transactions/create-run.ts`, `src/backend/database/workflow/lease-repository.ts`. Xem [datasets](../platform/datasets.md), [data model](../architecture/data-model.md).
