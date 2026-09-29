@@ -7,12 +7,7 @@ export type WorkspaceRoute =
   | { page: 'automations' };
 
 export type WorkspaceSurface =
-  | 'dashboard'
-  | 'analysis'
-  | 'reports'
-  | 'schedules'
-  | 'imports'
-  | 'history';
+  'dashboard' | 'analysis' | 'reports' | 'schedules' | 'imports' | 'history';
 
 export type ShellSection = 'workspace' | 'chat' | 'runs' | 'reports' | 'imports' | 'automations';
 
@@ -106,7 +101,10 @@ export function workspaceRouteHref(route: WorkspaceRoute, orgId?: string): strin
         orgId,
       );
     case 'runs':
-      return withOrganization(route.runId ? `/runs/${encodeURIComponent(route.runId)}` : '/runs', orgId);
+      return withOrganization(
+        route.runId ? `/runs/${encodeURIComponent(route.runId)}` : '/runs',
+        orgId,
+      );
     case 'reports':
       return withOrganization(
         route.reportId ? `/reports/${encodeURIComponent(route.reportId)}` : '/reports',
@@ -117,4 +115,30 @@ export function workspaceRouteHref(route: WorkspaceRoute, orgId?: string): strin
     case 'automations':
       return withOrganization('/automations', orgId);
   }
+}
+
+export function agentConversationHref(
+  orgId: string,
+  conversationId: string,
+  agent: string,
+  options: {
+    item?: string;
+    run?: string;
+    invocation?: string;
+    source?: 'runtime' | 'job';
+    job?: string;
+  } = {},
+): string {
+  const url = workspaceRouteHref({ page: 'chat', conversationId }, orgId);
+  const [path, search] = url.split('?');
+  const params = new URLSearchParams(search);
+  params.set('agent', agent);
+  if (options.item) params.set('item', options.item);
+  if (options.run) params.set('run', options.run);
+  if (options.job) params.set('job', options.job);
+  if (options.invocation && options.source) {
+    params.set('invocation', options.invocation);
+    params.set('source', options.source);
+  }
+  return `${path}?${params.toString()}`;
 }

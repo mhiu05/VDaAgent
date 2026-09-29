@@ -140,4 +140,45 @@ describe('authorized runtime workspace routes', () => {
     expect(content).toContain('event: terminal');
     expect(content).not.toMatch(/fencing_token|worker_id/);
   });
+
+  it('serves scoped agent views and rejects foreign or invalid focus', async () => {
+    const { pg, repo } = await createTestRepository();
+    resources.push(async () => {
+      await repo.close();
+      await pg.close();
+    });
+    const accepted = await repo.enqueueAgentTurn(
+      TEST_USERS.owner,
+      { ...turnInput, agent_target: 'data' },
+      'agent-view-api',
+    );
+    const conversation = accepted.conversation.conversation_id;
+    const summary = await runtimeWorkspaceRoutes(
+      routeContext(repo, ['conversations', conversation, 'agents']),
+    );
+    expect((await summary!.json()).agents).toHaveLength(8);
+    const path = ['conversations', conversation, 'agents', 'data', 'messages'];
+    const feed = await runtimeWorkspaceRoutes(routeContext(repo, path));
+    const items = (await feed!.json()).items;
+    expect(items).toHaveLength(2);
+    const focus = routeContext(repo, path);
+    focus.url.searchParams.set('focus_item', items[0].item_id);
+    expect((await (await runtimeWorkspaceRoutes(focus))!.json()).focus_item).toBe(items[0].item_id);
+    const wrongAgent = routeContext(repo, [
+      'conversations',
+      conversation,
+      'agents',
+      'insight',
+      'messages',
+    ]);
+    wrongAgent.url.searchParams.set('focus_item', items[0].item_id);
+    await expect(runtimeWorkspaceRoutes(wrongAgent)).rejects.toThrow('AGENT_ITEM_NOT_FOUND');
+    await expect(
+      runtimeWorkspaceRoutes(routeContext(repo, path, { org: TEST_ORGS.beta })),
+    ).rejects.toThrow('WORKSPACE_FORBIDDEN');
+    const work = await runtimeWorkspaceRoutes(
+      routeContext(repo, ['conversations', conversation, 'agents', 'data', 'work']),
+    );
+    expect((await work!.json()).items).toHaveLength(1);
+  });
 });

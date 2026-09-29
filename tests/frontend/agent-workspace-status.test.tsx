@@ -12,6 +12,7 @@ const agents = ['coordinator', 'data', 'comparison', 'report'].map((id) => ({
 describe('canonical workspace execution status', () => {
   it('renders persisted specialist status without inventing activity for historical threads', () => {
     const props = {
+      orgId: 'test-org',
       conversations: [],
       selectedConversation: null,
       selectedId: null,

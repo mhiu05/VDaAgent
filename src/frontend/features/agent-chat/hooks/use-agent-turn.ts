@@ -87,7 +87,9 @@ export function useAgentTurn({
   const submitting = useRef(false);
   const [retryTurn, setRetryTurn] = useState<RetryTurn | null>(null);
   const [activity, setActivity] = useState<AgentActivityEventV1[]>([]);
-  useEffect(() => { setRetryTurn(null); }, [messageContextRefs, reportIntent, replyToMessageId]);
+  useEffect(() => {
+    setRetryTurn(null);
+  }, [messageContextRefs, reportIntent, replyToMessageId]);
   function editDraft(value: string) {
     setDraft(value);
     // A changed prompt is a new request, never a replay of the failed identity.
@@ -97,8 +99,15 @@ export function useAgentTurn({
     setAgentTarget(value);
     if (value !== agentTarget) setRetryTurn(null);
   }
+  function setDefaultAgentTarget(value: AgentKey | null) {
+    // View navigation changes the next draft default, never a captured retry.
+    setAgentTarget(value);
+  }
 
-  async function submit(providedAttempt?: RetryTurn, prompt?: { text: string; agentTarget: AgentKey | null }) {
+  async function submit(
+    providedAttempt?: RetryTurn,
+    prompt?: { text: string; agentTarget: AgentKey | null },
+  ) {
     // The compatibility fields and versioned snapshot intentionally come
     // from one derived object. That keeps the browser from accidentally
     // sending two different scope/date views of the same turn.
@@ -198,6 +207,7 @@ export function useAgentTurn({
     setDraft: editDraft,
     agentTarget,
     setAgentTarget: editAgentTarget,
+    setDefaultAgentTarget,
     busy,
     retryTurn,
     setRetryTurn,

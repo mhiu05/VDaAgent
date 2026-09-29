@@ -3,6 +3,11 @@ import { RunSchema, RuntimeActivityEventSchema, type AnalysisRun } from '@vda/co
 import { ApiError, errorMessage, scoped } from '../../../lib/http/api-client';
 import { readSse } from '../../../lib/sse';
 import { getRunRuntime, RuntimeSnapshotSchema, type RuntimeSnapshot } from '../api/runtime';
+import {
+  applyRuntimeEvent,
+  emptyRuntimeReconciliation,
+  installRuntimeSnapshot,
+} from '../runtime-reconciliation';
 
 const empty: RuntimeSnapshot = { records: [], events: [], last_sequence: 0 };
 
@@ -31,19 +36,21 @@ export function useRunRuntime(
       return;
     }
     let disposed = false;
-    let lastSequence = 0;
+    let runtimeState = emptyRuntimeReconciliation();
+    let requestGeneration = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     const abort = new AbortController();
     const refresh = async () => {
-      const next = await getRunRuntime(orgId, runId);
-      if (!disposed && next.last_sequence >= lastSequence) {
-        lastSequence = next.last_sequence;
-        setSnapshot(next);
-      }
+      const generation = ++requestGeneration;
+      const next = await getRunRuntime(orgId, runId, runtimeState.deliveredSequence);
+      if (disposed || generation !== requestGeneration) return;
+      runtimeState = installRuntimeSnapshot(runtimeState, next);
+      setSnapshot(runtimeState.view);
     };
     const connect = async () => {
       if (disposed) return;
-      setConnection(lastSequence ? 'reconnecting' : 'loading');
+      setConnection(runtimeState.deliveredSequence ? 'reconnecting' : 'loading');
       try {
         await refresh();
         if (disposed) return;
@@ -58,12 +65,15 @@ export function useRunRuntime(
           return;
         }
         const response = await fetch(
-          `/api${scoped(`/runs/${runId}/events?after=${lastSequence}`, orgId)}`,
+          `/api${scoped(`/runs/${runId}/events?after=${runtimeState.deliveredSequence}`, orgId)}`,
           {
             credentials: 'same-origin',
             cache: 'no-store',
             signal: abort.signal,
-            headers: { Accept: 'text/event-stream', 'Last-Event-ID': String(lastSequence) },
+            headers: {
+              Accept: 'text/event-stream',
+              'Last-Event-ID': String(runtimeState.deliveredSequence),
+            },
           },
         );
         if (!response.ok) {
@@ -76,6 +86,7 @@ export function useRunRuntime(
         }
         setConnection('live');
         let terminal = false;
+        let sawSnapshot = false;
         await readSse(
           response,
           (frame) => {
@@ -86,31 +97,28 @@ export function useRunRuntime(
               if (run.success && run.data.run_id === runId && run.data.org_id === orgId)
                 onRunUpdateRef.current?.(run.data);
               const parsed = RuntimeSnapshotSchema.safeParse(value.runtime);
-              if (parsed.success && parsed.data.last_sequence >= lastSequence) {
-                lastSequence = parsed.data.last_sequence;
-                setSnapshot(parsed.data);
+              if (parsed.success) {
+                sawSnapshot = true;
+                runtimeState = installRuntimeSnapshot(runtimeState, parsed.data);
+                setSnapshot(runtimeState.view);
               }
             } else if (frame.event === 'runtime') {
               const parsed = RuntimeActivityEventSchema.parse(JSON.parse(frame.data));
-              if (parsed.run_id !== runId || parsed.sequence <= lastSequence) return;
-              lastSequence = parsed.sequence;
-              setSnapshot((current) => ({
-                records: current.records.some(
-                  (record) => record.activity_id === parsed.record.activity_id,
-                )
-                  ? current.records.map((record) =>
-                      record.activity_id === parsed.record.activity_id ? parsed.record : record,
-                    )
-                  : [...current.records, parsed.record],
-                events: [...current.events, parsed].slice(-100),
-                last_sequence: parsed.sequence,
-              }));
+              if (parsed.run_id !== runId) return;
+              runtimeState = applyRuntimeEvent(runtimeState, parsed);
+              setSnapshot(runtimeState.view);
+              if (runtimeState.view.snapshot_sequence === undefined && !refreshTimer)
+                refreshTimer = setTimeout(() => {
+                  refreshTimer = undefined;
+                  void refresh();
+                }, 80);
             } else if (frame.event === 'terminal') terminal = true;
           },
           2_000_000,
         );
         if (disposed) return;
         if (terminal) {
+          if (!sawSnapshot) await refresh();
           setConnection('idle');
           setError(null);
           return;
@@ -136,6 +144,7 @@ export function useRunRuntime(
       disposed = true;
       abort.abort();
       if (timer) clearTimeout(timer);
+      if (refreshTimer) clearTimeout(refreshTimer);
     };
   }, [orgId, runId, sseEnabled, active]);
   return { snapshot, connection, error };

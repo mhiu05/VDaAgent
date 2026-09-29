@@ -2,6 +2,7 @@ import type { Repository } from '@vda/db';
 import { tickWhenDue } from './scheduler';
 import { dispatchWorkflow } from './workflow-dispatcher';
 import { dispatchAgentTurn } from './agent-turn-dispatcher';
+import { dispatchExternalDelivery } from './external-delivery';
 
 export async function runLoop(
   repository: Repository,
@@ -13,6 +14,7 @@ export async function runLoop(
     sleep?: (ms: number) => Promise<unknown>;
     dispatch?: typeof dispatchWorkflow;
     dispatchAgent?: typeof dispatchAgentTurn;
+    dispatchDelivery?: typeof dispatchExternalDelivery;
     durableAgentExecution?: boolean;
   } = {},
 ) {
@@ -21,6 +23,7 @@ export async function runLoop(
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     dispatch = dispatchWorkflow,
     dispatchAgent = dispatchAgentTurn,
+    dispatchDelivery = dispatchExternalDelivery,
     durableAgentExecution = false,
   } = dependencies;
   let nextTick = 0;
@@ -47,6 +50,13 @@ export async function runLoop(
       }
     }
     if (handled) preferAgent = !preferAgent;
-    else if (!once) await sleep(500);
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+      const delivery = await repository.claimExternalDelivery(workerId);
+      if (delivery) {
+        await dispatchDelivery(repository, delivery);
+        handled = true;
+      }
+    }
+    if (!handled && !once) await sleep(500);
   } while (!shouldStop() && !once);
 }

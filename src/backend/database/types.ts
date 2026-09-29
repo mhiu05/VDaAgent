@@ -38,6 +38,9 @@ import type {
   MemoryInput,
   MemoryEntry,
   MemoryQuery,
+  AgentFeedPage,
+  AgentWorkPage,
+  ConversationAgents,
 } from '@vda/contracts';
 export interface Lease {
   run: AnalysisRun;
@@ -50,6 +53,20 @@ export interface AgentTurn {
   assistant_message: Message;
   idempotent_replay: boolean;
 }
+export type ExternalDeliveryInput = {
+  delivery_id: string;
+  event_key: string;
+  chat_id: string;
+  external_user_id: string;
+  conversation_id: string;
+  assistant_message_id: string;
+};
+export type ExternalDeliveryLease = ExternalDeliveryInput & {
+  org_id: string;
+  user_id: string;
+  worker_id: string;
+  attempts: number;
+};
 export interface AgentJobLease {
   job: AgentTurnJob;
   worker_id: string;
@@ -73,6 +90,12 @@ export interface TurnContext {
   assistant_message_id: string;
   client_turn_id: string;
 }
+export interface AcceptedRunContext {
+  message: Message | null;
+  request: AgentTurnRequest | null;
+  thread: ThreadContext | null;
+  recent_messages: Message[];
+}
 export interface QueryResult {
   rows: UnitSnapshot[];
   sql: string;
@@ -88,6 +111,8 @@ export interface QueryResult {
  */
 export interface ArtifactStoreOptions {
   artifact_key?: string;
+  /** Persist a completed stage artifact and its deterministic validation atomically. */
+  validation?: ArtifactValidation;
 }
 
 export interface ReviewedDraftPublication {
@@ -140,6 +165,10 @@ export interface Repository {
     lease: Lease,
     activity: RuntimeActivityInput,
   ): Promise<RuntimeActivityRecord>;
+  recordRuntimeActivities(
+    lease: Lease,
+    activities: RuntimeActivityInput[],
+  ): Promise<RuntimeActivityRecord[]>;
   finishAgentArtifactRun(lease: Lease, artifactId: string): Promise<void>;
   getRunRuntime(
     userId: string,
@@ -189,6 +218,50 @@ export interface Repository {
     conversationId: string,
     page: PageRequest,
   ): Promise<MessagePage>;
+  listAgentFeed(
+    userId: string,
+    orgId: string,
+    conversationId: string,
+    agentKey: string,
+    options?: { limit?: number; cursor?: string | null; focus_item?: string | null },
+  ): Promise<AgentFeedPage>;
+  getAcceptedRunContext(
+    userId: string,
+    orgId: string,
+    runId: string,
+    agentKey: AgentKey,
+  ): Promise<AcceptedRunContext>;
+  listAgentWork(
+    userId: string,
+    orgId: string,
+    conversationId: string,
+    agentKey: string,
+    options?: { limit?: number; cursor?: string | null },
+  ): Promise<AgentWorkPage>;
+  getConversationAgents(
+    userId: string,
+    orgId: string,
+    conversationId: string,
+  ): Promise<ConversationAgents>;
+  ensureExternalConversation(
+    userId: string,
+    orgId: string,
+    conversationId: string,
+  ): Promise<Conversation>;
+  enqueueExternalDelivery(
+    userId: string,
+    orgId: string,
+    input: ExternalDeliveryInput,
+  ): Promise<void>;
+  claimExternalDelivery(
+    workerId: string,
+    now?: Date,
+    leaseMs?: number,
+  ): Promise<ExternalDeliveryLease | null>;
+  finishExternalDelivery(
+    lease: ExternalDeliveryLease,
+    outcome: { sent: boolean; error_code?: string },
+  ): Promise<void>;
   startTurn(
     userId: string,
     input: AgentTurnRequest,

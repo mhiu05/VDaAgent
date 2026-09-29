@@ -161,16 +161,17 @@ describe('fenced Coordinator/Data checkpoints', () => {
     expect(interactive.run_id).not.toBe(scheduled.run_id);
   });
 
-  it('resumes after a validation crash without duplicating persisted artifacts', async () => {
+  it('resumes after a validated artifact write without duplicating persisted artifacts', async () => {
     const repo = await repository();
     const created = await repo.createRun(TEST_USERS.owner, request, 'data-root-recovery');
     const lease = await repo.claimRun('data-root-recovery-worker');
     if (!lease) throw new Error('Missing lease');
-    const validate = repo.validateArtifact.bind(repo);
+    const store = repo.storeArtifact.bind(repo);
     let calls = 0;
-    vi.spyOn(repo, 'validateArtifact').mockImplementation(async (activeLease, validation) => {
+    vi.spyOn(repo, 'storeArtifact').mockImplementation(async (activeLease, artifact, options) => {
+      const saved = await store(activeLease, artifact, options);
       if (++calls === 4) throw new Error('SIMULATED_CRASH');
-      return validate(activeLease, validation);
+      return saved;
     });
     await expect(executeCoordinatorAndData(repo, lease)).rejects.toThrow('SIMULATED_CRASH');
     expect(

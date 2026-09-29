@@ -372,6 +372,18 @@
   border-color: var(--color-border-strong);
   background: var(--color-accent-soft);
 }
+.agentList button {
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+.agentList button[data-state='working'] .agentAvatar,
+.agentList button[data-state='waiting'] .agentAvatar,
+.agentList button[data-state='queued'] .agentAvatar,
+.agentList button[data-state='error'] .agentAvatar {
+  border-color: var(--color-accent);
+}
+.agentList button[data-state='error'] .agentAvatar {
+  color: var(--color-warning);
+}
 .agentAvatar {
   display: grid;
   place-items: center;
@@ -397,6 +409,10 @@
 }
 .agentCopy strong {
   font-size: var(--text-sm);
+}
+.agentCopy small {
+  line-height: 1.35;
+  color: var(--color-muted);
 }
 .runHeading [data-status='running'] {
   color: var(--color-signal);
@@ -809,5 +825,87 @@
   }
   .timeline {
     overflow: visible;
+  }
+}
+.delegationCard {
+  border: 1px solid var(--border, #d8dce8);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 10px 0;
+  background: var(--surface, #fff);
+  display: grid;
+  gap: 6px;
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+.delegationCard[data-status='running'] {
+  border-color: var(--color-accent);
+}
+.delegationCard[data-status='failed'] {
+  border-color: var(--color-warning);
+}
+[data-agent-item]:focus {
+  outline: 2px solid #7b8ad8;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.delegationCard p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.delegationState {
+  font-size: 0.82rem;
+  opacity: 0.75;
+}
+.delegationResult {
+  border-left: 3px solid #7b8ad8;
+  padding-left: 10px;
+}
+.delegationDetails summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.delegationDetails small {
+  display: block;
+}
+.delegationActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.recipientChip {
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  opacity: 0.85;
+}
+.agentWorkPreview {
+  list-style: none;
+  padding: 0 0 4px 12px;
+  margin: 0;
+}
+.agentWorkPreview button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.agentWorkPreview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.runtimeTree li[data-selected='true'] > details {
+  outline: 2px solid #7b8ad8;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agentList button,
+  .delegationCard {
+    transition: none;
   }
 }

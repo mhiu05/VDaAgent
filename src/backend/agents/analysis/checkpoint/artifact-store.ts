@@ -56,16 +56,16 @@ export async function persistStageArtifact<K extends ArtifactKind>(
   verifyArtifact(artifact);
   const persisted = (await repository.storeArtifact(lease, artifact, {
     artifact_key: input.key,
+    validation: {
+      artifact_id: artifact.artifact_id,
+      org_id: run.org_id,
+      run_id: run.run_id,
+      validated_at: new Date().toISOString(),
+      validator_version: 'mvp-validator-v1',
+      valid: true,
+      checks: input.checks ?? ['schema', 'hash', 'tenant', 'lineage'],
+    },
   })) as ArtifactOf<K>;
   verifyArtifact(persisted);
-  await repository.validateArtifact(lease, {
-    artifact_id: persisted.artifact_id,
-    org_id: run.org_id,
-    run_id: run.run_id,
-    validated_at: new Date().toISOString(),
-    validator_version: 'mvp-validator-v1',
-    valid: true,
-    checks: input.checks ?? ['schema', 'hash', 'tenant', 'lineage'],
-  });
   return persisted;
 }

@@ -24,6 +24,13 @@ import {
 } from '../src/contracts/runtime/plan';
 import { AgentTurnRequestSchema } from '../src/contracts/chat/message';
 import {
+  AgentFeedPageSchema,
+  AgentWorkPageSchema,
+  ConversationAgentsSchema,
+  DelegationViewSchema,
+  ExecutionRefSchema,
+} from '../src/contracts/chat/agent-experience';
+import {
   AgentWorkflowStatusSchema,
   DecisionIntelligenceResponseSchema,
 } from '../src/contracts/api/responses';
@@ -57,6 +64,11 @@ for (const [name, schema] of Object.entries({
   AgentActivityEventV1: AgentActivityEventV1Schema,
   AgentPlanV1: AgentPlanV1Schema,
   AgentTurnRequest: AgentTurnRequestSchema,
+  AgentFeedPage: AgentFeedPageSchema,
+  AgentWorkPage: AgentWorkPageSchema,
+  ConversationAgents: ConversationAgentsSchema,
+  DelegationView: DelegationViewSchema,
+  ExecutionRef: ExecutionRefSchema,
   AgentTurnStreamEventV1: AgentTurnStreamEventV1Schema,
   AgentWorkflowStatus: AgentWorkflowStatusSchema,
   AvailableWorkspaceActionV1: AvailableWorkspaceActionV1Schema,

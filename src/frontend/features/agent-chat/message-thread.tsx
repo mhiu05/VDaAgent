@@ -13,7 +13,9 @@ export function senderLabel(senderAgent: Message['sender_agent']): string {
   return agentIdentity(senderAgent)?.label ?? 'VDaAgent';
 }
 
-const legacyAgentNamePrefixes: Partial<Record<NonNullable<Message['sender_agent']>, readonly string[]>> = {
+const legacyAgentNamePrefixes: Partial<
+  Record<NonNullable<Message['sender_agent']>, readonly string[]>
+> = {
   coordinator: ['Tác nhân điều phối', 'Điều phối viên', 'Main Agent'],
   data: ['Tác nhân dữ liệu', 'Data Agent'],
   comparison: ['Tác nhân so sánh', 'Compare Agent'],
@@ -27,14 +29,17 @@ const legacyAgentNamePrefixes: Partial<Record<NonNullable<Message['sender_agent'
 function displayedMessageContent(message: Message): string {
   if (message.role !== 'assistant' || !message.sender_agent) return message.content;
   const label = agentIdentity(message.sender_agent)?.label;
-  const prefix = legacyAgentNamePrefixes[message.sender_agent]?.find((name) => message.content.startsWith(`${name} `));
+  const prefix = legacyAgentNamePrefixes[message.sender_agent]?.find((name) =>
+    message.content.startsWith(`${name} `),
+  );
   return label && prefix ? label + message.content.slice(prefix.length) : message.content;
 }
 
 const errorLabels: Record<string, string> = {
   ALL_AGENT_PROVIDERS_FAILED: 'Dịch vụ định tuyến hiện chưa sẵn sàng.',
   ANALYSIS_ACTION_FAILED: 'Không thể khởi tạo hoặc tải kết quả phân tích.',
-  AGENT_EXECUTION_FAILED: 'Tác vụ nền gặp lỗi ngoài dự kiến. Xem mã lỗi an toàn trong tab Lượt chạy.',
+  AGENT_EXECUTION_FAILED:
+    'Tác vụ nền gặp lỗi ngoài dự kiến. Xem mã lỗi an toàn trong tab Lượt chạy.',
   RUN_CANCELLED: 'Lượt phân tích đã bị hủy.',
 };
 const workspaceActionLabels: Record<WorkspaceActionV1['type'], string> = {
@@ -45,7 +50,12 @@ const workspaceActionLabels: Record<WorkspaceActionV1['type'], string> = {
   open_evidence: 'Mở bằng chứng đã xác thực',
   switch_capability_mode: 'Đổi chế độ trợ lý',
 };
-const groundingLabels: Record<string, string> = { claim_ref: 'Nhận định có bằng chứng', metric_ref: 'Chỉ số có bằng chứng', evidence_ref: 'Bằng chứng liên quan', quality_ref: 'Giới hạn dữ liệu' };
+const groundingLabels: Record<string, string> = {
+  claim_ref: 'Nhận định có bằng chứng',
+  metric_ref: 'Chỉ số có bằng chứng',
+  evidence_ref: 'Bằng chứng liên quan',
+  quality_ref: 'Giới hạn dữ liệu',
+};
 const agentCardKinds: Record<string, string> = {
   coordinator: 'Điểm kiểm tra quy trình',
   data: 'Điểm kiểm tra chất lượng dữ liệu',
@@ -70,6 +80,7 @@ export function MessageThread({
   suggestions,
   onSuggestion,
   execution,
+  embedded = false,
 }: {
   messages: Message[];
   loading: boolean;
@@ -83,9 +94,11 @@ export function MessageThread({
   suggestions?: readonly string[];
   onSuggestion?: (text: string) => void;
   execution?: AgentTurnJobSnapshot | null;
+  embedded?: boolean;
 }) {
+  const Container = embedded ? 'div' : 'section';
   return (
-    <section className="agent-thread" aria-label="Nội dung hội thoại">
+    <Container className="agent-thread" aria-label={embedded ? undefined : 'Nội dung hội thoại'}>
       {hasEarlier && (
         <button className="text-button agent-load-earlier" onClick={onLoadEarlier}>
           Tải tin nhắn cũ hơn
@@ -100,9 +113,12 @@ export function MessageThread({
           const identity =
             message.role === 'assistant' ? agentIdentity(message.sender_agent) : null;
           const AgentIcon = identity?.icon;
-          const terminalJob = execution?.job.assistant_message_id === message.message_id &&
+          const terminalJob =
+            execution?.job.assistant_message_id === message.message_id &&
             execution.job.conversation_id === message.conversation_id &&
-            ['failed', 'cancelled', 'completed'].includes(execution.job.status) ? execution.job : null;
+            ['failed', 'cancelled', 'completed'].includes(execution.job.status)
+              ? execution.job
+              : null;
           return (
             <article
               className={`agent-message agent-message-${message.role} ${styles.message} ${identity ? styles[identity.accent] : styles.user}`}
@@ -122,22 +138,50 @@ export function MessageThread({
                 </div>
               )}
               <p>{displayedMessageContent(message)}</p>
-              {Boolean(message.context_refs?.length) && <div className={styles.contextRefs} aria-label="Ngữ cảnh đính kèm">
-                {message.context_refs!.map((ref) => <span key={`${ref.type}:${ref.id}`} title={ref.id}>{ref.type} · {ref.id.slice(0, 8)}</span>)}
-              </div>}
-              {message.report_intent === 'new' && <small className={styles.contextRefs}>Đã yêu cầu báo cáo mới</small>}
-              {message.reply_to_message_id && <small className={styles.contextRefs} title={message.reply_to_message_id}>Trả lời tin nhắn · {message.reply_to_message_id.slice(0, 8)}</small>}
-              {onReply && message.parts.some((part) => part.type === 'report_ref' || part.type === 'artifact_ref') && <button type="button" className="text-button" onClick={() => onReply(message.message_id)} aria-label="Trả lời với bằng chứng của tin nhắn này"><Reply size={13} /> Trả lời</button>}
+              {Boolean(message.context_refs?.length) && (
+                <div className={styles.contextRefs} aria-label="Ngữ cảnh đính kèm">
+                  {message.context_refs!.map((ref) => (
+                    <span key={`${ref.type}:${ref.id}`} title={ref.id}>
+                      {ref.type} · {ref.id.slice(0, 8)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {message.report_intent === 'new' && (
+                <small className={styles.contextRefs}>Đã yêu cầu báo cáo mới</small>
+              )}
+              {message.reply_to_message_id && (
+                <small className={styles.contextRefs} title={message.reply_to_message_id}>
+                  Trả lời tin nhắn · {message.reply_to_message_id.slice(0, 8)}
+                </small>
+              )}
+              {onReply &&
+                message.parts.some(
+                  (part) => part.type === 'report_ref' || part.type === 'artifact_ref',
+                ) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => onReply(message.message_id)}
+                    aria-label="Trả lời với bằng chứng của tin nhắn này"
+                  >
+                    <Reply size={13} /> Trả lời
+                  </button>
+                )}
               {message.status === 'in_progress' && message.role === 'assistant' && !terminalJob && (
                 <span className="agent-pending">
                   <LoaderCircle size={13} className="spin" /> Đang chuẩn bị kết quả có bằng chứng…
                 </span>
               )}
-              {message.status === 'in_progress' && terminalJob && <span role="status">
-                {terminalJob.status === 'failed' ? 'Tác vụ đã dừng do lỗi. Bạn có thể gửi lại yêu cầu để bắt đầu lượt mới.'
-                  : terminalJob.status === 'cancelled' ? 'Tác vụ đã được hủy.'
-                  : 'Tác vụ đã hoàn tất. Đang đồng bộ câu trả lời đã lưu; tải lại trang nếu chưa thấy kết quả.'}
-              </span>}
+              {message.status === 'in_progress' && terminalJob && (
+                <span role="status">
+                  {terminalJob.status === 'failed'
+                    ? 'Tác vụ đã dừng do lỗi. Bạn có thể gửi lại yêu cầu để bắt đầu lượt mới.'
+                    : terminalJob.status === 'cancelled'
+                      ? 'Tác vụ đã được hủy.'
+                      : 'Tác vụ đã hoàn tất. Đang đồng bộ câu trả lời đã lưu; tải lại trang nếu chưa thấy kết quả.'}
+                </span>
+              )}
               {message.parts.map((part, index) => {
                 if (part.type === 'run_ref')
                   return (
@@ -272,7 +316,9 @@ export function MessageThread({
                       key={`${message.message_id}:error:${index}`}
                       role="status"
                     >
-                      {analysisErrorMessage(part.code) ?? errorLabels[part.code] ?? 'Không thể hoàn tất yêu cầu này.'}
+                      {analysisErrorMessage(part.code) ??
+                        errorLabels[part.code] ??
+                        'Không thể hoàn tất yêu cầu này.'}
                     </p>
                   );
                 return null;
@@ -284,11 +330,25 @@ export function MessageThread({
         <div className="agent-empty-thread">
           <h2>Bắt đầu với một câu hỏi</h2>
           <p>Kết quả sẽ dựa trên dữ liệu và bằng chứng đã được kiểm tra.</p>
-          {Boolean(suggestions?.length && onSuggestion) && <div className={styles.emptySuggestions} aria-label="Câu hỏi gợi ý cho tác nhân đang chọn">
-            {suggestions?.map((question) => <button key={question} type="button" className={styles.emptySuggestion} onClick={() => onSuggestion?.(question)}>{question}</button>)}
-          </div>}
+          {Boolean(suggestions?.length && onSuggestion) && (
+            <div
+              className={styles.emptySuggestions}
+              aria-label="Câu hỏi gợi ý cho tác nhân đang chọn"
+            >
+              {suggestions?.map((question) => (
+                <button
+                  key={question}
+                  type="button"
+                  className={styles.emptySuggestion}
+                  onClick={() => onSuggestion?.(question)}
+                >
+                  {question}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
-    </section>
+    </Container>
   );
 }

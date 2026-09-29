@@ -14,7 +14,7 @@ import { ConversationListItemSchema } from '../chat/conversation';
 import { ReportDefinitionSchema } from '../reports/schedule';
 import { ArtifactSchema, ArtifactValidationSchema } from '../artifacts/artifact';
 import { DecisionBriefSchema } from '../decision/brief';
-import { DecisionIntelligencePackSchema } from '../agents/workflow-packs';
+import { DecisionIntelligencePackSchema, ReviewIssueSchema } from '../agents/workflow-packs';
 
 export const CatalogSchema = z.object({
   projects: z.array(
@@ -83,6 +83,7 @@ export const AgentWorkflowStatusSchema = z
       .object({
         draft_revision: z.number().int().min(1).max(2),
         status: z.enum(['PASS', 'REVISION_REQUIRED']),
+        issues: z.array(ReviewIssueSchema.shape.category).max(100),
       })
       .strict()
       .nullable(),

@@ -30,6 +30,30 @@ describe('API authorization before private reads', () => {
     );
   });
 
+  it('returns only review issue categories from the private artifact', async () => {
+    const repo = {
+      authorize: vi.fn(async () => 'owner' as const),
+      getRun: vi.fn(async () => ({
+        run: { run_id: runId, org_id: orgId, workflow_version: 'agent-v1' },
+        tasks: [],
+      })),
+      artifacts: vi.fn(async () => ({ artifacts: [
+        { kind: 'report_draft', artifact_id: 'draft', payload: { revision: 1 } },
+        { kind: 'review_result', payload: {
+          draft_artifact_id: 'draft', draft_revision: 1, status: 'REVISION_REQUIRED',
+          issues: [{ category: 'metric_mismatch', message: 'private details' }],
+        } },
+      ] })),
+    } as unknown as Repository;
+    const status = await workflowStatus(repo, userId, orgId, runId);
+    expect(status.review).toEqual({
+      draft_revision: 1,
+      status: 'REVISION_REQUIRED',
+      issues: ['metric_mismatch'],
+    });
+    expect(JSON.stringify(status)).not.toContain('private details');
+  });
+
   it('never reads private workflow state after membership fails', async () => {
     const getRun = vi.fn();
     const artifacts = vi.fn();

@@ -61,6 +61,8 @@ import {
 import { ConversationRepository } from './repositories/conversation-repository';
 import { AgentExecutionRepository } from './repositories/agent-execution-repository';
 import { WorkspaceRepository } from './repositories/workspace-repository';
+import { AgentExperienceRepository } from './repositories/agent-experience-repository';
+import { ExternalChannelRepository } from './repositories/external-channel-repository';
 import type {
   ThreadContext,
   MessageContextRef,
@@ -104,6 +106,8 @@ import {
   type ReviewedDraftPublication,
   type TurnContext,
   type AgentTurnExecutionResult,
+  type ExternalDeliveryInput,
+  type ExternalDeliveryLease,
 } from './types';
 
 export { RepositoryError } from './errors';
@@ -127,6 +131,21 @@ export async function createRepository(options: RepositoryOptions = {}): Promise
   return repo;
 }
 class SqlRepository implements Repository {
+  ensureExternalConversation(user: string, org: string, conversationId: string) {
+    return new ExternalChannelRepository(this.db).ensureConversation(user, org, conversationId);
+  }
+  enqueueExternalDelivery(user: string, org: string, input: ExternalDeliveryInput) {
+    return new ExternalChannelRepository(this.db).enqueueDelivery(user, org, input);
+  }
+  claimExternalDelivery(workerId: string, at?: Date, leaseMs?: number) {
+    return new ExternalChannelRepository(this.db).claimDelivery(workerId, at, leaseMs);
+  }
+  finishExternalDelivery(
+    lease: ExternalDeliveryLease,
+    outcome: { sent: boolean; error_code?: string },
+  ) {
+    return new ExternalChannelRepository(this.db).finishDelivery(lease, outcome);
+  }
   finishAgentArtifactRun(lease: Lease, artifactId: string) {
     return finishAgentArtifactRun(this.db, lease, artifactId);
   }
@@ -141,6 +160,9 @@ class SqlRepository implements Repository {
   }
   recordRuntimeActivity(lease: Lease, input: RuntimeActivityInput) {
     return new WorkspaceRepository(this.db).recordRuntimeActivity(lease, input);
+  }
+  recordRuntimeActivities(lease: Lease, inputs: RuntimeActivityInput[]) {
+    return new WorkspaceRepository(this.db).recordRuntimeActivities(lease, inputs);
   }
   getRunRuntime(user: string, org: string, run: string, after = 0) {
     return new WorkspaceRepository(this.db).getRunRuntime(user, org, run, after);
@@ -444,6 +466,43 @@ class SqlRepository implements Repository {
     pageInput: PageRequest,
   ): Promise<MessagePage> {
     return this.conversation().listMessages(user, org, conversationId, pageInput);
+  }
+
+  listAgentFeed(
+    user: string,
+    org: string,
+    conversationId: string,
+    agent: string,
+    options: { limit?: number; cursor?: string | null; focus_item?: string | null } = {},
+  ) {
+    return new AgentExperienceRepository(this.db).listFeed(
+      user,
+      org,
+      conversationId,
+      agent,
+      options,
+    );
+  }
+  getAcceptedRunContext(user: string, org: string, runId: string, agentKey: AgentKey) {
+    return this.conversation().getAcceptedRunContext(user, org, runId, agentKey);
+  }
+  listAgentWork(
+    user: string,
+    org: string,
+    conversationId: string,
+    agent: string,
+    options: { limit?: number; cursor?: string | null } = {},
+  ) {
+    return new AgentExperienceRepository(this.db).listWork(
+      user,
+      org,
+      conversationId,
+      agent,
+      options,
+    );
+  }
+  getConversationAgents(user: string, org: string, conversationId: string) {
+    return new AgentExperienceRepository(this.db).summaries(user, org, conversationId);
   }
 
   async startTurn(

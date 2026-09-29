@@ -1,12 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import type { Catalog, DashboardSelection, WorkspaceActionV1 } from '@vda/contracts';
-import { workspaceRouteHref } from '../../../components/shell/routes';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  AgentKeySchema,
+  type AgentKey,
+  type Catalog,
+  type DashboardSelection,
+  type RuntimeActivity,
+  type WorkspaceActionV1,
+} from '@vda/contracts';
+import { agentConversationHref, workspaceRouteHref } from '../../../components/shell/routes';
 import { useAgentChatController } from '../../agent-chat/hooks/use-agent-chat-controller';
+import { useAgentConversation } from '../../agent-chat/hooks/use-agent-conversation';
+import { useConversationAgents } from '../../agent-chat/hooks/use-conversation-agents';
+import { canonicalAgentKey } from '../../agent-chat/agent-workspace-model';
 import type { WorkspaceContextState } from '../../workspace/context';
 import { useWorkspaceAction } from '../hooks/use-workspace-action';
+import { getRunDetail } from '../../analysis/api/run-data';
+import { getRunRuntime } from '../../agent-chat/api/runtime';
 import { WorkspaceRail } from './workspace-rail';
 import { WorkspaceConversation } from './workspace-conversation';
 import { WorkspaceInspector } from './workspace-inspector';
@@ -55,6 +67,12 @@ export function AgentWorkspace({
   externalRunId?: string | null;
 }) {
   const router = useRouter();
+  const search = useSearchParams();
+  const selectedAgent: AgentKey =
+    AgentKeySchema.safeParse(search.get('agent')).data ?? 'coordinator';
+  const focusItem = search.get('item');
+  const routeRun = search.get('run');
+  const routeInvocation = search.get('source') === 'runtime' ? search.get('invocation') : null;
   const [railDrawer, setRailDrawer] = useState(false);
   const [inspectorDrawer, setInspectorDrawer] = useState(false);
   const railDialog = useRef<HTMLDialogElement>(null);
@@ -113,7 +131,73 @@ export function AgentWorkspace({
         { scroll: false },
       ),
     onReport: (reportId) => router.push(workspaceRouteHref({ page: 'reports', reportId }, orgId)),
+    onAcceptedConversation: (conversationId) => {
+      if (window.location.pathname === '/chat')
+        router.replace(agentConversationHref(orgId, conversationId, selectedAgent), {
+          scroll: false,
+        });
+    },
   });
+  const defaultScope = useRef('');
+  useEffect(() => {
+    const scope = `${orgId}:${chat.selectedConversationId ?? 'new'}:${selectedAgent}`;
+    if (defaultScope.current === scope) return;
+    defaultScope.current = scope;
+    chat.setDefaultAgentTarget(selectedAgent === 'coordinator' ? null : selectedAgent);
+  }, [orgId, chat, selectedAgent]);
+  const agentSummaries = useConversationAgents(orgId, chat.selectedConversationId);
+  const agentFeed = useAgentConversation(
+    orgId,
+    chat.selectedConversationId,
+    selectedAgent,
+    focusItem,
+    agentSummaries.summary?.revision ?? '',
+  );
+  const selectRunRef = useRef(chat.selectRun);
+  useEffect(() => {
+    selectRunRef.current = chat.selectRun;
+  });
+  const hydratedRoute = useRef('');
+  useEffect(() => {
+    if (!focusItem || !routeRun || !routeInvocation || agentFeed.page?.focus_item !== focusItem)
+      return;
+    const item = agentFeed.page.items.find((value) => value.item_id === focusItem);
+    if (
+      !item ||
+      item.kind === 'message' ||
+      item.run_id !== routeRun ||
+      item.delegation.child?.source !== 'runtime' ||
+      item.delegation.child.activity_id !== routeInvocation
+    )
+      return;
+    const key = `${orgId}:${chat.selectedConversationId}:${routeRun}:${routeInvocation}`;
+    if (hydratedRoute.current === key) return;
+    hydratedRoute.current = key;
+    selectRunRef.current(routeRun);
+  }, [orgId, chat.selectedConversationId, focusItem, routeRun, routeInvocation, agentFeed.page]);
+  useEffect(() => {
+    if (focusItem || !routeRun || !routeInvocation || !chat.selectedConversationId) return;
+    const key = `${orgId}:${chat.selectedConversationId}:${routeRun}:${routeInvocation}`;
+    if (hydratedRoute.current === key) return;
+    let disposed = false;
+    void Promise.all([getRunDetail(orgId, routeRun), getRunRuntime(orgId, routeRun)])
+      .then(([detail, runtime]) => {
+        if (
+          disposed ||
+          detail.run.request.conversation_id !== chat.selectedConversationId ||
+          !runtime.records.some(
+            (record) => record.kind === 'invocation' && record.activity_id === routeInvocation,
+          )
+        )
+          return;
+        hydratedRoute.current = key;
+        selectRunRef.current(routeRun);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+    };
+  }, [orgId, chat.selectedConversationId, focusItem, routeRun, routeInvocation]);
 
   function closeDrawers() {
     railDialog.current?.close();
@@ -145,7 +229,32 @@ export function AgentWorkspace({
   function navigateConversation(id: string) {
     chat.selectConversation(id);
     closeDrawers();
-    router.push(workspaceRouteHref({ page: 'chat', conversationId: id }, orgId), { scroll: false });
+    router.push(agentConversationHref(orgId, id, selectedAgent), { scroll: false });
+  }
+  function navigateAgent(
+    agent: AgentKey,
+    item?: string,
+    runId?: string,
+    invocationId?: string | null,
+  ) {
+    chat.setDefaultAgentTarget(agent === 'coordinator' ? null : agent);
+    if (runId) chat.selectRun(runId);
+    if (chat.selectedConversationId)
+      router.push(
+        agentConversationHref(orgId, chat.selectedConversationId, agent, {
+          item,
+          run: runId,
+          source: invocationId ? 'runtime' : undefined,
+          invocation: invocationId ?? undefined,
+        }),
+        { scroll: false },
+      );
+    else
+      router.push(
+        `${workspaceRouteHref({ page: 'chat' }, orgId)}&agent=${encodeURIComponent(agent)}`,
+        { scroll: false },
+      );
+    closeDrawers();
   }
   function newConversation() {
     chat.newConversation();
@@ -154,17 +263,26 @@ export function AgentWorkspace({
   }
   const rail = (
     <WorkspaceRail
+      orgId={orgId}
       conversations={chat.conversations}
       selectedConversation={chat.selectedConversation}
       selectedId={chat.selectedConversationId}
       agents={chat.threadWorkspace.agents}
       records={chat.runtime.snapshot.records}
       invocations={chat.agentExecution?.invocations}
-      recipient={chat.agentTarget}
+      summaries={agentSummaries.summary?.agents}
+      recipient={selectedAgent === 'coordinator' ? null : selectedAgent}
       onRecipient={(recipient) => {
-        chat.setAgentTarget(recipient);
-        closeDrawers();
+        navigateAgent(recipient ?? 'coordinator');
       }}
+      onWork={(work) =>
+        navigateAgent(
+          work.agent_key,
+          work.item_id ?? undefined,
+          work.run_id ?? undefined,
+          work.execution?.source === 'runtime' ? work.execution.activity_id : null,
+        )
+      }
       canWrite={canWrite}
       loading={chat.loadingConversations}
       hasMore={chat.conversationCursor !== null}
@@ -180,6 +298,29 @@ export function AgentWorkspace({
       controller={chat}
       context={workspaceState}
       organizationName={organizationName}
+      selectedInvocationId={routeInvocation}
+      onSelectInvocation={(record: RuntimeActivity) => {
+        chat.selectRun(record.run_id);
+        if (chat.selectedConversationId)
+          router.push(
+            agentConversationHref(orgId, chat.selectedConversationId, selectedAgent, {
+              run: record.run_id,
+              source: 'runtime',
+              invocation: record.activity_id,
+            }),
+            { scroll: false },
+          );
+      }}
+      onOpenInvocation={(record: RuntimeActivity, request: RuntimeActivity) => {
+        const agent = AgentKeySchema.safeParse(canonicalAgentKey(record.agent_key));
+        if (agent.success)
+          navigateAgent(
+            agent.data,
+            `activity:${request.activity_id}`,
+            record.run_id,
+            record.activity_id,
+          );
+      }}
       onArtifact={(id) => {
         onActiveArtifactChange(id);
         void chat.openEvidence(id);
@@ -211,6 +352,24 @@ export function AgentWorkspace({
       )}
       <WorkspaceConversation
         controller={chat}
+        selectedAgent={selectedAgent}
+        agentFeed={agentFeed}
+        onOpenAgent={(agent, item, runId, invocationId) =>
+          navigateAgent(agent, item, runId, invocationId)
+        }
+        onViewExecution={(runId, invocationId, item) => {
+          chat.selectRun(runId);
+          if (chat.selectedConversationId)
+            router.push(
+              agentConversationHref(orgId, chat.selectedConversationId, selectedAgent, {
+                run: runId,
+                item,
+                source: invocationId ? 'runtime' : undefined,
+                invocation: invocationId ?? undefined,
+              }),
+              { scroll: false },
+            );
+        }}
         catalog={catalog}
         organizationName={organizationName}
         directRun={Boolean(externalRunId)}

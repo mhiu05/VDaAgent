@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentDefinition, RuntimeActivityInput } from '@vda/contracts';
 import { AgentMessageBus, TeamRuntime } from '../../../src/backend/agents/runtime/team/executor';
+import { agentProgramInputSchema } from '../../../src/backend/agents/runtime/team/definitions';
 import {
   ToolRegistry,
   ToolResultSchema,
@@ -31,8 +33,23 @@ const toolContext = (agentKey = 'data'): ToolExecutionContext => ({
   authorize: vi.fn(async () => undefined),
   emit: vi.fn(async () => undefined),
 });
+const batch = (events?: RuntimeActivityInput[]) => async (activities: RuntimeActivityInput[]) => {
+  events?.push(...activities);
+  return activities.map(() => ({ activity_id: randomUUID() }));
+};
 
 describe('team invocation persistence', () => {
+  it('accepts only the operations owned by each specialist program', () => {
+    expect(agentProgramInputSchema('data').parse({ operation: 'evidence' })).toEqual({
+      operation: 'evidence',
+    });
+    expect(agentProgramInputSchema('report').parse({ operation: 'revise' })).toEqual({
+      operation: 'revise',
+    });
+    expect(agentProgramInputSchema('insight').parse({})).toEqual({ operation: 'execute' });
+    expect(() => agentProgramInputSchema('insight').parse({ operation: 'revise' })).toThrow();
+    expect(() => agentProgramInputSchema('comparison').parse({ operation: 'evidence' })).toThrow();
+  });
   it('emits nested requests and results with their own parents and verified references', async () => {
     const events: RuntimeActivityInput[] = [];
     const buildContext = vi.fn(async () => ({ instructions: 'authoritative', data: [] }));
@@ -51,6 +68,7 @@ describe('team invocation persistence', () => {
     });
     const runtime = new TeamRuntime({
       tools,
+      emitBatch: batch(events),
       buildContext,
       authorize: async () => undefined,
       emit: async (event) => {
@@ -108,6 +126,7 @@ describe('team invocation persistence', () => {
     const events: RuntimeActivityInput[] = [];
     const runtime = new TeamRuntime({
       tools: new ToolRegistry(),
+      emitBatch: batch(events),
       buildContext: async () => ({}),
       authorize: async () => undefined,
       emit: async (event) => {
@@ -145,6 +164,7 @@ describe('team invocation persistence', () => {
   it('rejects delegation cycles and call budget overflow before the child executes', async () => {
     const runtime = new TeamRuntime({
       tools: new ToolRegistry(),
+      emitBatch: batch(),
       buildContext: async () => ({}),
       authorize: async () => undefined,
       emit: async () => undefined,
@@ -165,6 +185,7 @@ describe('team invocation persistence', () => {
 
     const bounded = new TeamRuntime({
       tools: new ToolRegistry(),
+      emitBatch: batch(),
       maxInvocations: 1,
       maxDepth: 0,
       buildContext: async () => ({}),
@@ -192,6 +213,7 @@ describe('team invocation persistence', () => {
   it('denies undeclared delegates before invoking another specialist', async () => {
     const runtime = new TeamRuntime({
       tools: new ToolRegistry(),
+      emitBatch: batch(),
       buildContext: async () => ({}),
       authorize: async () => undefined,
       emit: async () => undefined,
@@ -226,6 +248,7 @@ describe('team invocation persistence', () => {
     });
     const runtime = new TeamRuntime({
       tools,
+      emitBatch: batch(events),
       maxDurationMs: 20,
       buildContext: async () => ({}),
       authorize: async () => undefined,

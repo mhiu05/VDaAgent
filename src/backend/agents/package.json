@@ -6,7 +6,8 @@
   "exports": {
     ".": "./index.ts",
     "./analysis/workflow": "./analysis/workflow.ts",
-    "./analysis/dag": "./analysis/dag.ts"
+    "./analysis/dag": "./analysis/dag.ts",
+    "./external/telegram": "./external/telegram.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

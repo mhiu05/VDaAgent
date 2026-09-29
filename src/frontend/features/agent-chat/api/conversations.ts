@@ -1,5 +1,8 @@
 import {
   AgentTurnAcceptedSchema,
+  AgentFeedPageSchema,
+  AgentWorkPageSchema,
+  ConversationAgentsSchema,
   AgentTurnJobViewSchema,
   AgentInvocationSchema,
   AgentExecutionEventSchema,
@@ -33,15 +36,20 @@ export function getConversation(orgId: string, conversationId: string) {
   return api(scoped(`/conversations/${conversationId}`, orgId), ConversationSchema);
 }
 
-export const AgentTurnJobSnapshotSchema = z.object({
-  job: AgentTurnJobViewSchema,
-  invocations: z.array(AgentInvocationSchema).max(100),
-  events: z.array(AgentExecutionEventSchema).max(100),
-}).strict();
+export const AgentTurnJobSnapshotSchema = z
+  .object({
+    job: AgentTurnJobViewSchema,
+    invocations: z.array(AgentInvocationSchema).max(100),
+    events: z.array(AgentExecutionEventSchema).max(100),
+  })
+  .strict();
 export type AgentTurnJobSnapshot = z.infer<typeof AgentTurnJobSnapshotSchema>;
 
 export function getConversationAgentTurnJob(orgId: string, conversationId: string) {
-  return api(scoped(`/conversations/${conversationId}/agent-turn-job`, orgId), AgentTurnJobSnapshotSchema.nullable());
+  return api(
+    scoped(`/conversations/${conversationId}/agent-turn-job`, orgId),
+    AgentTurnJobSnapshotSchema.nullable(),
+  );
 }
 
 export function getAgentTurnJob(orgId: string, jobId: string) {
@@ -49,7 +57,9 @@ export function getAgentTurnJob(orgId: string, jobId: string) {
 }
 
 export function cancelAgentTurnJob(orgId: string, jobId: string) {
-  return api(scoped(`/agent-turn-jobs/${jobId}/cancel`, orgId), AgentTurnJobViewSchema, { method: 'POST' });
+  return api(scoped(`/agent-turn-jobs/${jobId}/cancel`, orgId), AgentTurnJobViewSchema, {
+    method: 'POST',
+  });
 }
 
 export function listConversationMessages(
@@ -63,8 +73,45 @@ export function listConversationMessages(
   );
 }
 
+export function listAgentConversationMessages(
+  orgId: string,
+  conversationId: string,
+  agent: string,
+  options: { limit?: number; cursor?: string | null; focus_item?: string | null } = {},
+) {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.focus_item) params.set('focus_item', options.focus_item);
+  const query = params.toString();
+  return api(
+    scoped(
+      `/conversations/${conversationId}/agents/${agent}/messages${query ? `?${query}` : ''}`,
+      orgId,
+    ),
+    AgentFeedPageSchema,
+  );
+}
+export function getConversationAgents(orgId: string, conversationId: string) {
+  return api(scoped(`/conversations/${conversationId}/agents`, orgId), ConversationAgentsSchema);
+}
+export function listAgentWork(
+  orgId: string,
+  conversationId: string,
+  agent: string,
+  options: { limit?: number; cursor?: string | null } = {},
+) {
+  return api(
+    scoped(`/conversations/${conversationId}/agents/${agent}/work${pageQuery(options)}`, orgId),
+    AgentWorkPageSchema,
+  );
+}
+
 export function getConversationMessage(orgId: string, conversationId: string, messageId: string) {
-  return api(scoped(`/conversations/${conversationId}/messages/${messageId}`, orgId), MessageSchema);
+  return api(
+    scoped(`/conversations/${conversationId}/messages/${messageId}`, orgId),
+    MessageSchema,
+  );
 }
 
 export function sendTurn(

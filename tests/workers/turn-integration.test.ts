@@ -201,6 +201,36 @@ describe('durable Orchestrator vertical slice', () => {
     )!;
     expect(dataResponse.artifact_refs?.length).toBeGreaterThan(0);
     expect(dataResponse.evidence_refs?.length).toBeGreaterThan(0);
+    const request = runtime.records.find(
+      (record) => record.step_key === 'team:insight:data-detail:request',
+    )!;
+    const insightView = await repo.listAgentFeed(
+      TEST_USERS.owner,
+      TEST_ORGS.alpha,
+      accepted.conversation.conversation_id,
+      'insight',
+    );
+    const dataView = await repo.listAgentFeed(
+      TEST_USERS.owner,
+      TEST_ORGS.alpha,
+      accepted.conversation.conversation_id,
+      'data',
+    );
+    const outgoing = insightView.items.find(
+      (item) => item.item_id === `activity:${request.activity_id}`,
+    );
+    const inbound = dataView.items.find(
+      (item) => item.item_id === `activity:${request.activity_id}`,
+    );
+    expect(outgoing?.kind).toBe('delegation');
+    expect(inbound?.kind).toBe('inbound_request');
+    expect(outgoing?.kind === 'delegation' && outgoing.delegation.response_activity_id).toBe(
+      dataResponse.activity_id,
+    );
+    expect(inbound?.kind === 'inbound_request' && inbound.delegation.caller_agent).toBe('insight');
+    expect(inbound?.kind === 'inbound_request' && inbound.delegation.artifact_refs).toEqual(
+      dataResponse.artifact_refs,
+    );
     const replay = await repo.getRunRuntime(
       TEST_USERS.owner,
       TEST_ORGS.alpha,

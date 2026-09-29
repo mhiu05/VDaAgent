@@ -13,6 +13,7 @@ import {
   type MessagePart,
   type MessageStatus,
   type PageRequest,
+  ThreadContextSchema,
 } from '@vda/contracts';
 import { authorizeInTransaction } from '../authorization/authorization-repository';
 import type { Driver } from '../driver';
@@ -28,7 +29,7 @@ import {
   titleFrom,
 } from '../mapping/conversation';
 import { json } from '../mapping/rows';
-import type { AgentTurn, TurnContext } from '../types';
+import type { AcceptedRunContext, AgentTurn, TurnContext } from '../types';
 import { validateMessageContext } from '../authorization/context-references';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -39,6 +40,64 @@ export class ConversationRepository {
 
   private auth(tx: Driver, user: string, org: string, write = false) {
     return authorizeInTransaction(tx, user, org, write);
+  }
+
+  /** Resolve the accepted initiating turn by run identity, independent of newer chat pages. */
+  getAcceptedRunContext(
+    user: string,
+    org: string,
+    runId: string,
+    agentKey: AgentKey,
+  ): Promise<AcceptedRunContext> {
+    return this.db.transaction(async (tx) => {
+      await this.auth(tx, user, org);
+      const runs = await tx.query('SELECT payload FROM runs WHERE org_id=$1 AND id=$2', [
+        org,
+        runId,
+      ]);
+      if (!runs[0]) fail('RUN_NOT_FOUND', 404);
+      const run = json(runs[0]) as AnalysisRun;
+      const conversationId = run.request.conversation_id;
+      if (!conversationId)
+        return { message: null, request: null, thread: null, recent_messages: [] };
+      let rows = await tx.query(
+        `SELECT m.* FROM agent_turn_jobs j JOIN messages m
+        ON m.org_id=j.org_id AND m.id=j.user_message_id
+        WHERE j.org_id=$1 AND j.run_id=$2 AND j.conversation_id=$3 LIMIT 1`,
+        [org, runId, conversationId],
+      );
+      if (!rows.length)
+        rows = await tx.query(
+          `SELECT * FROM messages WHERE org_id=$1 AND conversation_id=$2
+        AND run_id=$3 AND role='user' ORDER BY created_at,id LIMIT 2`,
+          [org, conversationId, runId],
+        );
+      if (rows.length > 1) fail('RUN_CONTEXT_AMBIGUOUS', 409);
+      const row = rows[0];
+      if (!row) return { message: null, request: null, thread: null, recent_messages: [] };
+      const message = normalizeMessage(row);
+      const payload = json(row) as Record<string, unknown>;
+      const privateTurn = payload.agent_turn as { request?: unknown } | undefined;
+      const parsed = AgentTurnRequestSchema.safeParse(privateTurn?.request);
+      const thread = payload.thread_context_snapshot
+        ? ThreadContextSchema.parse(payload.thread_context_snapshot)
+        : null;
+      const recent = await tx.query(
+        `SELECT * FROM messages WHERE org_id=$1 AND conversation_id=$2
+        AND (created_at,id)<=( $3::timestamptz,$4 )
+        AND (id=$4 OR CASE
+          WHEN payload #> '{agent_turn,request}' IS NOT NULL THEN COALESCE(payload #>> '{agent_turn,request,agent_target}','coordinator')
+          ELSE COALESCE(sender_agent,'coordinator') END=$5)
+        ORDER BY created_at DESC,id DESC LIMIT 12`,
+        [org, conversationId, row.created_at, row.id, agentKey],
+      );
+      return {
+        message,
+        request: parsed.success ? parsed.data : null,
+        thread,
+        recent_messages: recent.map(normalizeMessage).reverse(),
+      };
+    });
   }
 
   async createConversation(
@@ -89,8 +148,11 @@ export class ConversationRepository {
     )
       fail('INVALID_MESSAGE_SENDER', 422);
     if (message.role === 'user') {
-      const thread = await tx.query('SELECT context FROM conversations WHERE org_id=$1 AND id=$2',[message.org_id,message.conversation_id]);
-      payloadExtra = {...payloadExtra,thread_context_snapshot:thread[0]?.context ?? {}};
+      const thread = await tx.query('SELECT context FROM conversations WHERE org_id=$1 AND id=$2', [
+        message.org_id,
+        message.conversation_id,
+      ]);
+      payloadExtra = { ...payloadExtra, thread_context_snapshot: thread[0]?.context ?? {} };
     }
     await tx.query(
       'INSERT INTO messages(org_id,id,conversation_id,run_id,client_turn_id,role,sender_agent,status,created_at,updated_at,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)',
@@ -463,7 +525,13 @@ export class ConversationRepository {
           request: input,
         },
       };
-      await validateMessageContext(tx,input.org_id,conversation.conversation_id,input.context_refs,input.reply_to_message_id);
+      await validateMessageContext(
+        tx,
+        input.org_id,
+        conversation.conversation_id,
+        input.context_refs,
+        input.reply_to_message_id,
+      );
       await this.insertMessage(tx, userMessage, agentTurn);
       await this.insertMessage(tx, assistantMessage, agentTurn);
       await this.touchConversation(tx, input.org_id, conversation.conversation_id, assistantDate);

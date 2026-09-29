@@ -4,6 +4,7 @@ import type { AgentKey, Catalog, WorkspaceActionV1 } from '@vda/contracts';
 import { ActivityTimeline } from '../../agent-chat/activity-timeline';
 import { Composer } from '../../agent-chat/composer';
 import { MessageThread } from '../../agent-chat/message-thread';
+import type { useAgentConversation } from '../../agent-chat/hooks/use-agent-conversation';
 import { agentSuggestions } from '../../agent-chat/agent-suggestions';
 import type { useAgentChatController } from '../../agent-chat/hooks/use-agent-chat-controller';
 import { InlineRunOutput } from '../../analysis/components/inline-run-output';
@@ -11,6 +12,7 @@ import { DecisionResultSummary } from '../../analysis/components/decision-result
 import { ReportArtifactRow } from '../../reports/components/report-artifact-row';
 import { WorkspaceHeader } from './workspace-header';
 import { RuntimeConversation } from './runtime-conversation';
+import { AgentConversationFeed } from './agent-conversation-feed';
 import { ExecutionProgress } from './execution-progress';
 import { useTimelineScroll } from '../hooks/use-timeline-scroll';
 import styles from './agent-workspace.module.css';
@@ -19,6 +21,10 @@ type Controller = ReturnType<typeof useAgentChatController>;
 
 export function WorkspaceConversation({
   controller,
+  selectedAgent,
+  agentFeed,
+  onOpenAgent,
+  onViewExecution,
   catalog,
   directRun,
   onWorkspaceAction,
@@ -26,6 +32,10 @@ export function WorkspaceConversation({
   onOpenInspector,
 }: {
   controller: Controller;
+  selectedAgent: AgentKey;
+  agentFeed: ReturnType<typeof useAgentConversation>;
+  onOpenAgent: (agent: AgentKey, item: string, runId: string, invocationId: string | null) => void;
+  onViewExecution: (runId: string, invocationId: string | null, item: string) => void;
   catalog: Catalog;
   organizationName: string;
   directRun: boolean;
@@ -35,7 +45,9 @@ export function WorkspaceConversation({
 }) {
   const chat = controller;
   const recipient = chat.agentTarget ?? 'coordinator';
-  const selectedAgent = chat.threadWorkspace.agents.find((agent) => agent.id === recipient);
+  const selectedAgentDefinition = chat.threadWorkspace.agents.find(
+    (agent) => agent.id === recipient,
+  );
   const showSuggestions =
     chat.canWrite &&
     !chat.busy &&
@@ -47,6 +59,8 @@ export function WorkspaceConversation({
     !chat.loadingConversations;
   const timelineKey = [
     chat.selectedConversationId,
+    selectedAgent,
+    agentFeed.page?.revision,
     ...chat.messages.map((message) => `${message.message_id}:${message.updated_at}`),
     ...chat.activity.map((event) => event.sequence),
     chat.runtime.snapshot.last_sequence,
@@ -136,66 +150,102 @@ export function WorkspaceConversation({
           !chat.runtime.snapshot.records.length && (
             <ActivityTimeline events={chat.activity.slice(-1)} />
           )}
-        <MessageThread
-          messages={chat.messages}
-          execution={chat.agentExecution}
-          loading={
-            chat.loadingMessages ||
-            Boolean(
-              chat.selectedConversationId &&
-              chat.loadedConversationId !== chat.selectedConversationId,
-            )
-          }
-          hasEarlier={chat.messageCursor !== null}
-          onLoadEarlier={() => {
-            if (chat.selectedConversationId && chat.messageCursor) {
+        {chat.selectedConversationId ? (
+          <AgentConversationFeed
+            page={agentFeed.page}
+            agent={selectedAgent}
+            loading={agentFeed.loading}
+            error={agentFeed.error}
+            execution={chat.agentExecution}
+            onOlder={() => {
               beforeEarlier();
-              void chat.loadMessages(chat.selectedConversationId, chat.messageCursor, true);
+              void agentFeed.loadOlder();
+            }}
+            onNewer={() => void agentFeed.loadNewer()}
+            canLoadNewer={agentFeed.canLoadNewer}
+            onRun={(id, messageId) => {
+              chat.selectRun(id, messageId);
+              scrollToStart();
+            }}
+            onReport={(id) => chat.onReport?.(id)}
+            onArtifact={(runId, id) => {
+              chat.selectRun(runId);
+              void chat.openEvidence(id, runId);
+            }}
+            onAction={onWorkspaceAction}
+            onReply={
+              chat.canWrite && !chat.scheduledReadOnly ? chat.setReplyToMessageId : undefined
             }
-          }}
-          onOpenRun={(id, messageId) => {
-            chat.selectRun(id, messageId);
-            scrollToStart();
-          }}
-          onOpenReport={(id) => chat.onReport?.(id)}
-          onOpenArtifact={(runId, id) => {
-            chat.selectRun(runId);
-            void chat.openEvidence(id, runId);
-          }}
-          onWorkspaceAction={onWorkspaceAction}
-          suggestions={
-            showSuggestions && selectedAgent
-              ? agentSuggestions[selectedAgent.id as AgentKey]
-              : undefined
-          }
-          onSuggestion={(question) => {
-            afterOwnSubmission();
-            void chat.submitPrompt(question, chat.agentTarget);
-          }}
-          onReply={
-            chat.canWrite && !chat.scheduledReadOnly
-              ? (messageId) => {
-                  chat.setReplyToMessageId(messageId);
-                  timelineElement.current?.parentElement
-                    ?.querySelector<HTMLTextAreaElement>('textarea')
-                    ?.focus();
-                }
-              : undefined
-          }
-        />
-        <RuntimeConversation
-          records={chat.runtime.snapshot.records}
-          agents={chat.threadWorkspace.agents}
-          onEvidence={(id) => {
-            if (chat.visibleRunId)
-              onWorkspaceAction({
-                type: 'open_evidence',
-                run_id: chat.visibleRunId,
-                artifact_id: id,
-                evidence_path: null,
-              });
-          }}
-        />
+            onOpenAgent={onOpenAgent}
+            onExecution={(runId, invocationId, item) => {
+              onViewExecution(runId, invocationId, item);
+              onOpenInspector();
+            }}
+          />
+        ) : (
+          <MessageThread
+            messages={chat.messages}
+            execution={chat.agentExecution}
+            loading={
+              chat.loadingMessages ||
+              Boolean(
+                chat.selectedConversationId &&
+                chat.loadedConversationId !== chat.selectedConversationId,
+              )
+            }
+            hasEarlier={chat.messageCursor !== null}
+            onLoadEarlier={() => {
+              if (chat.selectedConversationId && chat.messageCursor) {
+                beforeEarlier();
+                void chat.loadMessages(chat.selectedConversationId, chat.messageCursor, true);
+              }
+            }}
+            onOpenRun={(id, messageId) => {
+              chat.selectRun(id, messageId);
+              scrollToStart();
+            }}
+            onOpenReport={(id) => chat.onReport?.(id)}
+            onOpenArtifact={(runId, id) => {
+              chat.selectRun(runId);
+              void chat.openEvidence(id, runId);
+            }}
+            onWorkspaceAction={onWorkspaceAction}
+            suggestions={
+              showSuggestions && selectedAgentDefinition
+                ? agentSuggestions[selectedAgentDefinition.id as AgentKey]
+                : undefined
+            }
+            onSuggestion={(question) => {
+              afterOwnSubmission();
+              void chat.submitPrompt(question, chat.agentTarget);
+            }}
+            onReply={
+              chat.canWrite && !chat.scheduledReadOnly
+                ? (messageId) => {
+                    chat.setReplyToMessageId(messageId);
+                    timelineElement.current?.parentElement
+                      ?.querySelector<HTMLTextAreaElement>('textarea')
+                      ?.focus();
+                  }
+                : undefined
+            }
+          />
+        )}
+        {!chat.selectedConversationId && (
+          <RuntimeConversation
+            records={chat.runtime.snapshot.records}
+            agents={chat.threadWorkspace.agents}
+            onEvidence={(id) => {
+              if (chat.visibleRunId)
+                onWorkspaceAction({
+                  type: 'open_evidence',
+                  run_id: chat.visibleRunId,
+                  artifact_id: id,
+                  evidence_path: null,
+                });
+            }}
+          />
+        )}
         {chat.currentRunDetail && (
           <InlineRunOutput
             orgId={chat.orgId}
@@ -256,6 +306,7 @@ export function WorkspaceConversation({
           draft={chat.draft}
           busy={chat.busy || chat.threadWorkspace.saving}
           agentTarget={chat.agentTarget}
+          viewAgent={selectedAgent}
           scheduledReadOnly={chat.scheduledReadOnly}
           onProject={chat.updateProject}
           onZone={chat.updateZone}

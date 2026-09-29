@@ -91,11 +91,28 @@
                 "PASS",
                 "REVISION_REQUIRED"
               ]
+            },
+            "issues": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "evidence",
+                  "metric_mismatch",
+                  "chart_mismatch",
+                  "scope_date",
+                  "contradiction",
+                  "overstatement",
+                  "limitation"
+                ]
+              }
             }
           },
           "required": [
             "draft_revision",
-            "status"
+            "status",
+            "issues"
           ],
           "additionalProperties": false
         },

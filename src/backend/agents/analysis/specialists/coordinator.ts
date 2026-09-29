@@ -7,6 +7,7 @@ import {
 } from '@vda/contracts';
 import { stableId } from '@vda/domain';
 import { getUseCaseDefinition, supportsUseCaseCapability } from '../../use-cases';
+import { selectSkill } from '../../skills';
 
 /** A stable, non-user-facing error code for deterministic coordinator rejection. */
 export class CoordinatorError extends Error {
@@ -29,6 +30,10 @@ export type CoordinatorInput = {
 export function coordinateRun(input: CoordinatorInput): CoordinatorDecision {
   const { run } = input;
   const definition = getUseCaseDefinition(run.request.use_case);
+  selectSkill(
+    definition.key,
+    run.entrypoint === 'scheduled' ? 'scheduled_report' : 'interactive_analysis',
+  );
   const requestedCapability = input.requested_capability ?? 'analysis';
   if (!supportsUseCaseCapability(definition, requestedCapability))
     throw new CoordinatorError('UNSUPPORTED_CAPABILITY');

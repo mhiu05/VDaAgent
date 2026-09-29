@@ -42,6 +42,7 @@ export function SchedulesPanel({
       local_time: definition.local_time,
       data_as_of_policy: definition.data_as_of_policy,
       enabled: definition.enabled,
+      use_case: definition.use_case,
     };
   }
   return (
@@ -69,6 +70,7 @@ export function SchedulesPanel({
               local_time: localTime,
               data_as_of_policy: policy,
               enabled: editing?.enabled ?? true,
+              use_case: 'slow_moving_inventory',
             };
             void action(async () => {
               await saveReportDefinition(input, editing?.report_definition_id);
@@ -120,6 +122,12 @@ export function SchedulesPanel({
                 >
                   <option value="scheduled_date">Ngày của lịch chạy</option>
                   <option value="previous_day">Ngày trước lịch chạy</option>
+                </select>
+              </label>
+              <label>
+                Quy trình phân tích
+                <select value="slow_moving_inventory" aria-label="Quy trình phân tích" disabled>
+                  <option value="slow_moving_inventory">Phân tích tồn kho luân chuyển chậm</option>
                 </select>
               </label>
             </div>
@@ -194,7 +202,29 @@ export function SchedulesPanel({
                 {definition.scope.zone_external_id ?? 'Tất cả phân khu'} · Lần tiếp theo:{' '}
                 {dateTime(definition.next_run_at)}
               </p>
+              <p className="muted">
+                Phân tích tồn kho luân chuyển chậm · Lần chạy gần nhất:{' '}
+                {definition.last_run_at ? dateTime(definition.last_run_at) : 'Chưa chạy'}
+                {definition.last_run_status === 'running' || definition.last_run_status === 'queued'
+                  ? ' · Đang xử lý'
+                  : definition.last_run_status === 'succeeded'
+                    ? ' · Đã hoàn tất'
+                    : definition.last_run_status === 'failed'
+                      ? ' · Chưa hoàn tất'
+                      : ''}
+              </p>
               <div className="button-row">
+                {definition.last_run_id && definition.last_run_conversation_id && (
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() =>
+                      onRun(definition.last_run_id!, definition.last_run_conversation_id!)
+                    }
+                  >
+                    Xem lần chạy gần nhất
+                  </button>
+                )}
                 <button
                   className="secondary"
                   disabled={!canWrite || busy}

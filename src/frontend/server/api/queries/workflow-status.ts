@@ -19,7 +19,8 @@ export async function workflowStatus(
 ) {
   // Draft/review checkpoints are private workflow data. This compact view
   // is deliberately gated to mutation-capable members and contains no
-  // draft/report prose, artifact IDs, hashes or review issues.
+  // draft/report prose, artifact IDs, hashes or review issue prose. Issue
+  // categories expose the review decision without leaking draft content.
   await repo.authorize(userId, orgId, true);
   const [{ run, tasks }, { artifacts }] = await Promise.all([
     repo.getRun(userId, orgId, runId),
@@ -53,7 +54,11 @@ export async function workflowStatus(
     draft_revision: draft?.payload.revision ?? null,
     review:
       review?.kind === 'review_result'
-        ? { draft_revision: review.payload.draft_revision, status: review.payload.status }
+        ? {
+            draft_revision: review.payload.draft_revision,
+            status: review.payload.status,
+            issues: review.payload.issues.map((issue) => issue.category),
+          }
         : null,
     publication_status: isAgentWorkflow
       ? (tasks.find((task) => task.kind === 'publication')?.status ?? null)

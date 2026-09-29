@@ -24,6 +24,7 @@ import { validateChartPack } from './chart';
 import { validateComparisonPack } from './comparison';
 import { validateDataAnalysisPack } from './data';
 import { stableId } from '@vda/domain';
+import { checkSkillCoverage, selectSkill } from '../../skills';
 import { validateInsightPack } from './insight';
 import {
   ReportAgentError,
@@ -437,9 +438,30 @@ function reviewIssues(resolved: ResolvedReviewerInput): ReviewIssue[] {
     if (!isDraftDefect(error)) inputInvalid();
     return [draftIssue(input.report_draft)];
   }
-  return input.correction
-    ? [correctionIssue(input.correction, input.report_draft, resolved.byId)]
+  const skill = selectSkill(
+    input.run.request.use_case,
+    input.run.entrypoint === 'scheduled' ? 'scheduled_report' : 'interactive_analysis',
+  );
+  const coverage = checkSkillCoverage(skill, input.artifacts, input.report_draft);
+  const missing = [
+    ...coverage.missing_artifacts.map((kind) => `artifact:${kind}`),
+    ...coverage.missing_metrics.map((key) => `metric:${key}`),
+    ...(coverage.missing_report_evidence ? ['report:evidence'] : []),
+  ];
+  const issues: ReviewIssue[] = missing.length
+    ? [{
+        issue_id: stableId(`${input.report_draft.artifact_id}:skill-coverage`),
+        severity: 'blocking',
+        category: 'evidence',
+        claim_id: null,
+        message: `The ${skill.id} requirements are incomplete: ${missing.join(', ')}`,
+        required_correction: 'Preserve the limitations and obtain validated source evidence before publication.',
+        evidence_refs: [],
+      }]
     : [];
+  if (input.correction)
+    issues.push(correctionIssue(input.correction, input.report_draft, resolved.byId));
+  return issues;
 }
 
 function expectedReview(input: ReviewerAgentInput): ReviewResult {

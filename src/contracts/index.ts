@@ -69,6 +69,8 @@ export {
   MetricSchema,
 } from './analysis/metrics';
 export type { MetricKey, MetricUnit, AbstentionReason, Metric } from './analysis/metrics';
+export { SkillDefinitionSchema } from './agents/skill';
+export type { SkillDefinition } from './agents/skill';
 export {
   CalculatedUnitSchema,
   CalculationPayloadSchema,
@@ -362,6 +364,29 @@ export type {
   PageRequest,
   ConversationPage,
 } from './chat/conversation';
+export {
+  ExecutionRefSchema,
+  AgentItemIdSchema,
+  AgentViewStateSchema,
+  AcceptedWorkStateSchema,
+  DelegationViewSchema,
+  AgentFeedItemSchema,
+  AgentFeedPageSchema,
+  AcceptedWorkSchema,
+  AgentWorkPageSchema,
+  AgentSummarySchema,
+  ConversationAgentsSchema,
+} from './chat/agent-experience';
+export type {
+  ExecutionRef,
+  AgentItemId,
+  DelegationView,
+  AgentFeedItem,
+  AgentFeedPage,
+  AcceptedWork,
+  AgentWorkPage,
+  ConversationAgents,
+} from './chat/agent-experience';
 export { AgentActivityEventV1Schema, AgentTurnStreamEventV1Schema } from './runtime/activity';
 export type { AgentActivityEventV1, AgentTurnStreamEventV1 } from './runtime/activity';
 export {

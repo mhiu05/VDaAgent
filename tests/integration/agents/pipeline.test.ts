@@ -41,29 +41,32 @@ async function runPipeline(repo: Repository, key = 'pipeline') {
   return { run, lease: lease! };
 }
 describe('persisted DAG and truth chain', () => {
-  it('recovers validation after a crash between query-result persistence and validation', async () => {
+  it('recovers a validated artifact after a crash before the stage checkpoint', async () => {
     const repo = await setup();
     const run = await repo.createRun(TEST_USERS.owner, request, 'crash-validation');
-    const validate = repo.validateArtifact.bind(repo);
+    const store = repo.storeArtifact.bind(repo);
     let interrupted = false;
-    vi.spyOn(repo, 'validateArtifact').mockImplementation(async (lease, record) => {
-      const bundle = await repo.artifacts(run.created_by, run.org_id, run.run_id);
-      if (
-        !interrupted &&
-        bundle.artifacts.some(
-          (a) => a.artifact_id === record.artifact_id && a.kind === 'query_result',
-        )
-      ) {
+    vi.spyOn(repo, 'storeArtifact').mockImplementation(async (lease, artifact, options) => {
+      const saved = await store(lease, artifact, options);
+      if (!interrupted && artifact.kind === 'query_result') {
         interrupted = true;
         throw new Error('SIMULATED_CRASH');
       }
-      return validate(lease, record);
+      return saved;
     });
     await expect(
       executeAgentWorkflow(repo, (await repo.claimRun('first', new Date(), 240_000))!, {
         narrativeProvider: deterministicProvider(),
       }),
     ).rejects.toThrow('SIMULATED_CRASH');
+    const partial = await repo.artifacts(run.created_by, run.org_id, run.run_id);
+    const queryResult = partial.artifacts.find((artifact) => artifact.kind === 'query_result');
+    expect(queryResult).toBeDefined();
+    expect(partial.validations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ artifact_id: queryResult?.artifact_id, valid: true }),
+      ]),
+    );
     await repo.retryRun(TEST_USERS.owner, run.org_id, run.run_id);
     await executeAgentWorkflow(repo, (await repo.claimRun('recovery', new Date(), 240_000))!, {
       narrativeProvider: deterministicProvider(),

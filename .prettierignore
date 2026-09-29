@@ -14,5 +14,6 @@ src/backend/supabase/.branches
 *.sql
 .data
 src/backend/packages/contracts/schema
+src/contracts/schema
 vda_vinhomes_mock
 **/next-env.d.ts

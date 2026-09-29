@@ -76,7 +76,7 @@ const checkpointStatus: AgentWorkflowStatus = {
   workflow_version: 'agent-v1',
   stages: [],
   draft_revision: 2,
-  review: { draft_revision: 2, status: 'PASS' },
+  review: { draft_revision: 2, status: 'PASS', issues: [] },
   publication_status: 'succeeded',
 };
 
@@ -242,6 +242,21 @@ describe('Agent Chat message presentation', () => {
     expect(output).toContain('Reviewer đã duyệt bản nháp 2.');
     expect(output).toContain('Đã phát hành sau khi qua bước kiểm tra');
     expect(output).not.toContain('content_hash');
+  });
+
+  it('shows bounded review issue categories without private review prose', () => {
+    const output = renderToStaticMarkup(
+      <WorkflowCheckpointStatus
+        status={{
+          ...checkpointStatus,
+          review: { draft_revision: 1, status: 'REVISION_REQUIRED', issues: ['metric_mismatch', 'evidence'] },
+          publication_status: null,
+        }}
+      />,
+    );
+    expect(output).toContain('Số liệu không khớp');
+    expect(output).toContain('Thiếu bằng chứng');
+    expect(output).not.toContain('artifact_id');
   });
 
   it('renders only fixed safe activity labels', () => {

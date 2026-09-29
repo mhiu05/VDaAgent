@@ -1,4 +1,5 @@
 import type { AgentDefinition } from '@vda/contracts';
+import { z } from 'zod';
 
 const definition = (id: string, name: string, description: string, tools: string[], color: string): AgentDefinition => ({
   id, name, role: id, description,
@@ -16,3 +17,24 @@ export const ANALYSIS_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   definition('reviewer', 'Reviewer', 'Validate evidence, consistency, and report completeness before publication.', ['reviewer.check'], '#c5b874'),
   definition('analyst', 'Analyst Agent', 'Derive deterministic findings from validated metrics and comparison evidence.', ['analyst.analyze'], '#80b3cb'),
 ];
+
+/** Each program accepts only operations it actually implements. */
+export function agentProgramInputSchema(agentKey: string) {
+  return z
+    .object({ operation: z.enum(['execute', 'evidence', 'revise']).default('execute') })
+    .strict()
+    .superRefine((input, context) => {
+      if (
+        input.operation !== 'execute' &&
+        !(
+          (agentKey === 'data' && input.operation === 'evidence') ||
+          (agentKey === 'report' && input.operation === 'revise')
+        )
+      )
+        context.addIssue({
+          code: 'custom',
+          path: ['operation'],
+          message: `Operation ${input.operation} is not supported by ${agentKey}`,
+        });
+    });
+}

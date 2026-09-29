@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import {
-  AgentDefinitionSchema, IdSchema, MemoryEntrySchema, RunRuntimeSnapshotSchema,
+  AgentDefinitionSchema,
+  AgentFeedPageSchema,
+  AgentWorkPageSchema,
+  ConversationAgentsSchema,
+  AgentKeySchema,
+  IdSchema,
+  MemoryEntrySchema,
+  RunRuntimeSnapshotSchema,
   ThreadContextSchema,
 } from '@vda/contracts';
 import { ANALYSIS_AGENT_DEFINITIONS } from '@vda/agents';
@@ -11,7 +18,11 @@ import { json } from '../middleware/response';
 import type { AuthenticatedRouteContext } from './route-context';
 
 export function eventCursor(request: Request, url: URL) {
-  return z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
+  return z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(Number.MAX_SAFE_INTEGER)
     .parse(request.headers.get('last-event-id') ?? url.searchParams.get('after') ?? '0');
 }
 
@@ -20,7 +31,9 @@ export function assertStreamAccept(request: Request) {
     throw new RepositoryError('SSE_ACCEPT_REQUIRED', 406);
 }
 
-export async function runtimeWorkspaceRoutes(context: AuthenticatedRouteContext): Promise<Response | null> {
+export async function runtimeWorkspaceRoutes(
+  context: AuthenticatedRouteContext,
+): Promise<Response | null> {
   const { path, route, method, request, url, repo, actor, orgFromQuery } = context;
   if (route === 'agent-definitions' && method === 'GET') {
     await repo.authorize(actor.user_id, orgFromQuery());
@@ -31,41 +44,116 @@ export async function runtimeWorkspaceRoutes(context: AuthenticatedRouteContext)
   if (path[0] === 'conversations' && path[1] && path.length === 3) {
     const id = IdSchema.parse(path[1]);
     if (path[2] === 'context') {
-      if (method === 'GET') return json(ThreadContextSchema,
-        await repo.getThreadContext(actor.user_id, orgFromQuery(), id));
-      if (method === 'PUT') return json(ThreadContextSchema,
-        await repo.updateThreadContext(actor.user_id, orgFromQuery(), id, ThreadContextSchema.parse(await body(request))));
+      if (method === 'GET')
+        return json(
+          ThreadContextSchema,
+          await repo.getThreadContext(actor.user_id, orgFromQuery(), id),
+        );
+      if (method === 'PUT')
+        return json(
+          ThreadContextSchema,
+          await repo.updateThreadContext(
+            actor.user_id,
+            orgFromQuery(),
+            id,
+            ThreadContextSchema.parse(await body(request)),
+          ),
+        );
     }
     if (path[2] === 'memory' && method === 'GET') {
       const org = orgFromQuery();
       const thread = await repo.getThreadContext(actor.user_id, org, id);
       return json(z.object({ items: z.array(MemoryEntrySchema) }), {
         items: await repo.listMemory(actor.user_id, org, {
-          conversation_id: id, ...(thread.current_run_id ? { run_id: thread.current_run_id } : {}), limit: 24,
+          conversation_id: id,
+          ...(thread.current_run_id ? { run_id: thread.current_run_id } : {}),
+          limit: 24,
         }),
       });
+    }
+  }
+  if (
+    path[0] === 'conversations' &&
+    path[1] &&
+    path[2] === 'agents' &&
+    path.length === 5 &&
+    path[4] === 'messages' &&
+    method === 'GET'
+  ) {
+    const conversationId = IdSchema.parse(path[1]);
+    const agent = AgentKeySchema.parse(path[3]);
+    const limit = z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .parse(url.searchParams.get('limit') ?? '30');
+    const cursor = url.searchParams.get('cursor');
+    const focus_item = url.searchParams.get('focus_item');
+    return json(
+      AgentFeedPageSchema,
+      await repo.listAgentFeed(actor.user_id, orgFromQuery(), conversationId, agent, {
+        limit,
+        cursor,
+        focus_item,
+      }),
+    );
+  }
+  if (path[0] === 'conversations' && path[1] && path[2] === 'agents' && method === 'GET') {
+    const conversationId = IdSchema.parse(path[1]);
+    const org = orgFromQuery();
+    if (path.length === 3)
+      return json(
+        ConversationAgentsSchema,
+        await repo.getConversationAgents(actor.user_id, org, conversationId),
+      );
+    if (path.length === 5 && path[4] === 'work') {
+      const agent = AgentKeySchema.parse(path[3]);
+      const limit = z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .parse(url.searchParams.get('limit') ?? '30');
+      return json(
+        AgentWorkPageSchema,
+        await repo.listAgentWork(actor.user_id, org, conversationId, agent, {
+          limit,
+          cursor: url.searchParams.get('cursor'),
+        }),
+      );
     }
   }
   if (path[0] === 'runs' && path[1] && path.length === 3 && method === 'GET') {
     const id = IdSchema.parse(path[1]);
     const org = orgFromQuery();
-    if (path[2] === 'runtime') return json(RunRuntimeSnapshotSchema,
-      await repo.getRunRuntime(actor.user_id, org, id, eventCursor(request, url)));
+    if (path[2] === 'runtime')
+      return json(
+        RunRuntimeSnapshotSchema,
+        await repo.getRunRuntime(actor.user_id, org, id, eventCursor(request, url)),
+      );
     if (path[2] === 'events') {
       assertStreamAccept(request);
       const after = eventCursor(request, url);
       const load = async (cursor: number) => {
         const [detail, runtime] = await Promise.all([
-          repo.getRun(actor.user_id, org, id), repo.getRunRuntime(actor.user_id, org, id, cursor),
+          repo.getRun(actor.user_id, org, id),
+          repo.getRunRuntime(actor.user_id, org, id, cursor),
         ]);
         return { run: detail.run, runtime };
       };
       const initial = await load(after);
       return durableEventStream({
-        initial, load, after, signal: request.signal, eventName: 'runtime',
+        initial,
+        load,
+        after,
+        signal: request.signal,
+        eventName: 'runtime',
         events: (snapshot) => snapshot.runtime.events,
-        terminal: ({ run }) => ['succeeded', 'failed', 'cancelled'].includes(run.status)
-          ? { run_id: run.run_id, status: run.status } : null,
+        terminal: ({ run }) =>
+          ['succeeded', 'failed', 'cancelled'].includes(run.status)
+            ? { run_id: run.run_id, status: run.status }
+            : null,
       });
     }
   }

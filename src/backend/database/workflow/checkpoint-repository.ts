@@ -160,6 +160,15 @@ export async function storeArtifact(
 ): Promise<Artifact> {
   const artifact = ArtifactSchema.parse(input);
   verifyArtifact(artifact);
+  const validation = options.validation ? ArtifactValidationSchema.parse(options.validation) : null;
+  if (
+    validation &&
+    (validation.artifact_id !== artifact.artifact_id ||
+      validation.org_id !== artifact.org_id ||
+      validation.run_id !== artifact.run_id ||
+      !validation.valid)
+  )
+    fail('VALIDATION_SCOPE_MISMATCH', 403);
   let artifactKey: string;
   try {
     artifactKey = logicalArtifactKey(artifact, options);
@@ -175,6 +184,13 @@ export async function storeArtifact(
     // bypassing Reviewer PASS through the otherwise generic artifact API.
     if (run.workflow_version === 'agent-v1' && artifact.kind === 'report')
       fail('AGENT_PUBLICATION_REQUIRED', 409);
+    const persistValidation = async () => {
+      if (!validation) return;
+      await tx.query(
+        'INSERT INTO validations(org_id,id,run_id,payload) VALUES($1,$2,$3,$4) ON CONFLICT(org_id,id) DO UPDATE SET payload=excluded.payload',
+        [run.org_id, validation.artifact_id, run.run_id, JSON.stringify(validation)],
+      );
+    };
     const prior = await tx.query(
       'SELECT payload FROM artifacts WHERE org_id=$1 AND run_id=$2 AND artifact_key=$3',
       [run.org_id, run.run_id, artifactKey],
@@ -182,6 +198,7 @@ export async function storeArtifact(
     if (prior[0]) {
       const old = ArtifactSchema.parse(json(prior[0]));
       if (old.content_hash !== artifact.content_hash) fail('IMMUTABLE_ARTIFACT_CONFLICT', 409);
+      await persistValidation();
       return old;
     }
     await tx.query(
@@ -211,6 +228,7 @@ export async function storeArtifact(
       'INSERT INTO artifact_sources(org_id,artifact_id,import_id)',
       artifact.source_refs.map((id) => [run.org_id, artifact.artifact_id, id]),
     );
+    await persistValidation();
     return artifact;
   });
 }
@@ -235,7 +253,8 @@ export async function setTask(db: Driver, lease: Lease, task: RunTask) {
       'INSERT INTO tasks(org_id,id,run_id,payload) VALUES($1,$2,$3,$4) ON CONFLICT(org_id,id) DO UPDATE SET payload=excluded.payload',
       [run.org_id, task.task_id, run.run_id, JSON.stringify(task)],
     );
-    if (run.workflow_version === 'agent-v1') await syncAgentInvocationsFromRun(tx, run.org_id, run.run_id);
+    if (run.workflow_version === 'agent-v1')
+      await syncAgentInvocationsFromRun(tx, run.org_id, run.run_id);
   });
 }
 
@@ -397,11 +416,13 @@ export async function finishRunAssistant(
   // A durable Orchestrator owns the initiating reply. The canonical run still
   // publishes its artifacts and stage messages, then the job resumes to write
   // the grounded final response into this same placeholder.
-  const hasDurableTable = await tx.query("SELECT to_regclass('public.agent_turn_jobs') AS table_name");
+  const hasDurableTable = await tx.query(
+    "SELECT to_regclass('public.agent_turn_jobs') AS table_name",
+  );
   if (hasDurableTable[0]?.table_name) {
     const durable = await tx.query(
       'SELECT id FROM agent_turn_jobs WHERE org_id=$1 AND assistant_message_id=$2 AND run_id=$3',
-      [run.org_id,assistant.message_id,run.run_id],
+      [run.org_id, assistant.message_id, run.run_id],
     );
     if (durable[0]) return;
   }

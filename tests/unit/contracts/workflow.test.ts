@@ -342,7 +342,7 @@ describe('Phase A agent-workflow contracts', () => {
       workflow_version: 'agent-v1',
       stages: [{ agent: 'reviewer', status: 'succeeded', error_code: null }],
       draft_revision: 2,
-      review: { draft_revision: 2, status: 'PASS' },
+      review: { draft_revision: 2, status: 'PASS', issues: [] },
       publication_status: 'succeeded',
     };
     expect(AgentWorkflowStatusSchema.parse(status)).toEqual(status);

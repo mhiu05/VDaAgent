@@ -526,6 +526,27 @@ describe('durable tenant repository', () => {
       repo.storeArtifact(lease!, conflicting, { artifact_key: 'analysis_request:2' }),
     ).rejects.toThrow('IMMUTABLE_ARTIFACT_CONFLICT');
   });
+  it('commits a stage artifact and its validation in one idempotent write', async () => {
+    const { pg, repo } = await setup();
+    const run = await repo.createRun(TEST_USERS.owner, request, 'atomic-stage-artifact');
+    const lease = await repo.claimRun('atomic-stage-worker');
+    expect(lease?.run.run_id).toBe(run.run_id);
+    const taskId = await prepareArtifactTask(repo, lease!);
+    const artifact = analysisRequestArtifact(run, '60000000-0000-4000-8000-000000000015', taskId);
+    const validation = artifactValidation(artifact, true);
+    await repo.storeArtifact(lease!, artifact, { validation });
+    await repo.storeArtifact(lease!, artifact, { validation });
+    const rows = await pg.query(
+      `SELECT a.id,v.payload FROM artifacts a
+       JOIN validations v ON v.org_id=a.org_id AND v.run_id=a.run_id AND v.id=a.id
+       WHERE a.org_id=$1 AND a.run_id=$2 AND a.id=$3`,
+      [run.org_id, run.run_id, artifact.artifact_id],
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(payloadOf((rows.rows[0] as { payload: unknown }).payload)).toMatchObject({
+      valid: true,
+    });
+  });
   it('reads only a valid, public artifact from its authorized run', async () => {
     const { repo } = await setup();
     const run = await repo.createRun(TEST_USERS.owner, request, 'public-artifact');
@@ -658,6 +679,19 @@ describe('durable tenant repository', () => {
     const a = await repo.tick(due);
     expect(a).toHaveLength(1);
     expect(a[0].definition_version).toBe(1);
+    const listed = await repo.listDefinitions(TEST_USERS.owner, TEST_ORGS.alpha);
+    expect(
+      listed.find((item) => item.report_definition_id === def.report_definition_id),
+    ).toMatchObject({
+      use_case: 'slow_moving_inventory',
+      last_run_id: a[0]!.run_id,
+      last_run_at: a[0]!.scheduled_for,
+      last_run_status: 'queued',
+    });
+    expect(
+      listed.find((item) => item.report_definition_id === def.report_definition_id)
+        ?.last_run_conversation_id,
+    ).toBeTruthy();
     expect(await repo.tick(due)).toHaveLength(0);
     const edited = await repo.updateDefinition(
       TEST_USERS.owner,

@@ -6,4 +6,6 @@ Coordinator gọi `reviewer.check` sau Report. Output `review_result` là `PASS`
 
 Lần review thứ hai vẫn cần sửa sẽ kết thúc run bằng `REVIEW_REVISION_LIMIT`. Reviewer không cấp quyền cho user hoặc tạo report record trực tiếp.
 
+Reviewer còn kiểm các artifact/metric/evidence mà skill `slow-inventory-analysis` yêu cầu. Kết quả `review_result` bất biến ghi danh sách issue có severity, category và yêu cầu sửa; API workflow status chỉ trả các category để giao diện cho biết lý do cần sửa mà không lộ draft hay nội dung review riêng tư. Khi không có evidence đáng tin cậy, publication vẫn bị chặn.
+
 Code: `src/backend/agents/analysis/specialists/reviewer.ts`, `src/backend/agents/analysis/stages/reviewer.ts`, `src/backend/database/transactions/publish-reviewed-draft.ts`. Xem [report generation](../../workflows/report-generation.md) và [evidence validation](../evidence-validation.md).

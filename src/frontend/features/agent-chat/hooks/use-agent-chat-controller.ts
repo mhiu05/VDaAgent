@@ -52,6 +52,7 @@ export function useAgentChatController({
   initialConversationId,
   onClearExternalRun,
   onReport,
+  onAcceptedConversation,
 }: {
   orgId: string;
   catalog: Catalog;
@@ -79,6 +80,7 @@ export function useAgentChatController({
   initialConversationId?: string;
   onClearExternalRun?: () => void;
   onReport?: (reportId: string) => void;
+  onAcceptedConversation?: (conversationId: string) => void;
 }) {
   const [localProject, setLocalProject] = useState(catalog.projects[0]?.project_external_id ?? '');
   const [localZone, setLocalZone] = useState('');
@@ -358,6 +360,7 @@ export function useAgentChatController({
     setDraft,
     agentTarget,
     setAgentTarget,
+    setDefaultAgentTarget,
     busy,
     retryTurn,
     setRetryTurn,
@@ -398,6 +401,7 @@ export function useAgentChatController({
           setError(errorMessage(cause));
         }
       }
+      onAcceptedConversation?.(conversationId);
     },
     setError,
     messageContextRefs: submissionContextRefs,
@@ -657,6 +661,7 @@ export function useAgentChatController({
     setDraft,
     agentTarget,
     setAgentTarget,
+    setDefaultAgentTarget,
     busy,
     retryTurn,
     setRetryTurn,

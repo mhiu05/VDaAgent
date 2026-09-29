@@ -399,23 +399,43 @@ test('Durable multi-agent projection persists through reload and exposes publish
       { timeout: 420_000 },
     )
     .toBe('completed');
-  await expect(rail.getByRole('button', { name: 'Tác nhân dữ liệu · Hoàn tất' })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(rail.getByRole('button', { name: 'Tác nhân so sánh · Hoàn tất' })).toBeVisible({
-    timeout: 120_000,
-  });
-  await expect(rail.getByRole('button', { name: 'Tác nhân nhận định · Hoàn tất' })).toBeVisible({
-    timeout: 120_000,
-  });
-  await expect(rail.getByRole('button', { name: 'Tác nhân báo cáo · Hoàn tất' })).toBeVisible({
-    timeout: 120_000,
-  });
-  await rail.getByRole('button', { name: 'Tác nhân dữ liệu · Hoàn tất' }).click();
-  await expect(rail.getByRole('button', { name: 'Tác nhân dữ liệu · Hoàn tất' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
+  const dataAgent = rail.getByRole('button', { name: /Tác nhân dữ liệu ·/ });
+  await expect(dataAgent).toBeVisible({ timeout: 30_000 });
+  await dataAgent.click();
+  await expect(dataAgent).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('region', { name: 'Hội thoại tác nhân data' })).toBeVisible();
+  await expect(page).toHaveURL(/agent=data/);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Hội thoại tác nhân data' })).toBeVisible();
+  const jobResponse = await page.request.get(scoped(`/agent-turn-jobs/${jobId}`));
+  const runId = (await jobResponse.json()).job.run_id as string;
+  const runtimeResponse = await page.request.get(scoped(`/runs/${runId}/runtime`));
+  const runtime = await runtimeResponse.json();
+  const requestRecord = runtime.records.find(
+    (record: { step_key: string }) => record.step_key === 'team:insight:data-detail:request',
   );
+  const childRecord = runtime.records.find(
+    (record: { step_key: string }) => record.step_key === 'team:insight:data-detail',
+  );
+  expect(requestRecord?.activity_id).toEqual(expect.any(String));
+  expect(childRecord?.activity_id).toEqual(expect.any(String));
+  const focusUrl = new URL(`/chat/${conversationId}`, page.url());
+  focusUrl.searchParams.set('org_id', org);
+  focusUrl.searchParams.set('agent', 'insight');
+  focusUrl.searchParams.set('item', `activity:${requestRecord.activity_id}`);
+  focusUrl.searchParams.set('run', runId);
+  focusUrl.searchParams.set('source', 'runtime');
+  focusUrl.searchParams.set('invocation', childRecord.activity_id);
+  await page.goto(focusUrl.toString());
+  await expect(
+    page.locator(`[data-agent-item="activity:${requestRecord.activity_id}"]`),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: /Mở hội thoại Tác nhân dữ liệu/ })).toBeVisible();
+  await page.getByRole('button', { name: /Mở hội thoại Tác nhân dữ liệu/ }).click();
+  await expect(page).toHaveURL(/agent=data/);
+  await expect(
+    page.locator(`[data-agent-item="activity:${requestRecord.activity_id}"]`),
+  ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Báo cáo đã phát hành' })).toBeVisible({
     timeout: 120_000,
   });

@@ -38,6 +38,7 @@ export function Composer({
   draft,
   busy,
   agentTarget,
+  viewAgent,
   scheduledReadOnly,
   onProject,
   onZone,
@@ -59,6 +60,7 @@ export function Composer({
   draft: string;
   busy: boolean;
   agentTarget: AgentKey | null;
+  viewAgent?: AgentKey;
   scheduledReadOnly: boolean;
   onProject: (value: string) => void;
   onZone: (value: string) => void;
@@ -152,6 +154,22 @@ export function Composer({
           </select>
           <span>Nhập @ để đề cập tác nhân trong cùng hội thoại</span>
         </label>
+      )}
+      {compact && viewAgent && (
+        <div className={styles.recipientChip} role="status">
+          Gửi tới{' '}
+          {agentIdentity(agentTarget ?? 'coordinator')?.label ?? agentTarget ?? 'Điều phối viên'}
+          {(agentTarget ?? 'coordinator') !== viewAgent && <span> · khác hội thoại đang xem</span>}
+          {(agentTarget ?? 'coordinator') !== viewAgent && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => onAgentTarget(viewAgent === 'coordinator' ? null : viewAgent)}
+            >
+              Bỏ chọn
+            </button>
+          )}
+        </div>
       )}
       <div className={compact ? styles.composerBar : undefined}>
         <label className={`question-label ${compact ? styles.composerInput : ''}`}>

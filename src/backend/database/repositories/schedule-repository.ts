@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   ReportDefinitionInputSchema,
+  ReportDefinitionSchema,
   type AnalysisRequest,
   type AnalysisRun,
   type ReportDefinition,
@@ -52,6 +53,10 @@ export class ScheduleRepository {
         created_by: user,
         created_at: now(),
         next_run_at: nextScheduledAt(parsed, date),
+        last_run_at: null,
+        last_run_id: null,
+        last_run_conversation_id: null,
+        last_run_status: null,
       };
       await tx.query(
         'INSERT INTO definitions(org_id,id,created_by,next_run_at,enabled,payload) VALUES($1,$2,$3,$4,$5,$6)',
@@ -94,8 +99,28 @@ export class ScheduleRepository {
   async listDefinitions(user: string, org: string): Promise<ReportDefinition[]> {
     return this.db.transaction(async (tx) => {
       await this.auth(tx, user, org);
-      const rows = await tx.query('SELECT payload FROM definitions WHERE org_id=$1', [org]);
-      return rows.map(json) as ReportDefinition[];
+      const rows = await tx.query(
+        `SELECT d.payload,o.run_id AS last_run_id,o.scheduled_for AS last_run_at,
+          r.status AS last_run_status,r.payload #>> '{request,conversation_id}' AS last_run_conversation_id
+         FROM definitions d
+         LEFT JOIN LATERAL (
+           SELECT run_id,scheduled_for FROM occurrences
+           WHERE org_id=d.org_id AND definition_id=d.id
+           ORDER BY scheduled_for DESC LIMIT 1
+         ) o ON true
+         LEFT JOIN runs r ON r.org_id=d.org_id AND r.id=o.run_id
+         WHERE d.org_id=$1`,
+        [org],
+      );
+      return rows.map((row) =>
+        ReportDefinitionSchema.parse({
+          ...json(row),
+          last_run_id: row.last_run_id ?? null,
+          last_run_at: row.last_run_at ? new Date(String(row.last_run_at)).toISOString() : null,
+          last_run_conversation_id: row.last_run_conversation_id ?? null,
+          last_run_status: row.last_run_status ?? null,
+        }),
+      );
     });
   }
 
@@ -147,6 +172,7 @@ export class ScheduleRepository {
         data_as_of: asOf,
         question: `Báo cáo hằng ngày: ${def.name}`,
         conversation_id: null,
+        use_case: def.use_case,
       },
       `schedule:${def.report_definition_id}:${scheduled}`,
       { entrypoint: 'scheduled', occurrence_id: id },

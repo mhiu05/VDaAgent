@@ -32,6 +32,11 @@ export const ReportDefinitionSchema = ReportDefinitionInputSchema.extend({
   created_by: IdSchema,
   created_at: TimestampSchema,
   next_run_at: TimestampSchema,
+  /** Derived from occurrences on reads; historical definitions default to no execution. */
+  last_run_at: TimestampSchema.nullable().default(null),
+  last_run_id: IdSchema.nullable().default(null),
+  last_run_conversation_id: IdSchema.nullable().default(null),
+  last_run_status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']).nullable().default(null),
 });
 export type ReportDefinitionInput = z.input<typeof ReportDefinitionInputSchema>;
 export type ResolvedReportDefinitionInput = z.output<typeof ReportDefinitionInputSchema>;

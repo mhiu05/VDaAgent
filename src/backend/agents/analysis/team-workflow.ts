@@ -5,7 +5,7 @@ import { bindClaims, canonical } from '@vda/domain';
 import { createTeamContextBuilder } from '../runtime/context/team-context';
 import { TeamRuntime } from '../runtime/team/executor';
 import { ToolRegistry, ToolResultSchema, type ToolResult } from '../runtime/team/tools';
-import { ANALYSIS_AGENT_DEFINITIONS } from '../runtime/team/definitions';
+import { ANALYSIS_AGENT_DEFINITIONS, agentProgramInputSchema } from '../runtime/team/definitions';
 import {
   executeCoordinatorAndData,
   loadDataStageArtifacts,
@@ -25,6 +25,7 @@ import {
 } from './stages/reviewer';
 import { createProvider, type NarrativeContext } from '../providers/narrative';
 import type { AgentWorkflowOptions } from './options';
+import { selectSkill } from '../skills';
 
 const INSIGHT_COMPOSE_TOOL_TIMEOUT_MS = 300_000;
 
@@ -60,6 +61,10 @@ async function executeTeam(
   const tools = new ToolRegistry();
   const buildContext = createTeamContextBuilder(repository);
   const run = lease.run;
+  const skill = selectSkill(
+    run.request.use_case,
+    run.entrypoint === 'scheduled' ? 'scheduled_report' : 'interactive_analysis',
+  );
   let review: AgentReviewStageResult | undefined;
   let dataCheckpoint: AgentDataStageResult | undefined;
   let insightClaims: Claim[] | undefined;
@@ -185,6 +190,7 @@ async function executeTeam(
     // boundary transactions without closing an additional race.
     authorize: async () => undefined,
     emit: (activity) => repository.recordRuntimeActivity(lease, activity),
+    emitBatch: (activities) => repository.recordRuntimeActivities(lease, activities),
     buildContext: (agent, task) =>
       buildContext({
         userId: run.created_by,
@@ -195,6 +201,9 @@ async function executeTeam(
         task,
         allowedTools: agent.allowed_tools,
         instructions: agent.instructions,
+        ...(agent.id === 'coordinator' || agent.id === 'reviewer' || agent.id === 'report'
+          ? { skill }
+          : {}),
       }),
   });
   for (const definition of ANALYSIS_AGENT_DEFINITIONS) {
@@ -210,9 +219,7 @@ async function executeTeam(
             : specialist && ['comparison', 'chart', 'analyst'].includes(definition.id)
               ? ['data']
               : [],
-      inputSchema: z
-        .object({ operation: z.enum(['execute', 'evidence', 'revise']).default('execute') })
-        .strict(),
+      inputSchema: agentProgramInputSchema(definition.id),
       execute: async (input, context) => {
         if (definition.id === 'insight') {
           const prepared = z

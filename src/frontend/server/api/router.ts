@@ -11,6 +11,7 @@ import { reportDefinitionRoutes } from './routes/report-definitions';
 import { schedulerRoutes } from './routes/scheduler';
 import { reportRoutes } from './routes/reports';
 import { runtimeWorkspaceRoutes } from './routes/runtime-workspace';
+import { telegramWebhook } from './routes/telegram';
 import { principal, repository } from '../context';
 
 async function handle(request: Request, path: string[]): Promise<Response> {
@@ -20,6 +21,10 @@ async function handle(request: Request, path: string[]): Promise<Response> {
   checkOrigin(request, url);
   const authResponse = await authRoute(request, method, route);
   if (authResponse) return authResponse;
+  if (route === 'telegram/webhook') {
+    if (method !== 'POST') throw new RepositoryError('METHOD_NOT_ALLOWED', 405);
+    return telegramWebhook(request, await repository());
+  }
   const actor = await principal();
   const repo = await repository();
   const sessionResponse = await sessionRoute(repo, actor, method, route);

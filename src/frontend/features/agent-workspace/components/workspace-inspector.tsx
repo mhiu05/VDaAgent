@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type KeyboardEvent } from 'react';
-import type { AgentKey } from '@vda/contracts';
+import type { AgentKey, RuntimeActivity } from '@vda/contracts';
 import { agentIdentity } from '../../../components/agents/agent-identity';
 import { canonicalAgentKey } from '../../agent-chat/agent-workspace-model';
 import { agentExecutionEventLabel, workflowStatusLabel } from '../../../lib/format/status-label';
@@ -40,11 +40,17 @@ export function WorkspaceInspector({
   context,
   organizationName,
   onArtifact,
+  selectedInvocationId,
+  onSelectInvocation,
+  onOpenInvocation,
 }: {
   controller: Controller;
   context: WorkspaceContextState;
   organizationName: string;
   onArtifact: (id: string) => void;
+  selectedInvocationId?: string | null;
+  onSelectInvocation?: (record: RuntimeActivity) => void;
+  onOpenInvocation?: (record: RuntimeActivity, request: RuntimeActivity) => void;
 }) {
   const [tab, setTab] = useState<Tab>('context');
   const runActive =
@@ -53,6 +59,9 @@ export function WorkspaceInspector({
   useEffect(() => {
     if (runActive) setTab('run');
   }, [runActive]);
+  useEffect(() => {
+    if (selectedInvocationId) setTab('run');
+  }, [selectedInvocationId]);
   useEffect(() => {
     if (context.active_evidence_ref) setTab('evidence');
   }, [context.active_evidence_ref]);
@@ -337,6 +346,9 @@ export function WorkspaceInspector({
               <RuntimeTree
                 records={controller.runtime.snapshot.records}
                 agents={controller.threadWorkspace.agents}
+                selectedId={selectedInvocationId}
+                onSelect={onSelectInvocation}
+                onOpenConversation={onOpenInvocation}
               />
             ) : (
               <RunTab

@@ -155,6 +155,7 @@ describe('agent workspace interactions', () => {
     await act(async () =>
       root.render(
         <WorkspaceRail
+          orgId="test-org"
           agents={agents}
           records={[]}
           recipient={null}

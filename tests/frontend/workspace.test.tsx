@@ -6,6 +6,7 @@ import { initialWorkspaceContextState } from '../../src/frontend/features/worksp
 
 vi.mock('../../src/frontend/node_modules/next/navigation.js', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 describe('empty analysis workspace', () => {
