@@ -135,6 +135,18 @@ async def test_group_ai_request_delegates_and_returns_to_room(
                 == "done"
             )
 
+    async def worker_replied():
+        async with h.db() as c:
+            return (
+                await c.scalar(
+                    select(t.messages.c.id).where(t.messages.c.sender_id == agents[worker]).limit(1)
+                )
+                is not None
+            )
+
+    # Bound each observable stage independently. Three real Python/HTTP execs can take
+    # longer than one twenty-second window on a loaded runner even while making progress.
+    await until(worker_replied)
     await until(completed)
     await settle(h, type("Team", (), {"user": owner})())
     task = (await conn.execute(select(t.global_tasks))).one()

@@ -37,7 +37,8 @@ def test_boot_migrates_and_health_queries_the_db(migrated_url, platform_env, cle
     from backend.main import create_app
 
     clean_env.setenv("DATABASE_URL", migrated_url)
-    app = create_app(Settings())
+    # platform_env clears inherited settings; keep this boot test on the local fake model.
+    app = create_app(Settings(MODEL_BACKEND="fake"))
     with TestClient(app) as client:
         assert app.state.engine is not None
         r = client.get("/api/health")

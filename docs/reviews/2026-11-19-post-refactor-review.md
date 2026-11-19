@@ -27,11 +27,15 @@ FastAPI/PostgreSQL backend, shared execution sandbox, React/Vite frontend and Do
 
 ## Verification
 
+- Backend: 679 tests passed, with 7 service-dependent tests skipped in the ordinary run and
+  verified through the real integration service run below; 5 live-provider tests deselected.
 - Frontend: 393 tests passed; legacy domain suite: 77 tests passed.
 - Browser: 6 pre-authentication, responsive, accessibility and demo-login journeys passed.
 - Sandbox: 66 tests passed.
 - Real integration services: 10 tests passed, including PostgreSQL, execd, provisioning,
   package/skill installation and snapshot round trips.
+- Group-flow tests observe worker replies before the final completion deadline; health boot
+  tests explicitly select FakeModel so cleared environment fixtures cannot call a real provider.
 - Python and frontend lint, TypeScript/Vite build, workflow validation and source secret scan
   were checked during the review. The source scan found no secrets; installed dependencies
   were excluded from that source-only scan.
