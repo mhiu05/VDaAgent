@@ -1,0 +1,5 @@
+display_name: Compare
+avatar: {emoji: "⚖️", color: "#7C3AED"}
+description: So sánh với các căn tương đồng
+presets: [data, stats, postgres]
+credentials: [warehouse]

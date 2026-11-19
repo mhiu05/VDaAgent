@@ -1,0 +1,26 @@
+# Global library presets (doc 05 "Libraries"): one-shot `uv add <packages…>` installers.
+# The workspace image pre-warms the uv cache with every package listed here (doc 11).
+- id: data
+  title_vi: Phân tích dữ liệu
+  description_vi: Đọc, lọc, gộp bảng lớn.
+  packages: ["pandas>=2.2", "numpy>=2.0", "pyarrow>=17"]
+- id: postgres
+  title_vi: Kết nối PostgreSQL
+  description_vi: Truy vấn kho dữ liệu PostgreSQL.
+  packages: ["psycopg[binary]>=3.2", "sqlalchemy>=2.0"]
+- id: charts
+  title_vi: Vẽ biểu đồ
+  description_vi: Biểu đồ PNG có nhãn tiếng Việt.
+  packages: ["matplotlib>=3.9", "seaborn>=0.13"]
+- id: stats
+  title_vi: Thống kê
+  description_vi: Kiểm định, hồi quy và mô hình đơn giản.
+  packages: ["scipy>=1.14", "statsmodels>=0.14", "scikit-learn>=1.5"]
+- id: documents
+  title_vi: Tài liệu Word/Excel/PDF
+  description_vi: Xuất DOCX, XLSX và PDF.
+  packages: ["python-docx>=1.1", "openpyxl>=3.1", "reportlab>=4.2", "markdown>=3.7"]
+- id: web
+  title_vi: Truy cập web
+  description_vi: Gọi API và đọc trang web.
+  packages: ["httpx>=0.27", "beautifulsoup4>=4.12"]

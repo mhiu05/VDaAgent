@@ -1,0 +1,5 @@
+display_name: Data
+avatar: {emoji: "🗄️", color: "#2563EB"}
+description: Lấy số liệu từ kho dữ liệu
+presets: [data, postgres]
+credentials: [warehouse, web-search, ops-db]

@@ -1,0 +1,4 @@
+# execd's own venv (/opt/execd/.venv). Compile with `make lock`.
+fastapi
+uvicorn
+python-dotenv

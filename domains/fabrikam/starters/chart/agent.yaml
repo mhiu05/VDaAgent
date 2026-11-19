@@ -1,0 +1,5 @@
+display_name: Chart
+avatar: {emoji: "📊", color: "#16A34A"}
+description: Vẽ biểu đồ
+presets: [data, charts]
+credentials: []

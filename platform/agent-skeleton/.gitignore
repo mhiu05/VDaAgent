@@ -1,0 +1,4 @@
+.venv/
+.contoso/outputs/
+.env.d/
+__pycache__/

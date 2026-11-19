@@ -1,0 +1,5 @@
+agents:
+  data:
+    - reply: {text: "Hello! Tôi có thể hỗ trợ bạn."}
+jev:
+  - label: side_question

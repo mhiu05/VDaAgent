@@ -1,0 +1,5 @@
+display_name: Insight
+avatar: {emoji: "💡", color: "#F59E0B"}
+description: Giải thích vì sao căn bán chậm
+presets: [data, stats]
+credentials: []

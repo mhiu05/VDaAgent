@@ -1,0 +1,5 @@
+display_name: Report
+avatar: {emoji: "📝", color: "#DB2777"}
+description: Viết và lưu báo cáo
+presets: [documents]
+credentials: []

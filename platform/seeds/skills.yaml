@@ -1,0 +1,26 @@
+# Global skill catalog (doc 05 "Catalog"). Upserted into `skill_catalog` at boot by `id`.
+# `install_cmd` is an argv array run as a system exec in the agent folder, pinned to a commit.
+- id: xlsx
+  name: xlsx
+  title_vi: Đọc & tạo file Excel
+  description_vi: Đọc bảng tính khách gửi, xuất báo cáo .xlsx có công thức và định dạng.
+  tags: [Báo cáo, Excel]
+  install_cmd: [python, -m, contoso.skills, install, anthropics/skills, skills/xlsx, --ref, dbd4588f9e1033efb41dad4bef2f7947c8993d44]
+- id: docx
+  name: docx
+  title_vi: Soạn tài liệu Word
+  description_vi: Tạo và chỉnh sửa tài liệu .docx có tiêu đề, bảng, hình và theo dõi thay đổi.
+  tags: [Báo cáo, Word]
+  install_cmd: [python, -m, contoso.skills, install, anthropics/skills, skills/docx, --ref, dbd4588f9e1033efb41dad4bef2f7947c8993d44]
+- id: pdf
+  name: pdf
+  title_vi: Xử lý file PDF
+  description_vi: Đọc, trích xuất bảng, gộp, tách và tạo file PDF.
+  tags: [Báo cáo, PDF]
+  install_cmd: [python, -m, contoso.skills, install, anthropics/skills, skills/pdf, --ref, dbd4588f9e1033efb41dad4bef2f7947c8993d44]
+- id: pptx
+  name: pptx
+  title_vi: Tạo bài trình chiếu
+  description_vi: Tạo và chỉnh sửa slide .pptx từ số liệu và biểu đồ.
+  tags: [Báo cáo, PowerPoint]
+  install_cmd: [python, -m, contoso.skills, install, anthropics/skills, skills/pptx, --ref, dbd4588f9e1033efb41dad4bef2f7947c8993d44]
