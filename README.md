@@ -1,331 +1,559 @@
 # VDaAgent
 
-Mỗi người dùng có một nhóm AI agent riêng, phân tích kho dữ liệu (data warehouse) của miền nghiệp vụ (domain) và trả lời bằng tiếng Việt. Mỗi người dùng có một agent điều phối (lead) và các agent khởi tạo sẵn (starter) theo domain của mình. Agent chạy Python trong sandbox, truy vấn warehouse ở chế độ chỉ đọc và xuất bản báo cáo. Tài liệu thiết kế nằm trong [`docs/`](docs/00-overview.md) (bản tiếng Anh là bản gốc; [`docs/vi/`](docs/vi/00-overview.md) là bản dịch tương ứng).
+**Không gian làm việc với một đội AI agent riêng: hỏi bằng tiếng Việt, phân tích dữ liệu doanh nghiệp và đọc kết quả dưới dạng báo cáo có nguồn.**
 
-## Kiến trúc
+[![CI/CD](https://github.com/mhiu05/VDaAgent/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/mhiu05/VDaAgent/actions/workflows/ci-cd.yml)
 
-```text
-Browser ──► proxy (Caddy, :8080) ──► frontend (nginx, React SPA)
-                    │
-                    └── /api ──► backend (FastAPI :8000, agent harness, internal API :8001)
-                                   ├──► workspace (execd: sandboxed Python per agent, :7000)
-                                   ├──► postgres (application DB `contoso`; Langfuse DB `langfuse`)
-                                   ├──► model provider (OpenRouter-compatible API)   external
-                                   └──► Langfuse (tracing, :3100)                     optional
-workspace ──► domain warehouse (read-only DSN per domain)                             external, optional
-```
+VDaAgent là một dự án PoC cho quy trình phân tích dữ liệu có nhiều agent phối hợp. Mỗi người dùng được gán một **domain** — miền nghiệp vụ gồm hướng dẫn, kỹ năng, cấu hình truy cập dữ liệu và các agent khởi tạo sẵn. Agent điều phối tiếp nhận yêu cầu, giao việc cho agent chuyên môn và trả kết quả vào cuộc trò chuyện. Agent có thể chạy Python, truy vấn warehouse, tạo biểu đồ và xuất bản báo cáo.
 
-Toàn bộ hệ thống chạy bằng Docker Compose (tên project `contoso`). Chỉ có proxy (8080), API (8000) và Langfuse (3100) được mở ra máy host, và chỉ trên `127.0.0.1`.
+Domain mẫu trong repository là **Fabrikam Sales Ops**, phục vụ phân tích tồn kho và giao dịch bất động sản. Hạ tầng domain cho phép bổ sung miền nghiệp vụ khác; dữ liệu, truy vấn và hướng dẫn chuyên ngành vẫn cần được cấu hình cho từng domain.
 
-## Yêu cầu
+![Trang giới thiệu và trải nghiệm VDaAgent](docs/images/product-overview.png)
 
-| Cần có | Ghi chú |
+*Ảnh chụp giao diện thật từ frontend chạy ở chế độ mock. Tên dự án, số liệu và nội dung trong các ảnh bên dưới là dữ liệu minh họa, không phải kết quả phân tích warehouse thật.*
+
+## Mục lục
+
+- [Sản phẩm giải quyết việc gì?](#san-pham)
+- [Giao diện sản phẩm](#giao-dien)
+- [Khái niệm và đội agent](#khai-niem)
+- [Kiến trúc và luồng xử lý](#kien-truc)
+- [Chọn cách chạy](#cach-chay)
+- [Cài đặt stack đầy đủ](#cai-dat)
+- [Cấu hình](#cau-hinh)
+- [Quản lý domain và dữ liệu](#domain)
+- [Hướng dẫn sử dụng](#su-dung)
+- [Vận hành và dữ liệu lưu trữ](#van-hanh)
+- [Phát triển và kiểm thử](#phat-trien)
+- [API và tích hợp](#api)
+- [CI/CD và triển khai](#trien-khai)
+- [Xử lý sự cố](#su-co)
+- [Giới hạn và tài liệu tham chiếu](#tai-lieu)
+
+<a id="san-pham"></a>
+
+## Sản phẩm giải quyết việc gì?
+
+VDaAgent hướng tới người làm phân tích, Sales Ops và quản lý cần tìm hiểu dữ liệu bằng hội thoại, đồng thời giữ được báo cáo để xem lại. Ví dụ yêu cầu khi domain và warehouse đã được kết nối:
+
+> Phân tích tồn kho của dự án này, chỉ ra các nhóm căn cần kiểm tra và lập báo cáo kèm biểu đồ. Ghi rõ nguồn dữ liệu và những giới hạn của kết luận.
+
+| Nhu cầu | Cách VDaAgent hỗ trợ |
 |---|---|
-| Docker với Compose **v2.20+** và **buildx** | Docker Desktop có sẵn cả hai. Linux: Docker Engine + `docker-compose-plugin` + `docker-buildx-plugin` |
-| `make`, `git` | Windows: dùng WSL 2 và bật WSL integration của Docker Desktop |
-| ~6 GB RAM, ~10 GB ổ đĩa cho Docker | Langfuse và ClickHouse chiếm phần lớn bộ nhớ khi rảnh |
-| Một OpenRouter API key | xin từ chủ dự án; không cần khi dùng `MODEL_BACKEND=fake` |
+| Đặt câu hỏi bằng ngôn ngữ tự nhiên | Chat với agent điều phối hoặc từng agent chuyên môn; theo dõi tiến trình qua sự kiện trực tiếp. |
+| Phân tích dữ liệu doanh nghiệp | Agent chạy Python trong workspace riêng, dùng credential set được cấp theo domain. |
+| Chia công việc theo chuyên môn | Điều phối, dữ liệu, so sánh, insight, biểu đồ và báo cáo có vai trò riêng. |
+| Giữ kết quả để đọc lại | Kho báo cáo có phiên bản, nội dung có cấu trúc, bằng chứng và tệp đính kèm khi được xuất bản. |
+| Theo dõi tình hình tổng quan | Dashboard đọc dataset đã công bố: tồn kho, tuổi tồn, giao dịch, tác vụ và báo cáo. |
+| Cộng tác | Nhóm chat có thành viên người dùng và đội agent riêng của nhóm. |
+| Tùy biến agent | Tạo agent, chỉnh prompt, quản lý skill, package, lịch chạy và credential set trong phạm vi cho phép. |
+| Quản trị | Quản lý người dùng, domain, starter agent, trạng thái khởi tạo và kiểm tra hoạt động agent. |
 
-Bạn không cần cài Python, Node hay uv trên máy host: mọi công cụ đều chạy trong container.
+Kết quả thực tế phụ thuộc model, chất lượng dữ liệu và cấu hình domain. Dashboard không tự truy vấn warehouse từ trình duyệt; nó hiển thị dataset đã được agent hoặc lệnh đồng bộ xuất bản.
 
-## Bắt đầu nhanh
+<a id="giao-dien"></a>
 
-```bash
-git clone <repo-url> VDaAgent && cd VDaAgent
-make setup     # creates .env (+ random internal secrets) and domains/*/credentials/*.env
-# edit .env: OPENROUTER_API_KEY, ADMIN_USERNAME, ADMIN_PASSWORD (and DEMO_PASSWORD if you want demo users)
-make check     # names any missing key; prints the effective model config
-make up        # builds, starts, waits for health, creates demo users, prints the URLs
-make health    # api + proxy health
-```
+## Giao diện sản phẩm
 
-Thứ tự các bước:
+### Dashboard
 
-1. `make setup` tạo `.env` (kèm các secret nội bộ ngẫu nhiên) và các file `domains/*/credentials/*.env`.
-2. Mở `.env`, điền `OPENROUTER_API_KEY`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` (và `DEMO_PASSWORD` nếu muốn có tài khoản demo).
-3. `make check` báo tên các biến còn thiếu và in cấu hình model đang có hiệu lực.
-4. `make up` build, khởi động hệ thống, chờ các health check đạt, tạo tài khoản demo và in các URL.
-5. `make health` kiểm tra sức khỏe hệ thống qua API và proxy.
+![Dashboard VDaAgent với bộ lọc dự án, chỉ số tồn kho và biểu đồ](docs/images/dashboard.png)
 
-Mở <http://localhost:8080> và đăng nhập bằng `ADMIN_USERNAME`, hoặc bằng `alice`/`bob` với mật khẩu `DEMO_PASSWORD`.
+*Dashboard mock thể hiện bộ lọc theo thị trường, dự án, khoảng ngày, chất lượng nguồn và các mục cần chú ý. Khoảng ngày trong ảnh thuộc bộ fixture demo.*
 
-`make up` không tải các gói phân tích của agent (pandas, scipy, …): image `workspace` chỉ chứa những gì execd cần, nên hệ thống nhanh chóng đạt `healthy`. Gói chỉ được tải khi provisioning một agent cần đến chúng, vào cache uv dùng chung `/data/folders/.uv-cache`; agent sau dùng lại cache đó. Trên mạng chậm, lần provisioning đầu tiên có thể mất vài phút cho mỗi người dùng. Trong lúc đó người dùng đăng nhập được và thấy màn hình "Đang khởi tạo không gian AI của bạn"; trang chat tự hiện khi trạng thái chuyển sang `active`. Quản trị viên theo dõi tiến độ (agent nào đang được chuẩn bị) và bấm **Thử lại khởi tạo** cho người dùng `failed` ở Admin → Người dùng.
+### Kho báo cáo và trình đọc
 
-**Tùy chọn — làm nóng cache:**
+![Trình đọc báo cáo VDaAgent với nội dung phân tích và biểu đồ](docs/images/report-viewer.png)
 
-```bash
-make warm-cache          # tải trước mọi gói của các preset vào cache uv dùng chung (kèm hash)
-make warm-cache-status   # dung lượng cache và đã có đủ gói preset hay chưa
-```
+*Báo cáo mock minh họa cách đọc kết luận, chỉ số, biểu đồ và bằng chứng trong một phiên bản đã lưu. Thay bộ lọc dashboard không viết lại nội dung phiên bản báo cáo.*
 
-`warm-cache` là tùy chọn: nó giúp lần provisioning agent đầu tiên nhanh hơn, nhưng không cần thiết để khởi động Contoso. Lệnh không tạo agent, không đổi trạng thái người dùng, không cần xóa volume, và chạy lại nhiều lần vẫn an toàn (dùng lại những gì đã có trong cache).
+<a id="khai-niem"></a>
 
-**Tùy chọn — chuẩn bị máy trước buổi demo / onboarding nhiều người dùng:**
+## Khái niệm và đội agent
 
-```bash
-make demo-ready   # warm-cache → warm-cache-status → up → health; dừng ngay nếu một bước lỗi
-```
-
-`demo-ready` làm nóng cache *trước* `make up` (để `alice`/`bob` được provisioning từ cache), không xóa volume, không reset DB, không tạo lại người dùng có sẵn. Phát triển hằng ngày vẫn chỉ cần `make up`.
-
-## Cấu hình biến môi trường
-
-`.env.example` là template chuẩn. Mỗi biến trong đó đều được gắn nhãn: [REQUIRED], [SECRET], [GENERATED], [DEFAULTED] hoặc [OPTIONAL]. Giá trị rỗng nghĩa là "dùng giá trị mặc định". `make setup` không bao giờ ghi đè một giá trị đã có.
-
-| Biến | Bắt buộc? | Mặc định | Mục đích |
-|---|---|---|---|
-| `OPENROUTER_API_KEY` | **có** (secret), trừ khi `MODEL_BACKEND=fake` | — | thông tin xác thực duy nhất cho model |
-| `ADMIN_USERNAME` | **có** | — | tài khoản quản trị đầu tiên (3–32 ký tự `a-z 0-9 . _ -`) |
-| `ADMIN_PASSWORD` | **có** (secret) | — | mật khẩu quản trị, đồng thời là mật khẩu Langfuse |
-| `POSTGRES_PASSWORD`, `SESSION_SECRET`, `EXECD_TOKEN`, các biến `LANGFUSE_*`, `CLICKHOUSE_PASSWORD`, `REDIS_AUTH`, `MINIO_ROOT_PASSWORD` | **có** (secret) | do `make setup` sinh ra | các secret nội bộ |
-| `AGENT_MODEL` | không | `deepseek/deepseek-v4.1-flash` trong template (trong code: `anthropic/claude-haiku-4.5`) | model cho các lượt xử lý của agent |
-| `COMPACTION_MODEL` | không | = `AGENT_MODEL` | model dùng để nén ngữ cảnh (compaction) |
-| `JEV_MODEL` | không | `typesafe/jev-1.14` | bộ định tuyến tin nhắn của lead; để trống |
-| `OPENROUTER_BASE_URL` | không | `https://openrouter.ai/api/v1` | endpoint của provider |
-| `MODEL_BACKEND` | không | `openrouter` | `fake` = model giả lập theo kịch bản, không cần key |
-| `DEMO_PASSWORD` | không | — | tạo `alice` và `bob`; khi `DEMO_MODE=true`, mật khẩu này được điền trên trình duyệt, nên chỉ dùng mật khẩu demo riêng |
-| `DEMO_MODE` | không | `false` | bật truy cập nhanh demo; tắt trong môi trường production |
-| `DEMO_ADMIN_PASSWORD` | không (secret) | — | tạo tài khoản `admin-demo` riêng; chỉ dùng ở backend |
-| `PROXY_PORT` / `APP_PORT` / `LANGFUSE_PORT` | không | `8080` / `8000` / `3100` | cổng trên máy host (127.0.0.1) |
-| `APP_URL` | không | `http://localhost:${APP_PORT}` | chỉ được gửi làm `HTTP-Referer` tới provider |
-| `COOKIE_SECURE` | không | `0` | đặt `1` khi chạy sau HTTPS |
-| `VITE_SERVICE_MODE` | không | `hybrid` | chế độ build frontend; `mock` = giao diện demo không cần backend |
-| `UV_HTTP_TIMEOUT` | không | `300` | thời gian chờ mỗi lần tải gói khi provisioning agent |
-| `AGENT_PACKAGE_INSTALL_TIMEOUT_S` | không | `1200` (tối đa 3600) | giới hạn thời gian cho `uv add` / `uv sync` trong thư mục agent; các system exec khác giữ 600 s |
-| `GITHUB_TOKEN` | không (secret) | — | nâng giới hạn rate limit của GitHub khi cài skill |
-| `COMPOSE_FILE`, `POSTGRES_HOST_PORT` | không | — | mở PostgreSQL cho psql/DBeaver ([xem bên dưới](#dbeaver)) |
-
-Code đọc `OPENROUTER_API_KEY` và `OPENROUTER_BASE_URL`. `OPENAI_API_KEY` / `OPENAI_BASE_URL` bị **bỏ qua**, và `make check` sẽ cảnh báo nếu chúng được đặt. `DATABASE_URL`, `EXECD_URL` và các biến tương tự do Docker Compose đặt, không thuộc về `.env`.
-
-Thông tin xác thực của domain warehouse nằm trong `domains/<id>/credentials/*.env` (ví dụ `WAREHOUSE_DSN`, `WAREHOUSE_SNAPSHOT_ID`, `TAVILY_API_KEY`), không nằm trong `.env`.
-
-## Cấu hình model
-
-```text
-AGENT_MODEL=deepseek/deepseek-v4.1-flash          # known working
-COMPACTION_MODEL=deepseek/deepseek-v4.1-flash
-# generic form
-AGENT_MODEL=<provider>/<model-id>
-COMPACTION_MODEL=<provider>/<model-id>
-```
-
-- Model ID được cấu hình trong `.env`. Cấu hình `deepseek/deepseek-v4.1-flash` ở trên đã được kiểm chứng là chạy được.
-- Hai model có thể giống nhau hoặc cấu hình độc lập. Nếu `COMPACTION_MODEL` để trống thì hệ thống dùng `AGENT_MODEL`.
-- Đổi `AGENT_MODEL` / `COMPACTION_MODEL` chỉ cần sửa `.env`, không bao giờ phải sửa source code. Sau khi sửa, chạy `make up` để tạo lại container (xem [Đổi model](#đổi-model)).
-- Model ID phải tồn tại ở provider đang cấu hình. `AGENT_MODEL` phải hỗ trợ **tool calling** vì agent làm việc qua tool `python`. Không phải model nào ở provider nào cũng tương thích: runtime phụ thuộc vào khả năng của provider và model.
-- Cấu hình sai sẽ báo lỗi rõ ràng chứ không lặng lẽ thất bại:
-  - `make check` và log khởi động in dòng `model: backend=… base_url=… agent=… compaction=…` với cấu hình đang có hiệu lực.
-  - Khi khởi động, backend ghi WARNING nếu model không có trong danh sách `GET /models` của provider, hoặc không khai báo hỗ trợ tool calling.
-  - Khi chạy, khung chat hiển thị lỗi có mã, ví dụ `model_request_rejected` hoặc `MODEL_PROTOCOL_ERROR`, thay vì treo.
-
-## Khởi động hệ thống
-
-| Lệnh | Kết quả |
+| Khái niệm | Ý nghĩa trong dự án |
 |---|---|
-| `make up` | chạy `make check`, rồi `docker compose --profile proxy up -d --build --wait`, sau đó tạo tài khoản demo và in các URL. Chạy lại nhiều lần vẫn an toàn: chỉ build lại và tạo lại những gì đã thay đổi |
-| `make ps` | xem trạng thái dịch vụ: mọi dịch vụ `running`; backend, workspace, postgres, frontend `healthy` |
-| `make down` | dừng toàn bộ; **dữ liệu được giữ nguyên** |
+| Domain | Miền nghiệp vụ được admin cấu hình: hướng dẫn, skill, credential set và starter agent. |
+| Lead | Agent điều phối mặc định của mỗi đội; không thể xóa như agent thông thường. |
+| Starter | Mẫu agent được tạo khi khởi tạo đội của người dùng hoặc nhóm. |
+| Thread | Luồng hội thoại với agent hoặc trong nhóm. |
+| Task | Công việc có trạng thái chờ, chạy, hoàn tất, lỗi hoặc hủy; khác với một tin nhắn đơn lẻ. |
+| Workspace | Thư mục agent, gồm prompt, môi trường Python, skill, file kết quả và lịch sử Git. |
+| Credential set | Bộ khóa cấu hình có tên, ví dụ `warehouse`, được gắn cho agent cần dùng. |
+| Dataset | Dữ liệu có cấu trúc đã công bố cho dashboard; khác với tài liệu báo cáo. |
+| Report version | Bản nội dung báo cáo đã lưu, gắn với bằng chứng và artifact của phiên bản đó. |
 
-Thứ tự khởi động:
+Đội mẫu của Fabrikam gồm lead và năm agent chuyên môn:
 
-1. postgres và workspace chạy trước và phải đạt `healthy`.
-2. backend chạy preflight, áp dụng migration `alembic upgrade head` (tự động), đồng bộ domain và catalog, tạo tài khoản quản trị đầu tiên và khởi động agent runtime.
-3. frontend và proxy chạy sau cùng.
+| Agent | Vai trò |
+|---|---|
+| `lead` | Điều phối yêu cầu và phối hợp các agent. |
+| `data` | Khám phá nguồn, truy vấn và chuẩn bị dữ liệu. |
+| `compare` | So sánh các nhóm, dự án hoặc khoảng thời gian phù hợp. |
+| `insight` | Tổng hợp phát hiện và diễn giải trong phạm vi bằng chứng. |
+| `chart` | Tạo biểu đồ phục vụ câu hỏi phân tích. |
+| `report` | Tổng hợp và xuất bản báo cáo. |
 
-Langfuse là tùy chọn đối với backend: thiếu key Langfuse thì chỉ đơn giản là tắt tracing.
+Tên và vai trò starter có thể thay đổi theo domain. Giới hạn mặc định là 12 agent mỗi người dùng. Nhóm chat dùng tài khoản dịch vụ và workspace riêng cho đội của nhóm; không sử dụng trực tiếp thư mục agent cá nhân của một thành viên.
 
-## Tạo / seed người dùng
+<a id="kien-truc"></a>
 
-- **Tài khoản quản trị đầu tiên.** Được tạo khi backend khởi động, từ `ADMIN_USERNAME` / `ADMIN_PASSWORD`, và chỉ khi chưa có tài khoản quản trị nào. Đổi hai biến này sau đó sẽ không thay đổi tài khoản quản trị đã có.
-- **Người dùng thường.** Tài khoản quản trị tạo họ trong trang quản lý người dùng của ứng dụng web (POST `/api/admin/users`) và chọn domain. Người dùng bắt đầu ở trạng thái `provisioning`. Một job chạy nền tạo agent cho họ, sau đó trạng thái chuyển thành `active`, hoặc `failed` kèm nút thử lại.
-- **Người dùng demo.** `alice` và `bob` (cùng miền fabrikam), được `make up` (hoặc `make seed-demo`) tạo khi `DEMO_PASSWORD` được đặt. Người dùng đã tồn tại được giữ nguyên.
-- **Demo quản trị.** Khi `DEMO_MODE=true` và `DEMO_ADMIN_PASSWORD` được đặt trong `.env`, `make seed-demo` tạo tài khoản `admin-demo` riêng. Nút quản trị demo chỉ hoạt động trong chế độ này và dùng session cookie cùng RBAC của backend; tắt `DEMO_MODE` để vô hiệu hóa lối vào nhanh. Mật khẩu quản trị thật không được gửi tới frontend.
-- **Không có tự đăng ký.** Ứng dụng không có trang đăng ký tài khoản.
+## Kiến trúc và luồng xử lý
 
-## Đăng nhập
-
-Truy cập <http://localhost:8080> (hoặc `PROXY_PORT` của bạn) và đăng nhập bằng username và mật khẩu, không phải email. Sai mật khẩu sẽ nhận thông báo "invalid credentials", và đăng nhập sai nhiều lần sẽ bị giới hạn (rate limit). Khi gọi API thủ công, mọi request không phải GET đều cần header `X-Contoso-Client: web` (nếu không sẽ nhận 403 `csrf`):
-
-```bash
-curl -c /tmp/cj -H 'X-Contoso-Client: web' -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"…"}' http://127.0.0.1:8080/api/auth/login
-curl -b /tmp/cj http://127.0.0.1:8080/api/auth/me
+```mermaid
+flowchart LR
+    U[Trình duyệt] --> P[Caddy reverse proxy]
+    P --> F[React SPA / nginx]
+    P -->|/api: REST + SSE| B[FastAPI + agent harness]
+    B --> DB[(PostgreSQL ứng dụng)]
+    B --> M[Model provider / OpenRouter]
+    B --> X[Workspace / execd]
+    B -. trace .-> L[Langfuse]
+    B --> V[(Agent folders và artifact)]
+    X --> V
+    X -->|Python, kết nối chỉ đọc| W[(Warehouse của domain)]
+    X -->|Helper API nội bộ| B
 ```
 
-## PostgreSQL
+| Thành phần | Công nghệ và nhiệm vụ |
+|---|---|
+| Frontend | React 19, TypeScript, Vite 8, Tailwind CSS 4; giao diện tiếng Việt/Anh, adapter mock/API. |
+| Backend | Python 3.12, FastAPI, Pydantic, SQLAlchemy async, Alembic; auth, dữ liệu ứng dụng, job worker và agent harness. |
+| Runtime agent | `execd`, môi trường Python theo agent, uv, Git, thư viện helper `contoso`. |
+| Lưu trữ | PostgreSQL 17 cho người dùng, session, hội thoại, task, domain, dataset và metadata báo cáo; volume cho file. |
+| Model | Agent và compaction qua chat completions có tool calling; lead routing dùng Jev và Decisions API. |
+| Quan sát | Log container và Langfuse cho trace của các lượt model/agent. |
+| Đóng gói | Docker Compose, nginx phục vụ SPA, Caddy gom UI và API vào cùng origin. |
 
-Có hai loại cơ sở dữ liệu khác nhau, đừng nhầm lẫn:
+Một yêu cầu được xử lý như sau:
 
-| | Cơ sở dữ liệu ứng dụng | Domain warehouse |
+1. Backend xác thực session, quyền sở hữu và trạng thái domain/đội khi nhận tin nhắn.
+2. Lead phân loại yêu cầu để định tuyến. Công việc được xếp hàng; harness giới hạn một task đang chạy cho mỗi chủ sở hữu đội.
+3. Agent đọc ngữ cảnh, gọi model và thực hiện tool. Python chạy qua `execd` trong workspace tương ứng, có giới hạn thời gian và bộ nhớ.
+4. Agent có thể giao việc cho agent khác, tạo file, công bố dataset hoặc báo cáo. Tool output và trace nội bộ được tách khỏi thông điệp gửi cho người dùng.
+5. Backend lưu trạng thái và đẩy sự kiện SSE cho frontend. Người dùng xem tiến trình, kết quả và phiên bản báo cáo.
+6. Runtime nén ngữ cảnh tại các điểm an toàn giữa task khi cần; output dài có thể được đưa ra khỏi context model và lưu thành file trong workspace.
+
+Tên `contoso` vẫn được dùng cho namespace Python, database, Compose project và một số tên image/volume nội bộ. Đây là định danh kỹ thuật đang được code sử dụng; tên sản phẩm là **VDaAgent**.
+
+<a id="cach-chay"></a>
+
+## Chọn cách chạy
+
+| Cách chạy | Cần gì? | Mục đích |
 |---|---|---|
-| Là gì | người dùng, agent, chat, task, event | dữ liệu nghiệp vụ mà agent phân tích |
-| Ở đâu | dịch vụ Compose `postgres` (image `postgres:17`) | server bên ngoài, mỗi domain một server |
-| Database / user | `contoso` / `contoso` (Langfuse dùng DB `langfuse` trên cùng server) | lấy từ `WAREHOUSE_DSN` |
-| Mật khẩu | `POSTGRES_PASSWORD` trong `.env` | trong `domains/<id>/credentials/warehouse.env` |
-| Từ các container | `postgres:5432` (`DATABASE_URL` do Compose tạo) | chỉ đọc, do agent trong `workspace` truy cập |
-| Từ máy host | mặc định không mở ra; xem [DBeaver](#dbeaver) | tùy quy tắc mạng của warehouse đó |
-| Schema | migration Alembic trong `backend/alembic/`, áp dụng mỗi lần backend khởi động | không do dự án này quản lý |
-| Lưu trữ | volume `contoso_pgdata` | — |
+| **Frontend mock** | Node.js 24+, npm 11 | Xem UI, báo cáo và hội thoại mô phỏng; không cần Docker, API key hoặc warehouse. |
+| **Stack + FakeModel** | Docker Compose, cấu hình admin và secret nội bộ | Kiểm tra API, auth, DB, runtime và kịch bản agent xác định; không gọi model thật. |
+| **Stack + model thật** | Như trên, thêm model API key và credential domain | Phân tích dữ liệu được kết nối. |
 
-`POSTGRES_PASSWORD` được cố định ngay khi volume `contoso_pgdata` được tạo lần đầu. Nếu đổi giá trị này sau đó, backend sẽ không đăng nhập được vào cơ sở dữ liệu hiện có.
+### Xem sản phẩm bằng frontend mock
 
 ```bash
-make psql                                            # psql shell on contoso
-docker compose exec -T postgres psql -U contoso -d contoso -c "SELECT version_num FROM alembic_version;"
+git clone https://github.com/mhiu05/VDaAgent.git
+cd VDaAgent/frontend
+npm ci
+npm run dev -- --port 5173 --strictPort
 ```
 
-```sql
-SELECT id, username, display_name, role, status, created_at
-FROM public.users
-ORDER BY created_at DESC;
+Mở <http://127.0.0.1:5173>. Chọn **Bắt đầu khám phá**, đi hết hoặc bỏ qua tour, rồi chọn **Create your own agent** để mở đăng nhập. Chọn **Demo Alice** để vào không gian mẫu hoặc **Demo quản trị** để xem quản trị mock.
+
+Cũng có thể đăng nhập mock bằng `user@vdaagent.test` / `DemoUser!2026`. Đây chỉ là tài khoản fixture frontend, không phải tài khoản backend. Các profile người dùng mock cùng sử dụng bộ dữ liệu mẫu.
+
+Khi không đặt `VITE_SERVICE_MODE`, Vite local dùng `mock`. Nếu máy đã đặt biến này thành `hybrid` hoặc `api`, đổi lại `mock` trước khi chạy. Mock không ghi vào PostgreSQL và chat không gọi model thật. Một số tùy chọn demo được giữ trong browser storage.
+
+### Chạy stack với FakeModel
+
+Thực hiện bước chuẩn bị ở phần tiếp theo, điền admin và đặt trong `.env`:
+
+```dotenv
+MODEL_BACKEND=fake
+VITE_SERVICE_MODE=hybrid
 ```
 
-## DBeaver
+Không cần `OPENROUTER_API_KEY` trong chế độ này. Để khởi động dịch vụ mà chưa chạy chuỗi bootstrap demo:
 
-Mặc định PostgreSQL không được mở ra máy host. Để mở cổng chỉ trên loopback, thêm vào `.env`:
+```bash
+docker compose --profile proxy up -d --build --wait
+```
+
+Đăng nhập bằng admin đã cấu hình để quản lý domain/người dùng. FakeModel trả lời theo kịch bản xác định trong code test; không hiểu câu hỏi tự do và không giả lập warehouse. Muốn dùng domain mẫu và bootstrap đầy đủ vẫn cần điền các credential domain yêu cầu. Bộ E2E có stack fixture riêng cho kiểm thử tự động.
+
+<a id="cai-dat"></a>
+
+## Cài đặt stack đầy đủ
+
+### Yêu cầu
+
+- Docker Engine hoặc Docker Desktop, Buildx và Compose v2 bản mới, hỗ trợ `include`, `!override`, `!reset`, `up --wait`.
+- Git, GNU Make và shell Linux cho các lệnh `make` bên dưới. Trên Windows, nên dùng WSL 2 với Docker Desktop WSL integration.
+- Dự trù khoảng 6 GB RAM và 10 GB ổ đĩa trở lên cho Docker; Langfuse/ClickHouse, image và cache package chiếm thêm tài nguyên theo thời gian.
+- Mạng để tải image/package; model API key khi dùng model thật; warehouse và credential domain khi phân tích dữ liệu thật.
+
+Chạy stack Docker không yêu cầu cài Python, Node hay uv trên host. Chạy frontend ngoài container mới cần Node/npm trên host.
+
+### Linux / macOS / WSL 2
+
+```bash
+git clone https://github.com/mhiu05/VDaAgent.git
+cd VDaAgent
+make setup
+# Điền ADMIN_USERNAME, ADMIN_PASSWORD, OPENROUTER_API_KEY trong .env.
+# Điền domains/<id>/credentials/*.env theo domain cần sử dụng.
+make check
+make up
+make health
+```
+
+`make setup` tạo `.env`, sinh secret nội bộ và tạo file credential từ template; không ghi đè giá trị đã có. `make check` báo tên cấu hình còn thiếu, không in giá trị secret.
+
+`make up` thực hiện chuỗi sau và dừng khi có bước lỗi:
 
 ```text
-COMPOSE_FILE=docker-compose.yml:compose.db-port.yaml
-POSTGRES_HOST_PORT=15432
+Kiểm tra cấu hình
+  → build + khởi động stack và proxy, chờ health
+  → kiểm tra URL trình duyệt và API
+  → làm nóng cache package uv
+  → import domain từ file vào PostgreSQL
+  → tạo user demo nếu chưa có
+  → chờ đội agent được khởi tạo
+  → đồng bộ dataset dashboard từ warehouse
+  → kiểm tra schema, domain, demo và URL truy cập
 ```
 
-Sau đó chạy `make up`. Container postgres được tạo lại với `127.0.0.1:15432->5432`; dữ liệu vẫn nằm trong volume. Trong DBeaver dùng:
+Lần đầu có thể mất nhiều phút do tải image và package phân tích. Các lần sau dùng lại cache và dữ liệu. Import là upsert; nếu đã chỉnh domain trong Admin, cần đối chiếu template trước khi import lại để tránh ghi đè cấu hình đó.
 
-- Host: `127.0.0.1`
-- Port: `15432`
-- Database: `contoso`
-- User: `contoso`
-- Mật khẩu: giá trị của `POSTGRES_PASSWORD`
-
-Luôn giữ binding trên `127.0.0.1`, không bao giờ dùng `0.0.0.0`. Nếu cổng 15432 đã bị dùng (ví dụ bởi một bản sao warehouse chạy trên máy), hãy chọn cổng khác.
-
-## Kiểm tra sức khỏe hệ thống
-
-```bash
-make health          # api, proxy /api/health and the app page
-curl -fsS http://127.0.0.1:8000/api/health       # {"ok":true,"db":true,"execd":true}; 503 if not
-make ps              # container health
-```
-
-- `make health` kiểm tra API, `/api/health` qua proxy và trang ứng dụng.
-- `/api/health` trả về `{"ok":true,"db":true,"execd":true}` khi mọi thứ ổn, ngược lại trả 503.
-- `make ps` hiển thị health của các container.
-
-`/api/health` chứng minh backend đang chạy, cơ sở dữ liệu phản hồi và sandbox workspace phản hồi. Nó không gọi tới model provider: lần chat đầu tiên mới là phép kiểm tra model thật.
-
-## Log
-
-```bash
-make logs                       # backend + workspace
-make logs SERVICES=frontend     # or postgres, proxy, langfuse-web, ...
-make logs SERVICES=             # whole stack
-docker compose logs backend | grep preflight     # effective config at last boot
-```
-
-- `make logs` theo dõi log của backend và workspace.
-- `make logs SERVICES=frontend` xem log của một dịch vụ (hoặc `postgres`, `proxy`, `langfuse-web`, …).
-- `make logs SERVICES=` xem log của toàn bộ hệ thống.
-- Lệnh `grep preflight` cho biết cấu hình đang có hiệu lực ở lần khởi động gần nhất.
-
-## Khởi động lại sau khi sửa .env
-
-Container chỉ đọc `.env` khi được **tạo**. `docker compose restart` dùng lại container cũ nên vẫn giữ các giá trị **cũ**. Hãy dùng một trong các lệnh sau:
-
-| Thay đổi | Chạy |
+| URL mặc định | Mục đích |
 |---|---|
-| bất kỳ biến nào của backend/workspace (model, API key, tunable) | `make up` (tạo lại những gì đã đổi) hoặc `make restart` (buộc tạo lại backend + workspace) |
-| `VITE_SERVICE_MODE` | `make up` (build lại image frontend) |
-| cổng, `COMPOSE_FILE` | `make up` |
-| `ADMIN_*` | không có tác dụng khi đã có tài khoản quản trị |
-| `POSTGRES_PASSWORD` | không đổi khi volume đã tồn tại |
+| <http://localhost:8080> | Web app qua Caddy; đăng nhập bằng `ADMIN_USERNAME`. |
+| <http://127.0.0.1:8000/api/health> | Health API trực tiếp, kiểm tra DB và execd. |
+| <http://localhost:3100> | Langfuse; email từ `LANGFUSE_INIT_USER_EMAIL`, mật khẩu `ADMIN_PASSWORD`. |
 
-## Đổi model
+Các cổng phát triển bind vào `127.0.0.1`. Cổng `8001` của helper API, `7000` của execd và `5432` của PostgreSQL nằm trong mạng container, không publish mặc định.
 
-```bash
-# in .env
-AGENT_MODEL=<provider>/<model-id>
-COMPACTION_MODEL=<provider>/<model-id>
+### PowerShell trên Windows
 
-make up                                           # recreates the backend
-docker compose logs backend | grep "preflight model"
+Repository có `dev.ps1` cho setup, check, khởi động và các nhóm test. Script hiện chưa chạy đầy đủ bootstrap của `make up`. Có thể khởi động từng bước như sau:
+
+```powershell
+.\dev.ps1 setup
+# Điền .env và domains/<id>/credentials/*.env.
+.\dev.ps1 check
+docker compose --profile proxy up -d --build --wait
+docker compose exec -T backend python -m backend.domains.import_from_files
+docker compose exec -T backend python -m backend.seed_demo
+docker compose exec -T backend python -m backend.readiness wait-demo 900
+docker compose exec -T backend python -m backend.dashboard_sync
+docker compose exec -T backend python -m backend.readiness check
 ```
 
-Sửa hai dòng trên trong `.env`, chạy `make up` để tạo lại backend, rồi xác nhận model mới qua dòng `preflight model` trong log. Không cần sửa source code.
+Chuỗi này tải package trong provisioning nếu chưa có cache. Dùng WSL và `make up` nếu muốn cả warm-cache và kiểm tra URL trình duyệt được điều phối tự động.
 
-## Chạy test
+<a id="cau-hinh"></a>
 
-Test chạy trong một Compose project riêng (`contoso-test`) với cơ sở dữ liệu riêng, nên không bao giờ đụng tới dữ liệu của môi trường phát triển.
+## Cấu hình
+
+[`.env.example`](.env.example) mô tả biến chuẩn với nhãn `REQUIRED`, `SECRET`, `GENERATED`, `DEFAULTED`, `OPTIONAL`. Biến trống có mặc định sẽ dùng mặc định tương ứng.
+
+### Tài khoản, model và dịch vụ
+
+| Biến | Cách sử dụng |
+|---|---|
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Bắt buộc; tạo admin đầu tiên khi chưa có admin. Username 3–32 ký tự, gồm chữ thường, số, `.`, `_`, `-`. Đổi biến sau đó không tự đổi mật khẩu tài khoản đã có. |
+| `MODEL_BACKEND` | `openrouter` mặc định; `fake` cho kịch bản kiểm thử không gọi provider. |
+| `OPENROUTER_API_KEY` | Bắt buộc với model thật; credential model mà backend đọc. |
+| `OPENROUTER_BASE_URL` | Mặc định `https://openrouter.ai/api/v1`; provider cần hỗ trợ API mà agent và router sử dụng. |
+| `AGENT_MODEL` | ID model có tool calling. Template đặt `deepseek/deepseek-v4.1-flash`; code fallback khi trống là `anthropic/claude-haiku-4.5`. |
+| `COMPACTION_MODEL` | Model nén context; trống thì kế thừa `AGENT_MODEL`. Template hiện điền cùng model agent. |
+| `JEV_MODEL` | Mặc định `typesafe/jev-1.14` cho lead routing qua Decisions API; không thay tùy ý bằng model chat thông thường. |
+| `MODEL_CONTEXT_TOKENS` | Tùy chọn ghi đè context window mà backend lấy từ provider. |
+| `VITE_SERVICE_MODE` | Docker build mặc định `hybrid`, kết nối API thật. Local Vite mặc định `mock`. Cấu hình lúc build frontend. |
+| `PROXY_PORT`, `APP_PORT`, `LANGFUSE_PORT` | Mặc định `8080`, `8000`, `3100`. Nếu đổi cổng Langfuse, chỉnh cả `LANGFUSE_PUBLIC_URL`. |
+| `APP_URL` | Gửi trong `HTTP-Referer` tới provider và làm URL gốc khi đăng ký Telegram webhook; không tự cấu hình routing web app. |
+| `COOKIE_SECURE` | `0` khi HTTP local; đặt `1` khi phục vụ app qua HTTPS. |
+| `GITHUB_TOKEN` | Tùy chọn tăng rate limit khi cài skill từ GitHub. |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` | Bật Telegram; để trống token thì tắt. |
+
+`OPENAI_API_KEY` và `OPENAI_BASE_URL` không được backend sử dụng. `DATABASE_URL`, `EXECD_URL` và địa chỉ nội bộ được Compose thiết lập. Credential warehouse không đặt trong `.env` gốc.
+
+`make setup` tự sinh `POSTGRES_PASSWORD`, `SESSION_SECRET`, `EXECD_TOKEN`, `CREDENTIAL_ENCRYPTION_KEY` và các secret nội bộ khác. Giữ bản sao an toàn của `.env`; đặc biệt cần đúng `CREDENTIAL_ENCRYPTION_KEY` để giải mã credential đã lưu. Đổi `POSTGRES_PASSWORD` trong file không tự đổi mật khẩu DB trong volume đã tạo.
+
+Sau khi sửa biến runtime, dùng `make restart` để recreate backend/workspace. `docker compose restart` đơn thuần giữ môi trường cũ. Nếu sửa biến build frontend hoặc cấu hình dịch vụ khác, chạy lại `make up` hoặc Compose rebuild/recreate dịch vụ tương ứng.
+
+### Demo backend
+
+- `make seed-demo` tạo `alice`, `bob`, `vre-demo` với domain Fabrikam khi domain đã import; giữ lại tài khoản đã có.
+- Mật khẩu lấy từ `DEMO_PASSWORD`; luồng Compose/Make dùng fallback `demo123!` nếu trống. Nên đặt mật khẩu demo riêng cho môi trường trình diễn.
+- `DEMO_MODE=false` mặc định. Khi bật, UI cho truy cập nhanh các profile backend xác nhận sẵn sàng. Profile quản trị dùng chính admin được cấu hình; chỉ bật cho môi trường demo được kiểm soát.
+- `DEMO_ADMIN_PASSWORD` phục vụ tài khoản `admin-demo` và endpoint demo riêng; không thay thế `ADMIN_PASSWORD` cho nút truy cập nhanh profile `admin`.
+- Backend giữ credential và thiết lập session phía server; frontend không nhận mật khẩu admin để điền form.
+
+### Giới hạn runtime thường dùng
+
+| Biến | Mặc định | Tác dụng |
+|---|---|---|
+| `EXEC_TIMEOUT_S` | `120` | Timeout một lần chạy Python. |
+| `EXEC_MEM_MB` | `2048` | Giới hạn bộ nhớ exec. |
+| `AGENT_PACKAGE_INSTALL_TIMEOUT_S` | `1200` | Timeout cài package agent, tối đa 3600 giây. |
+| `UV_HTTP_TIMEOUT` | `300` | Thời gian chờ tải package qua uv. |
+| `MAX_STEPS_PER_ACTIVATION` | `50` | Giới hạn bước một activation. |
+| `MODEL_TIMEOUT_S` | `120` | Timeout lời gọi model. |
+| `TASK_MAX_S` | `3600` | Ngân sách thời gian task. |
+| `SOFT_CONTEXT_RATIO`, `HARD_CONTEXT_RATIO` | `0.6`, `0.9` | Ngưỡng quản lý context. |
+| `OFFLOAD_CHARS` | `8000` | Ngưỡng đưa tool output dài ra file. |
+| `MAX_AGENTS_PER_USER` | `12` | Số agent mỗi người dùng. |
+| `EXEC_FS_ISOLATION` | `auto` | Landlock khi kernel hỗ trợ; `required` bắt buộc có, `off` tắt lớp này. |
+
+<a id="domain"></a>
+
+## Quản lý domain và dữ liệu
+
+### Hai loại database khác nhau
+
+**PostgreSQL ứng dụng** lưu tài khoản, hội thoại, task, cấu hình domain và kết quả đã công bố. **Warehouse domain** chứa dữ liệu nghiệp vụ bên ngoài để agent phân tích. Khởi động PostgreSQL ứng dụng không tạo ra bộ dữ liệu warehouse mẫu.
+
+Domain mẫu nằm trong [`domains/fabrikam/`](domains/fabrikam), gồm metadata, hướng dẫn, starter và template credential. Setup tạo file `.env` tương ứng từ `.env.example`. Các khóa chính:
+
+| Credential set | Khóa cấu hình | Mục đích |
+|---|---|---|
+| `warehouse` | `WAREHOUSE_DSN`, `WAREHOUSE_SNAPSHOT_ID` | PostgreSQL warehouse và snapshot phân tích. |
+| `web-search` | `TAVILY_API_KEY` | Tìm kiếm thông tin bên ngoài khi agent được cấp quyền. |
+| `ops-db` | `OPS_DB` | Nguồn dữ liệu vận hành của domain. |
+
+Điền credential thật vào `domains/<id>/credentials/*.env` nếu dùng luồng import. DSN warehouse cần tài khoản chỉ đọc; helper truy vấn của dự án cũng dùng phiên read-only. Không đưa các giá trị này vào tài liệu, ảnh hoặc commit.
+
+### File bootstrap và cấu hình trong Admin
 
 ```bash
-make test                 # backend + workspace + frontend
-make test-backend         # backend pytest (FakeModel, no API key)
-make test-workspace       # execd tests
-make test-frontend        # Vitest
-make lint                 # ruff + eslint
-# focused backend tests:
-docker compose -f docker-compose.yml -f compose.test.yaml run --rm --build backend \
-  pytest -q backend/tests/unit backend/tests/harness/test_runner.py
-make test-live            # opt-in live OpenRouter contract tests (uses credits)
-make e2e                  # Playwright against a fresh fake-mode stack
+make import-domains
 ```
 
-- `make test` chạy toàn bộ test backend, workspace và frontend. `make test-backend` dùng FakeModel nên không cần API key.
-- Lệnh `docker compose … pytest -q …` chạy một nhóm test backend cụ thể.
-- `make test-live` là test hợp đồng với OpenRouter thật, chỉ chạy khi chủ động gọi, và **tốn credit**.
-- `make e2e` chạy Playwright trên một stack mới ở chế độ fake.
+Lệnh đọc domain trên filesystem và upsert vào PostgreSQL. **Sau import, backend dùng cấu hình trong database**. Nó không theo dõi thay đổi file liên tục và không coi việc xóa file là yêu cầu xóa bản ghi DB.
+
+Admin có thể tạo/sửa domain, starter, hướng dẫn lead và credential set trong **Admin → Domains**. Credential được mã hóa Fernet trước khi lưu PostgreSQL. Khi gắn set vào agent, backend materialize bản cần thiết thành file riêng trong `.env.d/`; cập nhật credential đồng bộ lại các agent liên quan. File viewer che nội dung nhạy cảm theo cơ chế backend.
+
+Thiếu khóa bắt buộc khiến domain không khả dụng, kèm lý do theo tên cấu hình. Người dùng vẫn có thể đăng nhập để thấy trạng thái, nhưng yêu cầu chạy agent bị chặn cho đến khi domain sẵn sàng. Người dùng thường không tự chuyển domain tài khoản.
+
+### Thêm domain mới
+
+1. Tạo trong Admin hoặc chuẩn bị thư mục `domains/<id>/` theo cấu trúc Fabrikam.
+2. Cung cấp mô tả nghiệp vụ, hướng dẫn lead, skill và starter cần thiết.
+3. Khai báo credential set, nhập giá trị và chỉ gắn set cần dùng cho từng agent.
+4. Nếu dùng file, chạy import; kiểm tra trạng thái khả dụng trong Admin.
+5. Tạo user gắn với domain; chờ provisioning rồi kiểm tra truy vấn nhỏ trước khi tạo báo cáo.
+
+Không thể chỉ đổi tên domain rồi kỳ vọng truy vấn/dashboard Fabrikam hoạt động với schema khác; cần cập nhật hướng dẫn và logic xuất dataset tương ứng.
+
+<a id="su-dung"></a>
+
+## Hướng dẫn sử dụng
+
+### Người dùng
+
+1. Đăng nhập bằng tài khoản admin cấp. Hệ thống chưa có đăng ký công khai.
+2. Nếu đội đang khởi tạo, chờ trang trạng thái chuyển sang sẵn sàng. Nếu lỗi, nhờ admin kiểm tra provisioning và thử lại.
+3. Vào **Trợ lý agent**, chọn lead để đặt mục tiêu, phạm vi dữ liệu và định dạng kết quả. Có thể chat trực tiếp với agent chuyên môn.
+4. Theo dõi task và thông điệp trả về. Khi yêu cầu báo cáo, chỉ rõ snapshot/kỳ dữ liệu, phương pháp và bằng chứng cần có.
+5. Mở **Kho báo cáo** để lọc, đọc phiên bản và tải artifact có sẵn. Xem nguồn và giới hạn trước khi dùng kết luận.
+6. Vào **Trang chủ** để xem dataset dashboard mới nhất đã công bố. Khi nguồn thay đổi, có thể cần yêu cầu agent dữ liệu làm mới dataset.
+7. Tạo nhóm để cộng tác với đồng nghiệp. Nhóm khởi tạo đội agent riêng; thành viên có quyền theo phạm vi nhóm.
+
+Với agent tùy chỉnh, có thể sửa prompt và quản lý skill/package/lịch chạy trong màn hình agent. Một số thao tác chạy dưới dạng job bất đồng bộ; chỉ thành công sau khi job hoàn tất.
+
+### Quản trị viên
+
+1. Kiểm tra cấu hình/domain trước khi tạo người dùng.
+2. Tạo user, gán domain; theo dõi `provisioning`, `active`, `failed`, `disabled` trong quản lý user.
+3. Nếu provisioning lỗi, xem log và agent đang chuẩn bị, sửa nguyên nhân rồi chọn **Thử lại khởi tạo**.
+4. Dùng màn hình giám sát để đọc event, trace, thread và lịch sử agent; reset/compact có API riêng.
+5. Quản lý credential theo domain, cấp quyền tối thiểu và kiểm tra lại sau khi đổi khóa.
+
+### Đọc dashboard và báo cáo
+
+Dashboard tổng hợp theo dataset và bộ lọc. Report là tài liệu đã công bố với phiên bản riêng. Dữ liệu thiếu được phân biệt với số 0; phạm vi ngày, múi giờ và độ đầy đủ nguồn là một phần của việc đọc kết quả. Chỉ tải xuống được khi phiên bản chứa artifact tương ứng.
+
+<a id="van-hanh"></a>
+
+## Vận hành và dữ liệu lưu trữ
+
+| Lệnh | Mục đích |
+|---|---|
+| `make help` | Các target và mô tả hiện có. |
+| `make ps` / `make health` | Trạng thái container / health API và URL trình duyệt. |
+| `make logs` | Log backend và workspace. |
+| `make logs SERVICES='proxy frontend backend'` | Log các dịch vụ chỉ định. |
+| `make restart` | Recreate backend/workspace để đọc lại môi trường. |
+| `make warm-cache` / `make warm-cache-status` | Tải package preset / xem cache. |
+| `make dashboard-sync` | Chạy builder trong data agent của từng user có warehouse; bỏ qua user chưa đủ điều kiện. |
+| `make demo-ready` | `make up`, sau đó báo cáo cache và health. |
+| `make down` | Dừng stack, giữ volume. |
+| `make psql` | psql vào DB ứng dụng `contoso`. |
+
+Health thành công cho biết các phụ thuộc hạ tầng được kiểm tra đang trả lời; không chứng minh API key model hợp lệ, warehouse truy vấn được hay mọi đội đã provisioning xong. Dùng log, trạng thái domain và kiểm tra demo để xác nhận các lớp đó.
+
+### Persistence và sao lưu
+
+Volume giữ PostgreSQL, thư mục agent, cache uv, attachment, báo cáo và dữ liệu Langfuse. `.env` và credential bootstrap nằm trên host. Sao lưu DB cùng file/volume kết quả và khóa mã hóa tương ứng để khôi phục đầy đủ.
+
+`make down` giữ dữ liệu. **`make reset-dev` xóa toàn bộ volume của stack**, gồm user, chat, agent, cache, attachment, báo cáo và Langfuse; chỉ dùng khi chủ động muốn bỏ dữ liệu phát triển. Test/E2E dùng project Compose riêng, không dùng volume ứng dụng mặc định.
+
+### Kết nối PostgreSQL từ DBeaver / psql trên host
+
+Mặc định DB không mở cổng host. Bật overlay riêng khi cần phát triển:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.override.yml -f compose.db-port.yaml up -d postgres
+```
+
+Kết nối `127.0.0.1:15432`, database/user `contoso`, mật khẩu từ `POSTGRES_PASSWORD`. Đổi cổng qua `POSTGRES_HOST_PORT`. Lệnh liệt kê file rõ ràng dùng được trên Bash và PowerShell, tránh khác biệt dấu phân cách `COMPOSE_FILE`. Không publish database lên giao diện mạng công cộng.
+
+### Log và Langfuse
+
+Log container giúp chẩn đoán hạ tầng, provisioning và task. Langfuse cung cấp trace model/agent; không dùng chung session đăng nhập web app. Compose mặc định bao gồm dịch vụ phụ trợ Langfuse. Kiểm tra `LANGFUSE_*` và log backend nếu trace không xuất hiện.
+
+<a id="phat-trien"></a>
+
+## Phát triển và kiểm thử
+
+### Cấu trúc repository
+
+```text
+frontend/              React SPA, feature UI, adapter API, mock và test
+backend/               FastAPI, auth, harness, domain, job, API và migration
+workspace/execd/       Dịch vụ thực thi Python trong workspace agent
+workspace/contoso/     Helper Python dùng bên trong agent
+domains/               Metadata, prompt, starter, skill và template credential
+platform/              Tài nguyên và cấu hình dùng chung cho agent
+infra/                 Dockerfile, Caddy và cấu hình hạ tầng
+deploy/                Compose phụ trợ và tài nguyên triển khai
+tests/                 Fixture/kịch bản dùng chung cho kiểm thử
+agents/, eval/         Workspace package/scaffold; eval runner chưa hoàn thiện
+docs/                  Thiết kế, API, vận hành và bản dịch
+```
+
+Python dùng uv workspace và lockfile root, yêu cầu Python 3.12. Frontend dùng npm với lockfile riêng và Node 24+.
+
+### Kiểm tra bằng Docker
+
+```bash
+make lint
+make test          # backend, workspace, frontend; project test riêng
+make e2e           # stack FakeModel + fixture riêng và Playwright
+```
+
+Chạy riêng bằng `make test-backend`, `make test-workspace`, `make test-frontend`. `make test-live` gọi provider thật, yêu cầu `OPENROUTER_API_KEY` và có thể phát sinh chi phí. `make eval` hiện trỏ tới scaffold chưa triển khai; chưa dùng làm tiêu chí chất lượng agent.
+
+PowerShell có các target test tương ứng, ví dụ `.\dev.ps1 test-backend`, `.\dev.ps1 test-workspace`, `.\dev.ps1 test-frontend`, `.\dev.ps1 e2e`.
+
+### Làm việc với frontend ngoài container
+
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run test:domain
+npm run build
+```
+
+`npm run test:browser` chạy Playwright; xem [Testing](docs/17-testing.md) về server/fixture và browser cần có.
+
+Để Vite kết nối backend đang chạy ở cổng 8000:
+
+```bash
+VITE_SERVICE_MODE=hybrid VITE_API_PROXY=http://127.0.0.1:8000 npm run dev
+```
+
+PowerShell:
+
+```powershell
+$env:VITE_SERVICE_MODE = 'hybrid'
+$env:VITE_API_PROXY = 'http://127.0.0.1:8000'
+npm run dev
+```
+
+Vite proxy `/api` mặc định sang `http://127.0.0.1:8010`; cần đặt `VITE_API_PROXY` nếu dùng cổng API mặc định Compose. Proxy giúp UI/API dùng cùng origin trong trình duyệt.
+
+<a id="api"></a>
+
+## API và tích hợp
+
+API công khai có prefix `/api`. Session dùng cookie HttpOnly; request ghi (`POST`, `PUT`, `PATCH`, `DELETE`) cần header `X-Contoso-Client: web` để qua kiểm tra CSRF. Khi xây client riêng, xem adapter hiện có để gửi đúng cookie/header và xử lý lỗi.
+
+| Nhóm | Endpoint tiêu biểu |
+|---|---|
+| Sức khỏe | `GET /api/health` |
+| Xác thực | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` |
+| Hội thoại | `GET/POST /api/threads`, `GET/POST /api/threads/{id}/messages` |
+| Sự kiện | `GET /api/stream` — Server-Sent Events. |
+| Agent/job | `GET/POST /api/agents`, `GET /api/agents/{id}`, `GET /api/jobs/{id}` |
+| Task | `GET /api/tasks`, `POST /api/tasks/{id}/cancel` |
+| Nhóm | `GET/POST /api/groups`, các route thành viên và agent nhóm. |
+| Báo cáo | `GET /api/reports`, `GET /api/reports/{id}`, artifact theo phiên bản. |
+| Dashboard | `GET /api/dashboard/dataset` |
+| Thông báo/cài đặt | `GET /api/notifications`, `GET/PUT /api/me/preferences` |
+| Quản trị | `/api/admin/users`, `/api/admin/domains`, `/api/admin/overview` và route giám sát. |
+| Telegram | `/api/telegram/link`, `/api/telegram/status`, `/api/telegram/unlink`; webhook bot. |
+
+Endpoint phân quyền theo tài khoản, chủ sở hữu và thành viên nhóm. Helper API mà Python agent dùng chạy ở listener nội bộ `8001`, tách khỏi API cho browser.
+
+Telegram cần bot, token/username, webhook tới backend truy cập được từ Telegram và secret webhook. Đặt `APP_URL` thành URL HTTPS public rồi chạy `docker compose exec -T backend python -m backend.telegram_set_webhook` để đăng ký `/telegram/webhook`. Route này nằm ngoài `/api` và xác thực bằng secret webhook. Người dùng liên kết tài khoản bằng mã/deep link; chỉ đặt token chưa đủ để nhận tin. Xem [bridge Telegram](backend/telegram_bridge.py), [đăng ký webhook](backend/telegram_set_webhook.py) và [API](docs/15-api.md) khi xây tích hợp.
+
+<a id="trien-khai"></a>
+
+## CI/CD và triển khai
+
+Workflow [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) kiểm tra Python/frontend và build image. Khi push `main` qua các bước kiểm tra, workflow xuất bản image backend, frontend, workspace lên GHCR với tag `latest` và SHA commit.
+
+Triển khai EC2 qua SSH là tùy chọn, cần ba repository secret: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`. Nếu thiếu, workflow thông báo bỏ qua triển khai; test và xuất bản image hoạt động độc lập. CI thành công không đồng nghĩa đã có môi trường public.
+
+Máy đích cần Docker/Compose và `.env` tại `/home/<EC2_USER>/vdaagent`. Workflow sao chép cấu hình/runtime asset, pull image theo SHA rồi `up --no-build --wait`. Nó không chạy toàn bộ bootstrap Makefile; cần chuẩn bị credential, import domain và dữ liệu phù hợp trên máy đích.
+
+Triển khai public cần DNS/TLS, reverse proxy và cookie theo môi trường; loopback trong `docker-compose.override.yml` là cấu hình local. Xem [Deployment](docs/16-configuration-and-deployment.md) và [Caddyfile](infra/Caddyfile).
+
+<a id="su-co"></a>
 
 ## Xử lý sự cố
 
-| Triệu chứng | Nguyên nhân | Cách xử lý |
-|---|---|---|
-| `check: no .env yet` | chưa chạy setup | `make setup` |
-| `platform: missing required keys: …` | các biến bắt buộc còn trống | điền vào `.env`, rồi `make check` |
-| `X is set but not used; use …` | ví dụ `OPENAI_API_KEY`, `DOCKER_HOST` nằm trong `.env` | dùng `OPENROUTER_*`; đặt `DOCKER_HOST` trong shell, không đặt trong `.env` |
-| lỗi chat `model_authentication_failed` / HTTP 402 | key sai hoặc hết credit | sửa `OPENROUTER_API_KEY` / nạp credit, rồi `make up` |
-| WARNING lúc khởi động "not in the provider's model list", lỗi chat `model_request_rejected` | model ID sai | sửa `AGENT_MODEL` / `COMPACTION_MODEL`, rồi `make up` |
-| `MODEL_PROTOCOL_ERROR`, "does not advertise tool calling" | model không hỗ trợ tool calling | chọn model có hỗ trợ tool calling |
-| backend `unhealthy`, log báo lỗi kết nối DB | DB chưa sẵn sàng, hoặc `POSTGRES_PASSWORD` bị đổi sau khi đã tạo volume | `make ps`; khôi phục mật khẩu ban đầu |
-| `port is already allocated` | cổng 8080 / 8000 / 3100 đã bị chiếm | đặt `PROXY_PORT` / `APP_PORT` / `LANGFUSE_PORT` (+ `LANGFUSE_PUBLIC_URL`), rồi `make up` |
-| DBeaver không kết nối được | cổng chưa được mở | xem mục [DBeaver](#dbeaver) |
-| giá trị mới không có tác dụng | container chưa được tạo lại | `make up` hoặc `make restart`, không dùng `docker compose restart` |
-| giao diện hiện dữ liệu giả / không gọi backend | frontend được build với `VITE_SERVICE_MODE=mock` | để trống biến này (`hybrid`), rồi `make up` |
-| `domain <id>: unavailable` | thiếu thông tin xác thực warehouse | điền `domains/<id>/credentials/*.env`, rồi `make up`. Phần còn lại của ứng dụng vẫn chạy; chỉ người dùng của domain đó không chạy được task |
-| `permission denied … docker.sock` | user chưa thuộc nhóm `docker` | `sudo usermod -aG docker $USER`, rồi đăng nhập lại |
-| người dùng mới không đăng nhập được | người dùng vẫn đang `provisioning` hoặc `failed` | chờ, hoặc thử lại từ danh sách người dùng trong trang quản trị |
-| người dùng `failed` kèm "network timeout" hoặc `uv add … exited -9` | tải gói từ PyPI ở lần provisioning đầu tiên quá chậm | kiểm tra mạng; chạy `make warm-cache`; tăng `UV_HTTP_TIMEOUT` / `AGENT_PACKAGE_INSTALL_TIMEOUT_S`, rồi `make up`; thử lại từ danh sách người dùng trong trang quản trị |
-| người dùng `failed` kèm "provisioning interrupted by restart; retry" | backend khởi động lại khi đang provisioning | thử lại từ danh sách người dùng trong trang quản trị (agent đã tạo được giữ lại) |
-| agent cứ hiện "đang làm việc…" | provider chậm hoặc hết credit; lượt xử lý sẽ báo lỗi rõ ràng sau `MODEL_TIMEOUT_S` | `make logs`; xem trace trong admin console |
-| backend thoát khi khởi động với lỗi Alembic | DB có revision mới hơn code (ví dụ sau khi đổi branch) | checkout đúng phiên bản code; `SELECT version_num FROM alembic_version` |
-
-## Lệnh hữu ích
-
-```bash
-make help        # every target
-make setup | check | up | down | restart | ps | health | logs | seed-demo | psql
-make warm-cache | warm-cache-status | demo-ready   # optional cache warm-up / demo preparation
-make reset-dev   # DESTRUCTIVE: deletes all contoso volumes (asks you to type "delete")
-```
-
-`make help` liệt kê mọi target. **Cảnh báo:** `make reset-dev` (giống `docker compose down -v`) **xóa toàn bộ volume** của stack `contoso`: database PostgreSQL (người dùng, chat), thư mục agent, **cache uv dùng chung** (người dùng sau phải tải lại mọi gói), tệp đính kèm, báo cáo và dữ liệu Langfuse. Lệnh sẽ yêu cầu bạn gõ `delete` để xác nhận. Muốn khởi động lại mà giữ dữ liệu: `make down` rồi `make up`.
-
-## Cấu trúc dự án
-
-| Đường dẫn | Nội dung |
+| Triệu chứng | Kiểm tra / cách xử lý |
 |---|---|
-| `backend/` | FastAPI API, agent harness, messaging, model DB và migration Alembic |
-| `workspace/` | dịch vụ sandbox `execd` và thư viện `contoso` mà agent import |
-| `frontend/` | React SPA (Vite) |
-| `agents/` | thành viên uv workspace cho phần Python phía agent (hiện mới có `pyproject.toml`) |
-| `platform/` | quy tắc, prompt và seed của nền tảng, được mount vào backend |
-| `domains/<id>/` | cấu hình, starter và template thông tin xác thực của từng domain |
-| `infra/` | Dockerfile, Caddyfile |
-| `deploy/` | compose của Langfuse, script khởi tạo PostgreSQL |
-| `docs/` | tài liệu thiết kế; [docs/16](docs/16-configuration-and-deployment.md) nói về cấu hình và triển khai |
-| `e2e/`, `eval/` | kịch bản Playwright, đánh giá agent |
+| `make check` báo thiếu biến | Chạy setup nếu chưa có `.env`; điền các tên được báo. Model thật cần key, FakeModel thì không. |
+| Compose không hiểu `include` / `!override` | Cập nhật Compose; kiểm tra `docker compose version`, `docker buildx version`. |
+| Không mở được web app | `make ps`, cổng `PROXY_PORT`, log `proxy frontend backend`, URL `http://localhost:8080`. |
+| API healthy nhưng chat bị chặn | Trạng thái domain, user/agent provisioning và credential set; health không kiểm tra mọi điều kiện chạy agent. |
+| Khởi tạo lâu / tải package lỗi | Log workspace, mạng PyPI, `UV_HTTP_TIMEOUT`, timeout cài package; warm-cache rồi retry user trong Admin. |
+| Không có tài khoản demo | Import Fabrikam rồi `make seed-demo`; kiểm tra trạng thái active, mật khẩu đã đặt khi tạo user lần đầu. |
+| Không thấy nút demo backend | `DEMO_MODE`, profile đã seed/active, mật khẩu cấu hình khớp tài khoản; có thể đăng nhập thủ công. |
+| Dashboard trống/thiếu nguồn | Cần dataset đã công bố; kiểm tra warehouse/snapshot, data agent, `make dashboard-sync`. |
+| Model lỗi auth/model/timeout | Key, model ID, khả năng tool calling/Decisions của provider và log backend. |
+| Sửa `.env` chưa có tác dụng | Recreate dịch vụ; `make restart` cho backend/workspace, rebuild frontend khi đổi biến Vite. |
+| Vite không gọi được API | `VITE_SERVICE_MODE=hybrid`, `VITE_API_PROXY` và cổng backend thực. |
+| PostgreSQL từ chối mật khẩu sau sửa `.env` | Volume vẫn dùng mật khẩu cũ; khôi phục cấu hình khớp hoặc đổi mật khẩu DB đúng quy trình, không xóa volume để thử. |
+| Domain Admin bị thay đổi sau `make up` | Import đã upsert template trên đĩa; đồng bộ file bootstrap với cấu hình cần giữ. |
 
-## An toàn khi phát triển
+<a id="tai-lieu"></a>
 
-- **Không bao giờ commit** `.env` hay `domains/*/credentials/*.env` (cả hai đều đã nằm trong git-ignore), và không bao giờ dán nội dung của chúng vào chat hay issue. Không commit bất kỳ secret nào.
-- `make down` giữ nguyên mọi dữ liệu. Chỉ `make reset-dev` (hoặc `docker compose down -v`) mới **xóa volume**: người dùng, chat, thư mục agent, cache uv dùng chung, tệp đính kèm, báo cáo và dữ liệu Langfuse. Khởi động lại bình thường: `make down` rồi `make up`.
-- Khi chạy sau HTTPS (production), đặt `COOKIE_SECURE=1`. Giữ mọi cổng được mở trên `127.0.0.1` và đặt proxy ở phía trước.
-- Chi tiết hơn: [GUIDE.md](GUIDE.md) ([tiếng Việt](GUIDE.vi.md)), [docs/16](docs/16-configuration-and-deployment.md).
+## Giới hạn và tài liệu tham chiếu
+
+Dự án ở mức PoC. Những điểm cần hiểu khi mở rộng:
+
+- Harness/job worker gắn với tiến trình backend; không tự tăng nhiều replica mà chưa thiết kế lại điều phối và khóa task.
+- Sandbox có giới hạn tài nguyên và Landlock tùy kernel. Container workspace, cache uv vẫn dùng chung; mạng ra ngoài chưa cô lập theo agent. Cần đánh giá thêm trước khi chạy mã không đáng tin cậy trong môi trường nhiều tenant.
+- Domain mẫu và dashboard có logic Fabrikam; domain mới cần dữ liệu, hướng dẫn và builder phù hợp.
+- Mock minh họa UI/kịch bản, không chứng minh khả năng phân tích của model thật.
+- Eval runner còn scaffold. Các kế hoạch trong tài liệu thiết kế không phải cam kết mọi tính năng đã có; đối chiếu API/code khi phát triển tích hợp.
+
+README cung cấp luồng hiểu và chạy dự án. Các tài liệu sau đi sâu từng phần:
+
+| Chủ đề | Tài liệu |
+|---|---|
+| Tổng quan/thuật ngữ | [Overview](docs/00-overview.md), [Glossary](docs/01-glossary.md) |
+| Kiến trúc/runtime | [Architecture](docs/02-architecture.md), [Agent loop](docs/03-agent-loop.md), [Agent folder](docs/04-agent-folder.md) |
+| Xây agent/context/routing | [Builder](docs/05-agent-builder.md), [Compaction](docs/06-context-and-compaction.md), [Routing](docs/07-routing-and-queue.md) |
+| Sandbox/auth/domain | [Sandbox](docs/11-sandbox.md), [Auth](docs/12-auth-and-domains.md), [Domains](docs/18-domains.md) |
+| Frontend/báo cáo | [Development](docs/14g-frontend-development.md), [Report viewer](docs/14e-report-viewer.md), [Report schema](docs/14f-report-schema.md) |
+| API/vận hành/test | [API](docs/15-api.md), [Deployment](docs/16-configuration-and-deployment.md), [Testing](docs/17-testing.md) |
+| Dashboard/giới hạn | [Reports, dashboard, notifications](docs/19-reports-dashboard-notifications.md), [Risks/future work](docs/99-risks-and-future-work.md) |
+| Bản dịch tiếng Việt | [docs/vi](docs/vi/00-overview.md) |
+
+Khi đóng góp, mô tả rõ thay đổi hành vi, cập nhật tài liệu/cấu hình liên quan và chạy kiểm tra phù hợp trước khi mở pull request.
