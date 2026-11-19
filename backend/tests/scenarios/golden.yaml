@@ -1,0 +1,18 @@
+# The golden flow of doc 17 (user → lead → data → lead → user). Used by the integration
+# tests and by the fake-mode stack (`MODEL_BACKEND=fake`, `MODEL_SCENARIO`).
+agents:
+  lead:
+    - match: {input_contains: "<begin_task"}
+      reply: {tool: "from contoso import send_to_agent\nsend_to_agent(['data'], 'Lấy số liệu căn MAS-U03832 và 20 căn cùng phân khu')"}
+    - reply: {text: "Đã giao việc."}
+    - match: {input_contains: "from=\"agent:data\""}
+      reply: {tool: "import glob\nfrom contoso import send_to_user, end_task\nsend_to_user('Kết quả: căn MAS-U03832 có giá cao hơn 12% so với các căn tương đồng.', files=glob.glob('files/inbox/*/units.csv')[:1], final=True)\nend_task('đã trả lời')"}
+  data:
+    - reply: {tool: "import os\nos.makedirs('files', exist_ok=True)\nopen('files/units.csv','w').write('unit,price\\nMAS-U03832,52\\n')\nprint('ok')"}
+    - reply: {tool: "from contoso import send_to_agent\nsend_to_agent(['lead'], 'Xong: files/units.csv', files=['files/units.csv'])"}
+    - reply: {text: "done"}
+jev:
+  - match: {message_contains: "Vì sao"}
+    label: task
+  - label: side_question
+usage: {prompt_tokens: 1000, completion_tokens: 50, cached_tokens: 900, cost: 0.0001}

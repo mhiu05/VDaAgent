@@ -1,0 +1,49 @@
+# uv workspace root (doc 16). The root itself is not a package; `uv sync --all-packages`
+# installs every member's dependencies plus the dev group.
+[project]
+name = "contoso-platform"
+version = "0.1.0"
+description = "VDaAgent PoC: uv workspace root"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.3",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.14",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["agents", "backend", "eval"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["frontend", "docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic revisions are generated, then reviewed; their long op lines stay as generated.
+"backend/alembic/versions/*.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["."]
+addopts = "-ra -m 'not live'"
+markers = [
+    "live: live OpenRouter contract tests against the real provider (opt-in: pytest -m live)",
+]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+filterwarnings = [
+    # fastapi.testclient still imports httpx; harmless until Starlette drops it.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]

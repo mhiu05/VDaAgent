@@ -1,0 +1,27 @@
+[project]
+name = "contoso-backend"
+version = "0.1.0"
+description = "VDaAgent api service (backend.main:app)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "httpx>=0.28",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "argon2-cffi>=25.1",
+    "python-multipart>=0.0.20",
+    "croniter>=6.0",
+    "tzdata>=2025.2; sys_platform == 'win32'",
+    "packaging>=24.0",
+    "langfuse>=5,<6",
+    "structlog>=25.1",
+    "cryptography>=43",
+]
+
+# Imported from the repo root (`backend.main:app`), not installed as a distribution.
+[tool.uv]
+package = false
