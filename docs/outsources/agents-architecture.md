@@ -1,1 +1,0 @@
-sandbox: https://github.com/opensandbox-group/OpenSandbox
