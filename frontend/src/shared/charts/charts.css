@@ -1,0 +1,115 @@
+.schema-chart-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.schema-chart {
+  display: block;
+  width: 100%;
+  min-width: 420px;
+  height: auto;
+}
+.schema-chart-radial {
+  min-width: 0;
+  max-width: 320px;
+  margin-inline: auto;
+}
+.chart-axis line {
+  stroke: var(--border);
+  stroke-dasharray: 3 4;
+}
+.chart-axis text,
+.chart-label {
+  fill: var(--text-muted);
+  font:
+    11px "Be Vietnam Pro",
+    sans-serif;
+}
+.chart-zero {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+}
+.chart-total {
+  fill: var(--text);
+  font:
+    600 22px "Be Vietnam Pro",
+    sans-serif;
+}
+.chart-cell-value {
+  fill: var(--text);
+  stroke: var(--surface);
+  stroke-width: 3px;
+  paint-order: stroke;
+  font:
+    600 12px "Be Vietnam Pro",
+    sans-serif;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.chart-legend li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.chart-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.chart-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  font-size: 0.75rem;
+  margin-bottom: 12px;
+}
+.chart-switcher select {
+  max-width: 100%;
+  min-height: 36px;
+}
+
+/* A bounded viewBox is measured in CSS pixels, keeping axis text readable. */
+.analytical-chart { min-width: 0; position: relative; }
+.chart-frame-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.chart-frame-heading > h3 { min-width: 0; overflow-wrap: anywhere; }
+.analytical-chart .chart-frame { background: var(--surface); }
+.analytical-chart figcaption { margin-bottom: 6px; }
+.analytical-chart figcaption h3 { font-size: 14px; margin: 0; }
+.analytical-chart figcaption p { font-size: 12px; margin: 4px 0 0; line-height: 1.5; }
+.chart-compact .chart-frame-description { display: none; }
+.chart-toolbar { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.chart-toolbar .button { padding: 4px 6px; min-height: 32px; font-size: 12px; }
+.chart-toolbar .button > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.chart-switcher { margin: 0; gap: 4px; }
+.chart-switcher > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.chart-switcher select { width: 116px; min-height: 32px; padding: 4px 22px 4px 6px; font: inherit; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-control); }
+.schema-chart { width: 100%; min-width: 420px; height: 300px; }
+.schema-chart-radial { min-width: 0; max-width: 320px; }
+.chart-axis text, .chart-label { font-size: 12px; }
+.chart-legend { margin: 6px 0; gap: 4px 12px; font-size: 12px; line-height: 1.5; }
+.chart-legend li { overflow-wrap: anywhere; }
+.chart-value-feedback { position: absolute; top: 55px; left: 12px; right: 12px; z-index: 1; font-size: 12px; line-height: 1.5; pointer-events: none; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; }
+.chart-value-feedback:empty { display: none; }
+.analytical-chart .report-chart-table, .analytical-chart .report-chart-source { font-size: 12px; margin: 0; }
+.analytical-chart .report-chart-source { margin-top: 2px; }
+.analytical-chart summary { cursor: pointer; min-height: 24px; color: var(--primary); }
+.analytical-chart .report-chart-source p { margin: 6px 0; overflow-wrap: anywhere; }
+.chart-reading .schema-chart { max-width: 900px; margin-inline: auto; }
+.schema-chart-scroll:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+[data-chart-mark]:hover { filter: brightness(1.08); }
+@media(max-width:600px) {
+  .chart-frame-heading { flex-wrap: wrap; }
+  .chart-toolbar { margin-left: auto; }
+  .chart-switcher select { width: 128px; }
+}
+.chart-value-feedback { pointer-events: auto; }
+[data-chart-mark][data-active] { filter: brightness(1.1); stroke: var(--text); stroke-width: 2px; }

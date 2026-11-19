@@ -1,0 +1,9 @@
+.provisioning-spinner {
+  color: var(--text-muted);
+  animation: provisioning-spin 1.2s linear infinite;
+}
+@keyframes provisioning-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

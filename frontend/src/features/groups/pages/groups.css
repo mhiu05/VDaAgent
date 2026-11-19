@@ -1,0 +1,54 @@
+.gp-page { box-sizing: border-box; width: min(100%, 920px); margin: 0 auto; padding: clamp(20px, 4vw, 48px); display: grid; gap: 20px; min-width: 0; }
+.gp-page *, .gp-page *::before, .gp-page *::after { box-sizing: border-box; }
+.gp-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; min-width: 0; }
+.gp-heading h1 { margin: 0; width: 100%; overflow-wrap: anywhere; }
+.gp-heading p { margin: 0; flex: 1; color: var(--text-muted); }
+.gp-panel { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.gp-panel h2 { margin: 0 0 18px; font-size: 1.125rem; line-height: 1.4; }
+.gp-create { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.gp-create label { grid-column: 1 / -1; }
+.gp-create input, .gp-picker input, .gp-add-agent select { min-width: 0; width: 100%; min-height: 40px; padding: 10px 12px; border: 1px solid var(--control-border); border-radius: var(--radius-control); background: var(--surface); color: var(--text); font: inherit; }
+.gp-create input:focus-visible, .gp-picker input:focus-visible, .gp-add-agent select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.gp-list, .gp-members, .gp-agents, .gp-picker ul { list-style: none; margin: 0; padding: 0; }
+.gp-list li + li, .gp-members li + li, .gp-agents li + li, .gp-picker li + li { border-top: 1px solid var(--border); }
+.gp-list a { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; }
+.gp-members li, .gp-agents li, .gp-picker li { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 0; }
+.gp-members li > .gp-member-name, .gp-picker li > span { flex: 1; min-width: 0; }
+.gp-agents small, .gp-members small, .gp-picker small { color: var(--text-muted); }
+.gp-picker { margin-top: 20px; display: grid; gap: 8px; }
+.gp-team-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px; }
+.gp-team-heading h2 { margin-bottom: 10px; }
+.gp-team-heading p { margin: 0 0 10px; color: var(--text-muted); font-size: var(--text-small); }
+.gp-provisioning progress { display: block; width: 100%; height: 7px; margin: 0 0 14px; border: 0; border-radius: 999px; overflow: hidden; background: var(--surface-subtle); accent-color: var(--primary); }
+.gp-provisioning progress::-webkit-progress-bar { background: var(--surface-subtle); border-radius: 999px; }
+.gp-provisioning progress::-webkit-progress-value { background: var(--primary); border-radius: 999px; }
+.gp-provisioning progress::-moz-progress-bar { background: var(--primary); border-radius: 999px; }
+.gp-provisioning > .button { margin-bottom: 12px; }
+.gp-agents li { min-height: 56px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; }
+.gp-agent-avatar { width: 40px; height: 40px; display: block; }
+/* AgentFace's chat stylesheet is not loaded on Group Detail. Constrain its nested PNG here. */
+.gp-agent-avatar .ac-face { position: relative; display: block; width: 40px !important; height: 40px !important; line-height: 1; animation: none; filter: none; perspective: none; }
+.gp-agent-avatar .ac-face-body { position: static; display: grid; place-items: center; width: 100%; height: 100%; transform: none; }
+.gp-agent-avatar .ac-robot { display: block; width: 100%; height: 100%; max-width: 100%; object-fit: contain; transform: none; }
+.gp-agent-name { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.gp-agent-status { text-align: right; white-space: nowrap; font-size: var(--text-small); }
+.gp-add-agent-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.gp-add-agent-controls .button { white-space: nowrap; }
+.gp-empty { margin: 0; color: var(--text-muted); }
+.gp-member-avatar { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; background: var(--surface-subtle); color: var(--primary); font-weight: 600; }
+.gp-member-name { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.gp-member-name small { display: block; font-weight: 400; }
+.gp-members .button { flex: none; }
+@media (max-width: 600px) {
+  .gp-page { gap: 16px; padding: 16px; }
+  .gp-panel { padding: 16px; }
+  .gp-create, .gp-add-agent-controls { grid-template-columns: minmax(0, 1fr); }
+  .gp-add-agent-controls .button { width: 100%; }
+  .gp-list a { flex-direction: column; gap: 4px; }
+  .gp-agents li { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; }
+  .gp-agent-avatar, .gp-agent-avatar .ac-face { width: 34px !important; height: 34px !important; }
+}
+@media (max-width: 380px) {
+  .gp-agents li { grid-template-columns: 34px minmax(0, 1fr); }
+  .gp-agent-status { grid-column: 2; text-align: left; margin-top: -8px; }
+}

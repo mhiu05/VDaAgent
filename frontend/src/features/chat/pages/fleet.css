@@ -1,0 +1,607 @@
+.agent-sidebar > header {
+  padding: 14px 14px 10px;
+}
+.agent-sidebar > header p {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-top: 4px;
+}
+.agent-list > section {
+  margin-bottom: 12px;
+}
+.agent-list > section > h3 {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  margin: 6px 8px;
+  color: var(--text-muted);
+}
+.agent-row {
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast);
+  border-radius: 10px;
+}
+.agent-row.selected {
+  border-color: var(--primary);
+}
+.agent-row .avatar {
+  flex-shrink: 0;
+  background: var(--surface);
+  color: var(--primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.agent-row small {
+  font-size: 10px;
+  line-height: 1.5;
+  margin-top: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.agent-row strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.agent-sidebar > footer .button {
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.conversation-history {
+  padding: 12px 8px;
+  margin-top: 12px;
+}
+.conversation-history summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 8px 0;
+}
+.conversation-history summary span {
+  float: right;
+}
+.conversation-history > button {
+  width: 100%;
+  padding: 8px 0;
+}
+.fleet-empty-search {
+  padding: 20px 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.conversation-header {
+  padding: 8px 16px;
+  gap: 8px;
+  background: var(--surface);
+}
+.conversation-header h2 {
+  line-height: 1.5;
+}
+.conversation-header-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.conversation-subtitle {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.conversation-header .avatar {
+  width: 30px;
+  height: 30px;
+}
+.conversation-header-actions .button {
+  min-height: 34px;
+  font-size: 11px;
+  gap: 6px;
+  padding: 6px 10px;
+}
+.conversation-header-actions .icon-button {
+  min-height: 36px;
+  width: 36px;
+}
+.fleet-mock-badge {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 20px;
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fleet-scenario .timeline {
+  background: var(--canvas);
+}
+.fleet-scenario .timeline-inner {
+  max-width: 1120px;
+  padding: 14px 20px 20px;
+}
+.fleet-scenario .message {
+  margin: 0 0 14px;
+  gap: 8px;
+  content-visibility: visible;
+}
+.fleet-scenario .message > .avatar {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--primary);
+  border-radius: 9px;
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+}
+.fleet-scenario .message-agent .message-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px 6px;
+  box-shadow: var(--elevation-1);
+}
+.fleet-scenario .message-meta {
+  margin: 0 0 8px;
+  gap: 6px;
+  font-size: 11px;
+}
+.fleet-scenario .message-meta time {
+  font-size: 10px;
+}
+.message-role {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.fleet-scenario .message-body,
+.fleet-blocks {
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: none;
+}
+.fleet-scenario .markdown h3,
+.fleet-scenario .markdown h4 {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 6px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.fleet-scenario .markdown p {
+  margin: 0 0 8px;
+}
+.fleet-scenario .markdown ul,
+.fleet-scenario .markdown ol {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+.fleet-scenario .markdown li {
+  margin: 4px 0;
+}
+.fleet-scenario .message-user {
+  flex-direction: row-reverse;
+  margin: 4px 0 16px auto;
+  max-width: min(90%, 720px);
+}
+.fleet-scenario .message-user > .avatar {
+  display: none;
+}
+.fleet-scenario .message-user .message-content {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.fleet-scenario .message-user .message-meta {
+  justify-content: flex-end;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.fleet-scenario .user-text {
+  border-radius: 14px 14px 3px 14px;
+  padding: 10px 12px;
+  background: var(--selected);
+  font-size: 12px;
+}
+.fleet-blocks {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.fleet-blocks > .markdown > :last-child {
+  margin-bottom: 0;
+}
+.fleet-blocks .report-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+.fleet-blocks .report-kpis > div {
+  padding: 8px;
+  min-width: 0;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.fleet-blocks .report-kpis dt {
+  color: var(--text-muted);
+  font-size: 10px;
+  min-height: 28px;
+  line-height: 1.5;
+}
+.fleet-blocks .report-kpis dd {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.fleet-blocks .report-kpis dd strong {
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fleet-blocks .report-kpis dd > span {
+  display: block;
+  font-size: 10px;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+.fleet-blocks .report-kpi-comparison {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin: 4px 0 0;
+}
+.fleet-blocks .report-kpi-definition {
+  margin-top: 4px;
+  font-size: 10px;
+}
+.fleet-blocks .report-kpi-definition summary {
+  color: var(--primary);
+  cursor: pointer;
+}
+.fleet-details {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.fleet-details > summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-size: 12px;
+  min-height: 24px;
+}
+.fleet-details[open] > summary {
+  margin-bottom: 8px;
+}
+.fleet-data-table {
+  min-width: 0;
+}
+.fleet-data-table .table-scroll {
+  max-width: 100%;
+}
+.fleet-data-table table {
+  font-size: 11px;
+}
+.fleet-data-table th,
+.fleet-data-table td {
+  padding: 6px 8px;
+}
+.fleet-data-table thead th {
+  background: var(--surface-subtle);
+  position: sticky;
+  top: 0;
+}
+.fleet-data-table > p {
+  font-size: 10px;
+  margin-top: 6px;
+}
+.fleet-finding {
+  padding: 6px 0 6px 10px;
+  border-left: 2px solid var(--accent);
+}
+.fleet-finding h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.fleet-finding p {
+  font-size: 12px;
+}
+.fleet-finding .fleet-caveat {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 8px;
+}
+.fleet-recommendation {
+  border-color: var(--primary);
+}
+.fleet-scenario .evidence-strip {
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.fleet-scenario .evidence-strip > .eyebrow {
+  display: none;
+}
+.fleet-scenario .evidence-strip > .row {
+  margin: 0;
+}
+.fleet-scenario .source-chip {
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  min-height: 28px;
+  font-size: 10px;
+}
+.fleet-scenario .message-content > .icon-button {
+  margin-top: 4px;
+  min-height: 28px;
+  width: 28px;
+  padding: 5px;
+}
+.fleet-blocks .analytical-chart {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.fleet-blocks .chart-frame {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+.fleet-blocks .chart-frame-heading h3 {
+  font-size: 12px;
+}
+.fleet-blocks .chart-frame-description {
+  font-size: 11px;
+}
+.fleet-blocks .analytical-chart summary {
+  min-height: 24px;
+  font-size: 11px;
+}
+.fleet-blocks .chart-legend {
+  font-size: 11px;
+  margin-block: 4px;
+}
+.fleet-blocks .chart-toolbar .button,
+.fleet-blocks .chart-switcher select {
+  min-height: 28px;
+  font-size: 11px;
+}
+.fleet-blocks .chart-switcher select {
+  width: 104px;
+}
+.fleet-roster li::before {
+  display: none;
+}
+.fleet-roster button {
+  background: transparent;
+  border: 0;
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  padding: 7px 0;
+  color: var(--text);
+}
+.fleet-roster .avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--primary);
+}
+.fleet-roster strong,
+.fleet-roster small {
+  display: block;
+}
+.fleet-roster strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.fleet-roster small {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.agent-inspector {
+  padding: 14px;
+}
+.inspector-identity {
+  padding: 14px 0;
+  gap: 6px;
+}
+.inspector-identity h2 {
+  font-size: 17px;
+}
+.agent-inspector section {
+  padding: 12px 0;
+}
+.fleet-inspector-report dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  font-size: 11px;
+  margin-bottom: 18px;
+}
+.fleet-inspector-report dt {
+  color: var(--text-muted);
+}
+.fleet-inspector-report dd {
+  text-align: right;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.fleet-inspector-report a {
+  font-size: 12px;
+}
+.composer-actions .row {
+  gap: 2px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+.composer-actions .icon-button {
+  min-height: 32px;
+  width: 32px;
+  padding: 7px;
+}
+.composer-actions .button {
+  font-size: 11px;
+  min-height: 32px;
+  padding: 4px 6px;
+}
+.fleet-scenario .composer-agent {
+  display: none;
+}
+.fleet-scenario .composer-area {
+  padding: 6px 20px 8px;
+}
+.fleet-scenario .composer-note {
+  font-size: 10px;
+}
+.fleet-scenario .composer-box {
+  border-radius: 12px;
+  box-shadow: var(--elevation-1);
+}
+.fleet-scenario .composer-box textarea {
+  min-height: 40px;
+  font-size: 12px;
+}
+@container (max-width: 540px) {
+  .fleet-blocks .report-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 220px) {
+  .fleet-blocks .report-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (min-width: 1440px) {
+  .chat-layout.inspector-open {
+    grid-template-columns: 220px minmax(0, 1fr) 250px;
+  }
+}
+@media (max-width: 1023px) {
+  .conversation-header {
+    padding: 8px 12px;
+  }
+  .conversation-subtitle {
+    max-width: 42ch;
+  }
+}
+@media (max-width: 767px) {
+  .conversation-header {
+    padding: 8px;
+    gap: 4px;
+  }
+  .conversation-header > .row {
+    gap: 4px;
+    flex: 1;
+  }
+  .conversation-header h2 {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .conversation-subtitle {
+    font-size: 9px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .conversation-header-actions {
+    gap: 2px;
+  }
+  .conversation-header-actions .icon-button {
+    width: 32px;
+    min-height: 40px;
+    padding: 7px;
+  }
+  .fleet-header-report {
+    display: none;
+  }
+  .fleet-mock-badge {
+    font-size: 8px;
+    padding: 3px 5px;
+  }
+  .fleet-scenario .timeline-inner {
+    padding: 10px 8px 16px;
+  }
+  .fleet-scenario .message {
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .fleet-scenario .message > .avatar {
+    width: 24px;
+    height: 24px;
+    font-size: 16px;
+    border-radius: 7px;
+  }
+  .fleet-scenario .message-agent .message-content {
+    padding: 8px 10px 4px;
+    border-radius: 10px;
+  }
+  .fleet-scenario .message-meta {
+    gap: 4px;
+  }
+  .fleet-scenario .message-meta strong {
+    font-size: 11px;
+  }
+  .message-role {
+    font-size: 9px;
+  }
+  .fleet-scenario .message-user {
+    max-width: 92%;
+    margin-left: auto;
+  }
+  .fleet-scenario .user-text {
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .fleet-scenario .markdown h4 {
+    font-size: 13px;
+  }
+  .fleet-scenario .message-body,
+  .fleet-blocks {
+    font-size: 12px;
+  }
+  .fleet-blocks .analytical-chart {
+    padding: 8px;
+  }
+  .fleet-scenario .composer-area {
+    padding: 6px 10px max(6px, env(safe-area-inset-bottom));
+  }
+  .fleet-scenario .composer-box textarea {
+    font-size: 16px;
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+  .fleet-scenario .composer-box textarea::placeholder {
+    font-size: 11px;
+  }
+  .composer-actions {
+    padding: 0 4px 4px;
+  }
+  .composer-actions .icon-button {
+    width: 40px;
+    min-height: 40px;
+  }
+  .composer-actions .button {
+    min-height: 40px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-row {
+    transition: none;
+  }
+}
+[data-motion="reduce"] .agent-row {
+  transition: none;
+}

@@ -1,0 +1,14 @@
+VDaAgent analytical motion dependencies
+
+GSAP 3.15.0
+Copyright 2008-2026, GreenSock. All rights reserved.
+https://gsap.com
+License: https://gsap.com/standard-license
+
+@gsap/react 2.1.2
+Copyright 2008-2025, GreenSock. All rights reserved.
+https://gsap.com
+License: https://gsap.com/standard-license
+
+Both packages use GreenSock's Standard "No Charge" License, not MIT.
+Upstream package notices are retained. No optional GSAP plugins are imported.

@@ -1,0 +1,317 @@
+{
+  "schema_version": "vdaagent.report-fixture.v2",
+  "fixture_type": "report_agent_output_mock",
+  "report": {
+    "id": "riverside-inventory-r010",
+    "version_id": "R010-v2",
+    "version": 2,
+    "immutable": true,
+    "status": "completed",
+    "author": {
+      "agent_id": "report",
+      "display_name": "Report Agent"
+    },
+    "project": "VDA Demo Riverside",
+    "title": "Báo cáo phân tích tồn kho — Riverside, đợt 10",
+    "subtitle": "Tồn lâu tăng trong khi quy mô giỏ hàng giảm",
+    "as_of": "2026-10-15T23:59:00+07:00",
+    "timezone": "Asia/Bangkok",
+    "previous_as_of": null,
+    "classification": "DỮ LIỆU MÔ PHỎNG",
+    "report_type": "inventory-analysis",
+    "language": "vi-VN"
+  },
+  "hero": {
+    "kicker": "PHÂN TÍCH VẬN HÀNH · ĐỢT 10",
+    "headline": "Tồn lâu tăng dù tổng tồn kho đã giảm",
+    "description": "Tại mốc 15/10/2026, Riverside còn 60 căn khả dụng. Số căn tồn từ 180 ngày tăng lên 20 căn, tương đương 35,7% tập có tuổi hợp lệ, trong khi tổng tồn giảm 6 căn so với mốc trước.",
+    "decision": "Ưu tiên kiểm tra 6 căn tồn từ 360 ngày và hoàn thiện dữ liệu của 4 căn chưa rõ tuổi trước khi xem xét điều chỉnh chính sách bán hàng.",
+    "disclaimer": "Ngưỡng 180 ngày là tiêu chí theo dõi nội bộ của bộ dữ liệu mô phỏng; không phải kết luận nguyên nhân bán chậm."
+  },
+  "kpis": [
+    {
+      "id": "available",
+      "label": "Căn còn khả dụng",
+      "value": 60,
+      "unit": "căn",
+      "comparison": {
+        "value": 66,
+        "delta": -6,
+        "delta_display": "−6 căn",
+        "note": "so với mốc trước"
+      },
+      "tone": "neutral"
+    },
+    {
+      "id": "aging",
+      "label": "Căn tồn từ 180 ngày",
+      "value": 20,
+      "unit": "căn",
+      "comparison": {
+        "value": 18,
+        "delta": 2,
+        "delta_display": "+2 căn",
+        "note": "so với mốc trước"
+      },
+      "tone": "warning"
+    },
+    {
+      "id": "aging_rate",
+      "label": "Tỷ lệ tồn lâu",
+      "value": 35.7,
+      "display_value": "35,7%",
+      "unit": "% số căn đủ tuổi",
+      "denominator": 56,
+      "comparison": {
+        "value": 28.1,
+        "delta": 7.6,
+        "delta_display": "+7,6 điểm %",
+        "note": "so với mốc trước"
+      },
+      "tone": "warning"
+    },
+    {
+      "id": "age_quality",
+      "label": "Độ đầy đủ tuổi tồn",
+      "value": 93.3,
+      "display_value": "93,3%",
+      "unit": "56/60 căn",
+      "comparison": {
+        "value": 97,
+        "delta": -3.6,
+        "delta_display": "−3,6 điểm %",
+        "note": "so với mốc trước"
+      },
+      "tone": "caution"
+    }
+  ],
+  "snapshots": {
+    "current": {
+      "available": 60,
+      "valid_age": 56,
+      "aged_180_plus": 20,
+      "unknown_age": 4
+    },
+    "previous": {
+      "available": 66,
+      "valid_age": 64,
+      "aged_180_plus": 18,
+      "unknown_age": 2
+    }
+  },
+  "age_buckets": [
+    {
+      "id": "0-89",
+      "label": "0–89 ngày",
+      "count": 24,
+      "known": true,
+      "share_available_pct": 40.0,
+      "share_valid_pct": 42.9
+    },
+    {
+      "id": "90-179",
+      "label": "90–179 ngày",
+      "count": 12,
+      "known": true,
+      "share_available_pct": 20.0,
+      "share_valid_pct": 21.4
+    },
+    {
+      "id": "180-359",
+      "label": "180–359 ngày",
+      "count": 14,
+      "known": true,
+      "share_available_pct": 23.3,
+      "share_valid_pct": 25.0
+    },
+    {
+      "id": "360+",
+      "label": "Từ 360 ngày",
+      "count": 6,
+      "known": true,
+      "share_available_pct": 10.0,
+      "share_valid_pct": 10.7
+    },
+    {
+      "id": "unknown",
+      "label": "Chưa rõ tuổi",
+      "count": 4,
+      "known": false,
+      "share_available_pct": 6.7,
+      "share_valid_pct": null
+    }
+  ],
+  "derived_metrics": {
+    "aged_rate_valid_pct": 35.7,
+    "aged_rate_total_pct": 33.3,
+    "aged_rate_previous_valid_pct": 28.1,
+    "aged_rate_change_pp": 7.6,
+    "known_age_coverage_pct": 93.3,
+    "known_age_coverage_previous_pct": 97.0,
+    "known_age_coverage_change_pp": -3.6,
+    "available_change_count": -6,
+    "available_change_pct": -9.1,
+    "aged_count_change": 2,
+    "aged_count_change_pct": 11.1,
+    "aged_rate_total_bounds_pct": [
+      33.3,
+      40.0
+    ]
+  },
+  "charts": [
+    {
+      "id": "age-distribution",
+      "kind": "bar-horizontal",
+      "title": "Tồn kho phân bổ theo nhóm tuổi",
+      "subtitle": "Số căn tại mốc 15/10/2026",
+      "unit": "căn",
+      "series": [
+        {
+          "id": "0-89",
+          "label": "0–89 ngày",
+          "value": 24,
+          "share_total_pct": 40.0
+        },
+        {
+          "id": "90-179",
+          "label": "90–179 ngày",
+          "value": 12,
+          "share_total_pct": 20.0
+        },
+        {
+          "id": "180-359",
+          "label": "180–359 ngày",
+          "value": 14,
+          "share_total_pct": 23.3
+        },
+        {
+          "id": "360+",
+          "label": "Từ 360 ngày",
+          "value": 6,
+          "share_total_pct": 10.0
+        },
+        {
+          "id": "unknown",
+          "label": "Chưa rõ tuổi",
+          "value": 4,
+          "share_total_pct": 6.7
+        }
+      ],
+      "quick_read": "36/60 căn có tuổi dưới 180 ngày; 20 căn đã đạt ngưỡng 180 ngày; 4 căn chưa xác định tuổi."
+    },
+    {
+      "id": "snapshot-compare",
+      "kind": "bar-grouped",
+      "title": "Biến động so với mốc trước",
+      "subtitle": "Hai snapshot, không phải cùng một tập căn cố định",
+      "unit": "căn",
+      "series": [
+        {
+          "label": "Tồn khả dụng",
+          "previous": 66,
+          "current": 60
+        },
+        {
+          "label": "Đủ tuổi tồn",
+          "previous": 64,
+          "current": 56
+        },
+        {
+          "label": "Tồn từ 180 ngày",
+          "previous": 18,
+          "current": 20
+        }
+      ],
+      "quick_read": "Quy mô tồn giảm 9,1%, nhưng nhóm từ 180 ngày tăng 11,1% về số căn."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F01",
+      "priority": "Nổi bật",
+      "title": "Tỷ trọng tồn lâu tăng 7,6 điểm %",
+      "description": "20/56 căn đủ tuổi có tuổi tồn từ 180 ngày, so với 18/64 căn tại mốc trước. Diễn biến cùng chiều tăng xuất hiện ở cả số lượng và tỷ trọng nhóm tồn lâu.",
+      "note": "Không quy kết nguyên nhân từ biến động hai snapshot."
+    },
+    {
+      "id": "F02",
+      "priority": "Ưu tiên cao",
+      "title": "6 căn đã tồn từ 360 ngày",
+      "description": "Nhóm có tuổi tồn cao nhất chiếm 10,7% số căn có tuổi hợp lệ. Đây là nhóm cần rà soát tình trạng bán, đặc điểm sản phẩm và lịch sử niêm yết đầu tiên.",
+      "note": "Chưa có dữ liệu giá/CRM để khuyến nghị điều chỉnh giá."
+    },
+    {
+      "id": "F03",
+      "priority": "Cần hoàn thiện",
+      "title": "4 căn chưa có tuổi tồn hợp lệ",
+      "description": "Mức độ đầy đủ ngày mở bán đạt 93,3%, thấp hơn mức 97,0% ở kỳ trước. Những căn này chưa thể đưa vào xếp nhóm tuổi.",
+      "note": "Không được mặc định các căn thiếu ngày thuộc nhóm tuổi 0."
+    }
+  ],
+  "actions": [
+    {
+      "id": "A01",
+      "priority": "P0",
+      "title": "Hoàn thiện hồ sơ 4 căn chưa rõ tuổi",
+      "owner": "Vận hành dữ liệu",
+      "due": "Trong 2 ngày làm việc",
+      "definition_of_done": "4/4 căn có ngày mở bán hợp lệ hoặc ghi rõ lý do chưa thể xác minh",
+      "state": "proposed"
+    },
+    {
+      "id": "A02",
+      "priority": "P1",
+      "title": "Rà soát 6 căn tồn từ 360 ngày",
+      "owner": "Quản lý kinh doanh",
+      "due": "Trong 3 ngày làm việc",
+      "definition_of_done": "6/6 căn có xác nhận trạng thái, ngày mở bán và thông tin hiện trạng",
+      "state": "proposed"
+    },
+    {
+      "id": "A03",
+      "priority": "P1",
+      "title": "Đánh giá 14 căn tồn 180–359 ngày",
+      "owner": "Sales Operations",
+      "due": "Trong 5 ngày làm việc",
+      "definition_of_done": "14/14 căn được kiểm tra dữ liệu giá và ghi nhận điểm cần xử lý",
+      "state": "proposed"
+    },
+    {
+      "id": "A04",
+      "priority": "P2",
+      "title": "Đối soát biến động tồn theo từng căn",
+      "owner": "Data + Kinh doanh",
+      "due": "Trong 10 ngày làm việc",
+      "definition_of_done": "Phân biệt các biến động bán, bổ sung, hủy, chuyển trạng thái giữa hai mốc",
+      "state": "proposed"
+    }
+  ],
+  "ui": {
+    "default_view": "overview",
+    "allow_reader_toggle": true,
+    "show_author": "Report Agent",
+    "show_section_numbers": true,
+    "hidden_sections": [
+      "09",
+      "10",
+      "11"
+    ],
+    "cta_label": "Xem báo cáo đầy đủ"
+  },
+  "internal_mock_context": {
+    "purpose": "UI fixture only; not an actual report-agent execution",
+    "source_basis": "Riverside screenshots in current conversation",
+    "no_fabricated_fields": [
+      "revenue",
+      "prices",
+      "transactions",
+      "customerLeads",
+      "bookingConversions"
+    ],
+    "notes": [
+      "Không đưa các mục 09/10/11 của phiên bản trước vào preview",
+      "Mốc trước không rõ ngày nên không được gán thời gian giả",
+      "Tính chất dữ liệu mô phỏng phải thể hiện trung thực ở metadata UI"
+    ]
+  }
+}

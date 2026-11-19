@@ -1,0 +1,565 @@
+{
+  "schema_version": "vdaagent.ui-scenario.reference.v2",
+  "warning": "DESIGN-ONLY DECLARATIVE MOCK; MAP THROUGH EXISTING REPO ADAPTER. NOT runtime/API schema or executed agent log.",
+  "id": "riverside-inventory-r010-agent-demo-v2",
+  "classification": "MÔ PHỎNG",
+  "presentation_mode": "static_preseeded",
+  "source_of_truth": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+  "report_reference": {
+    "id": "riverside-inventory-r010",
+    "version_id": "R010-v2"
+  },
+  "runtime_semantics": {
+    "raw_send_to_agent_visible": false,
+    "group_specialist_messages": "curated_user_visible_result_projections_not_raw_agent_to_agent_payloads",
+    "pretends_to_execute_models_or_workers": false,
+    "refresh_restarts_task": false,
+    "report_creation_on_slash_command": false,
+    "status_mapping": "authoritative_existing_report_registry"
+  },
+  "agent_order": [
+    "orchestrator",
+    "data",
+    "compare",
+    "chart",
+    "insight",
+    "report"
+  ],
+  "group_thread": {
+    "id": "riverside-r010-group",
+    "kind": "group",
+    "title": "Phân tích tồn kho Riverside · Đợt 10",
+    "participants": [
+      "orchestrator",
+      "data",
+      "compare",
+      "chart",
+      "insight",
+      "report"
+    ],
+    "events": [
+      {
+        "id": "r010-g-001",
+        "sender_id": "user",
+        "surface": "user",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "text": "Phân tích tình hình tồn kho dự án VDA Demo Riverside đợt 10. Tôi muốn hiểu cơ cấu tuổi tồn, thay đổi so với mốc trước, nhóm cần ưu tiên và các hành động nên làm. Chỉ kết luận trong phạm vi dữ liệu hiện có."
+      },
+      {
+        "id": "r010-g-002",
+        "sender_id": "orchestrator",
+        "surface": "agent_public_reply",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Tôi sẽ phân tích theo bốn góc nhìn",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Tôi sẽ đối chiếu số lượng tồn, chất lượng ngày mở bán, thay đổi giữa hai snapshot và các nhóm cần rà soát. Tôi sẽ tách **phát hiện có số liệu** khỏi **nguyên nhân chưa được xác minh**."
+          }
+        ]
+      },
+      {
+        "id": "r010-g-003",
+        "sender_id": "data",
+        "surface": "team_result_projection",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Cơ cấu tồn kho và chất lượng dữ liệu",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Có **{available} căn khả dụng**, trong đó **{valid_age} căn đủ tuổi tồn** và **{unknown_age} căn chưa xác định được tuổi**. Nhóm từ 180 ngày trở lên có **{aged_180_plus} căn**; mẫu số tỷ lệ tồn lâu là **{valid_age} căn**.",
+            "bindings": {
+              "available": "snapshots.current.available",
+              "valid_age": "snapshots.current.valid_age",
+              "unknown_age": "snapshots.current.unknown_age",
+              "aged_180_plus": "snapshots.current.aged_180_plus"
+            }
+          },
+          {
+            "type": "metric_group",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "metric_ids": [
+              "available",
+              "aging",
+              "aging_rate",
+              "age_quality"
+            ]
+          },
+          {
+            "type": "details",
+            "title": "Phân bố tuổi tồn và mẫu số",
+            "children": [
+              {
+                "type": "data_table",
+                "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+                "data_binding": "age_buckets"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "r010-g-004",
+        "sender_id": "compare",
+        "surface": "team_result_projection",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Tồn tổng giảm, tồn lâu tăng",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Tồn khả dụng giảm, nhưng số căn tồn từ 180 ngày lại tăng. **Tỷ lệ tồn lâu tăng {change_pp} điểm phần trăm** trên mẫu có tuổi hợp lệ. Không có ngày chốt của mốc trước, và không thể suy diễn số căn đã bán từ chênh lệch này.",
+            "bindings": {
+              "change_pp": "derived_metrics.aged_rate_change_pp"
+            }
+          },
+          {
+            "type": "comparison",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "bindings": [
+              "snapshots.previous",
+              "snapshots.current",
+              "derived_metrics.aged_rate_previous_valid_pct",
+              "derived_metrics.aged_rate_valid_pct",
+              "derived_metrics.aged_rate_change_pp"
+            ],
+            "label_previous": "Mốc trước (không rõ ngày)",
+            "label_current": "15/10/2026",
+            "display": "count_and_percentage_point_deltas"
+          }
+        ]
+      },
+      {
+        "id": "r010-g-005",
+        "sender_id": "chart",
+        "surface": "team_result_projection",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Hai biểu đồ cho thấy cơ cấu và biến động",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Quan sát đồng thời **nhóm tuổi tồn** và **chênh lệch hai snapshot**. Số liệu và đơn vị trên biểu đồ sử dụng cùng nguồn với báo cáo cuối."
+          },
+          {
+            "type": "chart_ref",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "chart_id": "age-distribution",
+            "display": "interactive_chart_with_quick_read_and_accessible_table"
+          },
+          {
+            "type": "chart_ref",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "chart_id": "snapshot-compare",
+            "display": "interactive_chart_with_quick_read_and_accessible_table"
+          }
+        ]
+      },
+      {
+        "id": "r010-g-006",
+        "sender_id": "insight",
+        "surface": "team_result_projection",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Ba phát hiện và bốn hành động đề xuất",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "**Tín hiệu cần ưu tiên:** tồn lâu tăng về số căn và tỷ trọng; nhóm từ 360 ngày cần rà soát; hồ sơ chưa rõ tuổi cần bổ sung trước khi kết luận sâu. **Chưa đủ dữ liệu về giá, giao dịch hoặc CRM** để xác định nguyên nhân bán chậm."
+          },
+          {
+            "type": "findings",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "finding_ids": [
+              "F01",
+              "F02",
+              "F03"
+            ]
+          },
+          {
+            "type": "action_proposals",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "action_ids": [
+              "A01",
+              "A02",
+              "A03",
+              "A04"
+            ],
+            "state": "proposed"
+          }
+        ]
+      },
+      {
+        "id": "r010-g-007",
+        "sender_id": "orchestrator",
+        "surface": "agent_public_reply",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Kết luận: ưu tiên kiểm chứng trước khi điều chỉnh chính sách",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Giỏ hàng Riverside còn **{available} căn**, nhưng **{aged_180_plus}/{valid_age} căn có tuổi hợp lệ** đã đạt ngưỡng từ 180 ngày (**{aged_rate}%**), tăng **{change_pp} điểm phần trăm** so với mốc trước. Trước hết hãy rà soát nhóm từ 360 ngày và hoàn thiện tuổi tồn của những hồ sơ còn thiếu; sau đó mới đưa ra quyết định thương mại.",
+            "bindings": {
+              "available": "snapshots.current.available",
+              "aged_180_plus": "snapshots.current.aged_180_plus",
+              "valid_age": "snapshots.current.valid_age",
+              "aged_rate": "derived_metrics.aged_rate_valid_pct",
+              "change_pp": "derived_metrics.aged_rate_change_pp"
+            }
+          },
+          {
+            "type": "action",
+            "action": "prefill_scoped_report_command",
+            "command": "/report",
+            "label": "Tạo báo cáo từ kết quả phân tích"
+          }
+        ]
+      },
+      {
+        "id": "r010-g-008",
+        "sender_id": "user",
+        "surface": "user",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "text": "/report Tạo báo cáo điều hành chi tiết cho VDA Demo Riverside đợt 10. Tổng hợp kết quả Data, Compare, Chart và Insight thành báo cáo có KPI, biểu đồ, findings và đề xuất hành động."
+      },
+      {
+        "id": "r010-g-009",
+        "sender_id": "orchestrator",
+        "surface": "agent_public_reply",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Tổng hợp thành báo cáo điều hành",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Tôi sẽ sử dụng kết quả phân tích đã có để trình bày báo cáo Riverside **R010-v2**, có hai biểu đồ và phần giới hạn dữ liệu. Đây là **kịch bản giao diện mô phỏng**, không phải bằng chứng có job mới đang chạy."
+          }
+        ]
+      },
+      {
+        "id": "r010-g-010",
+        "sender_id": "report",
+        "surface": "report_reference",
+        "visibility": "user_visible",
+        "source": "mock_fixture",
+        "headline": "Báo cáo phân tích tồn kho Riverside — R010-v2",
+        "blocks": [
+          {
+            "type": "markdown",
+            "body": "Báo cáo điều hành gồm **8 mục nghiệp vụ** và **2 biểu đồ**. Mọi số liệu được liên kết đến **cùng một report version**; các kế hoạch hành động còn ở trạng thái **đề xuất**."
+          },
+          {
+            "type": "report_ref",
+            "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+            "report_id": "riverside-inventory-r010",
+            "version_id": "R010-v2",
+            "status_binding": "report.status",
+            "metadata_bindings": [
+              "report.title",
+              "report.as_of",
+              "report.author"
+            ],
+            "sections_expected": 8,
+            "chart_ids": [
+              "age-distribution",
+              "snapshot-compare"
+            ],
+            "primary_action": {
+              "type": "open_existing_report_viewer",
+              "label": "Xem báo cáo đầy đủ"
+            },
+            "no_duplicate_report": true
+          }
+        ]
+      }
+    ]
+  },
+  "direct_threads": [
+    {
+      "id": "riverside-dm-orchestrator",
+      "kind": "direct",
+      "agent_id": "orchestrator",
+      "title": "Orchestrator · Riverside research notebook",
+      "messages": [
+        {
+          "id": "riverside-dm-orchestrator-001",
+          "sender_id": "user",
+          "surface": "user",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "text": "Hãy tổng hợp những điều quan trọng nhất của tồn kho Riverside, tôi nên xem phần nào trước?"
+        },
+        {
+          "id": "riverside-dm-orchestrator-002",
+          "sender_id": "orchestrator",
+          "surface": "agent_public_reply",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "headline": "Kết luận điều hành trong một phút",
+          "blocks": [
+            {
+              "type": "markdown",
+              "body": "Tổng tồn có dấu hiệu giảm nhưng tồn lâu tăng về số lượng lẫn tỷ trọng. Để quyết định tiếp, cần kiểm tra **nhóm tồn từ 360 ngày**, xử lý hồ sơ thiếu tuổi và đối soát từng căn; dữ liệu hiện tại chưa cho phép chẩn đoán nguyên nhân bán chậm."
+            },
+            {
+              "type": "action",
+              "action": "navigate_to_group",
+              "thread_id": "riverside-r010-group",
+              "label": "Xem phân tích nhóm"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "riverside-dm-data",
+      "kind": "direct",
+      "agent_id": "data",
+      "title": "Data · Riverside research notebook",
+      "messages": [
+        {
+          "id": "riverside-dm-data-001",
+          "sender_id": "user",
+          "surface": "user",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "text": "Kiểm tra độ đầy đủ dữ liệu tuổi tồn của Riverside và liệt kê các nhóm tuổi."
+        },
+        {
+          "id": "riverside-dm-data-002",
+          "sender_id": "data",
+          "surface": "agent_public_reply",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "headline": "Dữ liệu đủ để mô tả cơ cấu, nhưng còn hồ sơ thiếu tuổi",
+          "blocks": [
+            {
+              "type": "markdown",
+              "body": "Tỷ lệ đủ ngày mở bán tính trên toàn bộ giỏ hàng; tỷ lệ tồn lâu tính trên **tập đủ tuổi**, không được gộp hai mẫu số. Hồ sơ thiếu tuổi không mặc định ở nhóm 0 ngày."
+            },
+            {
+              "type": "metric_group",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "metric_ids": [
+                "available",
+                "aging",
+                "aging_rate",
+                "age_quality"
+              ]
+            },
+            {
+              "type": "details",
+              "title": "Xem 5 nhóm tuổi tồn",
+              "children": [
+                {
+                  "type": "data_table",
+                  "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+                  "data_binding": "age_buckets"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "riverside-dm-compare",
+      "kind": "direct",
+      "agent_id": "compare",
+      "title": "Compare · Riverside research notebook",
+      "messages": [
+        {
+          "id": "riverside-dm-compare-001",
+          "sender_id": "user",
+          "surface": "user",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "text": "So sánh tồn kho Riverside với mốc trước và giải thích thay đổi về tỷ lệ tồn lâu."
+        },
+        {
+          "id": "riverside-dm-compare-002",
+          "sender_id": "compare",
+          "surface": "agent_public_reply",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "headline": "Tồn lâu tăng ngược chiều với tổng tồn",
+          "blocks": [
+            {
+              "type": "markdown",
+              "body": "Tập so sánh là **hai snapshot**, không phải cùng một cohort căn bất biến. Mốc trước không có ngày; chênh lệch tổng tồn không suy ra số căn đã bán."
+            },
+            {
+              "type": "comparison",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "bindings": [
+                "snapshots.previous",
+                "snapshots.current",
+                "derived_metrics.aged_rate_previous_valid_pct",
+                "derived_metrics.aged_rate_valid_pct",
+                "derived_metrics.aged_rate_change_pp"
+              ],
+              "label_previous": "Mốc trước (không rõ ngày)",
+              "label_current": "15/10/2026",
+              "display": "count_and_percentage_point_deltas"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "riverside-dm-chart",
+      "kind": "direct",
+      "agent_id": "chart",
+      "title": "Chart · Riverside research notebook",
+      "messages": [
+        {
+          "id": "riverside-dm-chart-001",
+          "sender_id": "user",
+          "surface": "user",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "text": "Vẽ biểu đồ cơ cấu tuổi tồn và so sánh các nhóm giữa hai snapshot của Riverside."
+        },
+        {
+          "id": "riverside-dm-chart-002",
+          "sender_id": "chart",
+          "surface": "agent_public_reply",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "headline": "Biểu đồ cơ cấu tuổi tồn và biến động tồn kho",
+          "blocks": [
+            {
+              "type": "markdown",
+              "body": "Hai biểu đồ dưới đây được gắn theo **chart ID của canonical report**, có bảng số liệu tương đương để kiểm tra."
+            },
+            {
+              "type": "chart_ref",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "chart_id": "age-distribution",
+              "display": "interactive_chart_with_quick_read_and_accessible_table"
+            },
+            {
+              "type": "chart_ref",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "chart_id": "snapshot-compare",
+              "display": "interactive_chart_with_quick_read_and_accessible_table"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "riverside-dm-insight",
+      "kind": "direct",
+      "agent_id": "insight",
+      "title": "Insight · Riverside research notebook",
+      "messages": [
+        {
+          "id": "riverside-dm-insight-001",
+          "sender_id": "user",
+          "surface": "user",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "text": "Nhóm nào của Riverside cần xử lý trước và ta có thể kết luận nguyên nhân chậm bán chưa?"
+        },
+        {
+          "id": "riverside-dm-insight-002",
+          "sender_id": "insight",
+          "surface": "agent_public_reply",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "headline": "Ưu tiên kiểm tra, chưa đủ bằng chứng quy kết nguyên nhân",
+          "blocks": [
+            {
+              "type": "markdown",
+              "body": "Quan sát được tín hiệu tồn lâu và chất lượng dữ liệu; chưa có **giá, lịch sử bán, CRM hoặc bằng chứng nguyên nhân**. Actions là **đề xuất**, chưa giao việc thật."
+            },
+            {
+              "type": "findings",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "finding_ids": [
+                "F01",
+                "F02",
+                "F03"
+              ]
+            },
+            {
+              "type": "action_proposals",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "action_ids": [
+                "A01",
+                "A02",
+                "A03",
+                "A04"
+              ],
+              "state": "proposed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "riverside-dm-report",
+      "kind": "direct",
+      "agent_id": "report",
+      "title": "Report · Riverside research notebook",
+      "messages": [
+        {
+          "id": "riverside-dm-report-001",
+          "sender_id": "user",
+          "surface": "user",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "text": "Mở báo cáo điều hành tồn kho Riverside đợt 10, bản đầy đủ."
+        },
+        {
+          "id": "riverside-dm-report-002",
+          "sender_id": "report",
+          "surface": "agent_public_reply",
+          "visibility": "user_visible",
+          "source": "mock_fixture",
+          "headline": "Bản báo cáo điều hành Riverside — R010-v2",
+          "blocks": [
+            {
+              "type": "markdown",
+              "body": "Báo cáo có **8 mục** và **2 biểu đồ**. Trạng thái xem theo registry; fixture gốc đang là **completed**. Nhấn `Xem báo cáo đầy đủ` để mở báo cáo phiên bản được ghim."
+            },
+            {
+              "type": "report_ref",
+              "source_ref": "reference/riverside/VDaAgent_Riverside_Executive_Report_v2.json",
+              "report_id": "riverside-inventory-r010",
+              "version_id": "R010-v2",
+              "status_binding": "report.status",
+              "metadata_bindings": [
+                "report.title",
+                "report.as_of",
+                "report.author"
+              ],
+              "sections_expected": 8,
+              "chart_ids": [
+                "age-distribution",
+                "snapshot-compare"
+              ],
+              "primary_action": {
+                "type": "open_existing_report_viewer",
+                "label": "Xem báo cáo đầy đủ"
+              },
+              "no_duplicate_report": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "navigation": {
+    "report_action": "open_existing_reports_viewer",
+    "return_to": "originating_thread_and_scroll_position",
+    "report_id_alias_policy": "resolve_alias_from_repo_registry"
+  },
+  "integrity_rules_file": "scenario/riverside-display-rules.v2.json"
+}

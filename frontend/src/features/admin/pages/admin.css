@@ -1,0 +1,262 @@
+/* Admin overview, users, chat-trace view and thread mode (docs 12, 13). */
+.admin-domains {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-domain {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+}
+.admin-domain-unavailable {
+  border-color: var(--danger);
+}
+.admin-table-wrap {
+  overflow-x: auto;
+}
+.admin-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-small);
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.admin-status-failed {
+  color: var(--danger);
+}
+.admin-status-disabled {
+  color: var(--text-muted);
+}
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.admin-domain-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 0;
+}
+.admin-domain-detail section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.admin-domain-detail h4 {
+  margin: 0;
+}
+.admin-cred-set,
+.admin-starter {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.admin-cred-set ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-dialog-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+.admin-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.admin-dot-busy {
+  background: var(--success);
+}
+.admin-dot-routine {
+  background: var(--info);
+}
+.admin-dot-compacting {
+  background: var(--warning);
+}
+.admin-trace-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+}
+.admin-sidebar {
+  font-size: var(--text-small);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.admin-sidebar h3 {
+  margin: 8px 0 2px;
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.admin-sidebar ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 10px;
+}
+.admin-sidebar a {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+  padding: 2px 4px;
+  border-radius: var(--radius-control);
+}
+.admin-sidebar a.selected,
+.admin-sidebar a:hover {
+  background: var(--selected);
+}
+.admin-user > button {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.admin-threads {
+  border-left: 2px solid var(--border);
+  margin-top: 4px !important;
+}
+.trace-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.trace-header > div {
+  flex: 1;
+}
+.trace-header h1 {
+  margin: 0;
+}
+.trace-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trace-activation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 10px;
+  margin-top: 10px;
+  border-top: 2px solid var(--primary);
+  background: var(--surface-subtle);
+  font-size: var(--text-small);
+}
+.trace-in,
+.trace-call,
+.thread-msg {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  padding: 8px 10px;
+  background: var(--surface);
+}
+.trace-in-head,
+.trace-call-head,
+.thread-msg-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--text-small);
+  color: var(--text-muted);
+}
+.trace-jev {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.trace-text,
+.trace-code,
+.trace-output,
+.trace-state pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-small);
+}
+.trace-code {
+  background: var(--surface-subtle);
+  padding: 8px;
+  border-radius: var(--radius-control);
+}
+.trace-output-failed {
+  color: var(--danger);
+}
+.trace-call {
+  margin-left: 24px;
+}
+.trace-changed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: var(--text-small);
+}
+.trace-reasoning,
+.trace-state {
+  color: var(--text-muted);
+  font-size: var(--text-small);
+  margin-left: 24px;
+}
+.trace-epoch {
+  border: 1px dashed var(--warning);
+  border-radius: var(--radius-panel);
+  padding: 6px 10px;
+}
+.trace-error {
+  border-left: 3px solid var(--danger);
+  padding: 6px 10px;
+  color: var(--danger);
+}
+.thread-msg-user {
+  margin-left: 15%;
+  background: var(--selected);
+}
+.thread-msg-system {
+  text-align: center;
+  color: var(--text-muted);
+}
+.trace-folder {
+  width: min(1100px, 96vw);
+  max-width: none;
+}
+@media (max-width: 767px) {
+  .admin-trace-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.admin-progress {
+  display: block;
+  margin-top: 4px;
+  max-width: 42ch;
+  overflow-wrap: anywhere;
+}

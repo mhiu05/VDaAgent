@@ -1,0 +1,6 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+# Machine 2 owns this frozen integration bridge after F0.
+src/app/integrations/workspace.ts

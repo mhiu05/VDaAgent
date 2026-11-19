@@ -1,0 +1,263 @@
+/* The saved-report card in a chat message. Imported by the component so it is styled wherever
+   a message carries a report (scenario chat and agent/group chat alike). */
+.fleet-report-card {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 600px;
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px #17384a0f, 0 4px 14px #17384a0d;
+  transition:
+    box-shadow var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease);
+}
+.fleet-report-card:hover {
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  box-shadow: var(--elevation-1);
+}
+
+/* header: saved badge + report status */
+.fleet-report-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fleet-report-badge,
+.fleet-report-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.fleet-report-badge {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--surface));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fleet-report-badge > svg {
+  flex-shrink: 0;
+}
+.fleet-report-status {
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  font-weight: 500;
+}
+.fleet-report-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.fleet-report-status-completed {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 9%, var(--surface));
+}
+.fleet-report-status-generating {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface));
+}
+.fleet-report-status-failed {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+
+/* title + metadata */
+.fleet-report-identity {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.fleet-report-identity h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.fleet-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.fleet-report-meta > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.fleet-report-meta dt {
+  display: inline-flex;
+  align-items: center;
+}
+.fleet-report-meta dt > svg {
+  flex-shrink: 0;
+  margin-right: 5px;
+}
+.fleet-report-meta dt::after {
+  content: ":";
+}
+.fleet-report-meta dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet-report-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+/* key metrics as mini-stats (resets the reports page's global `.report-kpis` rules) */
+.fleet-report-card .report-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+/* :nth-child(n) outranks the reports page's `.report-kpis > div:nth-child(...)` borders */
+.fleet-report-card .report-kpis > div:nth-child(n) {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--surface-subtle);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 10px;
+}
+.fleet-report-card .report-kpis dt {
+  min-height: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.fleet-report-card .report-kpis dd {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.fleet-report-card .report-kpis dd strong {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  white-space: nowrap;
+}
+.fleet-report-card .report-kpis dd > span {
+  display: inline;
+  margin-left: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.fleet-report-card .report-kpi-comparison {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.fleet-report-card .report-kpi-definition {
+  margin-top: 4px;
+  font-size: 11px;
+}
+.fleet-report-card .report-kpi-definition summary {
+  color: var(--primary);
+  cursor: pointer;
+}
+
+/* footer: contents + the primary action */
+.fleet-report-card > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.fleet-report-contents {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.fleet-report-contents > svg {
+  flex-shrink: 0;
+}
+.fleet-report-card .fleet-report-cta {
+  min-height: 40px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fleet-report-cta > svg {
+  transition: transform var(--motion-fast) var(--ease);
+}
+.fleet-report-cta:hover > svg {
+  transform: translate(2px, -2px);
+}
+.fleet-report-cta:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@container (max-width: 420px) {
+  .fleet-report-card > footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .fleet-report-card .fleet-report-cta {
+    width: 100%;
+  }
+}
+@media (max-width: 767px) {
+  .fleet-report-card {
+    padding: 16px;
+    gap: 14px;
+  }
+  .fleet-report-identity h4 {
+    font-size: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fleet-report-card,
+  .fleet-report-cta > svg {
+    transition: none;
+  }
+  .fleet-report-cta:hover > svg {
+    transform: none;
+  }
+}
