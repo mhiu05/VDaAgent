@@ -43,7 +43,8 @@ export function createAuthMockService(ctx: MockContext): AuthService {
       if (ctx.scenario === "error" || ctx.scenario === "offline") return failure("demoLoginFailed");
       if (profile === "admin") return { data: establish(demoAdmin) };
       return { data: establish({
-        id: profile === "alice" ? "demo-alice" : "demo-vre",
+        // Every user profile shares the fixture workspace used by reports and dashboard.
+        id: accounts[0].principal.id,
         displayName: profile === "alice" ? "Alice" : "VRE Demo",
         email: profile,
         role: "USER",

@@ -13,6 +13,8 @@ import { TableSurface, ChartFrame } from "../ui/data";
 import { PageFrame } from "../ui/page";
 import { createStorage } from "../../mocks/core/storage";
 import { createAuthMockService } from "../../mocks/auth/entry";
+import { createReportsMockService } from "../../mocks/reports/entry";
+import { createDashboardMockService } from "../../mocks/dashboard/entry";
 import { fixtureEpoch } from "../../mocks/core/clock";
 import { seededId, type MockContext } from "../../mocks/core/scenarios";
 import { safeUrl } from "../lib/url-policy";
@@ -151,6 +153,19 @@ describe("frozen integration contract", () => {
   });
 });
 describe("storage, auth and formatting boundaries", () => {
+  it.each(["alice", "vre-demo"] as const)("opens the fixture dashboard and reports after %s demo login", async (profile) => {
+    const context = ctx();
+    const auth = createAuthMockService(context);
+    const session = (await auth.loginDemo(profile)).data!;
+    const reports = createReportsMockService(context);
+    const catalog = await reports.catalog(session.principal);
+    expect(catalog.error).toBeUndefined();
+    const dashboard = createDashboardMockService(context, reports);
+    const overview = await dashboard.overview(session.principal, catalog.data!.defaultScope);
+    expect(overview.error).toBeUndefined();
+    expect(overview.data?.inventory.state).toBe("ready");
+    expect(overview.data?.reports.state).toBe("ready");
+  });
   it("validates preferences and scoped keys; corrupt/blocked storage falls back", () => {
     const s = createStorage("localStorage");
     const p = defaultPreferences("Demo");
