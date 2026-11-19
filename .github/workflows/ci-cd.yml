@@ -190,7 +190,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check optional EC2 deployment configuration
+        id: deployment
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          missing=()
+          for name in EC2_HOST EC2_USER EC2_SSH_KEY; do
+            if [[ -z "${!name//[[:space:]]/}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::EC2 deployment skipped: missing secrets ${missing[*]}"
+            printf '### EC2 deployment skipped\n\nConfigure these repository secrets to enable deployment: %s.\n\nTests and container image publication completed independently.\n' "${missing[*]}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Preserve configuration when upgrading the installation name
+        if: steps.deployment.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.1.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -208,6 +230,7 @@ jobs:
             test -s "$destination/.env" || { echo 'Configure the deployment .env before deploying'; exit 1; }
 
       - name: Copy compose, proxy and runtime assets to EC2
+        if: steps.deployment.outputs.ready == 'true'
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -217,6 +240,7 @@ jobs:
           target: "/home/${{ secrets.EC2_USER }}/vdaagent"
 
       - name: Pull latest images and restart containers on EC2
+        if: steps.deployment.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.1.0
         with:
           host: ${{ secrets.EC2_HOST }}

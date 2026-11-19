@@ -51,7 +51,7 @@ The uv workspace members are virtual (`[tool.uv] package = false`): they hold de
 | `infra/docker/frontend.Dockerfile` | `node:24-alpine` (`deps` → `source` → `builder`) + `nginx:alpine`, SPA fallback, port 80, context `./frontend` |
 | `Makefile` | see [Makefile](#makefile) |
 | CI/CD (`.github/workflows/ci-cd.yml`, "VDaAgent CI/CD") | on push/PR to `main`: Python job with a `postgres:17` service (`uv sync --frozen --all-packages`, ruff on `agents backend eval workspace`, `pytest` with `MODEL_BACKEND=fake`, then the `execd` tests); frontend job on Node 24 (`npm ci`, lint, build, `npm test`, `npm run test:domain`) |
-| Deploy | on push to `main`: publishes `backend`, `frontend` and `workspace` images to GHCR and deploys the matching commit tags. Copies compose, Caddy, `deploy/`, `platform/` and domain templates; preserves an existing installation's configuration when upgrading its directory name. Requires an operator-configured `.env`, validates compose, pulls all three app images and starts with `--no-build --wait`. Deploy jobs run serially. |
+| Deploy | on push to `main`: publishes `backend`, `frontend` and `workspace` images to GHCR and deploys the matching commit tags. Copies compose, Caddy, `deploy/`, `platform/` and domain templates; preserves an existing installation's configuration when upgrading its directory name. Requires an operator-configured `.env`, validates compose, pulls all three app images and starts with `--no-build --wait`. Deploy jobs run serially. Without repository secrets `EC2_HOST`, `EC2_USER` and `EC2_SSH_KEY`, EC2 deployment is skipped with the missing names in the Actions summary; tests and image publication still run. |
 
 Everything else in this page is the target design (**Status:** Planned) unless marked otherwise.
 

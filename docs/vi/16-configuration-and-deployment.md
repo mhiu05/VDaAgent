@@ -51,7 +51,7 @@ Các thành viên uv workspace là thành viên ảo (`[tool.uv] package = false
 | `infra/docker/frontend.Dockerfile` | `node:24-alpine` (`deps` → `source` → `builder`) + `nginx:alpine`, fallback SPA, cổng 80, context `./frontend` |
 | `Makefile` | xem [Makefile](#makefile) |
 | CI/CD (`.github/workflows/ci-cd.yml`, "VDaAgent CI/CD") | khi push/PR vào `main`: job Python có service `postgres:17` (`uv sync --frozen --all-packages`, ruff trên `agents backend eval workspace`, `pytest` với `MODEL_BACKEND=fake`, rồi test `execd`); job frontend trên Node 24 (`npm ci`, lint, build, `npm test`, `npm run test:domain`) |
-| Triển khai | khi push vào `main`: đẩy image `backend`, `frontend`, `workspace` lên GHCR và triển khai cả ba theo cùng mã commit. Sao chép compose, Caddy, `deploy/`, `platform/` và template domain; giữ cấu hình cũ khi nâng cấp tên thư mục. Yêu cầu `.env` đã được cấu hình, kiểm tra compose, pull image và khởi động với `--no-build --wait`. Các lần deploy chạy tuần tự. |
+| Triển khai | khi push vào `main`: đẩy image `backend`, `frontend`, `workspace` lên GHCR và triển khai cả ba theo cùng mã commit. Sao chép compose, Caddy, `deploy/`, `platform/` và template domain; giữ cấu hình cũ khi nâng cấp tên thư mục. Yêu cầu `.env` đã được cấu hình, kiểm tra compose, pull image và khởi động với `--no-build --wait`. Các lần deploy chạy tuần tự. Nếu thiếu repository secret `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`, bước EC2 được bỏ qua và Actions summary liệt kê tên còn thiếu; test và đẩy image vẫn chạy. |
 
 Mọi phần còn lại của trang này là thiết kế mục tiêu (**Trạng thái:** Dự kiến) trừ khi ghi khác.
 

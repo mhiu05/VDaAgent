@@ -42,3 +42,11 @@ FastAPI/PostgreSQL backend, shared execution sandbox, React/Vite frontend and Do
 
 Live model-provider tests require credentials and were not invoked. The existing `.gitignore`
 content was preserved byte for byte during this review.
+
+## CI follow-up
+
+The first pushed run passed both test jobs and published all three images. EC2 deployment
+failed with `missing server host`: the repository had no deployment secrets configured.
+The workflow now checks the three EC2 secret names before remote actions. Missing or blank
+configuration skips those actions with an explicit notice and job summary; configured
+deployments retain their existing validation and failure behavior.
