@@ -1,0 +1,5 @@
+services:
+  backend:
+    environment:
+      MODEL_BACKEND: fake
+      MODEL_SCENARIO: /platform/runtime-audit-scenario.yaml

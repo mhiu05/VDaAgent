@@ -1,0 +1,58 @@
+# Test overlay (doc 17 "Where tests run"):
+#   docker compose -f docker-compose.yml -f compose.test.yaml run --rm backend pytest
+# A separate project (`contoso-test`), so tests never touch the dev stack's containers or data.
+name: contoso-test
+
+services:
+  backend:
+    build: {target: test}
+    image: contoso-test-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://contoso:${POSTGRES_PASSWORD}@postgres:5432/contoso_test
+      MODEL_BACKEND: fake
+      CONTOSO_TEST_EXECD: "1"
+      CONTOSO_TEST_FIXTURES_URL: http://fixtures:8080
+      LANGFUSE_PUBLIC_KEY: ""
+      LANGFUSE_SECRET_KEY: ""
+    ports: !reset []
+    volumes:
+      - fixtures:/fixtures
+    depends_on:
+      fixtures: {condition: service_healthy}
+    restart: "no"
+
+  workspace:
+    build: {target: test}
+    image: contoso-test-workspace
+    restart: "no"
+
+  postgres:
+    # Fresh data directory per test project; creates contoso_test instead of the langfuse DB.
+    tmpfs: [/var/lib/postgresql/data]
+    volumes: !override
+      - ./deploy/postgres/test-init:/docker-entrypoint-initdb.d:ro
+    restart: "no"
+
+  frontend-test:
+    build: {context: ./frontend, dockerfile: ../infra/docker/frontend.Dockerfile, target: source}
+    image: contoso-test-frontend
+    command: ["sh", "-c", "npm test && npm run test:domain"]
+    networks: [app]
+    profiles: [test]
+
+  # Local tarballs standing in for GitHub's codeload (doc 17): tests write
+  # /fixtures/<owner>/<repo>/tar.gz/<sha>; the workspace downloads them from here.
+  fixtures:
+    image: python:3.12-slim
+    command: ["sh", "-c", "chmod 777 /srv && exec python -m http.server 8080 -d /srv"]
+    volumes: [fixtures:/srv]
+    networks: [exec]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/')"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+
+volumes:
+  fixtures: {}

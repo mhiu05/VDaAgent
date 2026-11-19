@@ -1,0 +1,10 @@
+# Opt-in overlay: publish the application PostgreSQL (database `contoso`) on the host's loopback
+# only, for psql or DBeaver on your machine. Never bind it to 0.0.0.0.
+#
+# Turn it on for every `make` / `docker compose` command by adding to .env:
+#   COMPOSE_FILE=docker-compose.yml:compose.db-port.yaml
+#   POSTGRES_HOST_PORT=15432       # optional, default 15432
+# then run `make up` (it recreates postgres with the port; data is kept in the volume).
+services:
+  postgres:
+    ports: ["127.0.0.1:${POSTGRES_HOST_PORT:-15432}:5432"]

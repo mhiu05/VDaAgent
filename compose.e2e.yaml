@@ -1,0 +1,76 @@
+# End-to-end overlay (doc 17 "End-to-end (Playwright, fake mode)"): a fresh fake-mode stack
+# with the `fixtures` server standing in for GitHub, driven by Playwright in `e2e`.
+#   make e2e
+name: contoso-e2e
+
+services:
+  backend:
+    environment:
+      MODEL_BACKEND: fake
+      LANGFUSE_PUBLIC_KEY: ""
+      LANGFUSE_SECRET_KEY: ""
+      SKILLS_CODELOAD_URL: http://fixtures:8080
+    ports: !reset []
+    restart: "no"
+
+  postgres:
+    # fresh data directory per project, so the journeys run against an empty database
+    tmpfs: [/var/lib/postgresql/data]
+    volumes: !override
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    restart: "no"
+
+  workspace:
+    restart: "no"
+
+  frontend:
+    restart: "no"
+
+  proxy:
+    profiles: !override []
+    ports: !reset []
+    restart: "no"
+
+  # Local tarballs standing in for GitHub's codeload (doc 17); `e2e/seed.py` fills them.
+  fixtures:
+    image: python:3.12-slim
+    command: ["sh", "-c", "chmod 777 /srv && exec python -m http.server 8080 -d /srv"]
+    volumes: [fixtures:/srv]
+    networks: [exec]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+
+  fixtures-seed:
+    image: python:3.12-slim
+    profiles: [seed]
+    volumes:
+      - fixtures:/srv
+      - ./platform:/platform:ro
+      - ./e2e/seed.py:/seed.py:ro
+    command: ["python", "/seed.py"]
+    restart: "no"
+
+  e2e:
+    build: {context: ./e2e, dockerfile: ../infra/docker/e2e.Dockerfile}
+    image: contoso-e2e
+    profiles: [test]
+    volumes:
+      - ./e2e-results:/e2e/test-results
+    environment:
+      BASE_URL: http://proxy
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    networks: [app]
+    depends_on:
+      backend: {condition: service_healthy}
+      frontend: {condition: service_started}
+      proxy: {condition: service_started}
+      fixtures: {condition: service_healthy}
+    restart: "no"
+
+volumes:
+  fixtures: {}

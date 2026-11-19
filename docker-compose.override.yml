@@ -1,0 +1,7 @@
+# Local development (merged automatically by `docker compose` and so by every `make` target;
+# the CI/CD deploy copies only docker-compose.yml to the server). The browser URL is
+# http://localhost:${PROXY_PORT:-8080}, on the loopback interface only, never ports 80/443.
+services:
+  proxy:
+    ports: !override
+      - "127.0.0.1:${PROXY_PORT:-8080}:80"

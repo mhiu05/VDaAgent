@@ -1,0 +1,21 @@
+# Reverse proxy in front of the stack (doc 02 "Ports"): /api and /telegram → backend:8000,
+# rest → frontend:80. /telegram is the Telegram Bot API webhook (see the Telegram
+# integration plan); it is mounted outside /api because it is verified by a secret header,
+# not a session cookie.
+# SITE_ADDRESS is a host name for automatic HTTPS in deployment; defaults to plain :80.
+{$SITE_ADDRESS::80} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+	handle /telegram/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		reverse_proxy frontend:80
+	}
+}

@@ -1,37 +1,107 @@
-# Environment and credentials
+# Environment & Secrets
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+# Domain credentials: real values are git-ignored, the examples are committed (doc 12)
+domains/*/credentials/*.env
+!domains/*/credentials/*.env.example
 
-# JavaScript / TypeScript
-node_modules/
-.pnpm-store/
-.turbo/
-.next/
-.next-e2e/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
 dist/
-coverage/
-playwright-report/
-test-results/
-*.tsbuildinfo
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Supabase local runtime
-src/backend/supabase/.branches/
-src/backend/supabase/.temp/
-
+# Virtual Environments
 .venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Logs and OS/editor files
+# UV / Package Managers
+.uv/
+
+# Testing, Linting & Coverage
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+
+# Node & Frontend
+# The Python lib/ rule must not hide shared TypeScript source or its tests.
+!/frontend/src/shared/lib/
+!/frontend/tests/shared/lib/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Database & Runtime Data
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Logs & Temporary files
+logs/
 *.log
-.DS_Store
-Thumbs.db
+tmp/
+temp/
+output/
+outputs/
+
+# IDEs & System files
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
 
-# Large synthetic warehouse data
-vda_vinhomes_mock/curated/
-vda_vinhomes_mock/raw/
-vda_vinhomes_mock/quarantine/
+# .gitkeep
 
+docs/implementation/
+.agents/
+AGENTS.md
+.tmp/
+.worktrees/
 .playwright-mcp/
+docs/plan/evidence/
+local-docs/
+docs/plan/evidence/e2e-results/
+e2e-results/
+
+env.txt

@@ -1,0 +1,254 @@
+name: VDaAgent CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "24"
+
+jobs:
+  # ============================================================================
+  # JOB 1: Python lint + tests (backend against a real Postgres; workspace execd)
+  # ============================================================================
+  lint-and-test-python:
+    name: Python Lint & Unit Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: contoso
+          POSTGRES_PASSWORD: contoso-ci
+          POSTGRES_DB: contoso_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U contoso -d contoso_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv and set up Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.30"
+          enable-cache: true
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-packages
+
+      - name: Run Ruff Linter
+        run: uv run --frozen ruff check agents backend eval workspace
+
+      - name: Run Ruff Format Check
+        run: uv run --frozen ruff format --check agents backend eval workspace
+
+      - name: Run backend tests (fake model, real Postgres)
+        env:
+          MODEL_BACKEND: fake
+          DATABASE_URL: postgresql+asyncpg://contoso:contoso-ci@localhost:5432/contoso_test
+        run: uv run --frozen pytest -v
+
+      - name: Run workspace execd tests (inside workspace container)
+        run: |
+          docker build --target test -t workspace-test -f workspace/Dockerfile .
+          docker run --rm workspace-test pytest /opt/execd/tests
+
+  # ============================================================================
+  # JOB 2: Frontend lint, build and tests (React + Vite, Node 24)
+  # ============================================================================
+  lint-and-build-frontend:
+    name: Frontend Lint, Build & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript Check & Vite Build
+        run: npm run build
+
+      - name: Run Vitest
+        run: npm test
+
+      - name: Run legacy domain suite
+        run: npm run test:domain
+
+  # ============================================================================
+  # JOB 3: Build Docker Images và đẩy lên GitHub Container Registry (ghcr.io)
+  # Chỉ kích hoạt khi gộp code (push) vào nhánh main và đã vượt qua Job 1 & 2
+  # ============================================================================
+  build-and-push:
+    name: Build & Push Docker Images
+    needs: [lint-and-test-python, lint-and-build-frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      backend_image: ${{ steps.meta.outputs.backend_image }}
+      frontend_image: ${{ steps.meta.outputs.frontend_image }}
+      workspace_image: ${{ steps.meta.outputs.workspace_image }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set lowercase image names
+        id: meta
+        run: |
+          OWNER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          {
+            echo "backend_image=${{ env.REGISTRY }}/${OWNER_REPO}/backend"
+            echo "frontend_image=${{ env.REGISTRY }}/${OWNER_REPO}/frontend"
+            echo "workspace_image=${{ env.REGISTRY }}/${OWNER_REPO}/workspace"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Backend + Agents image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/backend.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.backend_image }}:latest
+            ${{ steps.meta.outputs.backend_image }}:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: infra/docker/frontend.Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.frontend_image }}:latest
+            ${{ steps.meta.outputs.frontend_image }}:${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Build and push Workspace image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: workspace/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.workspace_image }}:latest
+            ${{ steps.meta.outputs.workspace_image }}:${{ github.sha }}
+          cache-from: type=gha,scope=workspace
+          cache-to: type=gha,mode=max,scope=workspace
+
+  # ============================================================================
+  # JOB 4: Deploy tự động lên AWS EC2 qua SSH + Docker Compose
+  # ============================================================================
+  deploy-ec2:
+    name: Deploy to AWS EC2
+    needs: [build-and-push]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: vdaagent-production
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Preserve configuration when upgrading the installation name
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -eu
+            destination="/home/${{ secrets.EC2_USER }}/vdaagent"
+            # Compatibility with the installation directory used before the name correction.
+            legacy="/home/${{ secrets.EC2_USER }}/vdagent"
+            if [ ! -f "$destination/.env" ] && [ -f "$legacy/.env" ]; then
+              mkdir -p "$destination"
+              cp -a "$legacy/." "$destination/"
+            fi
+            test -s "$destination/.env" || { echo 'Configure the deployment .env before deploying'; exit 1; }
+
+      - name: Copy compose, proxy and runtime assets to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml,deploy,infra/Caddyfile,platform,domains"
+          target: "/home/${{ secrets.EC2_USER }}/vdaagent"
+
+      - name: Pull latest images and restart containers on EC2
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/${{ secrets.EC2_USER }}/vdaagent
+
+            # Đăng nhập GHCR để kéo image private (nếu repo ở chế độ private)
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Thiết lập biến môi trường tên image từ bước build
+            export BACKEND_IMAGE="${{ needs.build-and-push.outputs.backend_image }}:${{ github.sha }}"
+            export FRONTEND_IMAGE="${{ needs.build-and-push.outputs.frontend_image }}:${{ github.sha }}"
+            export WORKSPACE_IMAGE="${{ needs.build-and-push.outputs.workspace_image }}:${{ github.sha }}"
+
+            # Lưu vào .env trên EC2 để thao tác thủ công sau này không bị fallback về contoso-backend
+            sed -i '/^BACKEND_IMAGE=/d' .env 2>/dev/null || true
+            sed -i '/^FRONTEND_IMAGE=/d' .env 2>/dev/null || true
+            sed -i '/^WORKSPACE_IMAGE=/d' .env 2>/dev/null || true
+            echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> .env
+            echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> .env
+            echo "WORKSPACE_IMAGE=${WORKSPACE_IMAGE}" >> .env
+
+            # Kéo image mới về và khởi động lại các container (bao gồm reverse proxy Caddy)
+            docker compose --profile proxy config --quiet
+            docker compose --profile proxy pull backend frontend workspace
+            docker compose --profile proxy up -d --no-build --wait --remove-orphans
+
+            # Dọn dẹp các image cũ không còn sử dụng để tránh đầy ổ cứng EC2
+            docker image prune -f
+
+            # Kiểm tra trạng thái container
+            docker compose --profile proxy ps

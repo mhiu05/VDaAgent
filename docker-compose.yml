@@ -1,0 +1,130 @@
+# VDaAgent PoC stack (doc 16 "Compose"). Secrets come from the root .env (`make setup`).
+name: contoso
+
+include:
+  # Langfuse (doc 13). Interpolated from the same root .env.
+  - path: deploy/langfuse.compose.yaml
+    project_directory: .
+    env_file: .env
+
+services:
+  backend: # called `api` in the docs
+    build: {context: ., dockerfile: infra/docker/backend.Dockerfile}
+    image: ${BACKEND_IMAGE:-contoso-backend}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://contoso:${POSTGRES_PASSWORD}@postgres:5432/contoso
+      EXECD_URL: http://workspace:7000
+      LANGFUSE_BASE_URL: http://langfuse-web:3000
+      DOMAINS_DIR: /domains
+      PLATFORM_DIR: /platform
+      # `MODEL_BACKEND=fake make up` boots the whole stack on FakeModel (doc 17)
+      MODEL_BACKEND: ${MODEL_BACKEND:-openrouter}
+      # The same public user-demo password that `make seed-demo` uses when .env leaves it blank.
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo123!}
+      EXEC_FS_ISOLATION: ${EXEC_FS_ISOLATION:-auto}
+    user: "1000:1000"
+    ports: ["127.0.0.1:${APP_PORT:-8000}:8000"]
+    volumes:
+      - folders:/data/folders
+      - attachments:/data/attachments
+      - reports:/data/reports
+      - ./domains:/domains:ro
+      - ./platform:/platform:ro
+    networks: [app, exec]
+    depends_on:
+      postgres: {condition: service_healthy}
+      workspace: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../infra/docker/frontend.Dockerfile
+      args: {VITE_SERVICE_MODE: "${VITE_SERVICE_MODE:-hybrid}"}
+    image: ${FRONTEND_IMAGE:-contoso-frontend}
+    networks: [app] # nginx on 80, SPA fallback; reached through the reverse proxy
+    restart: unless-stopped
+
+  workspace:
+    build: {context: ., dockerfile: workspace/Dockerfile}
+    image: ${WORKSPACE_IMAGE:-contoso-workspace}
+    environment:
+      EXECD_TOKEN: ${EXECD_TOKEN}
+      EXEC_MEM_MB: ${EXEC_MEM_MB:-2048}
+      EXEC_FS_ISOLATION: ${EXEC_FS_ISOLATION:-auto}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Agent package installs (provisioning) download from PyPI; uv's 30 s default is too
+      # short for large wheels on slow links.
+      UV_HTTP_TIMEOUT: ${UV_HTTP_TIMEOUT:-300}
+    volumes:
+      - folders:/data/folders
+      - ./domains:/domains:ro
+    networks: [exec]
+    pids_limit: 4096
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:7000/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: contoso
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: contoso
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [app]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contoso"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Reverse proxy (infra/Caddyfile): /api → backend, rest → frontend. `make up` starts it
+  # locally (`--profile proxy`); the deployment host runs it in front.
+  proxy:
+    image: caddy:2.10-alpine
+    profiles: [proxy]
+    environment:
+      # never empty: an empty site address turns the Caddyfile's site block into its global
+      # options block and Caddy refuses to start ("unrecognized global option: encode")
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    # The server (CI/CD deploy) publishes 80/443 for automatic HTTPS. Locally,
+    # docker-compose.override.yml replaces this with 127.0.0.1:${PROXY_PORT:-8080}.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [app]
+    depends_on: [backend, frontend]
+    restart: unless-stopped
+
+networks:
+  app: {}
+  exec: {}
+
+volumes:
+  folders: {}
+  attachments: {}
+  reports: {}
+  pgdata: {}
+  caddy_data: {}
+  caddy_config: {}
